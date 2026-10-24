@@ -144,11 +144,13 @@ Read [design and text](design-and-text.md).
 | Kind of image | Ratio | Rewrite | Accuracy | The prompt must carry | Status |
 |---|---|---|---|---|---|
 | Historical reconstruction | 16:9 | | Rough | Period, region, materials, clothing; caption it "artist's impression" | Guidance |
-| Botanical or zoological plate | 3:4 | | Rough | One species; medium and paper; one or two short quoted labels | Tested |
+| Botanical or zoological plate | 3:4 | | Rough | One species; medium and paper; one or two short quoted labels. Six beetles came back as one species | Tested |
+| Unlabeled science art: cutaway, cell, solar system | 16:9 | | Rough | "No text"; add labels in a layout tool. A cell looked right; a solar system had two Earths and the wrong order; a volcano lost its side vent | Tested |
 | Anatomy, cell, chemistry, math figure | | | Exact | Draw it with code or an illustrator. The model mislabels parts | Tested, fails |
 | Floor plan, site plan | 4:3 | | Exact | Draw it with a CAD or drawing tool. Rooms and labels drift | Tested, fails |
 | Elevation, section | 4:3 | | Rough | "Orthographic, flat, no perspective"; counts of windows per floor | Tested |
-| Architecture exterior render | 16:9 | | Rough | Type, massing, materials, site, time, eye level. Proportions in words, not meters | Guidance |
+| Architecture exterior render | 16:9 | | Rough | Type, massing, materials, site, time, eye level. Proportions in words, not meters | Tested |
+| Axonometric cutaway, section with washes | 4:3 | | Rough | The roof lifted off, the floors and furniture, thin lines and pastel fills | Tested |
 
 ## Craft and fashion
 

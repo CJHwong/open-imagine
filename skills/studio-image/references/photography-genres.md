@@ -169,6 +169,16 @@ Do not turn a single-model study into a guaranteed recipe, a numerical accuracy 
 claim of award/publication quality. Keep the original and revised results so a repaired detail
 does not hide a new failure elsewhere.
 
+## Findings: portraits
+
+Qwen-Image-2.1-Turbo, 8 steps, guidance 1, seed 7, no Looks. 12 portraits, one seed each.
+
+| Observation | Practical implication |
+|---|---|
+| Butterfly light, Rembrandt light, low key, window light, a magenta and cyan gel split, a golden-hour backlight with flare, black and white, a business headshot, an environmental portrait and a family of four with a dog each read at once, with natural skin and hands. | Name the light setup; the model knows the common ones. |
+| The beauty portrait and the gel portrait named no clothing and came back with bare shoulders, cropped above the chest. | Name the clothing in every portrait, also a close one. |
+| "Shot from a low angle" on a child put the camera only a little below her eyes. | For a strong low angle, say where the camera is: "the camera on the ground, looking up". |
+
 ## Findings: product photography
 
 Qwen-Image-2.1-Turbo, 8 steps, seed 7, one image each.
