@@ -34,6 +34,11 @@ Rules that hold across sections:
 9. A row's main trait held at three seeds (a fisheye bend, an instant-photo frame, a paper-cut
    palette). Its secondary traits did not: a light leak or a wide bottom border showed at one
    seed in three. Promise the main trait and let the scout show the rest.
+10. 120 photo, art and animation rows were tried again, each on a new subject: 114 held. A shot
+    named after its device (a drone, an action camera) drew the device into the frame, so check
+    for it. A subject that a famous painting owns, such as a café terrace under a starry sky,
+    copies that painting. A figure among flowers in a period style can come back nude: name the
+    clothing.
 
 For why a row behaves as it does, see [style directions](style-directions.md), [shot
 design](shot-design.md) and [photography genres](photography-genres.md). The beginner path that
@@ -80,7 +85,7 @@ uses this index is the [guided flow](guided-flow.md).
 | Tilt-shift miniature | A tilt-shift photograph from a high window: a thin band of focus across the cyclist, the top and bottom strongly blurred, the street looking like a miniature model. | works | The blur bands held at three seeds; the toy look was weaker at two. |
 | Tilt-shift, everything in focus | A tilt-shift photograph with the focus plane tilted along the street: everything from the near curb to the far café sharp, a large-format look. | partial | Looks like an ordinary deep-focus photo. |
 | Anamorphic flares | A cinema frame shot on an anamorphic lens: horizontal blue streak flares from the lamps, oval bokeh, slight edge distortion, a widescreen feel. | partial | A row of blue dots, not streak flares; no oval bokeh. |
-| Petzval swirl bokeh | A portrait with a Petzval lens: a sharp center and a swirling, spinning bokeh around the edges. | works |  |
+| Petzval swirl bokeh | A portrait with a Petzval lens: a sharp center and a swirling, spinning bokeh around the edges. | partial | The swirl showed on the first subject; on a second it was faint. |
 | Soft-focus glow | A soft-focus portrait lens: a sharp core wrapped in a glowing halo, highlights blooming. | partial | Very little glow. |
 | Pinhole camera | A pinhole camera photograph: soft overall focus with infinite depth, strong vignetting, slight motion smear from a long exposure. | works |  |
 | Mirror lens donut bokeh | A photograph with a 500 mm mirror lens: ring-shaped donut bokeh from the street lights, low contrast, a compressed view. | fails | No ring bokeh. |
@@ -117,10 +122,10 @@ uses this index is the [guided flow](guided-flow.md).
 | Half-frame diptych, two frames side by side | A half-frame film diptych: two vertical frames side by side on one strip, the cyclist approaching in the left and passing in the right. | works | Two frames of two moments on one strip. |
 | Panoramic film frame in black borders (XPan) | An XPan panoramic film photograph: a very wide 65:24 frame inside black borders, the street stretched across. | works | Black borders crop the frame to a wide strip. |
 | Square medium-format film with black edges | A medium-format 6 x 6 square film photograph: centered composition, smooth tonality, black film rebate edges. | works | Black film edges show, but the frame keeps the requested ratio; ask for 1:1 for a square. |
-| Action camera on the chest, handlebars in view | An action camera frame from the cyclist's chest mount: ultra-wide distortion, the handlebars in the foreground, motion blur at the edges. | works | Puts the viewer on the bike; the cyclist disappears. |
+| Action camera on the chest, handlebars in view | An action camera frame from the cyclist's chest mount: ultra-wide distortion, the handlebars in the foreground, motion blur at the edges. | partial | Puts the viewer on the bike. On a second subject the action camera itself showed on the handlebars. |
 | Early 2000s compact digital camera | A photo from an early 2000s compact digital camera: a small CCD sensor, harsh on-camera flash, blown highlights, JPEG artifacts, a slightly cool cast. | partial | Reads as a plain night photo; no harsh flash. |
 | Security camera from high on a wall | A CCTV security camera frame from high on a wall: wide distorted view, low-resolution gray-green image, a timestamp-like overlay without readable text. | partial | Wide and bent, but in color, from eye level, with no timestamp. |
-| Drone shot straight down | A drone photograph straight down from 30 meters: the street as a graphic pattern, the cyclist a small figure, the phone box a red square. | works | A true top-down view; the subject turns small. |
+| Drone shot straight down | A drone photograph straight down from 30 meters: the street as a graphic pattern, the cyclist a small figure, the phone box a red square. | partial | A true top-down view. On a second subject the drone itself showed in the frame. |
 | Night vision, green with a round mask | A night vision image: grainy monochrome green, bright points blooming, a scope-like round mask. | works | Monochrome green inside a round scope mask. |
 | Thermal camera heat map | A thermal camera image: false-color heat map, the cyclist glowing yellow and white, the wet street dark purple. | works | Only the person glows; the rest stays a normal photo in purple. |
 
@@ -160,7 +165,7 @@ uses this index is the [guided flow](guided-flow.md).
 | From a high window, looking down | A bird's-eye view from a high window looking down at an angle onto the street and the cyclist. | works | Shows the window frame at the edges. |
 | Over the shoulder of someone watching | An over-the-shoulder shot: the dark blurred shoulder of a person at the café window in the foreground, the cyclist outside in focus. | works | Adds a dark figure in the foreground. |
 | Through a rain-streaked window | Shot through the rain-streaked café window: reflections of the interior lights overlapping the cyclist outside. | works | Raindrops on the glass in front of the scene. |
-| Prism at the lens, rainbow flare | A photograph with a prism held at the lens edge: rainbow flare and a mirrored ghost of the street along one side. | works | A dark blurred band from the prism crosses the frame. |
+| Prism at the lens, rainbow flare | A photograph with a prism held at the lens edge: rainbow flare and a mirrored ghost of the street along one side. | partial | A dark blurred band crosses the frame. On a second subject the flare was faint and a mirrored copy of the subject showed. |
 | Freelensing, a slanted strip of focus | A freelensing photograph: the lens detached and tilted by hand, a slanted strip of focus, light leaks. | fails | A plain sharp photo. |
 | Mid rack focus, from near to far | A frame in the middle of a rack focus: focus shifting from the raindrops on the phone box glass to the cyclist, both half soft. | partial | The near object turns huge, but both planes stay sharp. |
 | Dolly zoom, stretched background | A dolly zoom frame: the cyclist the same size while the street behind stretches and warps away, a vertigo effect. | fails | A plain street photo. |
@@ -220,9 +225,9 @@ uses this index is the [guided flow](guided-flow.md).
 | Pre-Raphaelite | A Pre-Raphaelite painting: intense jewel-like color, sharp detail everywhere, flowers and botanical precision, flowing hair. | works | Turned the fisherman into a woman with flowing hair. |
 | Impressionism | An Impressionist painting: visible broken brushstrokes, flickering light on the water, pure unmixed colors, painted outdoors. | partial | A smooth realistic oil; the broken brushwork is weak. |
 | Pointillism | A Pointillist painting made entirely of small dots of pure color that blend at a distance, calm geometric figures. | works |  |
-| Post-Impressionist impasto | A Post-Impressionist painting with thick impasto: swirling directional brushstrokes, vivid yellow and blue, outlined forms. | works | Held at three seeds: swirling yellow sky, blue figure. |
+| Post-Impressionist impasto | A Post-Impressionist painting with thick impasto: swirling directional brushstrokes, vivid yellow and blue, outlined forms. | works | Held at three seeds. A starry night or a café terrace copies the famous painting; choose another subject. |
 | Symbolism | A Symbolist painting: dreamlike mood, muted mysterious color, flat decorative patterning, a still enigmatic figure. | partial | A plain quiet painting; little dream or pattern. |
-| Art Nouveau poster | An Art Nouveau poster: whiplash curving lines, a decorative halo shape, flat muted colors, flowing ornamental border, no text. | works | Adds a halo shape behind the head. |
+| Art Nouveau poster | An Art Nouveau poster: whiplash curving lines, a decorative halo shape, flat muted colors, flowing ornamental border, no text. | works | Adds a halo shape behind the head. A woman among flowers came back nude; name her clothing. |
 | Arts and Crafts woodcut | An Arts and Crafts woodcut book illustration: bold black lines, dense leafy border, two flat colors on cream paper. | works |  |
 | Academic salon painting | A French academic salon painting: smooth invisible brushwork, idealized anatomy, polished finish, warm soft light. | works |  |
 | Shin-hanga woodblock print | A Japanese shin-hanga woodblock print: soft color gradients, atmospheric evening light, wood grain, a quiet poetic scene. | works |  |
@@ -256,7 +261,7 @@ uses this index is the [guided flow](guided-flow.md).
 | Synthwave | A synthwave image: a neon magenta and cyan grid, a striped setting sun, chrome reflections, 1980s retro-future. | works |  |
 | Vaporwave | A vaporwave collage: pastel pink and teal, a Greek bust, checkerboard floor, early computer window frames, palm trees. | works | The Greek bust takes the center; the fisherman shrinks. |
 | Y2K chrome | A Y2K aesthetic graphic: glossy chrome blobs, bubbly translucent plastic, holographic gradients, futuristic early 2000s. | partial | Turns the person into a chrome statue. |
-| Superflat, flat bright shapes with smiling flowers | A Superflat style image: flat bright anime-influenced shapes, smiling flowers, no depth, glossy uniform color. | works | Smiling flowers at all three seeds; draws the man as a cartoon child, one seed a young boy. Restate the age. |
+| Superflat, flat bright shapes with smiling flowers | A Superflat style image: flat bright anime-influenced shapes, smiling flowers, no depth, glossy uniform color. | partial | The smiling flowers are a living artist's signature motif; keep them out of published work. Draws the man as a cartoon child; restate the age. |
 | Glitch art | A glitch art image: pixel sorting, RGB channel shifts, corrupted data blocks across the scene. | partial | Only a red and blue channel shift; no pixel sorting or broken blocks. |
 | Voxel art, built from small cubes | A voxel art scene: everything built from small 3D cubes, isometric view, soft ambient light. | works | The water and land go blocky; the figure stays smoother. |
 | Afrofuturist collage | An Afrofuturist collage: cosmic backgrounds, geometric patterns, metallic accents, a regal figure, layered textures. | partial | Turns the fisherman into a robed, crowned figure under a cosmic sky. Restate his clothes. |
