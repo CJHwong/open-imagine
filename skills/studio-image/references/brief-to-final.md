@@ -16,9 +16,11 @@ Ask once, with picks. The answer sets the ratio, the size and the margins. Show 
 words before each colon; the rest is for you.
 
 1. A phone wallpaper or a story: 9:16, the subject in the middle half; the clock covers the top
-   quarter and the icons or captions the bottom, so keep both plain. Add "The top and bottom
-   quarters are plain sky, wall or ground." to every prompt, and skip styles whose effect sits at
-   the edges (a light leak, a vignette, a film frame).
+   quarter and the icons or captions the bottom, so keep both plain. Add "Seen from a few steps
+   back: the subject in the middle of the frame, a calm empty sky or wall above it and plain ground
+   below it." to every prompt, with the user's subject and place. Do not write "the top and bottom
+   quarters are plain": on a sleeping cat, all four concepts came back as a photo strip between two
+   flat slabs. Skip styles whose effect sits at the edges (a light leak, a vignette, a film frame).
 2. A post or a profile picture: 1:1, or 3:4.
 3. A print or a poster: 3:4 or 2:3, at the largest offered size.
 4. A desktop wallpaper, a header or a slide: 16:9.
