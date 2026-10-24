@@ -179,6 +179,23 @@ Qwen-Image-2.1-Turbo, 8 steps, guidance 1, seed 7, no Looks. 12 portraits, one s
 | The beauty portrait and the gel portrait named no clothing and came back with bare shoulders, cropped above the chest. | Name the clothing in every portrait, also a close one. |
 | "Shot from a low angle" on a child put the camera only a little below her eyes. | For a strong low angle, say where the camera is: "the camera on the ground, looking up". |
 
+## Make each person in a group look different
+
+Describe each person, not the group. Give each one an age, a face shape, hair, a build and one
+mark (glasses, a beard, freckles), and place them: "From left to right: ...". A sentence that asks
+for variety ("every person looks clearly different") does not do it.
+
+Qwen-Image-2.1-Turbo, 8 steps, guidance 1, seeds 7 and 11. Three scenes (four friends in a café,
+a family of five at dinner, six coworkers in a group photo), each written four ways.
+
+| Observation | Practical implication |
+|---|---|
+| The plain scene gave look-alikes: three near-identical men in the office photo, two near-identical women in the café, everyone about the same age. | Expect clones when the prompt names only the group. |
+| A variety sentence ("different ages, face shapes, skin tones, noses, hair and builds, no two alike") changed one or two faces at most. | Do not rely on it. |
+| One label per person ("an old man, a teenage girl, a heavyset woman ...") spread the ages and builds at both seeds, but people of one label still looked generic. | Labels are the minimum. |
+| A full description per person gave clearly different people in all three scenes at both seeds, and the same people at both seeds. Each count held (4, 5, 6). | Write one description per person. The same descriptions keep the cast across a series. |
+| With full descriptions, everyone turned to face the camera, so the dinner lost its candid feel. The family's apparent ethnicity also changed from what the noodles had implied. | Restate the action ("passing the bowl, not looking at the camera"). State ancestry when it matters. |
+
 ## Findings: product photography
 
 Qwen-Image-2.1-Turbo, 8 steps, seed 7, one image each.
