@@ -130,6 +130,11 @@ Batch independent shots with one backend when useful. Do not put an edit that ne
 output into the same batch: the reference bytes do not exist yet. Save requests and operation IDs
 before continuing, and download completed images promptly, including partial successes.
 
+Do not switch to the full model only to raise the quality. Six finished Turbo prompts, made again
+on full Qwen-Image-2.1 at its own 40 steps, took about five times as long. Two came back richer
+(finer stained glass, more dragons), three about the same, and one worse (the jellyfish turned into
+flat saucers). Offer the full model as another try at a select, and compare both.
+
 ## Inspect, select, and refine
 
 Inspect saved images, not just API status. A contact sheet helps choose a direction; inspect selects
