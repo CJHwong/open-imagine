@@ -170,7 +170,7 @@ For photo, figurative painting, and anime, inspect both visual treatment and sub
 For geometric or nonrepresentational work, inspect the requested abstraction and retain subject
 cues only to the degree asked for. One style's flattening is not another style's anatomy failure.
 
-A single 512-pixel scout tests coarse recognition, not historical accuracy, seed robustness,
+A single 512-pixel concept tests coarse recognition, not historical accuracy, seed robustness,
 fine hatching, hands, typography, or final-resolution quality. Record clear, partial, or weak
 adherence with visible evidence. Follow up only within the approved budget, varying a specific
 phrase or resolution. Test reference-based restyling separately: a convincing text-only style
@@ -178,43 +178,43 @@ does not prove the model can transform a supplied subject while keeping its iden
 
 ## Findings from a local style study
 
-Qwen-Image-2.1-Turbo was exercised through the public API with 64 text-only scouts and
+Qwen-Image-2.1-Turbo was exercised through the public API with 64 text-only concepts and
 eight follow-ups: four revised prompts and four reference edits. All were 512×512,
 eight steps, seed 7, guidance 1 for Generate and CFG 1 for Edit, with no Looks or Rewrite.
-The scouts shared a woman, teapot, cat, round window and garden. All operations succeeded;
+The concepts shared a woman, teapot, cat, round window and garden. All operations succeeded;
 visual adherence varied. These observations concern those samples, not every seed or model.
 
 | Observation | Practical implication |
 |---|---|
-| Cel/digital anime, manuscript/mosaic treatments, Art Nouveau, paper and clay had visibly distinct coarse characteristics. | Useful scout directions; still inspect material details and subject fidelity. |
+| Cel/digital anime, manuscript/mosaic treatments, Art Nouveau, paper and clay had visibly distinct coarse characteristics. | Useful concept directions; still inspect material details and subject fidelity. |
 | Noir, cyanotype, red-figure, sumi-e and manga kept some literal scene colors despite restricted-palette requests. | Resolve palette priority explicitly. A cyanotype follow-up without competing local colors produced an entirely blue/off-white image. The other palette cases were not retested. |
 | Generic fantasy, Surrealism, Futurism and several abstract directions retained an ordinary figurative interior. | Describe required transformations. Follow-ups produced visible fantasy elements and a levitating teapot; the Cubist follow-up became more faceted but kept a largely naturalistic face and one viewpoint. |
 | Four edits of one photograph produced cel-like drawing, woodblock-like print, cut paper and watercolor treatments while keeping the composition. | Reference edits can support a consistent set. Watercolor retained photographic structure; none of these results proves exact identity or pixel preservation. |
 
 ## Findings: anime, animation schools and director visions
 
-Qwen-Image-2.1-Turbo at 1664 x 928, seed 7, its default steps and guidance, no Looks. One image per
+Qwen-Image-2.1-Turbo at 1664 x 928, seed 7, its default steps and guidance, no styles. One image per
 prompt unless the row says seeds. The studio, film and director names below were not in any prompt
 unless the row says so; living artists were described only by traits.
 
 | Observation | Practical implication |
 |---|---|
-| "In anime style" alone gave a soft modern digital look. "Clean line art, flat cel shading with hard-edged shadow shapes, a hand-painted background" gave a classic cel look. Same on 3 of 3 seeds. | Name the method and the era. The label picks a default you did not choose. |
+| "In anime style" alone gave a soft modern digital style. "Clean line art, flat cel shading with hard-edged shadow shapes, a hand-painted background" gave a classic cel style. Same on 3 of 3 seeds. | Name the method and the era. The label picks a default you did not choose. |
 | One repeated character paragraph (hair, clip, eye color, a mole, the uniform) held the same girl across a classroom, a night street and a beach. | Re-send the full paragraph in every prompt, as for any recurring character. |
 | Edit changed her expression to a laugh, then her clothes to a raincoat, and kept the face, hair, clip, mole and room each time. | Make expressions and outfits by Edit from one approved image. |
 | Four friends, each with one named trait and one prop, came out with every trait and prop right on 3 of 3 seeds. | One trait and one prop per person scales to four. |
 | A hairclip "on the left" and "on her left side" both landed on the viewer's left, her right, in four images. | Side words do not steer it. Flip the image, or move the item with Edit. |
-| Two sword fighters came out as twins; a volleyball shot asked for two blockers drew one. | Give each fighter a different look; count each role. |
-| A mecha prompt took the look of a famous franchise, and a 1980s OVA prompt drifted toward a famous film's hero. | Check genre staples for trade dress. Describe your own design. |
+| Two sword fighters came out as twins; a volleyball shot asked for two blockers drew one. | Give each fighter a different style; count each role. |
+| A mecha prompt took the style of a famous franchise, and a 1980s OVA prompt drifted toward a famous film's hero. | Check genre staples for trade dress. Describe your own design. |
 | Quoted Japanese (shop signs, 第一話, a speech bubble, the sound effect ドーン) came out exact, the signs on 3 of 3 seeds; unquoted signs were fake. | Quote every visible word, or ask for none. |
 | A four-panel manga page asked as a vertical strip came out 2 x 2, with every beat right. | Expect a grid; check the reading order. |
 | Rewrite added "detailed hair strands" and "cinematic depth of field" to a short anime brief, and the image went semi-real. | Skip Rewrite for anime, or delete its realism words. |
 | One scene in 24 animation schools, each described by traits only: 16 read at a glance (hand-painted countryside, glowing sky, ligne claire, French grotesque, painterly 3D, black-and-white memoir, watercolor book, volumetric 2D, centered stop-motion, Celtic flat, clay, ink wash, rubber hose, mid-century, webtoon, modern digital). | A trait sentence is enough for most schools. Name the material: felt, plasticine, carved wood, ink, paper. |
-| A process did not read: "paper cut-outs photographed under glass" rendered a 3D scene, and "step-printed smear" left everything sharp. | Describe the look on screen, not how it was made. |
+| A process did not read: "paper cut-outs photographed under glass" rendered a 3D scene, and "step-printed smear" left everything sharp. | Describe the style on screen, not how it was made. |
 | A style with its own era or caricature changed the subject: ukiyo-e put the girl in an Edo kimono, rubber hose gave her a tube body, slapstick added a man, puppets made two children. | Restate the subject, its count and its clothes after the style sentence. |
 | A director's name alone gave a nationality and a period, nothing more: two Western names gave almost the same room, two Japanese names a dim room with a kimono. The same directors described by camera, staging, light and palette were each recognizable. | Describe the vision. A name adds nothing that the traits do not. |
 | "Figures staged in deep layers" added five unasked men; a power-line motif replaced the woman and the room. | Count the people. Put the subject first and the motif second. |
-| Staging, lens, light and palette held in 12 of 16 director looks (low frontal camera, one-point corridor, extreme close-up of the eyes, centered pastel symmetry, overexposed pastel, a tiny figure in a glass grid). | Build a film look from those four. Treat optical and print effects as a bonus. |
+| Staging, lens, light and palette held in 12 of 16 cinematic styles (low frontal camera, one-point corridor, extreme close-up of the eyes, centered pastel symmetry, overexposed pastel, a tiny figure in a glass grid). | Build a film style from those four. Treat optical and print effects as a bonus. |
 
 The complete image set and per-image review belong with the study's external artifacts,
 not inside an installed skill. Treat the recipes above as starting directions and use live

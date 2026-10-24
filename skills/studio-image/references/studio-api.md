@@ -90,14 +90,14 @@ operations, but its browser library is not your durable export folder.
 For Image Edit, put the instruction in `prompt` and send `references` as a list of actual base64
 image strings or objects with `png_base64`. Data URLs work too. Normalize local references to PNG
 when necessary; do not send filenames or pretend that a local path is an uploaded image. An edit of
-a keeper uses `mode: "edit"`, its encoded PNG in `references`, an instruction such as “Change only
+a select uses `mode: "edit"`, its encoded PNG in `references`, an instruction such as “Change only
 the backdrop to pale sage; preserve the teapot's silhouette, spout, handle, glaze and lighting,” and
 that mode's supported settings.
 
 Generate can also take one reference, when its `max_references` allows it: send it in `references`
 as for Edit, with a `strength` between 0.05 and 1. A higher strength stays closer to the reference.
-Use it to remake a small scout at a larger size with the same composition (see the [guided
-flow](guided-flow.md)).
+Use it to remake a small concept at a larger size with the same composition (see the [brief-to-final
+flow](brief-to-final.md)).
 
 `looks` maps offered row names to option labels. `template` is an exact offered name;
 `template_values` maps each complete bracket name in its text to replacement text. For `[product:
