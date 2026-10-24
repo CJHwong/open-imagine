@@ -1,20 +1,21 @@
-# Look index
+# Style library
 
-Pick a look here by what the user wants to see, then put its prompt sentence in front of the
+Pick a style here by what the user wants to see, then put its prompt sentence in front of the
 subject sentence. For an Edit of the user's own photo, put it in the instruction instead ("Repaint
-this photo as ..."); the style rows were tested in Generate, so scout the Edit first. These rows
-are prompt text, not the API's `looks` setting. Every row was generated and inspected on Qwen-Image-2.1-Turbo, with one fixed
-subject per section so the looks compare. On another backend, treat a row as a lead and scout it.
+this photo as ..."); the style rows were tested in Generate, so test the Edit with a concept
+first. These rows are prompt text, not the API's `looks` setting. Every row was generated and
+inspected on Qwen-Image-2.1-Turbo, with one fixed subject per section so the styles compare. On
+another backend, treat a row as a lead and test it with a concept.
 
-- **works**: the look read at a glance and the subject held.
-- **partial**: the look read in part, or it changed the subject; the "Watch for" column says how.
-- **fails**: the look did not show. Do not offer it.
+- **works**: the style read at a glance and the subject held.
+- **partial**: the style read in part, or it changed the subject; the "Watch for" column says how.
+- **fails**: the style did not show. Do not offer it.
 
 Rules that hold across sections:
 
-1. Describe the look; do not rely on a name. A painter's or director's name alone gave a country
+1. Describe the style; do not rely on a name. A painter's or director's name alone gave a country
    and a period, nothing more, and one painter's name replaced the subject with the painter's own
-   face. Traits (medium, marks, palette, light, camera position) carry the look.
+   face. Traits (medium, marks, palette, light, camera position) carry the style.
 2. Put the subject first when a strong motif could replace it, and give the count of people:
    staging and period styles add figures.
 3. Restate the subject's clothes after a style that has its own period, or the style dresses
@@ -33,7 +34,7 @@ Rules that hold across sections:
    plain. With a lens, anime drifted toward painted realism, and macro added fake lettering.
 9. A row's main trait held at three seeds (a fisheye bend, an instant-photo frame, a paper-cut
    palette). Its secondary traits did not: a light leak or a wide bottom border showed at one
-   seed in three. Promise the main trait and let the scout show the rest.
+   seed in three. Promise the main trait and let the concept show the rest.
 10. 120 photo, art and animation rows were tried again, each on a new subject: 114 held. A shot
     named after its device (a drone, an action camera) drew the device into the frame, so check
     for it. A subject that a famous painting owns, such as a café terrace under a starry sky,
@@ -42,11 +43,11 @@ Rules that hold across sections:
 
 For why a row behaves as it does, see [style directions](style-directions.md), [shot
 design](shot-design.md) and [photography genres](photography-genres.md). The beginner path that
-uses this index is the [guided flow](guided-flow.md).
+uses this library is the [brief-to-final flow](brief-to-final.md).
 
-## Adjustments (regenerate)
+## Revisions: new image
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Closer | Framed close: the dog's head and shoulders fill the frame. | works |  |
 | Wider, show more of the place | A wide view: the dog small in the frame, the whole park, the path and the trees around the bench visible. | works |  |
@@ -58,9 +59,9 @@ uses this index is the [guided flow](guided-flow.md).
 | A different moment | A moment later: the dog leaps off the bench, mid-jump, ears flying. | works | Name the action and its peak (mid-jump). |
 | More stylized | As a flat vector illustration with simple shapes and solid colors. | works | Edit keeps the composition; prefer it. |
 
-## Adjustments (Edit, keeps the composition)
+## Revisions: Edit, same layout
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Warmer light | Change only the light to warm golden late-afternoon sunlight. Keep the dog, the bench, the framing and everything else the same. | works |  |
 | Colder light | Change only the light to cool blue overcast light. Keep the dog, the bench, the framing and everything else the same. | works | Turned a golden dog gray-white; say the subject keeps its colors. |
@@ -69,7 +70,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Lenses and focus
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | 14 mm ultra-wide, close | A photograph taken with a 14 mm ultra-wide lens from close: strong perspective, the near wheel huge, buildings leaning inward at the edges. | works |  |
 | Circular fisheye | A circular fisheye photograph: the whole scene inside a round image circle with black corners, extreme barrel distortion, the horizon bent into a curve. | works |  |
@@ -96,7 +97,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Film, cameras and formats
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | IMAX 70 mm | An IMAX 70 mm film frame: immense resolution and clarity, fine grain-free detail, a vast tall frame, deep rich color. | partial | A clean cinema frame; the format itself does not show. |
 | 65 mm epic film frame | A 65 mm epic film frame: wide majestic composition, rich saturated color, very fine grain, classic large-format cinema. | partial | Looks like any cinematic frame; no visible difference from 35 mm or 16 mm. |
@@ -131,7 +132,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Exposure and light
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Long exposure, car light trails | A long exposure at night: car headlights and taillights drawn into red and white light trails, the cyclist a ghostly streak, the buildings sharp. | works | The cyclist turns into a blur inside the trails. |
 | Long exposure, silky rain | A long exposure of the rain: falling rain smoothed into a silky haze, the puddles mirror-still. | partial | The rain shows as drops on the puddles, not as a smooth haze. |
@@ -158,7 +159,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Angles and camera moves
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Dutch angle, the camera tilted | A Dutch angle: the camera tilted 30 degrees, the street and buildings running diagonally, a tense mood. | partial | Only a slight tilt. |
 | From the ground, looking up | A worm's-eye view from the wet street surface: the cyclist towering overhead against the sky. | works | The subject towers overhead. |
@@ -179,7 +180,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Art across history
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Prehistoric cave painting | A prehistoric cave painting on rough limestone: red ochre and charcoal figures, simple outlined animals and stick-like people, cracks and mineral stains in the rock. | works |  |
 | Egyptian tomb painting | An ancient Egyptian tomb painting on plaster: figures in strict profile with the eye and shoulders shown frontally, flat ochre, blue and green, a register line, hieroglyph-like border bands without real text. | works | Adds a procession of extra figures; count the people. The hieroglyph band is decoration, not text. |
@@ -280,9 +281,9 @@ uses this index is the [guided flow](guided-flow.md).
 | South Asian truck art | South Asian truck art: dense bright floral patterns, mirror work, painted panels, reflective decoration around the scene. | fails | Came back a photo of a painted truck at the harbor. |
 | Peruvian retablo box | A Peruvian retablo: a small painted wooden box with tiny carved plaster figures inside, bright colors, folk craft. | partial | Renders a photo of a small box with carved figures inside. |
 
-## Painter names alone
+## Artist names alone
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | "A painting by Vermeer" (name only) | A painting by Johannes Vermeer. | fails | A generic 19th-century oil; none of the painter's light or interior. |
 | "A painting by Van Gogh" (name only) | A painting by Vincent van Gogh. | fails | A smooth realistic oil; no swirling strokes. Use the impasto row. |
@@ -295,7 +296,7 @@ uses this index is the [guided flow](guided-flow.md).
 
 ## Anime and animation
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | 1970s TV anime | A 1970s Japanese TV anime frame: limited animation, thick uneven outlines, flat poster colors, simple painted background, slight film dirt. | partial | Reads as 1980s; no film dirt. |
 | 1980s OVA cel | A 1980s Japanese OVA cel frame: dense detailed linework, airbrushed highlights, rich saturated night colors, film grain. | partial | Airbrush and dense lines are weak; a genre scene can drift toward a famous film. |
@@ -322,9 +323,9 @@ uses this index is the [guided flow](guided-flow.md).
 | Halftone comic book | An animated comic-book frame: halftone dots, offset misregistered printing, bold ink lines, flat color with chromatic aberration, comic caption boxes, dynamic angle. | partial | No caption boxes. |
 | Korean webtoon | A Korean webtoon frame: clean digital line art, soft airbrushed cel shading, pastel glossy colors, a vertical-scroll comic look. | works |  |
 
-## Director looks
+## Cinematic styles
 
-| Look | Prompt sentence | Verdict | Watch for |
+| Style | Prompt sentence | Verdict | Watch for |
 |---|---|---|---|
 | Low, still, frontal home drama | A film still in the manner of Yasujiro Ozu: the camera low at the height of a person kneeling on tatami, perfectly still and frontal, a quiet Japanese home with sliding doors in layered rectangles, a small red teakettle as the only bright color, soft even light. | works | The story beat can drop out. |
 | Telephoto, wind and weather, deep staging | A film still in the manner of Akira Kurosawa: a long telephoto lens compressing the depth, strong wind blowing rain and leaves across the frame, figures staged in deep layers, dramatic weather, high-contrast. | partial | Adds a crowd; count the people. |

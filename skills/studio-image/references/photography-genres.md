@@ -102,7 +102,7 @@ that an Image model reproduces them.
   and [Nikon Z8](https://www.nikonusa.com/p/z-8/1698): consult actual system capabilities instead
   of inventing a universal brand signature.
 - [Nikon Picture Controls](https://www.nikonusa.com/learn-and-explore/c/tips-and-techniques/the-importance-of-picture-controls):
-  processing choices within a camera system, rather than one fixed look for every Nikon photo.
+  processing choices within a camera system, rather than one fixed style for every Nikon photo.
 - [Fujifilm X-T5 film simulations](https://fujifilm-dsc.com/en/manual/x-t5/menu_shooting/image_quality_setting/):
   CLASSIC CHROME, Velvia/VIVID and other named choices. Use the relevant visual direction,
   not an unsupported promise that a generator applies Fujifilm's proprietary simulation.
@@ -175,7 +175,7 @@ Qwen-Image-2.1-Turbo, 8 steps, seed 7, one image each.
 
 | Observation | Practical implication |
 |---|---|
-| A ring with an emerald-cut stone and four prongs, a perfume bottle with a fading mirror reflection, a sneaker on gray and a shirt on a dress form all came out as asked. | Packshots and macro product looks are dependable as concepts. A real product still comes from an Edit of its photo. |
+| A ring with an emerald-cut stone and four prongs, a perfume bottle with a fading mirror reflection, a sneaker on gray and a shirt on a dress form all came out as asked. | Packshots and macro product styles are dependable as concepts. A real product still comes from an Edit of its photo. |
 | A watch kept the quoted brand "AURORA" and showed about ten past ten, but several Roman numerals on the dial were wrong. | Quote the brand; treat dial numerals and small markings as decoration. |
 | A portrait asked to show "a few red pimples" came back with clean skin. | The model resists drawing skin flaws; use a real photo to test a retouch. |
 | "A stone cathedral facade" came back as a close likeness of a real landmark (the Ruins of St. Paul's, Macau). | A generic prompt can reproduce a real place. Say so when the user needs an invented place. |
@@ -187,7 +187,7 @@ scenes in eight cities and five A/B pairs; four results were rechecked on seeds 
 
 | Observation | Practical implication |
 |---|---|
-| Scenes in Taipei, Tokyo, Lagos, Mumbai, Paris, New York and Istanbul read as real street photographs, each with the asked local details: scooters in ponchos, platform queues, a head wrap at a market stall, gulls and mosques from a ferry. | Name the place and two or three local details. The model knows the look. |
+| Scenes in Taipei, Tokyo, Lagos, Mumbai, Paris, New York and Istanbul read as real street photographs, each with the asked local details: scooters in ponchos, platform queues, a head wrap at a market stall, gulls and mosques from a ferry. | Name the place and two or three local details. The model knows the style. |
 | Optical effects all worked: a reflection in a shop window over the woman inside, a puddle reflection of a red umbrella, a doorway silhouette, slow-shutter crowd streaks around one sharp still figure, a layered frame with a blurred foreground hat, fog, sodium-lit snow and long low-sun shadows. | These are dependable. Describe what is sharp, blurred, reflected or dark. |
 | People looked into the lens in about a third of the scenes, with nothing in the prompt asking for it. Kids "jumping into a puddle" stood in it facing the camera. | Expect posing. For a candid frame, ask for it in words (next row). |
 | "Candid, nobody looks at the camera, she is off-center on the left third, caught mid-moment" kept the subject looking away and on the left on 3 seeds of 3. Without it, one seed of 3 stared into the lens and the subject was centered. | Add the candid sentence to every street brief. |
@@ -195,7 +195,7 @@ scenes in eight cities and five A/B pairs; four results were rechecked on seeds 
 | "Seen from behind" held on 1 seed of 3; the other two showed both faces in profile. A woman asked to sit "in the shade" sat in the sun. "Mid-air", "blurry" and "two friends" (one came) were dropped. | Check the viewpoint, the action and the head count. Reroll, or put the subject's position in the first sentence. |
 | Quoted Chinese and Japanese signs (老王牛肉麵, 阿嬤豆花, 眼鏡行, 焼き鳥, 居酒屋 たぬき, ラーメン) were exact on every readable sign over 3 seeds. Unquoted signs, menus and bag logos came out as fake characters. | Quote two or three short sign texts. Every unquoted sign becomes gibberish. |
 | A crowd of "about fifty people" had clean faces near and in the middle; the far crowd turned to texture. | Crowds work. Keep any face that matters in the front half. |
-| A phone snapshot of a messy dinner table, a party flash photo, a dog in a selfie and a 1970s beach snapshot with faded print color were convincing. The 1970s radio became a 1980s boombox, and an unnamed convenience store got a famous chain's stripes. | Amateur and period looks work. Check props for the wrong decade and for real brands nobody asked for. |
+| A phone snapshot of a messy dinner table, a party flash photo, a dog in a selfie and a 1970s beach snapshot with faded print color were convincing. The 1970s radio became a 1980s boombox, and an unnamed convenience store got a famous chain's stripes. | Amateur and period styles work. Check props for the wrong decade and for real brands nobody asked for. |
 | A "35mm color film, visible grain" cue gave a warmer, softer image with fine grain at 2x; the change is subtle. | Use it for mood, not as a strong effect. |
 | A Mexico City trompo came back as a fiber-like cylinder, not stacked meat on a spit. | Describe the construction of a local object that matters. |
 | "Street photo, old lady feeding pigeons" was good both ways. With Rewrite she looked at the birds, not the lens, in a richer setting. | Rewrite helps a short street brief. |

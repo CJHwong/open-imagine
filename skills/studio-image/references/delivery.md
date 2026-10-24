@@ -94,7 +94,7 @@ set from one approved master with Edit (see [editing](editing.md)), and check ea
 ## Names, records and alt text
 
 - Name files `subject-purpose-size-v01.png`, with no spaces.
-- Keep the request, seed, model, references and edits next to each keeper. The studio's gallery
+- Keep the request, seed, model, references and edits next to each select. The studio's gallery
   keeps them for its own outputs.
 - Alt text is one sentence about what is shown. Quote any text in the image word for word. Do not
   paste the prompt. A purely decorative image gets an empty alt.

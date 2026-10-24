@@ -1,7 +1,7 @@
 # Prompt craft and Rewrite
 
 These rules cover how to write a prompt for any kind of image. The findings tables come from
-Qwen-Image-2.1-Turbo. For another backend, treat them as hypotheses and check them on a scout.
+Qwen-Image-2.1-Turbo. For another backend, treat them as hypotheses and check them with a concept.
 
 ## Write the prompt as an observer
 
@@ -34,7 +34,7 @@ One seed per pair. A difference is a lead, not a law.
 | "Transparent background" gave white with a floor shadow; "pure white background, no shadow" gave a cleaner white. Neither has an alpha channel. | Ask for pure white and cut it out afterwards. |
 | "A die-cut sticker of ..." first gave a flatter, cleaner sticker than the same noun at the end. | Lead with the artifact noun. Small effect. |
 | The same night-market scene written in Chinese and in English both gave a good photo of the right dish, steam, bulbs and crowd; the Chinese one framed a closer shot. | A Chinese prompt is fine for picture content. For text in the picture, use an English carrier with quoted strings (see [design and text](design-and-text.md)). |
-| Asking for a hex color (#FF00FF, #00FF00) gave a flat background of a nearby color, not the hex. | Use a color name for the look; sample the real color before you key it out. |
+| Asking for a hex color (#FF00FF, #00FF00) gave a flat background of a nearby color, not the hex. | Use a color name for the style; sample the real color before you key it out. |
 | "No rounded corners" drew rounded corners on five images. A negative prompt for them at guidance 2.5 changed nothing against a neutral negative, on two seeds, and doubled the time. "Sharp square corners; the blue reaches all four corners" worked on both seeds. | Describe the wanted shape. Do not spend a negative prompt on it. |
 
 ## Rewrite
@@ -71,8 +71,8 @@ Same seed, the brief's own ratio, with each image inspected side by side.
 |---|---|
 | Rewrite was better on 12, the brief on 6, and 11 were ties. | Rewrite is not a default. Use it for the cases below. |
 | Rewrite won where unquoted copy had become gibberish (app UI, packaging, tech diagram), where a scene or an action was lost (Chinese street sign, comic panel 3) and where items overlapped (flat lay). | Use Rewrite for dense layouts and for briefs with a story. |
-| The brief won on stylized looks: tattoo flash went naturalistic, a 3D toy avatar became a semi-real person, a vinyl toy was cropped and went realistic. A style sentence put in front of the rewrite left the tattoo almost unchanged and the avatar unchanged. | For a stylized brief, skip Rewrite or edit the rewritten descriptions. |
+| The brief won on stylized cases: tattoo flash went naturalistic, a 3D toy avatar became a semi-real person, a vinyl toy was cropped and went realistic. A style sentence put in front of the rewrite left the tattoo almost unchanged and the avatar unchanged. | For a stylized brief, skip Rewrite or edit the rewritten descriptions. |
 | The brief won on text: the logo's case changed and the infographic lost its step labels. | Check every quoted string in the rewritten text before you generate. |
-| A rewrite took 15 to 45 s on an M5 Pro with the 8-bit enhancer. | Batch the rewrites, and do not rewrite every scout. |
+| A rewrite took 15 to 45 s on an M5 Pro with the 8-bit enhancer. | Batch the rewrites, and do not rewrite every concept. |
 | Three Chinese briefs came back as English prompts with the quoted Chinese kept exactly. A Traditional Chinese poster brief got an invented subtitle in Simplified Chinese. | Chinese briefs are fine. Delete invented CJK copy, or quote the copy you want. |
 | A brief naming two living animators, a celebrity endorsement, a national ID card and a watermark removal were all rewritten without objection. The names and the ID fields went into the longer prompt; only the watermark words were dropped. | Rewrite applies no boundary check. Run the [boundaries](boundaries.md) check before it. |

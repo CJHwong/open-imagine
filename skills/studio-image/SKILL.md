@@ -13,9 +13,10 @@ Requires a reachable server and tools for HTTP, saving images, and visual inspec
 ## Choose the path
 
 If the request is short or vague ("a nice photo of my dog"), or the user says they do not know where
-to start, follow the [guided flow](references/guided-flow.md). It asks at most three plain
-questions, scouts four looks from the [look index](references/look-index.md), and makes the final
-from the scout the user picks. A user with a full brief (subject, use, style) continues below.
+to start, follow the [brief-to-final flow](references/brief-to-final.md). It asks at most three
+plain questions, shows four concepts from the [style library](references/style-library.md), and
+makes the final from the concept the user picks. A user with a full brief (subject, use, style)
+continues below.
 
 ## Establish the shoot
 
@@ -27,8 +28,8 @@ Extract the subject, intended use, deliverable count, aspect ratios, and visual 
 brief. Identify what must remain exact: a face, product silhouette, label, material, garment, or
 supplied composition. Use sensible defaults for missing creative details; ask only when an unknown
 changes the requested result materially. Respect the user's generation/time budget. A request for
-one finished image does not imply permission for an extensive scouting batch (the guided flow's four
-small scouts are its normal start, not an extra batch).
+one finished image does not imply permission for an extensive concept round (the brief-to-final
+flow's four small concepts are its normal start, not an extra batch).
 
 Give each reference a role: subject identity, product geometry, wardrobe, lighting, pose, or layout.
 Refer to images in their submitted order using the selected model's supported wording. Distinguish a
@@ -46,13 +47,13 @@ size; [delivery](references/delivery.md) has the recipes. Split the job: the mod
 picture, and a layout tool or script adds what must be exact (long copy, exact colors, QR codes,
 grids, counts, cut lines, the final pixel size, transparency).
 
-Place each request on one accuracy tier, and tell the user which:
+Place each request on one accuracy level, and tell the user which:
 
-- **Decorative.** Mood, style and composition. The model is fine.
-- **Plausible.** History, botany, products, architecture: it looks right and needs a human check
+- **Mood only.** Mood, style and composition. The model is fine.
+- **Roughly right.** History, botany, products, architecture: it looks right and needs a human check
   before anyone relies on it.
-- **Exact.** Data charts, maps with real geography, anatomy for teaching, floor plans, math and
-  chemistry figures, sewing patterns. Draw these with code or CAD, not this model.
+- **Must be exact.** Data charts, maps with real geography, anatomy for teaching, floor plans, math
+  and chemistry figures, sewing patterns. Draw these with code or CAD, not this model.
 
 ## Direct and generate
 
@@ -79,8 +80,8 @@ For photography beyond portraits, a named camera brand, or an in-camera processi
 subject and capture constraints to direct the image; a camera name alone does not establish its
 optics, sensor response, or proprietary color processing.
 
-To pick a tested look (an art style, an animation school, a film stock, a lens, a director's way of
-shooting, a light), use the [look index](references/look-index.md): each row gives the prompt
+To pick a tested style (an art style, an animation school, a film stock, a lens, a director's way of
+shooting, a light), use the [style library](references/style-library.md): each row gives the prompt
 sentence that worked and what to watch for. For style exploration or a nonphotographic brief, read
 [style directions](references/style-directions.md). Choose a specific visual language and describe
 its marks, space, palette, and material. Do not append photographic realism to painting, anime, or
@@ -103,7 +104,7 @@ behind its visible surfaces.
 
 Tell the user before you start when the brief needs something the tested model did not do. On
 Qwen-Image-2.1-Turbo (on another backend, treat this list and every Findings table as hypotheses to
-check on a scout):
+check with a concept):
 
 - No transparent background. Generate on pure white and cut it out afterwards.
 - No guaranteed seamless repeat. Keep motifs inside the frame, then tile 2 x 2 and check.
@@ -118,12 +119,12 @@ check on a scout):
 - Small Japanese, Korean or Arabic lines come out with wrong characters, even when the headline
   above them is exact. Set small non-Latin copy in a layout tool.
 
-Use a small scout when the brief and budget allow it. Compare one meaningful variable at a time when
-testing a look. Keep known settings and seed fixed for a controlled comparison. A smaller scout
-helps composition decisions but cannot prove fine text or final-resolution detail. If the user
-declines a scout, tell them which looks in the brief the look index marks partial or does not list,
-and what to watch for in the final. Changing dimensions can change composition; do not describe a
-new render as a pixel upscale.
+Use a small concept when the brief and budget allow it. Compare one meaningful variable at a time
+when testing a style. Keep known settings and seed fixed for a controlled comparison. A smaller
+concept helps composition decisions but cannot prove fine text or final-resolution detail. If the
+user declines a concept, tell them which styles in the brief the style library marks partial or does
+not list, and what to watch for in the final. Changing dimensions can change composition; do not
+describe a new render as a pixel upscale.
 
 Batch independent shots with one backend when useful. Do not put an edit that needs an earlier
 output into the same batch: the reference bytes do not exist yet. Save requests and operation IDs
@@ -131,7 +132,7 @@ before continuing, and download completed images promptly, including partial suc
 
 ## Inspect, select, and refine
 
-Inspect saved images, not just API status. A contact sheet helps choose a direction; inspect keepers
+Inspect saved images, not just API status. A contact sheet helps choose a direction; inspect selects
 individually at full size for the details that matter. Check against the brief:
 
 - Subject identity, product shape, proportions, label spelling, and material finish.
@@ -158,11 +159,25 @@ instead of silently launching more attempts. Preserve successful items if a late
 
 ## Deliver
 
-Save keepers with descriptive filenames and report their paths, dimensions, and useful selection
-notes. For a multi-image shoot, keep a compact record linking each keeper to its request,
+Save selects with descriptive filenames and report their paths, dimensions, and useful selection
+notes. For a multi-image shoot, keep a compact record linking each select to its request,
 operation/item ID, seed, reference files, and edits; retain the original references. A simple
 single-image task only needs enough provenance to reproduce or revise it. Separate requested finals
-from scouts and rejected attempts. Mention unresolved fidelity or text issues. Use local links or
-the user's requested destination; publishing is a separate action. Run the post-steps the end use
-needs (cutout, trace, resize, upscale, alt text) from [delivery](references/delivery.md), and say
-which ones you ran and which the user still has to.
+from concepts and rejected attempts. Mention unresolved fidelity or text issues. Use local links or
+the user's requested destination; publishing is a separate action. Run the finishing steps the end
+use needs (cutout, trace, resize, upscale, alt text) from [delivery](references/delivery.md), and
+say which ones you ran and which the user still has to.
+
+## Words used here
+
+- **Brief**: what the user wants, in their words: subject, use, style.
+- **Concept**: a small, fast image that shows one possible direction before the final.
+- **Select**: an image the user chose to keep.
+- **Hero image**: the main image of a page, banner or set.
+- **Style library**: the [table of tested styles](references/style-library.md), one prompt
+  sentence each.
+- **Looks** and **Rewrite**: the studio's own features. Looks adds preset style text to the
+  prompt; Rewrite expands a short request into a full prompt.
+- **Accuracy level**: how true the image must be: mood only, roughly right, or must be exact.
+- **Safe area**: the part of a banner or post that every device shows uncropped.
+- **Dieline**: the flat cutting template of a package, drawn by a designer, not by the model.

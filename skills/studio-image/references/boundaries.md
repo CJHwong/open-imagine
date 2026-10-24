@@ -79,7 +79,7 @@ lab result, or a treatment before and after.
 
 - Open Imagine writes no Content Credentials (C2PA) into the file. If the user needs one, add it
   afterwards, for example with `c2patool`. A re-save or a screenshot removes it.
-- Keep the request, seed and model with each keeper. See [delivery](delivery.md).
+- Keep the request, seed and model with each select. See [delivery](delivery.md).
 - For a realistic image of a person or an event, tell the user to switch on the platform's AI label.
   YouTube, for example, asks for a disclosure on realistic altered or synthetic content.
 - Under the EU AI Act (Article 50, applying from 2 August 2026), whoever publishes a realistic
