@@ -40,6 +40,13 @@ Rules that hold across sections:
     for it. A subject that a famous painting owns, such as a café terrace under a starry sky,
     copies that painting. A figure among flowers in a period style can come back nude: name the
     clothing.
+11. Rows combine. 16 images added one to four rows to a finished prompt: 7 worked, 7 worked in
+    part, 2 failed. Fisheye, tilt-shift, border and grid rows held, and one image held four rows
+    at once. Bokeh and shooting into the sun showed only in part. A medium row lost to the medium
+    words already in the prompt ("photorealistic", "cinematic", "Nothing else"): cyanotype,
+    mosaic and woodblock showed in part, risograph and Art Deco not at all. A painting row turned
+    a porcelain face into a living woman. Take the prompt's own medium words out before you add a
+    medium row.
 
 For why a row behaves as it does, see [style directions](style-directions.md), [shot
 design](shot-design.md) and [photography genres](photography-genres.md). The beginner path that
