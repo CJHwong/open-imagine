@@ -95,6 +95,13 @@ detail, and placement of any empty space or exact lettering. State preservation 
 instructions explicitly for edits. Use the selected model's official guidance linked from the live
 API documentation when its prompting behavior matters.
 
+When a prompt has two or more people, in any style, describe each person, not the group: an age,
+a face shape, hair, a build and one mark, placed "from left to right". Otherwise the faces come back
+as near-clones. A sentence asking for variety does not help. For a family, describe each parent or
+grandparent the same way, then give each child the traits they take from a named relative ("a boy
+with his father's square jaw and wavy black hair"). Do not write "they look related": it dropped a
+person. See [groups of people](references/photography-genres.md#make-each-person-in-a-group-look-different).
+
 For a coherent set, hold the subject or location, palette, light logic, and treatment steady while
 varying the requested shot: hero, detail, contextual scene, or alternate crop. A repeated seed does
 not guarantee the same identity. Once there is a good hero, use it as an Edit reference for

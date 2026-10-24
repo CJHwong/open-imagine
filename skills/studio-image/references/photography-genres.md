@@ -181,7 +181,7 @@ Qwen-Image-2.1-Turbo, 8 steps, guidance 1, seed 7, no Looks. 12 portraits, one s
 
 ## Make each person in a group look different
 
-Describe each person, not the group. Give each one an age, a face shape, hair, a build and one
+Describe each person, not the group. This holds for drawn styles too. Give each one an age, a face shape, hair, a build and one
 mark (glasses, a beard, freckles), and place them: "From left to right: ...". A sentence that asks
 for variety ("every person looks clearly different") does not do it.
 
@@ -195,6 +195,9 @@ a family of five at dinner, six coworkers in a group photo), each written four w
 | One label per person ("an old man, a teenage girl, a heavyset woman ...") spread the ages and builds at both seeds, but people of one label still looked generic. | Labels are the minimum. |
 | A full description per person gave clearly different people in all three scenes at both seeds, and the same people at both seeds. Each count held (4, 5, 6). | Write one description per person. The same descriptions keep the cast across a series. |
 | With full descriptions, everyone turned to face the camera, so the dinner lost its candid feel. The family's apparent ethnicity also changed from what the noodles had implied. | Restate the action ("passing the bowl, not looking at the camera"). State ancestry when it matters. |
+| Two families (four at a picnic, three generations on a sofa), seeds 7 and 11. With each adult described and the children given only an age, the children already looked loosely like the parents. Giving each child traits from a named parent ("his father's square jaw, hooked nose and wavy black hair") made the family read as related on both seeds, and each person still looked like themselves. | For a family, describe the adults, then name what each child takes from whom. |
+| "They clearly look related: a strong family resemblance", with only ages, made a generic family and dropped one person in three of four images. | Do not ask for resemblance in words. |
+| An anime classroom of five came back as one face template five times. One description per person gave five different classmates at both seeds. | The rule holds in drawn styles too. |
 
 ## Findings: product photography
 
