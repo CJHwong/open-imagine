@@ -78,8 +78,12 @@ The words "seamless tileable" do not make a repeat. A ginkgo pattern written tha
 cut by the edges, and its mean edge difference was 10.7 (left to right) and 14.5 (top to bottom),
 against 1.5 for two interior columns. Asking for every motif fully inside the frame, with an even
 margin to the edges, brought the differences down to 1.4 and 3.6, and the 2 x 2 tile read as
-continuous. It did not follow the requested 4 x 4 grid.
+continuous. It did not follow the requested 4 x 4 grid. The same sentence did not hold on a second
+subject: a lemon print had lemons cut by every edge, and its edge differences were 18.4 and 69.2,
+against 4.1 inside.
 
-1. Ask for small motifs, each fully inside the frame, with an even margin to every edge.
+1. Ask for small motifs, each fully inside the frame, with an even margin to every edge. It helps
+   on some subjects, so do not promise a repeat.
 2. Tile the result 2 x 2 and look at the seams before you deliver it.
-3. If a seam still shows, fix it in an editor or offer the image as a non-repeating background.
+3. If a seam shows, offset the image by half and heal the cross in an editor, or offer the image
+   as a non-repeating background.
