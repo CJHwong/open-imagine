@@ -1,8 +1,10 @@
 import threading
+from dataclasses import replace
 
 import pytest
 
 from studio.l1_entities.errors import BackendBusy, BackendChanged, Cancelled
+from studio.l1_entities.lora import LoraUse
 from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_job import VideoJob
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
@@ -42,6 +44,26 @@ def test_batch_publishes_cancellable_preparation_before_the_first_clip(monkeypat
     assert progress.snapshot() == RunProgress()
     assert not progress.cancel_requested()
     assert not lock.locked()
+
+
+def test_each_clip_records_the_loras_its_job_ran_with():
+    use_case, *_ = setup()
+    picks = (LoraUse("mono", 0.6),)
+    seen = []
+
+    one = use_case.execute(replace(job(), loras=picks), "video-fake", "run-a")
+    results = use_case.execute_batch(
+        [replace(job(), loras=picks)] * 2,
+        "video-fake",
+        "batch-a",
+        lambda index, result: seen.append(result.loras),
+        lambda index, total: None,
+        lambda: False,
+    )
+
+    assert one.loras == picks
+    assert seen == [picks, picks]
+    assert [result.loras for result in results] == [picks, picks]
 
 
 def test_batch_keeps_one_model_and_lock_until_every_item_finishes():
