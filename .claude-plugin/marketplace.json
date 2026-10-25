@@ -1,0 +1,13 @@
+{
+  "name": "open-imagine",
+  "description": "Agent plugins for Open Imagine, a local image, video and voice studio for Apple Silicon.",
+  "owner": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
+  "plugins": [
+    {
+      "name": "open-imagine",
+      "source": "./plugins/open-imagine",
+      "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
+      "category": "creativity"
+    }
+  ]
+}

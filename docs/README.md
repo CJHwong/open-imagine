@@ -11,17 +11,30 @@ Choose a page for the task you have. The documentation follows [Diátaxis](https
 
 [Model-specific prompt aids](../studio/l3_interface_adapters/gateways/PROMPTS.md) records the tested Looks and templates.
 
-For agent-led image work, use [Studio Image](../skills/studio-image/SKILL.md).
+For agent-led image work, use [Studio Image](../plugins/open-imagine/skills/studio-image/SKILL.md).
 Ask your agent to read that file and use it with your running Studio URL. The skill covers
 a brief-to-final flow for users new to photography and art, a style library of styles tested on
 Qwen-Image-2.1-Turbo, shoot planning, photo and art directions, composition, camera and lighting cues, design and
 text layouts, illustration and game assets, prompt writing and Rewrite, reference-based edits,
 visual review, and saved deliverables.
-To install it into each agent's skill folder that exists (`~/.agents/skills`, `~/.codex/skills`,
-`~/.claude/skills`), run:
+It ships as the `open-imagine` plugin, from the plugin marketplace in this repository.
+
+In Claude Code:
 
 ```sh
-uv run https://raw.githubusercontent.com/CJHwong/open-imagine/main/scripts/install_skills.py
+claude plugin marketplace add CJHwong/open-imagine
+claude plugin install open-imagine@open-imagine
 ```
 
-Run it again to update. It replaces an installed copy and prints a warning for each one.
+The skill then runs as `/open-imagine:studio-image`. To update, run
+`claude plugin marketplace update open-imagine`.
+
+In Codex:
+
+```sh
+codex plugin marketplace add CJHwong/open-imagine
+codex plugin add open-imagine@open-imagine
+```
+
+To update, run `codex plugin marketplace upgrade open-imagine`. For an agent with no plugin
+support, copy `plugins/open-imagine/skills/studio-image` into its skill folder.

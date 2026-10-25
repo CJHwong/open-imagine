@@ -1,0 +1,24 @@
+{
+  "name": "open-imagine",
+  "version": "0.1.0",
+  "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
+  "author": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
+  "homepage": "https://github.com/CJHwong/open-imagine",
+  "repository": "https://github.com/CJHwong/open-imagine",
+  "keywords": ["image-generation", "photography", "illustration", "apple-silicon"],
+  "skills": "./skills",
+  "interface": {
+    "displayName": "Open Imagine",
+    "shortDescription": "Make photos, design, illustration and edits",
+    "longDescription": "Turns a brief into still images on your own Open Imagine studio, a local image, video and voice studio for Apple Silicon. It plans the shot, writes the prompt from a library of tested styles, generates, inspects the results and refines them with edits.",
+    "developerName": "CJHwong",
+    "category": "Creativity",
+    "capabilities": [],
+    "websiteURL": "https://github.com/CJHwong/open-imagine",
+    "defaultPrompt": [
+      "make a phone wallpaper of my cat",
+      "shoot a product photo set for this mug",
+      "restore this old family photo"
+    ]
+  }
+}
