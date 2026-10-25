@@ -1614,7 +1614,7 @@ class VideoStudio extends LitElement {
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
       if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
       if (metadata.fastMode) facts.push('Fast mode');
-      if (metadata.loras) facts.push('LoRA ' + metadata.loras);
+      if (metadata.loras) facts.push('Add-ons ' + metadata.loras);
       facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
       if (timeLabel) facts.push(timeLabel);
       if (references.length) {

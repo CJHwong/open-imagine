@@ -51,9 +51,9 @@ def discovery_schemas() -> dict[str, Any]:
             "properties": {
                 "id": string,
                 "label": string,
-                "strength": {"type": "number", "description": "The strength a pick starts at."},
-                "min_strength": number,
-                "max_strength": number,
+                "strength": {"type": "number", "description": "The strength of a pick that names none."},
+                "min_strength": {"type": "number", "description": "At most 0. A strength of 0 is off."},
+                "max_strength": {"type": "number", "description": "Above 0."},
                 "strength_step": number,
                 "recommended": {
                     "type": ["array", "null"],

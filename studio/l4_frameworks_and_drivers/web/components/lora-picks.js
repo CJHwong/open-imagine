@@ -1,5 +1,6 @@
-// The LoRA picker: one chip for each LoRA the model offers, and a strength slider
-// under each chip that is picked.
+// The LoRA picker: one strength slider for each LoRA the model offers, labelled with
+// the LoRA's name. A slider at 0 is a LoRA that is off, so every slider starts there,
+// and only the ones above or below 0 are picks. The contract makes every range reach 0.
 //
 // A tree drawn from the model's offer and the picks, so Lit, with the element
 // itself as the render root. Two boards share this component, the image form and
@@ -44,7 +45,9 @@ function strengthText(lora, strength) {
 }
 
 // The picks that the offer in force takes, each strength inside its LoRA's own
-// range, and no more of them than the model takes. The stored picks stay as they are.
+// range, and no more of them than the model takes. A pick at 0 is off, so it is no
+// pick: a draft saved by an older page, or a clamp to a range that ends at 0, can
+// hold one. The stored picks stay as they are.
 function view(form) {
   const board = boards.get(form);
   if (!board) return [];
@@ -52,12 +55,13 @@ function view(form) {
   const byId = new Map(offer.map((lora) => [lora.id, lora]));
   return picksOf.get(form)
     .filter((pick) => byId.has(pick.id))
-    .slice(0, board.max())
     .map(function (pick) {
       const lora = byId.get(pick.id);
       const strength = Math.min(lora.max_strength, Math.max(lora.min_strength, Number(pick.strength)));
       return { id: pick.id, strength: Number.isFinite(strength) ? strength : lora.strength };
-    });
+    })
+    .filter((pick) => pick.strength !== 0)
+    .slice(0, board.max());
 }
 
 function redraw(form) {
@@ -84,18 +88,15 @@ function summary(form) {
 class LoraPicks extends LitElement {
   createRenderRoot() { return this; }
 
-  toggle(lora) {
-    const form = formOf(this);
-    const picks = picksOf.get(form);
-    if (picks.some((pick) => pick.id === lora.id)) picksOf.set(form, picks.filter((pick) => pick.id !== lora.id));
-    else picksOf.set(form, picks.concat([{ id: lora.id, strength: lora.strength }]));
-    changed(form);
-  }
-
+  // A slider moved to 0 takes its LoRA out of the picks; any other value adds it or
+  // moves its strength. The order of the picks is the order they were first set.
   slide(lora, event) {
     const form = formOf(this);
     const strength = Number(event.target.value);
-    picksOf.set(form, picksOf.get(form).map((pick) => (pick.id === lora.id ? { id: pick.id, strength } : pick)));
+    const others = picksOf.get(form).filter((pick) => pick.id !== lora.id);
+    if (strength === 0) picksOf.set(form, others);
+    else if (others.length === picksOf.get(form).length) picksOf.set(form, others.concat([{ id: lora.id, strength }]));
+    else picksOf.set(form, picksOf.get(form).map((pick) => (pick.id === lora.id ? { id: pick.id, strength } : pick)));
     changed(form);
   }
 
@@ -104,45 +105,39 @@ class LoraPicks extends LitElement {
     const board = boards.get(form);
     if (!board) return nothing;
     const offer = board.offer();
+    if (!offer.length) return nothing;
     const max = board.max();
     const held = board.held ? board.held() : '';
     const picks = view(form);
     const field = this.dataset.name
       ? html`<input type="hidden" name=${this.dataset.name} .value=${picks.length ? JSON.stringify(picks) : ''}>`
       : nothing;
+    // A slider at 0 cannot move while the model already takes as many LoRAs as it can.
     const full = picks.length >= max;
     const rows = offer.map((lora) => {
       const pick = picks.find((one) => one.id === lora.id);
+      const strength = pick ? pick.strength : 0;
       const sliderId = 'lora-' + form + '-' + lora.id;
       const range = lora.recommended
         ? 'Suggested ' + strengthText(lora, lora.recommended[0]) + ' to ' + strengthText(lora, lora.recommended[1]) + '.'
         : '';
       const note = [lora.hint, range].filter(Boolean).join(' ');
-      return html`<div class="lora-row" data-lora=${lora.id}>
-        <button type="button" class="chip lora-toggle" aria-pressed=${pick ? 'true' : 'false'}
-          ?disabled=${Boolean(held) || (!pick && full)}
-          title=${!pick && full && !held ? 'This model takes at most ' + max + (max === 1 ? ' LoRA' : ' LoRAs') : ''}
-          @click=${() => this.toggle(lora)}>${lora.label}</button>
-        ${pick ? html`<div class="field lora-strength">
-          <div class="field-head">
-            <label for=${sliderId}>Strength</label>
-            <span class="caption num">${strengthText(lora, pick.strength)}</span>
-          </div>
-          <input id=${sliderId} type="range" min=${lora.min_strength} max=${lora.max_strength}
-            step=${lora.strength_step} .value=${String(pick.strength)} ?disabled=${Boolean(held)}
-            @input=${(event) => this.slide(lora, event)}>
-        </div>` : nothing}
+      return html`<div class="field lora-field" data-lora=${lora.id}>
+        <div class="field-head">
+          <label for=${sliderId}>${lora.label}</label>
+          <span class="caption num">${pick ? strengthText(lora, strength) : 'Off'}</span>
+        </div>
+        <input id=${sliderId} type="range" min=${lora.min_strength} max=${lora.max_strength}
+          step=${lora.strength_step} .value=${String(strength)} ?disabled=${Boolean(held) || (!pick && full)}
+          @input=${(event) => this.slide(lora, event)}>
         ${note ? html`<span class="caption">${note}</span>` : nothing}
       </div>`;
     });
-    const limit = max > 1 && offer.length > max ? html`<p class="lora-note">Pick up to ${max}.</p>` : nothing;
-    const heldNote = held ? html`<p class="lora-note lora-held">${held}</p>` : nothing;
-    return html`${field}${heldNote}<div class="lora-rows">${rows}</div>${limit}`;
-  }
-
-  updated() {
-    const values = this.closest('details')?.querySelector('summary .values');
-    if (values) values.textContent = summary(formOf(this));
+    const limit = offer.length > max
+      ? html`<p class="caption lora-note">This model takes ${max === 1 ? '1 add-on' : max + ' add-ons'} at a time. Set one to 0 to use another.</p>`
+      : nothing;
+    const heldNote = held ? html`<p class="caption lora-note">${held}</p>` : nothing;
+    return html`${field}${heldNote}${limit}${rows}`;
   }
 }
 
