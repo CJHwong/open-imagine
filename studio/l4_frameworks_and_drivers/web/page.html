@@ -254,14 +254,6 @@
           <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
         </details>
 
-        <!-- The LoRAs the mode offers. The picker draws the hidden `loras` field the form
-             posts, so a pick travels with the rest of the form. A mode with none hides it. -->
-        <details id="loras" hidden>
-          <summary>LoRAs <span class="values" id="lora-values"></span></summary>
-          <lora-picks class="loras" data-form="image" data-name="loras" id="lora-picks"></lora-picks>
-          <p class="look-note">A LoRA adds trained weights to the model. Its trigger words go after your prompt.</p>
-        </details>
-
         <details id="advanced">
           <summary>Advanced <advanced-values class="values num" id="advanced-values"></advanced-values></summary>
           <div class="advanced">
@@ -300,6 +292,10 @@
               <span class="caption" id="negative-look" hidden></span>
               <span class="caption" id="negative-note" hidden></span>
             </div>
+            <!-- The add-ons the mode offers: LoRAs, by their API name. One slider each, and 0
+                 is off. The picker draws the hidden `loras` field the form posts, so the picks
+                 travel with the rest of the form. A mode with none draws nothing. -->
+            <lora-picks class="loras" data-form="image" data-name="loras" id="lora-picks"></lora-picks>
           </div>
         </details>
         </fieldset>
@@ -421,11 +417,6 @@
             <look-rows class="look" data-form="video" id="video-look-rows"></look-rows>
             <p class="look-note">Each pick adds a sentence after your prompt.</p>
           </details>
-          <details id="video-loras" hidden>
-            <summary>LoRAs <span class="values" id="video-lora-values"></span></summary>
-            <lora-picks class="loras" data-form="video" id="video-lora-picks"></lora-picks>
-            <p class="look-note">A LoRA adds trained weights to the model. Its trigger words go after your prompt.</p>
-          </details>
           <details id="video-advanced">
             <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
             <div class="advanced">
@@ -438,6 +429,7 @@
                 <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random">
                 <span class="caption">Leave blank for a random seed.</span>
               </div>
+              <lora-picks class="loras" data-form="video" id="video-lora-picks"></lora-picks>
             </div>
           </details>
         </fieldset>
@@ -1191,7 +1183,7 @@
     const capabilities = videoCapabilities();
     if (!capabilities || capabilities.loras_with_audio) return '';
     if (videoModeInForce().needs_clip || !videoStudio.audio) return '';
-    return 'Remove the audio track to use these LoRAs. This model cannot apply LoRAs to a clip that follows audio.';
+    return 'Remove the audio track to use add-ons. This model cannot use them on a clip that follows audio.';
   }
 
   function useVideoLoras(door) {
@@ -1200,14 +1192,18 @@
       offer: function () { return videoCapabilities()?.loras || []; },
       max: function () { return videoCapabilities()?.max_loras || 0; },
       held: videoLoraHeld,
-      changed: function () { document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'})); },
+      changed: function () {
+        syncVideoLoras();
+        document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
+      },
     });
     syncVideoLoras();
   }
 
   function syncVideoLoras() {
-    document.getElementById('video-loras').hidden = !(videoCapabilities()?.loras || []).length;
     if (videoLoraDoor) videoLoraDoor.refresh('video');
+    // A studio with no video model has no summary to write.
+    if (videoCapabilities()) syncVideoSeedSummary();
   }
 
   function videoLoraPicks() {
@@ -1336,8 +1332,10 @@
       document.getElementById('video-seed-summary').textContent = 'Not supported';
       return;
     }
+    const addOns = videoLoraPicks().length ? videoLoraDoor.summary('video') : '';
     document.getElementById('video-seed-summary').textContent = (seed ? 'Seed ' + seed : 'Random seed')
-      + (document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true' ? ' · Fast mode' : '');
+      + (document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true' ? ' · Fast mode' : '')
+      + (addOns ? ', ' + addOns : '');
   }
 
   applyVideoCapabilities();

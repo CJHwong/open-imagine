@@ -626,7 +626,8 @@ its setting while preserving the observer's own setting for the next render.
 
 A model that offers LoRAs lists them in `/api/v1/studio`. For an image model they are on each
 mode, as `loras` and `max_loras`. For a video model they are on its capabilities, beside
-`loras_with_audio`. Send the picks as `loras`, a list of `{id, strength}` objects:
+`loras_with_audio`. The page calls them add-ons, and shows each as a slider in Advanced, where
+0 is off. Send the picks as `loras`, a list of `{id, strength}` objects:
 
 ```json
 {

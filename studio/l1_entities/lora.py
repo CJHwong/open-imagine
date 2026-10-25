@@ -25,7 +25,8 @@ class Lora:
     them after the prompt when the prompt does not already hold them, so a person
     who picks the LoRA does not also have to know its words. `recommended` is the
     range that its author suggests, which the page shows inside the wider range
-    that the model accepts.
+    that the model accepts. The range reaches 0, because the page shows every LoRA as a
+    slider and a slider at 0 is a LoRA that is off.
     """
 
     id: str
@@ -41,6 +42,8 @@ class Lora:
     def __post_init__(self) -> None:
         if not LORA_ID.fullmatch(self.id):
             raise ValueError(f"LoRA id {self.id!r} must use lowercase letters, digits and underscores")
+        if not self.min_strength <= 0 < self.max_strength:
+            raise ValueError(f"LoRA {self.id!r} needs a strength range from 0 or below to above 0")
         if not self.min_strength <= self.strength <= self.max_strength:
             raise ValueError(f"LoRA {self.id!r} starts outside its own strength range")
         if self.strength_step <= 0:

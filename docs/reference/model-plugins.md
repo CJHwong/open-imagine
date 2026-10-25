@@ -78,11 +78,11 @@ A model can offer LoRAs. Declare them on the capability record: an image mode de
 |---|---|
 | `id` | Lowercase letters, digits and underscores. Requests name the LoRA by this id. |
 | `label` | The name the page shows. |
-| `strength` | The strength a pick starts at. |
-| `min_strength`, `max_strength`, `strength_step` | The range that the host accepts and the slider offers. |
+| `strength` | The strength an API request gets when it names the LoRA without one. The page starts every slider at 0. |
+| `min_strength`, `max_strength`, `strength_step` | The range that the host accepts and the slider offers. It must reach 0 and go above it: 0 is off. |
 | `recommended` | Optional `(low, high)` inside that range. The page shows it as a suggestion. |
 | `trigger` | Optional words that the LoRA was trained on. |
-| `hint` | Optional sentence under the pick. |
+| `hint` | Optional sentence under the slider. |
 
 A declaration names no file. The gateway maps each id to its own weights, so a path never
 reaches the page, the API or the operation record. Keep the files in the plugin's

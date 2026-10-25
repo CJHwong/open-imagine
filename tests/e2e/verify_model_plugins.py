@@ -12,6 +12,34 @@ from playwright.sync_api import expect, sync_playwright
 
 URL = "http://127.0.0.1:" + sys.argv[1]
 
+
+# Rewrite every saved draft so the Warm tint pick has strength 0, the way a draft from the
+# chip picker could hold it. Returns how many picks it changed.
+ZERO_THE_SAVED_WARM_PICK = """async () => {
+  const db = await new Promise(done => { const open = indexedDB.open('studio-drafts', 1); open.onsuccess = () => done(open.result); });
+  const store = () => db.transaction('inputs', 'readwrite').objectStore('inputs');
+  const keys = await new Promise(done => { const read = store().getAllKeys(); read.onsuccess = () => done(read.result); });
+  let changed = 0;
+  function zero(value) {
+    if (!value || typeof value !== 'object') return;
+    if (Array.isArray(value.loras)) value.loras.forEach(pick => { if (pick.id === 'example_warm') { pick.strength = 0; changed++; } });
+    Object.values(value).forEach(zero);
+  }
+  for (const key of keys) {
+    const record = await new Promise(done => { const read = store().get(key); read.onsuccess = () => done(read.result); });
+    zero(record);
+    record.updatedAt = Date.now() + 1e6;
+    await new Promise(done => { const write = store().put(record, key); write.onsuccess = done; });
+  }
+  return changed;
+}"""
+
+
+def slide(slider, value):
+    """Move a range input the way a drag ends: set the value, then send the input event."""
+    slider.evaluate("(el, v) => { el.value = v; el.dispatchEvent(new Event('input', {bubbles: true})); }", value)
+
+
 with sync_playwright() as tool:
     browser = tool.chromium.launch()
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
@@ -45,19 +73,40 @@ with sync_playwright() as tool:
             return entry, png.convert("RGB").getpixel((0, 0))
 
     _, bare = image_pixel("A bare plugin PNG")
-    expect(page.locator("#loras")).to_be_visible()
-    page.locator("#loras summary").click()
-    page.locator('#lora-picks [data-lora="example_warm"] .lora-toggle').click()
-    expect(page.locator("#lora-values")).to_have_text("Warm tint 0.80")
+    warm_slider = page.locator('#lora-picks [data-lora="example_warm"] input[type=range]')
+    expect(page.locator('#lora-picks [data-lora="example_warm"] .field-head .caption')).to_have_text("Off")
+    expect(page.locator("#advanced-values")).not_to_contain_text("Warm tint")
+    page.locator("#advanced summary").click()
+    slide(warm_slider, "0.8")
+    expect(page.locator('#lora-picks [data-lora="example_warm"] .field-head .caption')).to_have_text("0.80")
+    expect(page.locator("#advanced-values")).to_contain_text("Warm tint 0.80")
     expect(page.locator('#lora-picks input[name="loras"]')).to_have_value('[{"id":"example_warm","strength":0.8}]')
+    slide(warm_slider, "0")
+    expect(page.locator('#lora-picks input[name="loras"]')).to_have_value("")
+    slide(warm_slider, "0.8")
     prompt, warm = image_pixel("A tinted plugin PNG")
     assert warm[0] > bare[0] and warm[2] < bare[2], (bare, warm)
     # The card keeps the words that were typed. The trigger words go to the model only.
     assert prompt == "A tinted plugin PNG", prompt
-    expect(page.locator('#lora-picks .lora-toggle[aria-pressed="true"]')).to_have_count(0)
+    expect(page.locator('#lora-picks input[name="loras"]')).to_have_value("")
+    expect(warm_slider).to_have_value("0")
     print(
         "PASS an Image LoRA pick reaches the engine; the card keeps the typed words; Run empties the pick", flush=True
     )
+
+    # A draft saved by an older page can hold a pick at strength 0. The slider reads it as off,
+    # and the form sends nothing for it.
+    page.locator("#prompt").fill("A draft with an old pick")
+    slide(warm_slider, "0.8")
+    page.wait_for_timeout(1500)
+    zeroed = page.evaluate(ZERO_THE_SAVED_WARM_PICK)
+    assert zeroed, "the draft did not save the pick"
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("typeof busy === 'function'")
+    expect(page.locator('#lora-picks [data-lora="example_warm"] .field-head .caption')).to_have_text("Off")
+    expect(page.locator('#lora-picks input[name="loras"]')).to_have_value("")
+    page.locator("#prompt").fill("")
+    print("PASS a saved pick at strength 0 reads as off and is not sent", flush=True)
 
     page.locator("#media-video-mode").click()
     expect(page.locator("#backend-toggle .name")).to_have_text("Example Video")
@@ -72,10 +121,9 @@ with sync_playwright() as tool:
     page.wait_for_function("document.querySelector('#video-preview').videoWidth === 256")
     print("PASS external Video plugin produces playable MP4; unrelated Rewrite stays hidden", flush=True)
 
-    expect(page.locator("#video-loras")).to_be_visible()
-    page.locator("#video-loras summary").click()
-    page.locator('#video-lora-picks [data-lora="example_mono"] .lora-toggle').click()
-    expect(page.locator("#video-lora-values")).to_have_text("Monochrome 1.00")
+    page.locator("#video-advanced summary").click()
+    slide(page.locator('#video-lora-picks [data-lora="example_mono"] input[type=range]'), "1")
+    expect(page.locator("#video-seed-summary")).to_contain_text("Monochrome 1.00")
     page.locator("#video-prompt").fill("A CPU plugin clip without color")
     page.locator("#video-generate").click()
     page.wait_for_function(
@@ -83,7 +131,7 @@ with sync_playwright() as tool:
         " && !videoStudio.generationProgress",
         timeout=30000,
     )
-    expect(page.locator("#video-studio")).to_contain_text("LoRA Monochrome 1.00")
+    expect(page.locator("#video-studio")).to_contain_text("Add-ons Monochrome 1.00")
     print("PASS a Video LoRA pick reaches the request and the saved clip names it", flush=True)
 
     page.locator("#media-voice-mode").click()
