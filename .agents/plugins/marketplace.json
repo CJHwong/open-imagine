@@ -1,0 +1,12 @@
+{
+  "name": "open-imagine",
+  "interface": { "displayName": "Open Imagine" },
+  "plugins": [
+    {
+      "name": "open-imagine",
+      "source": { "source": "local", "path": "./plugins/open-imagine" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Creativity"
+    }
+  ]
+}
