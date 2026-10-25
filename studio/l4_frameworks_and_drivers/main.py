@@ -75,7 +75,9 @@ from studio.l3_interface_adapters.gateways.video.gemma3.gemma3_prompt_rewriter_g
 from studio.l3_interface_adapters.gateways.video.gemma3.prompt_enhancer import Gemma3PromptEnhancer
 from studio.l3_interface_adapters.gateways.video.ltx23.ltx23_backend_gateway import Ltx23BackendGateway
 from studio.l3_interface_adapters.gateways.video.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
+from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
 from studio.l3_interface_adapters.gateways.video.ltx_runtime.runner import MlxVideoRunner
+from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx_pack_capabilities
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
@@ -84,6 +86,7 @@ from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.lora_table import lora_files, no_loras
 from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
+from studio.plugins.video import LtxPack
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
@@ -222,25 +225,59 @@ BACKENDS = {
 def ltx25_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx25BackendGateway:
     # The engine's settings are shared under [mlx_video]; each model's LoRAs are its own.
     loras = lora_files(config, "ltx25_mlx", video=True)
+    model = str(config.backend("mlx_video").get("model_ltx25", ""))
     runner = _mlx_video_runner(
-        config, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt, loras=loras
+        config, model, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt, loras=loras
     )
     return Ltx25BackendGateway(runner, loras)
 
 
 def ltx23_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx23BackendGateway:
     loras = lora_files(config, "ltx23_mlx", video=True)
+    model = str(config.backend("mlx_video").get("model_ltx23", ""))
     runner = _mlx_video_runner(
-        config, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt, loras=loras
+        config, model, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt, loras=loras
     )
     return Ltx23BackendGateway(runner, loras)
 
 
+def ltx_pack_backend(config: Config, pack: LtxPack, enhanced_prompt=None) -> LtxPackBackendGateway:
+    """A pack that a plugin names, run by the base packs' runner, with the same enhancer.
+
+    The folder and the LoRAs come from the plugin's own section. The engine's settings stay
+    under [mlx_video]. The gateway checks the folder when a run starts, as the base packs check
+    their own setting: `--all-backends` offers every installed pack, with or without a section.
+    """
+    pack_dir = str(config.backend(pack.backend_id).get("pack_dir", ""))
+    try:
+        capabilities = ltx_pack_capabilities(
+            pack.backend_id,
+            pack.name,
+            pack.family,
+            description=pack.description,
+            precision=pack.precision,
+            edit=pack.edit,
+            audio=pack.audio,
+            fast_mode=pack.fast_mode,
+        )
+    except ValueError as error:
+        raise ConfigError(f"Cannot build the LTX pack {pack.backend_id}: {error}") from None
+    loras = lora_files(config, pack.backend_id, video=True)
+    runner = _mlx_video_runner(
+        config,
+        pack_dir,
+        "pack_dir",
+        keyframe_two_stage=pack.family == "ltx23",
+        enhanced_prompt=enhanced_prompt,
+        loras=loras,
+    )
+    return LtxPackBackendGateway(runner, capabilities, pack_dir, loras)
+
+
 def _mlx_video_runner(
-    config: Config, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None, loras=None
+    config: Config, model: str, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None, loras=None
 ) -> MlxVideoRunner:
     settings = config.backend("mlx_video")
-    model = str(settings.get(model_key, ""))
     return MlxVideoRunner(
         settings,
         model,
@@ -371,7 +408,22 @@ def discover_plugins() -> ModelPlugins:
 
 
 def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dict:
-    return {name: partial(plugins.build, kind, name, stub=stub) for name in plugins.ids(kind)} if plugins else {}
+    """One factory per installed model. A factory imports its plugin only when it is called,
+    so a hidden model's code is never imported."""
+    return (
+        {name: partial(plugin_backend, plugins, kind, name, stub=stub) for name in plugins.ids(kind)} if plugins else {}
+    )
+
+
+def plugin_backend(
+    plugins: ModelPlugins, kind: str, name: str, config: Config, stub: bool = False, enhanced_prompt=None
+):
+    """A plugin's model. An LTX pack is built here, as the base packs are, also for the stub:
+    building it loads nothing. Every other plugin builds its own."""
+    pack = plugins.pack(kind, name)
+    if pack is not None:
+        return ltx_pack_backend(config, pack, enhanced_prompt)
+    return plugins.build(kind, name, config, stub)
 
 
 def create_studio(
@@ -389,8 +441,12 @@ def create_studio(
     video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
     voice_backends = build_voice_backends(config, plugins, stub)
     rewriters = build_rewriters(config, plugins, stub)
+    # An LTX pack runs on the base packs' engine, so it takes their enhancer as well.
+    packs = {name for name in video_backends if plugins.pack("video", name) is not None}
     video_rewriters = {
-        name: plugins.rewriter("video", name, config, stub) if name in plugins.ids("video") else video_rewriter
+        name: plugins.rewriter("video", name, config, stub)
+        if name in plugins.ids("video") and name not in packs
+        else video_rewriter
         for name in video_backends
     }
     if stub:
@@ -407,7 +463,7 @@ def create_studio(
             backend_id: StubVideoBackendGateway(backend.capabilities())
             for backend_id, backend in video_backends.items()
         }
-    elif any(
+    elif packs or any(
         name in BACKENDS or name in VIDEO_BACKENDS or name in VOICE_BACKENDS
         for name in (*backends, *video_backends, *voice_backends)
     ):

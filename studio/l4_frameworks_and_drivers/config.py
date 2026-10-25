@@ -72,7 +72,10 @@ def load_config(
 def _settings(section: dict, base: Path) -> dict:
     settings = {}
     for key, value in section.items():
-        if key in ("python_path", "cli_path"):
+        if _blank(value):
+            # A blank path is a setting left empty. Resolved, it would name this file's folder.
+            pass
+        elif key in ("python_path", "cli_path"):
             # A venv's executable link selects the site-packages the runtime needs.
             value = str((base / Path(value).expanduser()).absolute())
         elif key.endswith(("_script", "_dir", "_path")):
@@ -86,8 +89,12 @@ def _settings(section: dict, base: Path) -> dict:
     return settings
 
 
+def _blank(value) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
 def _lora_entry(entry, base: Path):
-    if isinstance(entry, dict) and isinstance(entry.get("path"), str) and entry["path"].strip():
+    if isinstance(entry, dict) and isinstance(entry.get("path"), str) and not _blank(entry["path"]):
         # Absolute, but not resolved: a Hugging Face cache file is a link to a blob without an
         # extension, and MLX reads the format from the extension of the name it is given.
         return {**entry, "path": os.path.abspath(base / Path(entry["path"]).expanduser())}
