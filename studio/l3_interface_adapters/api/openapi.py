@@ -386,7 +386,7 @@ def openapi_document() -> dict[str, Any]:
                         "enhance": {
                             "type": "boolean",
                             "default": True,
-                            "description": "Compatibility field: LTX Generate always runs the pipeline's Gemma-3 prompt enhancer, even if false is supplied. This is separate from the Rewrite API; LTX-2.5 still encodes the enhanced text with its Gemma-4 tower. Edit adapter prompts are not enhanced. Eligible Generate batches enhance their prompts in one model load, release that process, then render. Auto keeps the per-item path for measured regressions. Eligible LTX-2.5 text batches reuse the video pipeline within the measured geometry/memory limits; other Generate batches render clips sequentially. A batch remains one operation and samples one clip at a time.",
+                            "description": "LTX Generate runs the pipeline's Gemma-3 prompt enhancer unless this is false. Send false for a prompt that must reach the engine as written. Edit is never enhanced, whatever this says. This is separate from the Rewrite API; LTX-2.5 still encodes the enhanced text with its Gemma-4 tower. Edit adapter prompts are not enhanced. Eligible Generate batches enhance their prompts in one model load, release that process, then render. Auto keeps the per-item path for measured regressions. Eligible LTX-2.5 text batches reuse the video pipeline within the measured geometry/memory limits; other Generate batches render clips sequentially. A batch remains one operation and samples one clip at a time.",
                         },
                         "request_id": {"type": "string", "description": "Name this render, so it can be stopped"},
                     },
@@ -623,7 +623,7 @@ def _rewrite(operation_id: str, summary: str, workspace: str) -> dict[str, Any]:
         "Later keyframes remain generator inputs; the enhancer does not read audio. "
         "Use the returned prompt unchanged in Generate to avoid a second enhancement in this server session. "
         "Changing the prompt or the first reference image, or adding/removing that reference, runs enhancement again. "
-        "Automatic generation enhancement remains enabled. Rewrite shares the GPU lock and supports cancellation."
+        "Generate still enhances unless its request sends enhance=false. Rewrite shares the GPU lock and supports cancellation."
         if workspace == "video"
         else "Rewrite using the selected Image model's prompt rewriter."
     )

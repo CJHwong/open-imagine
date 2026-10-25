@@ -41,7 +41,7 @@ The publisher covers hosted services, ComfyUI and native PyTorch. Studio uses pi
 its discovered modes, adapters, reference formats, frame counts and size limits are the API contract.
 Hosted retake/extend/reframe, duration prediction, HDR and other upstream workflows are not enabled by
 adding their fields to a Studio payload. Multi-shot prose does not create an API batch or guarantee cuts
-on the pinned checkpoint. Studio automatically enhances LTX Generate prompts, including 2.3 and 2.5;
-the upstream enhancer toggle and implementation do not override that product behavior. Rewrite remains
+on the pinned checkpoint. Studio enhances LTX Generate prompts by default, including 2.3 and 2.5;
+send enhance=false to keep a prompt word for word. The page always enhances. Rewrite remains
 a separate API operation. References checked 2026-10-22.
 """

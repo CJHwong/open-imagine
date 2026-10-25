@@ -65,6 +65,8 @@ The HTTP API remains unchanged. Select the installed backend ID in ordinary requ
 inspect `/api/v1/studio` first, and use `/api/v1/operations` for batches and shared status.
 A missing rewriter is model-specific; a Video plugin never inherits LTX's Gemma rewriter.
 Automatic native enhancement inside generation is the model gateway's responsibility.
+`job.enhance` is false when a Generate request sends `enhance: false`, and for every Edit. Then
+leave the prompt as it is.
 
 ## Process context
 
