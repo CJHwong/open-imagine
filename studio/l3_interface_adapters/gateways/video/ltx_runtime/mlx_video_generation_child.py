@@ -2,9 +2,14 @@
 
 The pinned CLI exposes --enhance-prompt for generate, but not a2v. Its same helper
 can run before the audio pipeline without loading either video pack alongside it.
+
+A run with LoRAs comes here too. Their trigger words arrive in STUDIO_LORA_TRIGGERS and
+go after the enhanced prompt, because the enhancer could rewrite them away.
 """
 
 import importlib
+import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -32,6 +37,15 @@ def main():
             cleanup()
 
     cli._maybe_enhance_prompt = enhance
+    triggers = json.loads(os.environ.get("STUDIO_LORA_TRIGGERS") or "[]")
+    if triggers:
+
+        def with_triggers(args):
+            prompt = enhance(args)
+            missing = [trigger for trigger in triggers if trigger.casefold() not in prompt.casefold()]
+            return ", ".join([prompt.rstrip(), *missing]) if missing else prompt
+
+        cli._maybe_enhance_prompt = with_triggers
 
     def enhanced_audio(args):
         args.enhance_prompt = True

@@ -67,6 +67,9 @@ A LoRA is declared by id in layer 1 (`l1_entities/lora.py`), on an image `ModeSp
 image use case adds the trigger words to the job; a video gateway adds them after its own
 prompt enhancement. A result reports the prompt the request sent. Only
 the gateway maps an id to a file, so no path reaches the page, the API or an operation record.
+A built-in gateway keeps that map in `gateways/lora_files.py`. The composition root reads it from
+the backend's `[[<id>.loras]]` tables (`l4_frameworks_and_drivers/lora_table.py`), and a run
+refuses a file that is not on disk instead of fetching it.
 
 ## Boundaries and composition
 

@@ -102,17 +102,23 @@ def active_mlx_memory():
             mx.set_wired_limit(previous)
 
 
-def lora_kwargs(path: str | None, scale: float = 1.0) -> dict:
-    """The adapter arguments for one LoRA, or nothing when there is none.
+def lora_kwargs(path: str | None, scale: float = 1.0, loras: tuple[tuple[str, float], ...] = ()) -> dict:
+    """The adapter arguments: the backend's own adapter first, then the picked LoRAs.
+    Nothing when there is none.
 
     `bake_lora=False` is not a preference. mflux merges an adapter into the base
     weights by default, and Viggle's card for the one this server loads says
     merging into bf16 drops about 30 percent of the update and adds noise at
     int8. A runtime adapter keeps it whole, which is what the card measured.
     """
-    if path is None:
+    files = ([(path, scale)] if path is not None else []) + list(loras)
+    if not files:
         return {}
-    return {"lora_paths": [path], "lora_scales": [scale], "bake_lora": False}
+    return {
+        "lora_paths": [file for file, _ in files],
+        "lora_scales": [strength for _, strength in files],
+        "bake_lora": False,
+    }
 
 
 def official_turbo_model_config():

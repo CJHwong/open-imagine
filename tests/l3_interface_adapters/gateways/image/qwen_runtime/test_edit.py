@@ -297,3 +297,83 @@ def test_release_drops_the_model_and_frees_the_buffers(monkeypatch):
     assert freed.call_count == 1
     edit.load()
     assert len(builder.built) == 2  # the model was rebuilt after the release
+
+
+class LoraEngine(FakeEngine):
+    loras: tuple = ()
+    model_path: str | None = None
+
+
+class LoraBuilder:
+    def __init__(self):
+        self.built = []
+
+    def __call__(self, quantize, hook, lora_path=None, loras=(), model_path=None):
+        engine = LoraEngine(hook=hook)
+        engine.loras = loras
+        engine.model_path = model_path
+        self.built.append(engine)
+        return engine
+
+
+def test_an_edit_builds_with_its_lora_picks_and_rebuilds_for_another_set(tmp_path):
+    from dataclasses import replace
+
+    from studio.l1_entities.lora import LoraUse
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    path = files.files[0].path
+    builder = LoraBuilder()
+    prepared = []
+    edit = Qwen21Edit(
+        quantize=None, build=builder, lora_files=files, model_path="/local/turbo", prepare_model=prepared.append
+    )
+    reference = (png(32, 32),)
+
+    edit.run(replace(job(references=reference), loras=(LoraUse("example_warm", 0.6),)), no_steps, never_stop)
+    edit.run(replace(job(references=reference), loras=(LoraUse("example_warm", 0.6),)), no_steps, never_stop)
+    edit.run(job(references=reference), no_steps, never_stop)
+
+    assert [engine.loras for engine in builder.built] == [((path, 0.6),), ()]
+    assert prepared == builder.built  # every build gets the backend's own preparation
+
+
+def test_an_edit_build_error_that_names_a_lora_file_names_its_id_instead(tmp_path):
+    from dataclasses import replace
+
+    from studio.l1_entities.errors import StudioError
+    from studio.l1_entities.lora import LoraUse
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    path = files.files[0].path
+
+    def broken(quantize, hook, lora_path=None, loras=(), model_path=None):
+        raise ValueError(f"shape mismatch in {path}")
+
+    edit = Qwen21Edit(quantize=None, build=broken, lora_files=files)
+    picked = replace(job(references=(png(32, 32),)), loras=(LoraUse("example_warm", 0.6),))
+
+    with pytest.raises(StudioError, match="shape mismatch in LoRA example_warm") as failed:
+        edit.run(picked, no_steps, never_stop)
+    assert path not in str(failed.value)
+
+
+def test_the_edit_model_takes_the_picked_loras_unbaked():
+    class FakeCallbacks:
+        def register(self, callback):
+            pass
+
+    class FakeQwenImage21Edit:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.callbacks = FakeCallbacks()
+
+    with heavy_modules(
+        {"mflux.models.qwen21.variants.edit.qwen_image_21_edit": {"QwenImage21Edit": FakeQwenImage21Edit}}
+    ):
+        model = build_model(quantize=None, hook=StepHook(), loras=(("/loras/a.safetensors", 0.7),))
+
+    assert model.kwargs["lora_paths"] == ["/loras/a.safetensors"]
+    assert model.kwargs["bake_lora"] is False

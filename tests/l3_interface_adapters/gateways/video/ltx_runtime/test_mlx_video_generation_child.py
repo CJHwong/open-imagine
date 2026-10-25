@@ -90,3 +90,26 @@ def test_image_enhancement_reads_first_keyframe_and_frees_before_pipeline(monkey
             ]
         else:
             assert events == ["native", ("pipeline", "Move right.")]
+
+
+@pytest.mark.parametrize(
+    ("enhanced", "expected"),
+    [
+        ("A cat walks on a beach.", "A cat walks on a beach., film grain, warm light"),
+        ("A cat walks, in Film Grain, warm light", "A cat walks, in Film Grain, warm light"),
+    ],
+)
+def test_trigger_words_follow_the_enhanced_prompt_once(monkeypatch, enhanced, expected):
+    """The enhancer may rewrite the words, so a LoRA's trigger words go after it."""
+    seen = []
+    cli = SimpleNamespace()
+    args = SimpleNamespace(prompt="a cat", images=None, enhance_prompt=True)
+    cli._maybe_enhance_prompt = lambda request: enhanced
+    cli._cmd_a2v = lambda request: None
+    cli.main = lambda: seen.append(cli._maybe_enhance_prompt(args))
+    monkeypatch.setitem(sys.modules, "ltx_pipelines_mlx.cli", cli)
+    monkeypatch.setenv("STUDIO_LORA_TRIGGERS", '["film grain", "warm light"]')
+
+    child.main()
+
+    assert seen == [expected]

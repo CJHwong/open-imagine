@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 
+from studio.l1_entities.errors import StudioError
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
@@ -80,6 +81,7 @@ from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
+from studio.l4_frameworks_and_drivers.lora_table import lora_files, no_loras
 from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
@@ -118,9 +120,28 @@ def badge(quantize: int | None) -> str:
     return f"int{quantize}" if quantize else "bf16"
 
 
+def offering(gateway, backend_id: str):
+    """The gateway, once its record took the LoRA table. A table that names a mode the
+    model lacks fails at start, with the section to look in."""
+    try:
+        gateway.capabilities()
+    except StudioError as error:
+        raise ConfigError(f"[{backend_id}]: {error}") from None
+    return gateway
+
+
 def qwen21_backend(config: Config) -> Qwen21BackendGateway:
     quantize = config.backend("qwen21").get("quantize")
-    return Qwen21BackendGateway(Qwen21Generator(quantize), Qwen21Edit(quantize), badge=badge(quantize))
+    loras = lora_files(config, "qwen21")
+    return offering(
+        Qwen21BackendGateway(
+            Qwen21Generator(quantize, lora_files=loras),
+            Qwen21Edit(quantize, lora_files=loras),
+            badge=badge(quantize),
+            loras=loras,
+        ),
+        "qwen21",
+    )
 
 
 def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
@@ -138,22 +159,29 @@ def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
 
     model_dir = config.required("qwen21_turbo", "model_dir")
     quantize = settings.get("quantize")
-    return OfficialQwenTurboBackendGateway(
-        Qwen21Generator(
-            quantize,
-            model_path=model_dir,
-            scheduler=qwen21_turbo_schedule.SCHEDULER_NAME,
-            restore_encoder=partial(restore_text_encoder, model_path=model_dir, quantize=quantize),
+    loras = lora_files(config, "qwen21_turbo")
+    return offering(
+        OfficialQwenTurboBackendGateway(
+            Qwen21Generator(
+                quantize,
+                model_path=model_dir,
+                scheduler=qwen21_turbo_schedule.SCHEDULER_NAME,
+                restore_encoder=partial(restore_text_encoder, model_path=model_dir, quantize=quantize),
+                lora_files=loras,
+            ),
+            Qwen21Edit(quantize, model_path=model_dir, prepare_model=cache_edit_inputs, lora_files=loras),
+            badge=badge(quantize),
+            model_dir=model_dir,
+            memory_scope=active_mlx_memory,
+            loras=loras,
         ),
-        Qwen21Edit(quantize, model_path=model_dir, prepare_model=cache_edit_inputs),
-        badge=badge(quantize),
-        model_dir=model_dir,
-        memory_scope=active_mlx_memory,
+        "qwen21_turbo",
     )
 
 
 def flux2_backend(config: Config) -> Flux2BackendGateway:
     quantize = config.backend("flux2").get("quantize")
+    no_loras(config, "flux2")
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
 
 
@@ -170,11 +198,16 @@ def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
     settings = config.backend("viggle_turbo")
     lora_path = config.required("viggle_turbo", "lora_path")
     quantize = settings.get("quantize")
-    return ViggleTurboBackendGateway(
-        Qwen21Generator(quantize, lora_path=lora_path, scheduler="viggle_turbo"),
-        Qwen21Edit(quantize, lora_path=lora_path),
-        badge=badge(quantize),
-        lora_path=lora_path,
+    loras = lora_files(config, "viggle_turbo")
+    return offering(
+        ViggleTurboBackendGateway(
+            Qwen21Generator(quantize, lora_path=lora_path, scheduler="viggle_turbo", lora_files=loras),
+            Qwen21Edit(quantize, lora_path=lora_path, lora_files=loras),
+            badge=badge(quantize),
+            lora_path=lora_path,
+            loras=loras,
+        ),
+        "viggle_turbo",
     )
 
 
@@ -187,19 +220,24 @@ BACKENDS = {
 
 
 def ltx25_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx25BackendGateway:
-    return Ltx25BackendGateway(
-        _mlx_video_runner(config, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt)
+    # The engine's settings are shared under [mlx_video]; each model's LoRAs are its own.
+    loras = lora_files(config, "ltx25_mlx", video=True)
+    runner = _mlx_video_runner(
+        config, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt, loras=loras
     )
+    return Ltx25BackendGateway(runner, loras)
 
 
 def ltx23_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx23BackendGateway:
-    return Ltx23BackendGateway(
-        _mlx_video_runner(config, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt)
+    loras = lora_files(config, "ltx23_mlx", video=True)
+    runner = _mlx_video_runner(
+        config, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt, loras=loras
     )
+    return Ltx23BackendGateway(runner, loras)
 
 
 def _mlx_video_runner(
-    config: Config, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None
+    config: Config, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None, loras=None
 ) -> MlxVideoRunner:
     settings = config.backend("mlx_video")
     model = str(settings.get(model_key, ""))
@@ -211,6 +249,7 @@ def _mlx_video_runner(
         model_key=model_key,
         enhanced_prompt=enhanced_prompt,
         execute_process=SubprocessRunner().execute,
+        lora_files=loras,
     )
 
 
