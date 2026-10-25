@@ -64,7 +64,9 @@ jobs:
       - name: Validate the plugin and the marketplace
         run: |
           set -euo pipefail
-          ./node_modules/.bin/claude plugin validate ./plugins/open-imagine
+          # The directory profile also fails on what the plugin directory refuses, such as a
+          # missing license; --strict fails on its warnings too, such as a missing icon.
+          ./node_modules/.bin/claude plugin validate ./plugins/open-imagine --profile directory --strict
           ./node_modules/.bin/claude plugin validate .
 
       # Claude Code and Codex each read their own manifest, and an installed copy updates only when
