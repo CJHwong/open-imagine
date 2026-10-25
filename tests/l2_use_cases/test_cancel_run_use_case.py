@@ -160,12 +160,17 @@ def test_a_cancel_frees_an_engine_that_never_looks():
 def test_a_cancel_an_engine_obeys_leaves_the_engine_warm():
     # Long enough per step that the cancel lands mid-run, which is the ordinary case.
     backend = FakeBackendGateway(stop_check=lambda step: time.sleep(0.02))
-    thread, outcome, events = run_with_cancel(backend)
+    known = {thread.ident for thread in threading.enumerate()}
+    # A window far longer than the run takes to wind down after its stop. At 0.05 s a slow CI
+    # runner was still winding down when the window closed, and the net fired on a cancel
+    # that worked.
+    thread, outcome, events = run_with_cancel(backend, patience=2.0)
     assert not thread.is_alive()
     assert isinstance(outcome.get("error"), Cancelled), outcome
-    # The net waits its window before acting, so waiting less than that would pass this
-    # test even if it always fired.
-    time.sleep(0.3)
+    # Wait for the net to decide, not for a fixed time: a net that always fired would act at
+    # the end of its window, inside this wait, and fail the check below.
+    _join_watch_threads(known)
+    assert not _watch_threads(known), "the net never decided"
     assert "release" not in events, f"the net fired on a cancel that worked: {events}"
 
 
