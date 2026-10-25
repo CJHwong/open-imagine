@@ -86,6 +86,22 @@ def test_a_model_without_an_enhancer_drops_the_flag_the_job_carries(tmp_path, mo
     assert "--enhance-prompt" in commands[1]
 
 
+def test_a_job_that_asks_for_no_enhancement_keeps_its_words_on_an_enhancing_model(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    first = (VideoReference("first.png", b"first", 0, 1.0),)
+
+    # The model has an enhancer, but the request said no: the CLI gets the prompt as written.
+    make_runner({"cli_path": cli(tmp_path)}, "pack", True).run(
+        VideoJob("a cat", 384, 384, 9, 24, 7, first, enhance=False)
+    )
+
+    command = commands[0]
+    assert command[1] == "generate"
+    assert "--enhance-prompt" not in command
+    assert command[command.index("-p") + 1] == "a cat"
+
+
 def test_a_job_without_a_seed_leaves_the_port_to_pick_one(tmp_path, monkeypatch):
     commands = []
     capture_execute(monkeypatch, commands)

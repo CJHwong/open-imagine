@@ -155,9 +155,15 @@ def test_controller_maps_shared_images_to_ltx_keyframes():
     assert submitted_job.references[0].png.startswith(b"\x89PNG")
 
 
-@pytest.mark.parametrize("settings", [{}, {"enhance": False}, {"enhance": True}])
-def test_generation_always_enables_the_pipeline_enhancer(settings):
-    assert video_job(payload(**settings), fake_video_capabilities()).enhance is True
+@pytest.mark.parametrize(("settings", "enhance"), [({}, True), ({"enhance": True}, True), ({"enhance": False}, False)])
+def test_generation_enhances_unless_the_request_says_false(settings, enhance):
+    assert video_job(payload(**settings), fake_video_capabilities()).enhance is enhance
+
+
+@pytest.mark.parametrize("value", ["false", 0, None, "true"])
+def test_an_enhance_that_is_not_a_boolean_is_refused(value):
+    with pytest.raises(InvalidJob, match="enhance must be a boolean"):
+        video_job(payload(enhance=value), fake_video_capabilities())
 
 
 @pytest.mark.parametrize("request_id", [None, "", 17, "x" * 129])
@@ -453,6 +459,15 @@ def test_custom_edit_is_validated_like_an_edit_but_carries_no_lora():
     assert job.edit.clip == b"clip bytes"
     assert job.prompt == "A kite rises above the beach"
     assert job.enhance is False
+
+
+def test_an_edit_is_never_enhanced_even_when_the_page_sends_true():
+    from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
+
+    edit = payload(mode="edit", adapter="custom", clip=clip_payload(), width=384, height=384, num_frames=49)
+
+    # The page sends true for every mode, and an effect's prompt is part of its recipe.
+    assert video_job({**edit, "enhance": True}, ltx25_mlx_capabilities()).enhance is False
 
 
 def test_a_doubling_edit_may_ask_for_twice_a_declared_shape():

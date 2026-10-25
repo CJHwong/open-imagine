@@ -100,11 +100,19 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         frame_rate,
         seed,
         references,
-        enhance=not mode.needs_clip,
+        enhance=_enhance(payload.get("enhance", True), mode),
         edit=_edit(payload, adapter, capabilities) if adapter else None,
         audio=_audio(payload.get("audio"), mode, capabilities),
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
     )
+
+
+def _enhance(value, mode: VideoMode) -> bool:
+    """Generate enhances unless the request says false. An Edit is never enhanced: the
+    effect's prompt is part of its recipe, and the page sends true for every mode."""
+    if type(value) is not bool:
+        raise InvalidJob("enhance must be a boolean")
+    return value and not mode.needs_clip
 
 
 def _fast_mode(value, capabilities: VideoCapabilities) -> bool:
