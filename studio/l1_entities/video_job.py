@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from studio.l1_entities.lora import LoraUse
+
 
 @dataclass(frozen=True)
 class VideoReference:
@@ -69,6 +71,9 @@ class VideoJob:
     it in the output unchanged, so the run reads it as timing and mood, not as a source."""
     fast_mode: bool = False
     """Use reduced transformer compute precision for this render; weights stay unchanged."""
+    loras: tuple[LoraUse, ...] = ()
+    """The LoRAs this clip applies, checked against the model, in the order picked. The gateway
+    resolves each id to its file; the job carries no path."""
 
 
 @dataclass(frozen=True)

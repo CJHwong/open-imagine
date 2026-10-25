@@ -27,6 +27,7 @@
 <script type="module" src="/page/components/advanced-panel.js"></script>
 <script type="module" src="/page/components/run-button.js"></script>
 <script type="module" src="/page/components/look-rows.js"></script>
+<script type="module" src="/page/components/lora-picks.js"></script>
 <script type="module" src="/page/components/reference-list.js"></script>
 <script type="module" src="/page/components/region-mark.js"></script>
 <script type="module" src="/page/components/image-strip.js"></script>
@@ -253,6 +254,14 @@
           <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
         </details>
 
+        <!-- The LoRAs the mode offers. The picker draws the hidden `loras` field the form
+             posts, so a pick travels with the rest of the form. A mode with none hides it. -->
+        <details id="loras" hidden>
+          <summary>LoRAs <span class="values" id="lora-values"></span></summary>
+          <lora-picks class="loras" data-form="image" data-name="loras" id="lora-picks"></lora-picks>
+          <p class="look-note">A LoRA adds trained weights to the model. Its trigger words go after your prompt.</p>
+        </details>
+
         <details id="advanced">
           <summary>Advanced <advanced-values class="values num" id="advanced-values"></advanced-values></summary>
           <div class="advanced">
@@ -411,6 +420,11 @@
             <summary>Look <look-values class="values" data-form="video" id="video-look-values"></look-values></summary>
             <look-rows class="look" data-form="video" id="video-look-rows"></look-rows>
             <p class="look-note">Each pick adds a sentence after your prompt.</p>
+          </details>
+          <details id="video-loras" hidden>
+            <summary>LoRAs <span class="values" id="video-lora-values"></span></summary>
+            <lora-picks class="loras" data-form="video" id="video-lora-picks"></lora-picks>
+            <p class="look-note">A LoRA adds trained weights to the model. Its trigger words go after your prompt.</p>
           </details>
           <details id="video-advanced">
             <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
@@ -827,6 +841,8 @@
 
   function syncVideoMode() {
     const mode = videoModeInForce();
+    // An edit takes no audio track, so a switch can free picks that a track held.
+    if (videoLoraDoor) videoLoraDoor.refresh('video');
     // The controls carry the mode as a class, which shows one set of words and hides the
     // other. It is not the form's class: both workspaces share one <form>, and putting the
     // video's mode there rewrote the image form's words while its own switch said Generate.
@@ -1166,10 +1182,43 @@
     return first ? [first.width, first.height] : [0, 0];
   }
 
+  // The LoRAs the video model offers. The picker keeps the picks; the page says what is
+  // offered, and holds the picks while an audio track is set on a model that cannot
+  // apply LoRAs to a clip that follows one. A held pick stays on screen and is not sent.
+  let videoLoraDoor = null;
+
+  function videoLoraHeld() {
+    const capabilities = videoCapabilities();
+    if (!capabilities || capabilities.loras_with_audio) return '';
+    if (videoModeInForce().needs_clip || !videoStudio.audio) return '';
+    return 'Remove the audio track to use these LoRAs. This model cannot apply LoRAs to a clip that follows audio.';
+  }
+
+  function useVideoLoras(door) {
+    videoLoraDoor = door;
+    door.configure('video', {
+      offer: function () { return videoCapabilities()?.loras || []; },
+      max: function () { return videoCapabilities()?.max_loras || 0; },
+      held: videoLoraHeld,
+      changed: function () { document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'})); },
+    });
+    syncVideoLoras();
+  }
+
+  function syncVideoLoras() {
+    document.getElementById('video-loras').hidden = !(videoCapabilities()?.loras || []).length;
+    if (videoLoraDoor) videoLoraDoor.refresh('video');
+  }
+
+  function videoLoraPicks() {
+    return videoLoraDoor && !videoLoraHeld() ? videoLoraDoor.picks('video') : [];
+  }
+
   function syncVideoFastMode() {
     const supported = Boolean(videoCapabilities()?.fast_mode);
     document.getElementById('video-fast-field').hidden = !supported;
     if (!supported) document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
+    syncVideoLoras();
   }
 
   function applyVideoCapabilities() {
@@ -1312,7 +1361,10 @@
     document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
   });
   document.addEventListener('draft-change', function (event) {
-    if (event.detail === 'video') syncVideoGenerateButton();
+    if (event.detail !== 'video') return;
+    syncVideoGenerateButton();
+    // An audio track added or taken off holds or frees the picks.
+    if (videoLoraDoor) videoLoraDoor.refresh('video');
   });
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();
@@ -1524,6 +1576,8 @@
         // does not name them cannot be compared with another one later.
         pipeline: editing ? 'ic_lora' : (videoStudio.audio ? 'a2vid_two_stage' : 'distilled'),
         audioName: videoStudio.audio ? videoStudio.audio.name : '',
+        loras: videoLoraPicks(),
+        loraLabel: videoLoraPicks().length && videoLoraDoor ? videoLoraDoor.summary('video') : '',
         references: videoStudio.imageReferences.map(function (reference) {
           return {
             name: reference.name,
@@ -1609,6 +1663,7 @@
           backend: STUDIO.video.backend.id,
           enhance: true,
           fastMode: settings.fastMode,
+          loras: settings.loras,
           requestId: videoRunRequestId,
         }), draft_id: submittedDraftId}),
       });
@@ -1974,6 +2029,10 @@
   document.addEventListener('size-chips-ready', function (event) { formApi.useSizeChips(event.detail); });
   document.addEventListener('advanced-panel-ready', function (event) { formApi.useAdvanced(event.detail); });
   document.addEventListener('look-rows-ready', function (event) { formApi.useLookRows(event.detail); });
+  document.addEventListener('lora-picks-ready', function (event) {
+    formApi.useLoraPicks(event.detail);
+    useVideoLoras(event.detail);
+  });
   document.addEventListener('reference-list-ready', function (event) { formApi.useReferences(event.detail); });
 
   // Edit mode with this image as the only reference, an empty prompt, and the
@@ -2177,7 +2236,8 @@
       fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
       seed: document.getElementById('video-seed').value, frames: document.getElementById('video-duration').value,
       ratio: videoShapeInFront(), rung: videoResolutionRung, adapter: videoAdapter, adapterSeed: videoAdapterSeed,
-      look: formApi.videoLook(), assets: videoStudio.inputSnapshot()};
+      look: formApi.videoLook(), loras: videoLoraDoor ? videoLoraDoor.picks('video') : [],
+      assets: videoStudio.inputSnapshot()};
   }
 
   function restoreImageDraft(snapshot) {
@@ -2206,6 +2266,7 @@
     videoResolutionRung = snapshot.rung;
     renderVideoResolutions();
     formApi.setVideoLook(snapshot.look);
+    if (videoLoraDoor) videoLoraDoor.setPicks('video', snapshot.loras || []);
     videoStudio.restoreInputs(snapshot.assets);
     if (sharedOperation?.kind === 'video') chooseVideoMode(sharedOperation.mode);
     syncVideoMode();
@@ -2228,7 +2289,7 @@
         if (workspace === 'video') return {...snapshot, prompt: '', assets: {...snapshot.assets, imageReferences: [], audio: null}};
         const params = {...snapshot.params};
         (MODES[snapshot.mode]?.params || []).forEach(param => { params[param.id] = String(param.default); });
-        return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params, look: {}, references: [],
+        return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params, look: {}, loras: [], references: [],
           eachReference: '', eachText: {}, region: {strokes: null, text: {}}};
       },
     });
@@ -2444,6 +2505,8 @@
       targetPixels: formApi.targetPixels,
       targetRatio: formApi.targetRatio,
       applyParams: formApi.applyParams,
+      loraPicks: formApi.loraPicks,
+      setLoraPicks: formApi.setLoraPicks,
       clampCount: formApi.clampCount,
       growPrompt: formApi.growPrompt,
       pushLook: formApi.pushLook,

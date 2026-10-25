@@ -105,3 +105,11 @@ def test_video_batch_fast_mode_is_shared_by_all_items(value):
 def test_video_batch_cannot_override_fast_mode_per_item():
     with pytest.raises(InvalidJob, match="same fast_mode"):
         normalize_batch({"kind": "video", "fast_mode": True, "items": [{"fast_mode": False}]})
+
+
+def test_a_video_batch_passes_lora_picks_on_to_the_controller():
+    """The envelope inherits the picks. The controller compares them once they are parsed,
+    so the same picks written two ways still make one batch."""
+    loras = [{"id": "example_warm", "strength": 0.8}]
+    items = normalize_batch({"kind": "video", "loras": loras, "items": [{}, {"loras": [{"id": "example_warm"}]}]})
+    assert [item["loras"] for item in items] == [loras, [{"id": "example_warm"}]]

@@ -28,6 +28,15 @@ def form_value(key: str, value: object) -> str:
         if not isinstance(value, list):
             raise InvalidJob("references must be an array of base64 strings")
         return json.dumps([reference_text(item) for item in value])
+    if key == "loras":
+        # The picks travel as one JSON field. A caller sends a list; the page's batch sends
+        # the form's own field, which is that list as a string already. The mode checks
+        # either one where it checks every other setting.
+        if isinstance(value, str):
+            return value
+        if not isinstance(value, list):
+            raise InvalidJob("loras must be a list of {id, strength} objects")
+        return json.dumps(value)
     if isinstance(value, bool):
         return "1" if value else ""
     if isinstance(value, (int, float)):

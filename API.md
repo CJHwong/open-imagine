@@ -622,6 +622,30 @@ Operation `settings.fast_mode` records an explicitly submitted value. The UI nam
 Fast mode and records it with the result. Watching another client's operation temporarily shows
 its setting while preserving the observer's own setting for the next render.
 
+## LoRAs
+
+A model that offers LoRAs lists them in `/api/v1/studio`. For an image model they are on each
+mode, as `loras` and `max_loras`. For a video model they are on its capabilities, beside
+`loras_with_audio`. Send the picks as `loras`, a list of `{id, strength}` objects:
+
+```json
+{
+  "kind": "image",
+  "backend": "example_image",
+  "prompt": "A pear on a table",
+  "loras": [{"id": "example_warm", "strength": 0.8}]
+}
+```
+
+A pick without `strength` starts at the LoRA's own `strength`. Studio refuses an unknown id,
+a repeated id, a strength outside the LoRA's range, and more picks than `max_loras`. The
+model gets each LoRA's `trigger` words after the prompt, unless the prompt holds them already.
+The result records the prompt that you sent, without them. An empty list, or no field, means
+no LoRA.
+
+Every item of a video batch must pick the same LoRAs. Set `loras` once at the top level. A
+video model with `loras_with_audio: false` refuses LoRAs on a request that sends `audio`.
+
 ## Installed model plugins
 
 Installed and enabled model plugins appear in `/api/v1/studio` with their own capabilities.

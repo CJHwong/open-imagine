@@ -661,3 +661,48 @@ def test_layout_edit_requires_exactly_one_first_frame_look_image():
     job = video_job({**value, "references": [look]}, caps)
     assert job.edit is not None and job.edit.stage_2_conditioning
     assert len(job.references) == 1 and not job.enhance
+
+
+def lora_capabilities(**overrides):
+    from studio.l1_entities.lora import Lora
+
+    offer = (Lora("example_warm", "Warm", strength=0.7), Lora("example_grain", "Grain", trigger="film grain"))
+    return replace(editing_capabilities(), loras=offer, max_loras=2, **overrides)
+
+
+def test_a_video_job_carries_its_lora_picks_and_leaves_the_triggers_to_the_gateway():
+    from studio.l1_entities.lora import LoraUse
+
+    job = video_job(
+        payload(loras=[{"id": "example_grain", "strength": 0.5}, {"id": "example_warm"}]), lora_capabilities()
+    )
+
+    assert job.loras == (LoraUse("example_grain", 0.5), LoraUse("example_warm", 0.7))
+    # The gateway enhances the prompt first, so it adds the trigger words itself, after.
+    assert job.prompt == "A kite rises above the beach"
+    assert video_job(payload(), lora_capabilities()).loras == ()
+
+
+def test_a_video_model_with_no_loras_refuses_a_pick():
+    with pytest.raises(InvalidJob, match="offers no LoRAs"):
+        video_job(payload(loras=[{"id": "example_warm"}]), fake_video_capabilities())
+
+
+def test_a_lora_and_an_audio_track_meet_only_where_the_model_says_so():
+    value = payload(loras=[{"id": "example_warm"}], audio=audio_payload())
+
+    with pytest.raises(InvalidJob, match="cannot apply LoRAs to a clip that follows an audio track"):
+        video_job(value, lora_capabilities())
+    job = video_job(value, lora_capabilities(loras_with_audio=True))
+    assert job.audio is not None and job.loras
+
+
+def test_video_batch_rejects_mixed_loras_before_running():
+    controller, _ = build_video_controller(run=UnusedVideoRun(), capabilities=lora_capabilities())
+    with pytest.raises(InvalidJob, match="same LoRAs"):
+        controller.run_batch(
+            [payload(loras=[{"id": "example_warm"}]), payload()],
+            lambda *_: None,
+            lambda *_: None,
+            lambda: False,
+        )
