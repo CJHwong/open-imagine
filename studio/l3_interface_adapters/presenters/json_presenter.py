@@ -6,6 +6,7 @@ import time
 from dataclasses import asdict
 from typing import Any
 
+from studio.l1_entities.lora import LoraUse
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
@@ -26,7 +27,13 @@ def image_document(response: RunImageResponse) -> dict[str, Any]:
         "mode": response.mode,
         "prompt": response.prompt,
         "reference": response.reference,
+        "loras": lora_document(response.loras),
     }
+
+
+def lora_document(picks: tuple[LoraUse, ...]) -> list[dict[str, Any]]:
+    """The LoRAs a run used, each at the strength it got."""
+    return [{"id": pick.id, "strength": pick.strength} for pick in picks]
 
 
 def rewrite_document(response: RewriteResponse) -> dict[str, Any]:

@@ -85,3 +85,6 @@ class VideoResult:
     frame_rate: int
     seed: int | None
     stub: bool = False
+    loras: tuple[LoraUse, ...] = ()
+    """The LoRAs the clip ran with, each at the strength used. The host fills this from the
+    job, so a gateway never has to."""
