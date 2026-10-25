@@ -33,8 +33,10 @@ def needs_mlx():
 
 
 def test_a_machine_without_mlx_is_refused_by_name(no_mlx, config):
-    with pytest.raises(EngineUnavailable, match="no MLX GPU is available"):
+    """The message names both engines: an LTX pack plugin takes this check with no image model."""
+    with pytest.raises(EngineUnavailable, match="no MLX GPU is available") as refused:
         create_studio(config)
+    assert "the LTX video packs use the MLX port" in str(refused.value)
 
 
 def test_the_stub_still_builds_where_mlx_is_missing(no_mlx, config):

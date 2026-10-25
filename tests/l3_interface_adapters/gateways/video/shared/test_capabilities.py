@@ -4,6 +4,7 @@ from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
     ltx23_mlx_capabilities,
     ltx25_mlx_capabilities,
+    ltx_pack_capabilities,
 )
 
 
@@ -14,6 +15,7 @@ def test_the_2_5_pack_offers_generate_and_the_seven_effects():
     assert capabilities.backend_id == "ltx25_mlx"
     assert capabilities.name == "LTX-2.5"
     assert capabilities.precision == "int8"
+    assert capabilities.fast_mode is True
     assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
     assert capabilities.modes[0].accepts_audio is True
     assert capabilities.modes[0].looks == VIDEO_LOOKS
@@ -66,9 +68,58 @@ def test_the_2_3_pack_offers_generate_only():
 
     assert capabilities.backend_id == "ltx23_mlx"
     assert capabilities.name == "LTX-2.3"
+    assert capabilities.fast_mode is False
     assert [mode.id for mode in capabilities.modes] == ["generate"]
     assert capabilities.adapters == ()
     assert capabilities.templates == VIDEO_TEMPLATES
+
+
+@pytest.mark.parametrize(
+    ("family", "base_record"), [("ltx25", ltx25_mlx_capabilities), ("ltx23", ltx23_mlx_capabilities)]
+)
+def test_a_plugin_pack_takes_the_base_frame_and_offers_no_prompt_aids_or_fast_mode(family, base_record):
+    """The Looks, the templates and Fast mode were tried on the base packs, so a pack offers none."""
+    pack = ltx_pack_capabilities("example_pack", "Example pack", family)
+    base = base_record()
+
+    assert (pack.backend_id, pack.name, pack.precision) == ("example_pack", "Example pack", "int8")
+    assert pack.description.startswith(f"An {base.name} pack")
+    assert (pack.shapes, pack.max_frames, pack.frame_rate) == (base.shapes, base.max_frames, base.frame_rate)
+    assert pack.fast_mode is False
+    assert pack.templates == () and pack.modes[0].looks == ()
+    assert [mode.id for mode in pack.modes] == ["generate"]
+    assert pack.modes[0].accepts_audio is False and pack.adapters == ()
+
+
+def test_a_plugin_pack_offers_edit_audio_and_fast_mode_only_when_it_asks():
+    pack = ltx_pack_capabilities(
+        "example_pack",
+        "Example pack",
+        "ltx25",
+        description="A pack.",
+        precision="int4",
+        edit=True,
+        audio=True,
+        fast_mode=True,
+    )
+
+    assert (pack.description, pack.precision, pack.fast_mode) == ("A pack.", "int4", True)
+    assert [mode.id for mode in pack.modes] == ["generate", "edit"]
+    assert pack.modes[0].accepts_audio is True
+    assert pack.adapters == ltx25_mlx_capabilities().adapters
+
+
+@pytest.mark.parametrize(
+    ("family", "options", "message"),
+    [
+        ("ltx2", {}, "ltx25 or ltx23"),
+        ("ltx23", {"edit": True}, "only an ltx25 pack can offer Edit"),
+        ("ltx23", {"fast_mode": True}, "only an ltx25 pack can offer Fast mode"),
+    ],
+)
+def test_a_plugin_pack_with_a_family_it_cannot_have_is_refused(family, options, message):
+    with pytest.raises(ValueError, match=message):
+        ltx_pack_capabilities("example_pack", "Example pack", family, **options)
 
 
 def test_new_camera_templates_keep_the_measured_scene_and_motion():

@@ -12,8 +12,7 @@ the operation record keeps the id in place of the path.
 """
 
 import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from studio.l1_entities.capabilities import Capabilities
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, with_triggers
 from studio.l1_entities.video_capabilities import VideoCapabilities
+from studio.l3_interface_adapters.gateways.hidden_paths import hidden, hide
 
 
 @dataclass(frozen=True)
@@ -81,30 +81,15 @@ class LoraFiles:
         return tuple(loaded)
 
     def hide(self, text: str) -> str:
-        """The text with each file path replaced by its LoRA's id.
+        """The text with each file path replaced by its LoRA's id."""
+        return hide(text, self._names())
 
-        An engine can quote a path cut at the front, and MLX drops the home folder, so each
-        tail of the path is replaced too, longest first, down to the file name alone.
-        """
-        for item in self.files:
-            name = Path(item.path).name
-            for start in range(len(item.path) - len(name) + 1):
-                text = text.replace(item.path[start:], f"LoRA {item.lora.id}")
-        return text
+    def hidden(self) -> AbstractContextManager[None]:
+        """Reword an error that names a LoRA file, so the page and the API see only the id."""
+        return hidden(self._names())
 
-    @contextmanager
-    def hidden(self) -> Iterator[None]:
-        """Reword an error that names a LoRA file, so the page and the API see only the id.
-
-        The original error stays chained, so the server's traceback keeps the path.
-        """
-        try:
-            yield
-        except Exception as error:
-            text = self.hide(str(error))
-            if text == str(error):
-                raise
-            raise (type(error) if isinstance(error, StudioError) else StudioError)(text) from error
+    def _names(self) -> tuple[tuple[str, str], ...]:
+        return tuple((item.path, f"LoRA {item.lora.id}") for item in self.files)
 
     def with_triggers(self, prompt: str, picks: tuple[LoraUse, ...]) -> str:
         return with_triggers(prompt, picks, self.offered())

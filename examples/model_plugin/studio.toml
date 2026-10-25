@@ -10,3 +10,11 @@ visible_voice_backends = ["example_voice"]
 
 # Plugin settings use the same section names as entry point IDs.
 [example_image]
+
+# An LTX-2.5 pack on the studio's own LTX engine, from a folder on disk. It needs the GPU and
+# the [mlx_video] engine settings from the repo's studio.toml. A studio that ran LTX-2.5 holds
+# the pack in the Hugging Face cache already: set pack_dir to the folder that this prints.
+#   ls -d ~/.cache/huggingface/hub/models--dgrauet--ltx-2.5-mlx-q8/snapshots/*
+# Then add "example_ltx" to visible_video_backends above.
+[example_ltx]
+pack_dir = ""
