@@ -916,13 +916,14 @@ function withLook(prompt) {
 
 // ---- LoRAs ------------------------------------------------------------------
 // The picks are components/lora-picks.js's, which also draws the hidden field the
-// form posts. The form tells it what the mode in force offers, and hides the
-// section for a mode with none.
+// form posts. The form tells it what the mode in force offers. The page calls them
+// add-ons; LoRA is the API's word.
 let loraDoor = null;
 
 function renderLoras() {
-  document.getElementById('loras').hidden = !(currentMode().loras || []).length;
   if (loraDoor) loraDoor.refresh('image');
+  // The closed Advanced section names the add-ons in force.
+  document.querySelectorAll('advanced-values').forEach(element => element.requestUpdate?.());
 }
 
 function loraPicks() {
@@ -1463,14 +1464,19 @@ const handle = {
       lastReference: lastReference,
     });
   },
-  useAdvanced: function (detail) { detail.configure({ scaleParam: scaleParam }); },
+  useAdvanced: function (detail) {
+    detail.configure({
+      scaleParam: scaleParam,
+      addOns: function () { return loraDoor && loraPicks().length ? loraDoor.summary('image') : ''; },
+    });
+  },
   useLoraPicks: function (detail) {
     loraDoor = detail;
     detail.configure('image', {
       offer: function () { return currentMode().loras || []; },
       max: function () { return currentMode().max_loras || 0; },
       held: function () { return ''; },
-      changed: refreshForm,
+      changed: function () { refreshForm(); renderLoras(); },
     });
     renderLoras();
   },

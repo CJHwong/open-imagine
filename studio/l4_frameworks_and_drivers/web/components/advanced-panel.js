@@ -38,8 +38,8 @@ class Drawn extends LitElement {
 }
 
 // The sentence the closed panel carries: the steps, the scale the mode calls
-// guidance or cfg, the seed or that it is random, and whether a negative prompt
-// goes with it.
+// guidance or cfg, the seed or that it is random, whether a negative prompt goes
+// with it, and the add-ons in force.
 class AdvancedValues extends Drawn {
   static fields = FIELDS;
 
@@ -49,7 +49,8 @@ class AdvancedValues extends Drawn {
     const scale = scaleId ? ', guidance ' + get(scaleId) : '';
     const seed = (get('seed') || '').trim();
     const negative = get('negative') ? ', negative prompt' : '';
-    return html`${steps + ' steps' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative}`;
+    const addOns = page.addOns ? page.addOns() : '';
+    return html`${steps + ' steps' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative + (addOns ? ', ' + addOns : '')}`;
   }
 }
 

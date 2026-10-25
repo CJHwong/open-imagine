@@ -5,7 +5,7 @@ import pytest
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras, with_triggers
 
-WARM = Lora("warm", "Warm light", strength=0.8, min_strength=0.1, max_strength=1.5, recommended=(0.6, 1.0))
+WARM = Lora("warm", "Warm light", strength=0.8, min_strength=-0.5, max_strength=1.5, recommended=(0.6, 1.0))
 GRAIN = Lora("grain", "Film grain", trigger="film grain")
 OFFER = (WARM, GRAIN)
 
@@ -39,7 +39,7 @@ def test_no_pick_is_no_lora(raw):
         ([{"id": "warm", "strength": True}], "must be a number"),
         ([{"id": "warm", "strength": float("nan")}], "must be a number"),
         ([{"id": "warm", "strength": 10**400}], "must be a number"),
-        ([{"id": "warm", "strength": 1.6}], "between 0.1 and 1.5"),
+        ([{"id": "warm", "strength": 1.6}], "between -0.5 and 1.5"),
         ([{"id": "warm"}, {"id": "warm"}], "picked twice"),
     ],
 )
@@ -80,6 +80,8 @@ def test_two_loras_with_the_same_trigger_add_it_once():
         ({"id": "Warm"}, "lowercase"),
         ({"id": "warm-light"}, "lowercase"),
         ({"strength": 3.0}, "outside its own strength range"),
+        ({"min_strength": 0.1}, "from 0 or below to above 0"),
+        ({"max_strength": 0.0}, "from 0 or below to above 0"),
         ({"strength_step": 0}, "step above 0"),
         ({"recommended": (0.5, 2.5)}, "recommends a range"),
         ({"recommended": (1.0, 0.5)}, "recommends a range"),
