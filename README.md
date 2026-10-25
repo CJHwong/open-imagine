@@ -35,3 +35,7 @@ Video needs [engine setup](docs/how-to/set-up-models.md#video-ltx-25). Use `uv r
 [All documentation](docs/README.md) · [Model licenses](docs/reference/model-licenses.md)
 
 The rendered API reference with request examples is at **http://127.0.0.1:8765/api/docs**.
+
+## License
+
+The code is under the [MIT License](LICENSE). Each model's weights have their own license: see [model licenses](docs/reference/model-licenses.md).
