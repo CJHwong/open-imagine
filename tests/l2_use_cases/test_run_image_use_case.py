@@ -551,3 +551,64 @@ def test_a_cancel_at_the_item_start_survives_the_progress_reset(studio):
     with pytest.raises(Cancelled):
         use_case.execute_batch([request(), request()], lambda *_: None, started, lambda: False)
     assert len(backend.jobs) == 1
+
+
+def offer_loras(backend):
+    from studio.l1_entities.lora import Lora
+
+    generate = replace(
+        backend.caps.modes[0],
+        loras=(Lora("example_warm", "Warm", strength=0.8), Lora("example_grain", "Grain", trigger="film grain")),
+        max_loras=2,
+    )
+    backend.caps = replace(backend.caps, modes=(generate, *backend.caps.modes[1:]))
+
+
+def test_a_lora_pick_reaches_the_job_with_its_trigger_words(studio):
+    from studio.l1_entities.lora import LoraUse
+
+    use_case, backend, _, _ = studio
+    offer_loras(backend)
+    loras = '[{"id": "example_grain", "strength": 0.6}, {"id": "example_warm"}]'
+    response = use_case.execute(request(options={"steps": "2", "loras": loras}))
+
+    job = backend.jobs[0]
+    assert job.loras == (LoraUse("example_grain", 0.6), LoraUse("example_warm", 0.8))
+    assert job.prompt == "a red apple, film grain"
+    assert job.options == {"steps": 2, "guidance": 1.0}
+    # The page finds the result's run by the words it sent, so the triggers stay in the job.
+    assert response.prompt == "a red apple"
+
+
+def test_a_blank_prompt_with_a_lora_is_still_refused(studio):
+    use_case, backend, _, _ = studio
+    offer_loras(backend)
+    with pytest.raises(MissingPrompt):
+        use_case.execute(request(prompt=" ", options={"loras": '[{"id": "example_grain"}]'}))
+
+
+def test_a_mode_with_no_loras_refuses_a_pick(studio):
+    use_case, backend, _, _ = studio
+    with pytest.raises(InvalidJob, match="offers no LoRAs"):
+        use_case.execute(request(options={"loras": '[{"id": "example_warm"}]'}))
+    assert backend.jobs == []
+
+
+def test_each_image_of_a_batch_takes_the_same_loras(studio):
+    use_case, backend, _, _ = studio
+    offer_loras(backend)
+    loras = '[{"id": "example_grain"}]'
+    first = use_case.execute(request(total=2, options={"steps": "1", "loras": loras}))
+
+    assert first.next_run.options == {"steps": "1", "loras": loras}
+    assert first.next_run.prompt == "a red apple"
+    second = next_of(use_case, first)
+    assert second.prompt == "a red apple"
+    assert [job.loras for job in backend.jobs] == [backend.jobs[0].loras] * 2
+    assert [job.prompt for job in backend.jobs] == ["a red apple, film grain"] * 2
+
+
+def test_a_batch_of_a_mode_with_no_loras_drops_a_stray_field(studio):
+    use_case, _, _, _ = studio
+    response = use_case.execute(request(total=2, options={"steps": "1", "loras": ""}))
+    assert response.next_run.options == {"steps": "1"}

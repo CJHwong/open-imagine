@@ -59,6 +59,9 @@ class VideoController:
         jobs = [video_job(payload, capabilities) for payload in payloads]
         if len({job.fast_mode for job in jobs}) != 1:
             raise InvalidJob("Each video batch item must use the same fast_mode.")
+        # A batch may keep one pipeline for every clip, and its LoRAs are set when it loads.
+        if len({job.loras for job in jobs}) != 1:
+            raise InvalidJob("Each video batch item must use the same LoRAs.")
         request_id = _request_id(payloads[0].get("request_id"))
         return self._run.execute_batch(jobs, backend_id, request_id, completed, started, cancelled)
 
@@ -92,7 +95,13 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         and any(reference.frame_index != adapter.reference_frame_index for reference in references)
     ):
         raise InvalidJob(f"The look image must use frame_index {adapter.reference_frame_index}.")
+    audio = _audio(payload.get("audio"), mode, capabilities)
+    loras = capabilities.parse_loras(payload.get("loras"))
+    if loras and audio is not None and not capabilities.loras_with_audio:
+        raise InvalidJob("This video model cannot apply LoRAs to a clip that follows an audio track.")
     return VideoJob(
+        # No trigger words here: a video gateway enhances the prompt first, and an exact
+        # Rewrite output must still match. The gateway adds them after, with `with_triggers`.
         prompt,
         width,
         height,
@@ -102,8 +111,9 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         references,
         enhance=_enhance(payload.get("enhance", True), mode),
         edit=_edit(payload, adapter, capabilities) if adapter else None,
-        audio=_audio(payload.get("audio"), mode, capabilities),
+        audio=audio,
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
+        loras=loras,
     )
 
 

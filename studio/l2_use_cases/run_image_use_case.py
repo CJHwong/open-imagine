@@ -21,6 +21,7 @@ from studio.l1_entities.errors import (
     ReferenceExpired,
 )
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
+from studio.l1_entities.lora import with_triggers
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
@@ -145,8 +146,15 @@ class RunImageUseCase:
             started(index, len(jobs))
             began = self._clock()
             image = self._run(backend, backend_id, job, f"{index} of {len(jobs)}", cancelled)
+            # The words the request sent, not the engine's prompt: the page matches a result to
+            # its run by them, and trigger words are the model's business, not the reader's.
             response = RunImageResponse(
-                image, job.mode, job.prompt, f"{index} of {len(jobs)}", self._clock() - began, None
+                image,
+                job.mode,
+                requests[index - 1].prompt.strip(),
+                f"{index} of {len(jobs)}",
+                self._clock() - began,
+                None,
             )
             completed(index, response)
             results.append(response)
@@ -164,9 +172,7 @@ class RunImageUseCase:
         mode = backend.capabilities().mode(request.mode)
         images, token = self._load_references(request, mode)
         self._drop(token)
-        job = ImageJob(
-            mode.id, request.prompt.strip(), self._seed(request.seed), mode.parse_options(request.options), images
-        )
+        job = self._job(request, mode, images)
         if not job.prompt:
             raise MissingPrompt(mode.prompt_required)
         return job
@@ -191,13 +197,7 @@ class RunImageUseCase:
         if not 1 <= request.total <= limit:
             raise InvalidJob(f"count must be between 1 and {limit}")
         chosen, reference = self._one_reference(request, images, each)
-        job = ImageJob(
-            mode=mode.id,
-            prompt=request.prompt.strip(),
-            seed=self._seed(request.seed),
-            options=mode.parse_options(request.options),
-            references=chosen,
-        )
+        job = self._job(request, mode, chosen)
         if request.index == 1:
             self._progress.clear_cancel()  # a fresh batch, so a stale cancel goes
         if not job.prompt:
@@ -214,11 +214,28 @@ class RunImageUseCase:
         return RunImageResponse(
             image=image,
             mode=job.mode,
-            prompt=job.prompt,
+            prompt=request.prompt.strip(),
             position=label or "1 image",
             elapsed=self._clock() - started,
             next_run=next_run,
             reference=reference,
+        )
+
+    def _job(self, request: RunImageRequest, mode: ModeSpec, references: tuple[ReferenceImage, ...]) -> ImageJob:
+        """The job the engine runs. A blank prompt stays blank, so the caller can refuse it
+        with the mode's own words; trigger words go only after a prompt that has words. They
+        stay in the job alone: what the run reports is the request's own prompt."""
+        seed = self._seed(request.seed)
+        options = mode.parse_options(request.options)
+        loras = mode.parse_loras(request.options.get("loras"))
+        prompt = request.prompt.strip()
+        return ImageJob(
+            mode=mode.id,
+            prompt=with_triggers(prompt, loras, mode.loras) if prompt else "",
+            seed=seed,
+            options=options,
+            references=references,
+            loras=loras,
         )
 
     def _load_references(self, request: RunImageRequest, mode: ModeSpec) -> tuple[tuple[ReferenceImage, ...], str]:
@@ -297,11 +314,12 @@ class RunImageUseCase:
         if request.index >= request.total:
             return None
         # The raw values, not the parsed ones, so the next request parses the same way.
-        declared = {param.id for param in mode.params}
+        # The LoRA picks ride as one raw field too, so each image of the batch checks them again.
+        declared = {param.id for param in mode.params} | ({"loras"} if mode.loras else set())
         options = {key: value for key, value in request.options.items() if key in declared}
         return NextRun(
             mode=job.mode,
-            prompt=job.prompt,
+            prompt=request.prompt.strip(),
             seed=image.seed + 1,
             options=options,
             total=request.total,

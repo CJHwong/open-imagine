@@ -46,6 +46,30 @@ def discovery_schemas() -> dict[str, Any]:
             },
             "description": "Send id as a request field. Choice requests use value, not label. Omitted values use default. Respect model-specific ranges.",
         },
+        "Lora": {
+            "type": "object",
+            "properties": {
+                "id": string,
+                "label": string,
+                "strength": {"type": "number", "description": "The strength a pick starts at."},
+                "min_strength": number,
+                "max_strength": number,
+                "strength_step": number,
+                "recommended": {
+                    "type": ["array", "null"],
+                    "items": number,
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "The author's suggested [low, high] range, inside the accepted range.",
+                },
+                "trigger": {
+                    "type": "string",
+                    "description": "Words the server adds after the prompt when it does not already hold them.",
+                },
+                "hint": string,
+            },
+            "description": 'A LoRA the model offers. Send it as {"id": id, "strength": number} in loras.',
+        },
         "Estimate": {
             "type": ["object", "null"],
             "properties": {
@@ -75,6 +99,8 @@ def discovery_schemas() -> dict[str, Any]:
                 "reference_estimate": {"$ref": "#/components/schemas/Estimate"},
                 "region_marking": boolean,
                 "each_reference": boolean,
+                "loras": {"type": "array", "items": {"$ref": "#/components/schemas/Lora"}},
+                "max_loras": {"type": "integer", "description": "How many LoRAs one request can pick."},
             },
         },
         "ImageCapabilities": {
@@ -173,6 +199,12 @@ def discovery_schemas() -> dict[str, Any]:
                     "description": "Supports optional Fast mode; reduced compute precision can change generated details and motion.",
                 },
                 "max_audio_megabytes": number,
+                "loras": {"type": "array", "items": {"$ref": "#/components/schemas/Lora"}},
+                "max_loras": {"type": "integer", "description": "How many LoRAs one request can pick."},
+                "loras_with_audio": {
+                    "type": "boolean",
+                    "description": "Whether a clip that follows an audio track can also pick LoRAs.",
+                },
             },
             "description": "Choose an exact shape pair. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
         },
