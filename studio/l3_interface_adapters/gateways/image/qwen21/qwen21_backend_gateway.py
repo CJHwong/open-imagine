@@ -1,6 +1,7 @@
 from studio.l1_entities.image_job import ImageJob
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 
 
 class Qwen21BackendGateway(ImageBackendGateway):
@@ -13,13 +14,14 @@ class Qwen21BackendGateway(ImageBackendGateway):
     Rebuilding the generate model after an edit measured 3.8s.
     """
 
-    def __init__(self, generator, edit, badge: str):
+    def __init__(self, generator, edit, badge: str, loras: LoraFiles | None = None):
         self._generator = generator
         self._edit = edit
         self._badge = badge
+        self._loras = loras or LoraFiles()
 
     def capabilities(self):
-        return qwen21_capabilities(self._badge)
+        return self._loras.offer_image(qwen21_capabilities(self._badge))
 
     def load(self):
         self._generator.load()

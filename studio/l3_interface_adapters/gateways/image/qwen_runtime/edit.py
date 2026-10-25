@@ -21,6 +21,7 @@ from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import StepHook, lora_kwargs, release_mlx_buffers
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls import MATCH
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import EDIT_MATCH_CAP
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.png_images import to_png
 
 # mflux holds the area budget to a multiple of 32. The page's "match" figure is
@@ -93,7 +94,7 @@ def written(references):
         yield paths
 
 
-def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_path: str | None = None):
+def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_path: str | None = None, loras=()):
     """Build the edit model and register the step hook.
 
     The edit variant loads the vision tower the text-to-image variant does not,
@@ -103,7 +104,7 @@ def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_pa
     from mflux.models.qwen21.variants.edit.qwen_image_21_edit import QwenImage21Edit
 
     if model_path is None:
-        model = QwenImage21Edit(quantize=quantize, **lora_kwargs(lora_path))
+        model = QwenImage21Edit(quantize=quantize, **lora_kwargs(lora_path, loras=loras))
     else:
         from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import official_turbo_model_config
 
@@ -111,7 +112,7 @@ def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_pa
             quantize=quantize,
             model_path=model_path,
             model_config=official_turbo_model_config(),
-            **lora_kwargs(lora_path),
+            **lora_kwargs(lora_path, loras=loras),
         )
     model.callbacks.register(hook)
     return model
@@ -125,24 +126,33 @@ class Qwen21Edit:
         lora_path: str | None = None,
         model_path: str | None = None,
         prepare_model: Callable | None = None,
+        lora_files: LoraFiles | None = None,
     ):
         self._quantize = quantize
         self._build = build
         self._lora_path = lora_path
         self._model_path = model_path
         self._prepare_model = prepare_model
+        self._lora_files = lora_files or LoraFiles()
+        # As the generator: the picked LoRAs are applied at build time.
+        self._built_with: tuple[tuple[str, float], ...] = ()
         self._hook = StepHook()
         self._model = None
 
     def load(self) -> None:
         self._loaded()
 
-    def _loaded(self):
+    def _loaded(self, loras: tuple[tuple[str, float], ...] | None = None):
+        wanted = self._built_with if loras is None else loras
+        if self._model is not None and wanted != self._built_with:
+            self.release()
         if self._model is None:
-            if self._model_path is None:
-                self._model = self._build(self._quantize, self._hook, self._lora_path)
-            else:
-                self._model = self._build(self._quantize, self._hook, self._lora_path, model_path=self._model_path)
+            extra = {"loras": wanted} if wanted else {}
+            if self._model_path is not None:
+                extra["model_path"] = self._model_path
+            with self._lora_files.hidden():  # an engine error may name a LoRA file
+                self._model = self._build(self._quantize, self._hook, self._lora_path, **extra)
+            self._built_with = wanted
             if self._prepare_model is not None:
                 self._prepare_model(self._model)
         return self._model
@@ -157,7 +167,7 @@ class Qwen21Edit:
             # The form is checked before the model loads, so a bad value does not
             # cost a 33 GB build first.
             kwargs = edit_kwargs(job, paths)
-            model = self._loaded()
+            model = self._loaded(self._lora_files.paths(job.loras))
             on_step(0, steps)
             image = self._render(model, kwargs, on_step, should_stop, steps)
         return ImageResult(png=to_png(image), width=image.width, height=image.height, seed=job.seed, steps=steps)

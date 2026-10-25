@@ -136,6 +136,10 @@ class RunImageUseCase:
         backend_id = self._catalog.active_id()
         backend = self._catalog.get(backend_id)
         jobs = [self._batch_job(request, backend_id, backend) for request in requests]
+        # An engine builds its model with one LoRA set, so a second set in the same mode would
+        # rebuild it. A LoRA may apply to one mode only, so two modes may differ.
+        if any(len({job.loras for job in jobs if job.mode == mode}) > 1 for mode in {job.mode for job in jobs}):
+            raise InvalidJob("Each image batch item in one mode must use the same LoRAs.")
         self._check_batch_cancel(cancelled)
         if self._rewriter is not None:
             self._rewriter.release()

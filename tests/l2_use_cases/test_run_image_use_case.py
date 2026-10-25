@@ -418,7 +418,8 @@ def test_each_image_of_a_native_batch_records_the_loras_it_ran_with(studio):
     use_case, backend, _, _ = studio
     offer_loras(backend)
     responses = use_case.execute_batch(
-        [request(options={"loras": '[{"id": "example_warm"}]'}), request()],
+        # One mode takes one LoRA set, so the second image is an edit: each image keeps its own.
+        [request(options={"loras": '[{"id": "example_warm"}]'}), request(mode="edit", references=(PHOTO,))],
         lambda *_: None,
         lambda *_: None,
         lambda: False,
@@ -629,3 +630,16 @@ def test_a_batch_of_a_mode_with_no_loras_drops_a_stray_field(studio):
     use_case, _, _, _ = studio
     response = use_case.execute(request(total=2, options={"steps": "1", "loras": ""}))
     assert response.next_run.options == {"steps": "1"}
+
+
+def test_a_batch_refuses_two_lora_sets_in_one_mode_before_any_engine_work(studio):
+    use_case, backend, _, _ = studio
+    offer_loras(backend)
+    warm = request(options={"loras": '[{"id": "example_warm"}]'})
+    grain = request(options={"loras": '[{"id": "example_grain"}]'})
+
+    # One set builds the model; a second set in the same mode would rebuild it for each image.
+    with pytest.raises(InvalidJob, match="in one mode must use the same LoRAs"):
+        use_case.execute_batch([warm, grain], lambda *_: None, lambda *_: None, lambda: False)
+    assert backend.jobs == []
+    assert not use_case._engine_lock.locked()
