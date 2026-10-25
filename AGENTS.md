@@ -84,3 +84,15 @@ Run this flow when you add a backend. Also run it when you change one: its capab
     - The backend's section in `studio.toml`.
     - ARCHITECTURE.md, if a rule changed.
 12. **Clean up.** Delete the scratch scripts and images. Stop your server and your background jobs. Commit only when the user says so. Commit messages follow Conventional Commits, with body lines of 100 characters at most.
+
+## Skill changes
+
+The agent skill ships as the plugin in `plugins/open-imagine/`. A change there raises `version` in both `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`; CI fails otherwise.
+
+Its eval suite is in `plugins/open-imagine/evals/`. Each case asks for a prompt with the server offline, and a judge grades the reply, with and without the plugin. Run it after a change to the skill's rules:
+
+```sh
+claude plugin eval ./plugins/open-imagine --no-publish
+```
+
+It calls a real model, so CI does not run it. A full run takes about 8 minutes and 2.30 USD. Add a case when you add a rule that a reply can show. Without `--no-publish`, the CLI uploads the report to claude.ai.
