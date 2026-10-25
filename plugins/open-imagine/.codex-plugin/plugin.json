@@ -1,10 +1,11 @@
 {
   "name": "open-imagine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
   "author": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
   "homepage": "https://github.com/CJHwong/open-imagine",
   "repository": "https://github.com/CJHwong/open-imagine",
+  "license": "MIT",
   "keywords": ["image-generation", "photography", "illustration", "apple-silicon"],
   "skills": "./skills",
   "interface": {
@@ -19,6 +20,8 @@
       "make a phone wallpaper of my cat",
       "shoot a product photo set for this mug",
       "restore this old family photo"
-    ]
+    ],
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
   }
 }
