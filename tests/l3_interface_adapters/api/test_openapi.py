@@ -253,7 +253,7 @@ def test_visual_prompt_guides_are_available_at_model_discovery_and_generation():
     assert "not a separate comprehensive 2.1 prompt manual" in tags["images"]
     assert "multi-shot section is explicitly about LTX-2.5" in tags["videos"]
     assert "discovered modes" in tags["videos"]
-    assert "automatically enhances LTX Generate" in tags["videos"]
+    assert "send enhance=false to keep a prompt word for word" in tags["videos"]
     operations = {
         operation["operationId"]: operation for path in document["paths"].values() for operation in path.values()
     }
