@@ -94,3 +94,13 @@ def test_a_marking_mode_with_room_is_built():
         region_marking=True,
     )
     assert mode.region_marking and mode.max_references == 2
+
+
+def test_a_mode_checks_its_lora_picks_against_its_own_offer():
+    from studio.l1_entities.lora import Lora, LoraUse
+
+    mode = ModeSpec(id="edit", label="Edit", params=(), loras=(Lora("warm", "Warm"),), max_loras=1)
+
+    assert mode.parse_loras('[{"id": "warm", "strength": 0.5}]') == (LoraUse("warm", 0.5),)
+    with pytest.raises(ValueError, match="max_loras must be at least 1"):
+        ModeSpec(id="edit", label="Edit", params=(), loras=(Lora("warm", "Warm"),))

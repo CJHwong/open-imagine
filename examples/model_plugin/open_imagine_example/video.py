@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from studio.plugins import ModelPlugin
-from studio.plugins.video import InvalidJob, VideoBackendGateway, VideoCapabilities, VideoResult, VideoShape
+from studio.plugins.video import InvalidJob, Lora, VideoBackendGateway, VideoCapabilities, VideoResult, VideoShape
 
 CAPABILITIES = VideoCapabilities(
     backend_id="example_video",
@@ -31,6 +31,9 @@ CAPABILITIES = VideoCapabilities(
     max_dimension=256,
     dimension_step=16,
     precision="CPU",
+    # A LoRA that only takes the color out, so a pick shows in the clip without a model.
+    loras=(Lora("example_mono", "Monochrome", max_strength=1.0, hint="Takes the color out of the clip."),),
+    max_loras=1,
 )
 
 
@@ -45,6 +48,10 @@ class ExampleVideoGateway(VideoBackendGateway):
         executable = shutil.which("ffmpeg")
         if not executable:
             raise InvalidJob("Install ffmpeg to run the Example Video plugin.")
+        saturation = 1.0
+        for pick in job.loras:
+            if pick.id == "example_mono":
+                saturation -= pick.strength
         with tempfile.TemporaryDirectory(prefix="example-video-") as temporary:
             output = Path(temporary) / "clip.mp4"
             self.context.run_process(
@@ -56,6 +63,8 @@ class ExampleVideoGateway(VideoBackendGateway):
                     "lavfi",
                     "-i",
                     f"testsrc2=size={job.width}x{job.height}:rate={job.frame_rate}",
+                    "-vf",
+                    f"hue=s={max(0.0, saturation):.2f}",
                     "-frames:v",
                     str(job.num_frames),
                     "-c:v",

@@ -65,6 +65,10 @@ function videoMetadata(settings, result = {}) {
     pipeline: settings.pipeline || '',
     audio: settings.audioName || '',
     look: settings.look || '',
+    // The page that sent the run names the picks by label. A clip taken in from an operation
+    // has only the ids it was sent with, so it names them by id.
+    loras: settings.loraLabel || (Array.isArray(settings.loras)
+      ? settings.loras.map(pick => pick.id + ' ' + Number(pick.strength ?? 1).toFixed(2)).join(', ') : ''),
     width: Number(result.width ?? settings.width ?? 0),
     height: Number(result.height ?? settings.height ?? 0),
     numFrames: Number(result.num_frames ?? settings.numFrames ?? 0),
@@ -808,6 +812,7 @@ class VideoStudio extends LitElement {
       // The backend enhances new prompts and recognizes exact native Rewrite outputs.
       enhance: true,
       fast_mode: Boolean(settings.fastMode),
+      loras: Array.isArray(settings.loras) ? settings.loras : [],
       // A mode that takes no image references sends none, whatever the generate form left
       // behind: references are a generate input, and the clip is the edit's.
       references: settings.maxReferences > 0 ? this.imageReferences.map(function (reference) {
@@ -1609,6 +1614,7 @@ class VideoStudio extends LitElement {
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
       if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
       if (metadata.fastMode) facts.push('Fast mode');
+      if (metadata.loras) facts.push('LoRA ' + metadata.loras);
       facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
       if (timeLabel) facts.push(timeLabel);
       if (references.length) {

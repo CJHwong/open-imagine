@@ -958,6 +958,16 @@
   .look-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; }
   .look-chips .chip { height: 28px; padding: 0 10px; }
   .look-note { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+  .loras { display: block; margin-top: 10px; }
+  .lora-rows { display: flex; flex-direction: column; gap: 12px; }
+  .lora-row { display: flex; flex-direction: column; gap: 8px; }
+  .lora-toggle { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lora-toggle:disabled { opacity: .4; cursor: not-allowed; }
+  .lora-strength { gap: 6px; }
+  .lora-note { margin: 12px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+  .lora-held { margin: 0 0 12px; color: var(--text-2); }
+  /* A finger needs a taller target than a pointer. */
+  @media (pointer: coarse) { .lora-toggle { height: 44px; } }
   /* The Look sits under the prompt it extends, so the whole sent text reads in one place. */
   .look-tail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
   .look-tail[hidden] { display: none; }

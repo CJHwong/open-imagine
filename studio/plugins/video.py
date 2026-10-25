@@ -1,6 +1,7 @@
 """Public Video plugin types; outputs cross the boundary as MP4 bytes."""
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
+from studio.l1_entities.lora import Lora, LoraUse, with_triggers
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
 from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
@@ -8,6 +9,8 @@ from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGat
 __all__ = [
     "Cancelled",
     "InvalidJob",
+    "Lora",
+    "LoraUse",
     "VideoAdapter",
     "VideoAudio",
     "VideoBackendGateway",
@@ -18,4 +21,5 @@ __all__ = [
     "VideoReference",
     "VideoResult",
     "VideoShape",
+    "with_triggers",
 ]

@@ -3,6 +3,7 @@
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, LookRow, ModeSpec, ParamSpec, Template
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
+from studio.l1_entities.lora import Lora, LoraUse
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 
 __all__ = [
@@ -15,6 +16,8 @@ __all__ = [
     "ImageResult",
     "InvalidJob",
     "LookRow",
+    "Lora",
+    "LoraUse",
     "ModeSpec",
     "ParamSpec",
     "ReferenceImage",

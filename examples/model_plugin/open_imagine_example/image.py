@@ -4,7 +4,23 @@ import struct
 import zlib
 
 from studio.plugins import ModelPlugin
-from studio.plugins.image import Cancelled, Capabilities, Choice, ImageBackendGateway, ImageResult, ModeSpec, ParamSpec
+from studio.plugins.image import (
+    Cancelled,
+    Capabilities,
+    Choice,
+    ImageBackendGateway,
+    ImageResult,
+    Lora,
+    ModeSpec,
+    ParamSpec,
+)
+
+# A LoRA is declared by id. The gateway maps each id to its weights; these two only
+# shift the color, so the example shows a pick reaching the engine without a model.
+LORAS = (
+    Lora("example_warm", "Warm tint", strength=0.8, max_strength=1.0, trigger="warm light"),
+    Lora("example_dim", "Dim", strength=0.5, max_strength=1.0, recommended=(0.3, 0.7), hint="Darkens the image."),
+)
 
 CAPABILITIES = Capabilities(
     backend_id="example_image",
@@ -22,6 +38,8 @@ CAPABILITIES = Capabilities(
                 ParamSpec("guidance", "number", 1, minimum=1, maximum=1),
                 ParamSpec("seed", "number", 7, minimum=0, maximum=2147483647, integer=True),
             ),
+            loras=LORAS,
+            max_loras=2,
         ),
     ),
 )
@@ -38,7 +56,13 @@ class ExampleImageGateway(ImageBackendGateway):
         if should_stop():
             raise Cancelled("Example Image stopped")
         width, height = map(int, str(job.options["size"]).split("x"))
-        color = bytes((job.seed >> shift) % 200 + 30 for shift in (0, 8, 16))
+        red, green, blue = ((job.seed >> shift) % 200 + 30 for shift in (0, 8, 16))
+        for pick in job.loras:
+            if pick.id == "example_warm":
+                red, blue = red + 60 * pick.strength, blue - 60 * pick.strength
+            elif pick.id == "example_dim":
+                red, green, blue = (value * (1 - 0.6 * pick.strength) for value in (red, green, blue))
+        color = bytes(max(0, min(255, round(value))) for value in (red, green, blue))
         raw = (b"\0" + color * width) * height
 
         def chunk(kind, data):

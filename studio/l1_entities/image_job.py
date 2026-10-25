@@ -7,6 +7,8 @@ adapters, which know what their engine wants.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from studio.l1_entities.lora import LoraUse
+
 OptionValue = str | int | float  # what ParamSpec.parse returns
 
 
@@ -24,6 +26,7 @@ class ImageJob:
     seed: int
     options: Mapping[str, OptionValue]
     references: tuple[ReferenceImage, ...] = field(default=())
+    loras: tuple[LoraUse, ...] = field(default=())  # checked against the mode, in the order picked
 
 
 @dataclass(frozen=True)

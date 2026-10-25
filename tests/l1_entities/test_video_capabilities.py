@@ -99,3 +99,14 @@ def test_an_adapter_declared_impossibly_is_refused_at_declaration():
         replace(settled, prompt_mode="sometimes")
     with pytest.raises(ValueError):
         replace(settled, prompt_mode="empty", prompt="say something")
+
+
+def test_a_video_model_checks_lora_picks_against_its_offer():
+    from studio.l1_entities.lora import Lora, LoraUse
+
+    offered = replace(capabilities(), loras=(Lora("warm", "Warm"),), max_loras=1)
+
+    assert offered.parse_loras([{"id": "warm"}]) == (LoraUse("warm", 1.0),)
+    assert offered.loras_with_audio is False
+    with pytest.raises(ValueError, match="video model 'demo' offers LoRAs"):
+        replace(capabilities(), loras=(Lora("warm", "Warm"),))

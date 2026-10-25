@@ -30,6 +30,35 @@ with sync_playwright() as tool:
         assert png.size == (256, 256)
     print("PASS external Image plugin produces valid PNG through UI", flush=True)
 
+    def image_pixel(prompt):
+        """Run one image at a fixed seed, and read the color of its first pixel."""
+        page.evaluate("document.getElementById('seed').value = '7'")
+        page.locator("#prompt").fill(prompt)
+        page.locator("#go").click()
+        found = "gallery.find(entry => entry.prompt.startsWith(" + repr(prompt) + "))"
+        page.wait_for_function(found + " && !busy()", timeout=30000)
+        entry = page.evaluate(found + ".prompt")
+        data = page.evaluate(
+            "async () => Array.from(new Uint8Array(await (await fetch(" + found + ".src)).arrayBuffer()))"
+        )
+        with Image.open(io.BytesIO(bytes(data))) as png:
+            return entry, png.convert("RGB").getpixel((0, 0))
+
+    _, bare = image_pixel("A bare plugin PNG")
+    expect(page.locator("#loras")).to_be_visible()
+    page.locator("#loras summary").click()
+    page.locator('#lora-picks [data-lora="example_warm"] .lora-toggle').click()
+    expect(page.locator("#lora-values")).to_have_text("Warm tint 0.80")
+    expect(page.locator('#lora-picks input[name="loras"]')).to_have_value('[{"id":"example_warm","strength":0.8}]')
+    prompt, warm = image_pixel("A tinted plugin PNG")
+    assert warm[0] > bare[0] and warm[2] < bare[2], (bare, warm)
+    # The card keeps the words that were typed. The trigger words go to the model only.
+    assert prompt == "A tinted plugin PNG", prompt
+    expect(page.locator('#lora-picks .lora-toggle[aria-pressed="true"]')).to_have_count(0)
+    print(
+        "PASS an Image LoRA pick reaches the engine; the card keeps the typed words; Run empties the pick", flush=True
+    )
+
     page.locator("#media-video-mode").click()
     expect(page.locator("#backend-toggle .name")).to_have_text("Example Video")
     expect(page.locator("#video-rewrite-toggle")).to_be_hidden()
@@ -42,6 +71,20 @@ with sync_playwright() as tool:
     expect(page.locator("#video-preview")).to_be_visible()
     page.wait_for_function("document.querySelector('#video-preview').videoWidth === 256")
     print("PASS external Video plugin produces playable MP4; unrelated Rewrite stays hidden", flush=True)
+
+    expect(page.locator("#video-loras")).to_be_visible()
+    page.locator("#video-loras summary").click()
+    page.locator('#video-lora-picks [data-lora="example_mono"] .lora-toggle').click()
+    expect(page.locator("#video-lora-values")).to_have_text("Monochrome 1.00")
+    page.locator("#video-prompt").fill("A CPU plugin clip without color")
+    page.locator("#video-generate").click()
+    page.wait_for_function(
+        "videoStudio.clips.filter(clip=>clip.kind==='generated' && !clip.stub).length === 2"
+        " && !videoStudio.generationProgress",
+        timeout=30000,
+    )
+    expect(page.locator("#video-studio")).to_contain_text("LoRA Monochrome 1.00")
+    print("PASS a Video LoRA pick reaches the request and the saved clip names it", flush=True)
 
     page.locator("#media-voice-mode").click()
     expect(page.locator("#backend-toggle .name")).to_have_text("Example Voice")

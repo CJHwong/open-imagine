@@ -242,6 +242,7 @@ def openapi_document() -> dict[str, Any]:
                             "description": "One image per reference instead of one image from all of them",
                         },
                         "mask": {"type": "boolean", "description": "The last reference is the region mask"},
+                        "loras": LORA_PICKS,
                     },
                     "additionalProperties": True,
                     "examples": [
@@ -278,6 +279,7 @@ def openapi_document() -> dict[str, Any]:
                         },
                         "each_reference": {"type": "boolean"},
                         "mask": {"type": "boolean"},
+                        "loras": LORA_PICKS,
                     },
                     "additionalProperties": True,
                     "examples": [
@@ -389,6 +391,7 @@ def openapi_document() -> dict[str, Any]:
                             "description": "LTX Generate runs the pipeline's Gemma-3 prompt enhancer unless this is false. Send false for a prompt that must reach the engine as written. Edit is never enhanced, whatever this says. This is separate from the Rewrite API; LTX-2.5 still encodes the enhanced text with its Gemma-4 tower. Edit adapter prompts are not enhanced. Eligible Generate batches enhance their prompts in one model load, release that process, then render. Auto keeps the per-item path for measured regressions. Eligible LTX-2.5 text batches reuse the video pipeline within the measured geometry/memory limits; other Generate batches render clips sequentially. A batch remains one operation and samples one clip at a time.",
                         },
                         "request_id": {"type": "string", "description": "Name this render, so it can be stopped"},
+                        "loras": LORA_PICKS,
                     },
                     "additionalProperties": True,
                     "examples": [
@@ -477,6 +480,7 @@ def openapi_document() -> dict[str, Any]:
                             },
                         },
                         "request_id": {"type": "string"},
+                        "loras": LORA_PICKS,
                     },
                     "additionalProperties": True,
                     "examples": [
@@ -872,6 +876,19 @@ def operation_schemas() -> dict[str, Any]:
             },
         },
     }
+
+
+LORA_PICKS: dict[str, Any] = {
+    "type": "array",
+    "description": "LoRAs to apply, by id, from the model's loras in /api/v1/studio. At most max_loras. "
+    "A missing strength takes the LoRA's own. Each id once. A video batch uses one set for every item.",
+    "items": {
+        "type": "object",
+        "required": ["id"],
+        "properties": {"id": {"type": "string"}, "strength": {"type": "number"}},
+    },
+    "examples": [[{"id": "example_warm", "strength": 0.8}]],
+}
 
 
 def prompt_aid_properties() -> dict[str, Any]:

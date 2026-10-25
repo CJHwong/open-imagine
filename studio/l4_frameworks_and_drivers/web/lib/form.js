@@ -914,6 +914,25 @@ function withLook(prompt) {
   return (/[.!?。！？]$/.test(prompt) ? prompt : prompt + '.') + ' ' + added;
 }
 
+// ---- LoRAs ------------------------------------------------------------------
+// The picks are components/lora-picks.js's, which also draws the hidden field the
+// form posts. The form tells it what the mode in force offers, and hides the
+// section for a mode with none.
+let loraDoor = null;
+
+function renderLoras() {
+  document.getElementById('loras').hidden = !(currentMode().loras || []).length;
+  if (loraDoor) loraDoor.refresh('image');
+}
+
+function loraPicks() {
+  return loraDoor ? loraDoor.picks('image') : [];
+}
+
+function setLoraPicks(picks) {
+  if (loraDoor) loraDoor.setPicks('image', picks || []);
+}
+
 function applyMode(preserveParams = false) {
   const form = page.el.form;
   form.classList.toggle('mode-edit', editing());
@@ -921,6 +940,7 @@ function applyMode(preserveParams = false) {
   page.el.promptInput.placeholder = currentMode().prompt_hint;
   page.el.templatesToggle.hidden = !currentMode().templates.length;
   document.getElementById('look').hidden = !currentMode().looks.length;
+  renderLoras();
   // The choice is drawn only where the mode declares it, and the caption says which way it is
   // set, so a mode that composes and nothing else never shows the control or its note.
   renderEachChoice();
@@ -1444,6 +1464,18 @@ const handle = {
     });
   },
   useAdvanced: function (detail) { detail.configure({ scaleParam: scaleParam }); },
+  useLoraPicks: function (detail) {
+    loraDoor = detail;
+    detail.configure('image', {
+      offer: function () { return currentMode().loras || []; },
+      max: function () { return currentMode().max_loras || 0; },
+      held: function () { return ''; },
+      changed: refreshForm,
+    });
+    renderLoras();
+  },
+  loraPicks: loraPicks,
+  setLoraPicks: setLoraPicks,
   useLookRows: function (detail) {
     detail.configure({
       form: 'image',

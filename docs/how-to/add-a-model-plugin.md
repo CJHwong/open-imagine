@@ -16,6 +16,8 @@ This is a real external package, discovered from its installed metadata. It supp
 **Example Image** (a solid-color PNG), **Example Video** (an FFmpeg test clip), and
 **Example Voice** (a WAV tone). These are CPU contract demonstrations, not trained models.
 Video requires `ffmpeg` on PATH. Add `--stub` to exercise their forms without calling their factories.
+Example Image and Example Video also offer LoRAs that only shift the color, so the LoRA section
+of each form has something to pick. See [LoRAs](../reference/model-plugins.md#loras) for the contract.
 
 To offer the example alongside the built-in models:
 

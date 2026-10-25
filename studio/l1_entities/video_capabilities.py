@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from studio.l1_entities.capabilities import LookRow, Template
 from studio.l1_entities.errors import UnsupportedMode
+from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
 
 
 @dataclass(frozen=True)
@@ -149,6 +150,20 @@ class VideoCapabilities:
     the cap leaves room under the request's own 64 MB ceiling."""
     fast_mode: bool = False
     """Whether this backend accepts the optional faster, reduced-precision render path."""
+    loras: tuple[Lora, ...] = ()
+    """The LoRAs a clip can pick, in every mode. A model that offers none hides the picker."""
+    max_loras: int = 0
+    """How many LoRAs one clip takes. Each one costs memory for the whole run."""
+    loras_with_audio: bool = False
+    """Whether a clip that follows an audio track can also pick LoRAs. An engine whose audio
+    path cannot apply them says so here, and the form clears the picks when a track is set."""
+
+    def __post_init__(self) -> None:
+        check_offer(self.loras, self.max_loras, f"video model {self.backend_id!r}")
+
+    def parse_loras(self, raw: object) -> tuple[LoraUse, ...]:
+        """The LoRAs a request picks, checked against the ones this model offers."""
+        return parse_loras(raw, self.loras, self.max_loras)
 
     def mode(self, mode_id: str) -> VideoMode:
         """The mode with this id. A backend with no modes has one, and it is generate."""

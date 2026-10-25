@@ -68,6 +68,51 @@ Automatic native enhancement inside generation is the model gateway's responsibi
 `job.enhance` is false when a Generate request sends `enhance: false`, and for every Edit. Then
 leave the prompt as it is.
 
+## LoRAs
+
+A model can offer LoRAs. Declare them on the capability record: an image mode declares
+`loras` and `max_loras` on its `ModeSpec`, and a video model declares them on its
+`VideoCapabilities`. Each entry is a `studio.plugins.<media>.Lora`.
+
+| Field | Contract |
+|---|---|
+| `id` | Lowercase letters, digits and underscores. Requests name the LoRA by this id. |
+| `label` | The name the page shows. |
+| `strength` | The strength a pick starts at. |
+| `min_strength`, `max_strength`, `strength_step` | The range that the host accepts and the slider offers. |
+| `recommended` | Optional `(low, high)` inside that range. The page shows it as a suggestion. |
+| `trigger` | Optional words that the LoRA was trained on. |
+| `hint` | Optional sentence under the pick. |
+
+A declaration names no file. The gateway maps each id to its own weights, so a path never
+reaches the page, the API or the operation record. Keep the files in the plugin's
+configuration, and resolve them in `load` or `run`.
+
+The host checks each request before the run. It refuses an unknown id, a repeated id, a
+strength outside the LoRA's range, and more picks than `max_loras`. The job then carries the
+picks as `job.loras`, a tuple of `LoraUse(id, strength)`, in the order of the request.
+
+The trigger words go after the prompt, unless the prompt holds them already. Who adds them
+depends on the media:
+
+| Media | Who adds the trigger words |
+|---|---|
+| Image | The host. `job.prompt` holds them. Do not add them again. |
+| Video | The gateway, with `studio.plugins.video.with_triggers`, after its own prompt enhancement. |
+
+Video differs because a video gateway enhances the prompt itself, and an exact Rewrite output
+must still match. Either way, the result records the prompt the request sent.
+
+Two more rules apply to video only:
+
+- A video model applies one LoRA set to a whole batch, because a batch may keep one loaded
+  pipeline. The host refuses a batch whose items pick different LoRAs.
+- Set `loras_with_audio=True` only if the engine applies LoRAs to an audio-conditioned clip.
+  If it is false, the host refuses LoRAs with an audio track, and the page holds the picks.
+
+The example package declares neutral LoRAs that shift the color of its output, so a pick has
+a visible result without a trained model.
+
 ## Process context
 
 `PluginContext.settings` contains a copy of that model's `studio.toml` section, with paths

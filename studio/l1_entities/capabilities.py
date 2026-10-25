@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
 from studio.l1_entities.image_job import OptionValue
+from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
 
 
 @dataclass(frozen=True)
@@ -145,7 +146,14 @@ class ModeSpec:
 
     reference_estimate: Estimate | None = None
 
+    loras: tuple[Lora, ...] = ()
+    """The LoRAs that a run of this mode can pick, and how many of them at once. A mode
+    that offers none hides the picker, and refuses a request that names one."""
+
+    max_loras: int = 0
+
     def __post_init__(self) -> None:
+        check_offer(self.loras, self.max_loras, f"mode {self.id!r}")
         # The mask is one more reference, so a mode that offers the tool has to be
         # able to carry the picture and the mask. Without this check the page would
         # offer a tool whose every run the backend refuses.
@@ -158,6 +166,10 @@ class ModeSpec:
     def parse_options(self, raw: Mapping[str, str]) -> dict[str, OptionValue]:
         """The mode's settings from a form. Fields the mode does not declare are ignored."""
         return {param.id: param.parse(raw.get(param.id)) for param in self.params}
+
+    def parse_loras(self, raw: object) -> tuple[LoraUse, ...]:
+        """The LoRAs a request picks, checked against the ones this mode offers."""
+        return parse_loras(raw, self.loras, self.max_loras)
 
     def check_references(self, count: int) -> None:
         if count < self.min_references:

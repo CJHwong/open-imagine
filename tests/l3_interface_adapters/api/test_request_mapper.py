@@ -77,3 +77,17 @@ def test_next_form_carries_every_field_the_page_posts():
         "reference_token": "t",
         "backend": "fake",
     }
+
+
+def test_lora_picks_travel_as_one_json_field():
+    form = image_form({"loras": [{"id": "example_warm", "strength": 0.8}]}, "generate")
+    assert form["loras"] == '[{"id": "example_warm", "strength": 0.8}]'
+    with pytest.raises(InvalidJob, match="loras must be a list"):
+        image_form({"loras": {"id": "example_warm"}}, "generate")
+
+
+def test_the_page_s_own_lora_field_passes_as_it_is():
+    """The page's batch posts the form's fields, and the picker's field is a JSON string,
+    blank when nothing is picked. The mode parses it, so the mapper must not refuse it."""
+    assert image_form({"loras": ""}, "generate")["loras"] == ""
+    assert image_form({"loras": '[{"id": "example_warm"}]'}, "generate")["loras"] == '[{"id": "example_warm"}]'

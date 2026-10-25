@@ -4,6 +4,7 @@ import base64
 from dataclasses import asdict, fields
 
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec, Template
+from studio.l1_entities.lora import Lora
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities
 from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
@@ -80,6 +81,7 @@ def test_discovery_schemas_describe_fields_clients_need_to_build_a_request():
         ("Template", Template),
         ("VideoCapabilities", VideoCapabilities),
         ("VideoAdapter", VideoAdapter),
+        ("Lora", Lora),
     ]:
         assert set(field.name for field in fields(record)) <= set(schemas[name]["properties"]), name
     assert schemas["Studio"]["properties"]["image"]["properties"]["capabilities"]["$ref"].endswith("/ImageCapabilities")

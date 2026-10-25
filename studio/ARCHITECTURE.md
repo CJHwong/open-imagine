@@ -62,6 +62,12 @@ remain unchanged. Plugin-only configurations own their runtime platform requirem
 Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
 no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/model-plugins.md).
 
+A LoRA is declared by id in layer 1 (`l1_entities/lora.py`), on an image `ModeSpec` or on
+`VideoCapabilities`. The entity checks the picks of a request and supplies `with_triggers`. The
+image use case adds the trigger words to the job; a video gateway adds them after its own
+prompt enhancement. A result reports the prompt the request sent. Only
+the gateway maps an id to a file, so no path reaches the page, the API or an operation record.
+
 ## Boundaries and composition
 
 The responsibility split follows the [Clean Architecture examples](https://github.com/CJHwong/py-clean-architecture-examples)

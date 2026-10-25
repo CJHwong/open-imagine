@@ -72,6 +72,7 @@ function snapshotInputs() {
     count: page.el.countInput.value,
     params: params,
     look: JSON.parse(JSON.stringify(page.look())),
+    loras: page.loraPicks(),
     references: page.references().slice(),
     region: page.region().snapshot(),
   };
@@ -93,6 +94,7 @@ function clearInputs() {
   document.getElementById('seed').value = '';
   el.countInput.value = '1';
   page.setLook({});
+  page.setLoraPicks([]);
   region.clearText();
   page.setReferences([]);
   region.putDown();
@@ -120,6 +122,7 @@ function restoreInputs(snapshot) {
   document.getElementById('seed').value = snapshot.seed;
   el.countInput.value = snapshot.count;
   page.setLook(snapshot.look);
+  page.setLoraPicks(snapshot.loras);
   // The rows read their text from here, so it goes back before they are built.
   region.setText(snapshot.region.text);
   page.setReferences(snapshot.references.slice());
