@@ -1,7 +1,7 @@
 [project]
 name = "open-imagine-example-models"
 version = "0.1.0"
-description = "CPU-only Image, Video and Voice plugin examples for Open Imagine"
+description = "Image, Video and Voice plugin examples for Open Imagine; all but the LTX pack run on the CPU"
 requires-python = ">=3.11"
 
 [project.entry-points."open_imagine.models.image"]
@@ -9,6 +9,7 @@ example_image = "open_imagine_example.image:plugin"
 
 [project.entry-points."open_imagine.models.video"]
 example_video = "open_imagine_example.video:plugin"
+example_ltx = "open_imagine_example.ltx:plugin"
 
 [project.entry-points."open_imagine.models.audio"]
 example_voice = "open_imagine_example.audio:plugin"

@@ -211,12 +211,28 @@ VIDEO_ADAPTERS = (
 )
 
 
-def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabilities:
+FAMILIES = {"ltx25": "LTX-2.5", "ltx23": "LTX-2.3"}
+
+
+def _capabilities(
+    backend_id: str,
+    name: str,
+    family: str,
+    *,
+    edit: bool = False,
+    audio: bool = True,
+    fast_mode: bool = False,
+    aids: bool = True,
+    description: str = "Native MLX on Apple Silicon, 8-bit weights.",
+    precision: str = "int8",
+) -> VideoCapabilities:
+    """Both families share the sizes and the timing, and the 2.5 family adds its camera
+    templates. `aids` offers the Looks and the templates, sampled on the two base packs only."""
     generate = VideoMode(
         "generate",
         "Generate",
-        accepts_audio=True,
-        looks=VIDEO_LOOKS,
+        accepts_audio=audio,
+        looks=VIDEO_LOOKS if aids else (),
         min_references=0,
         max_references=8,
         prompt_label="Prompt",
@@ -237,9 +253,9 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         backend_id=backend_id,
         name=name,
         badge="24 fps",
-        description="Native MLX on Apple Silicon, 8-bit weights.",
-        precision="int8",
-        fast_mode=backend_id == "ltx25_mlx",
+        description=description,
+        precision=precision,
+        fast_mode=fast_mode,
         shapes=SHAPES,
         default_shape_ratio="1:1",
         min_frames=9,
@@ -262,15 +278,52 @@ def _capabilities(backend_id: str, name: str, edit: bool = False) -> VideoCapabi
         # took 790 s on 2.5 q8 and stayed inside 64 GB, on the distilled two-stage path.
         max_dimension=1920,
         dimension_step=64,
-        templates=LTX25_TEMPLATES if backend_id == "ltx25_mlx" else VIDEO_TEMPLATES,
+        templates=((LTX25_TEMPLATES if family == "ltx25" else VIDEO_TEMPLATES) if aids else ()),
         modes=(generate, edit_mode) if edit else (generate,),
         adapters=VIDEO_ADAPTERS if edit else (),
     )
 
 
 def ltx25_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx25_mlx", "LTX-2.5", edit=True)
+    return _capabilities("ltx25_mlx", "LTX-2.5", "ltx25", edit=True, fast_mode=True)
 
 
 def ltx23_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx23_mlx", "LTX-2.3")
+    return _capabilities("ltx23_mlx", "LTX-2.3", "ltx23")
+
+
+def ltx_pack_capabilities(
+    backend_id: str,
+    name: str,
+    family: str,
+    *,
+    description: str = "",
+    precision: str = "int8",
+    edit: bool = False,
+    audio: bool = False,
+    fast_mode: bool = False,
+) -> VideoCapabilities:
+    """A pack that a plugin names: the base packs' sizes and timing, and no prompt aids.
+
+    The Looks and the templates were sampled on the base packs only, so a pack offers none
+    of them until someone samples it too. Edit, an audio track and Fast mode are off unless
+    the plugin turns them on: none of them was run on a finetune. Only the 2.5 family has
+    the effects and Fast mode.
+    """
+    if family not in FAMILIES:
+        raise ValueError(f"an LTX pack's family is {' or '.join(FAMILIES)}, not {family!r}")
+    if edit and family != "ltx25":
+        raise ValueError("only an ltx25 pack can offer Edit, because the effects are LTX-2.5 adapters")
+    if fast_mode and family != "ltx25":
+        raise ValueError("only an ltx25 pack can offer Fast mode, because it was measured on LTX-2.5")
+    return _capabilities(
+        backend_id,
+        name,
+        family,
+        edit=edit,
+        audio=audio,
+        fast_mode=fast_mode,
+        aids=False,
+        description=description or f"An {FAMILIES[family]} pack on the studio's MLX engine.",
+        precision=precision,
+    )
