@@ -5,6 +5,7 @@ from studio.l1_entities.image_job import ImageJob
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.shared.viggle_schedule import viggle_schedule
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.capabilities import viggle_turbo_capabilities
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 
 # Where the adapter comes from, in the README's words. The message names the whole
 # command, because a user who enabled this backend without it has nothing else to
@@ -31,14 +32,15 @@ class ViggleTurboBackendGateway(ImageBackendGateway):
     the length of the call.
     """
 
-    def __init__(self, generator, edit, badge: str, lora_path: str):
+    def __init__(self, generator, edit, badge: str, lora_path: str, loras: LoraFiles | None = None):
         self._generator = generator
         self._edit = edit
         self._badge = badge
         self._lora_path = lora_path
+        self._loras = loras or LoraFiles()
 
     def capabilities(self):
-        return viggle_turbo_capabilities(self._badge)
+        return self._loras.offer_image(viggle_turbo_capabilities(self._badge))
 
     def load(self):
         """Refuse here rather than in the composition root.

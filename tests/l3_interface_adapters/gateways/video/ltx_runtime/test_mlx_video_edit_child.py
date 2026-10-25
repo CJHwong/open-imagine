@@ -73,3 +73,25 @@ def test_custom_edit_passes_the_clip_and_prompt_without_loading_any_lora(monkeyp
             },
         ),
     ]
+
+
+def test_custom_edit_loads_the_picked_loras(monkeypatch):
+    loaded = []
+
+    class Pipeline:
+        def __init__(self, **kwargs):
+            loaded.append(kwargs["lora_paths"])
+
+        def generate_and_save(self, **kwargs):
+            pass
+
+    monkeypatch.setitem(sys.modules, "ltx_pipelines_mlx.ic_lora", SimpleNamespace(ICLoraPipeline=Pipeline))
+    args = [child.__file__, "-p", "Blue", "-o", "out.mp4", "--model", "pack", "-H", "384", "-W", "640", "-f", "49"]
+    args += ["--frame-rate", "24", "--video-conditioning", "clip.mp4", "1.0", "--stage1-steps", "8"]
+    args += ["--stage2-steps", "0", "--seed", "1", "--lora", "/loras/a.safetensors", "0.7"]
+    args += ["--lora", "/loras/b.safetensors", "1"]
+    monkeypatch.setattr(sys, "argv", args)
+
+    child.main()
+
+    assert loaded == [[("/loras/a.safetensors", 0.7), ("/loras/b.safetensors", 1.0)]]

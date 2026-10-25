@@ -86,7 +86,9 @@ A model can offer LoRAs. Declare them on the capability record: an image mode de
 
 A declaration names no file. The gateway maps each id to its own weights, so a path never
 reaches the page, the API or the operation record. Keep the files in the plugin's
-configuration, and resolve them in `load` or `run`.
+configuration, and resolve them in `load` or `run`. A `loras` list of tables in the plugin's
+section gets the same rule as the built-in models: the host resolves each entry's `path` from
+the configuration file, and `context.settings` holds the absolute path.
 
 The host checks each request before the run. It refuses an unknown id, a repeated id, a
 strength outside the LoRA's range, and more picks than `max_loras`. The job then carries the
@@ -102,6 +104,9 @@ depends on the media:
 
 Video differs because a video gateway enhances the prompt itself, and an exact Rewrite output
 must still match. Either way, the result records the prompt the request sent.
+
+An image batch takes one LoRA set for each mode, because an engine builds its model with one
+set. The host refuses a batch whose items in one mode pick different LoRAs.
 
 Two more rules apply to video only:
 

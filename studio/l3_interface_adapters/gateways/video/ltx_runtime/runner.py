@@ -17,6 +17,7 @@ from pathlib import Path
 
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.video.shared.engine_paths import checked_executable
 from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report as _crash_report
 
@@ -46,8 +47,14 @@ class MlxVideoRunner:
         enhanced_prompt: Callable | None = None,
         *,
         execute_process: Callable,
+        lora_files: LoraFiles | None = None,
     ):
         self._execute_process = execute_process
+        # The LoRAs a person picks, beside the effect adapters under lora_dir. A run that picks
+        # one attaches them unfused: fusing into the int8 pack loses most of a small update. An
+        # effect's run stays fused, because the mode applies to its adapter too, and its recipe
+        # was measured fused.
+        self._lora_files = lora_files or LoraFiles()
         self._enhanced_prompt = enhanced_prompt or (lambda prompt, image: False)
         self._cli = str(settings.get("cli_path", ""))
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
@@ -84,22 +91,33 @@ class MlxVideoRunner:
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
         self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
+        # Before any work: a missing file is refused here, and never reaches the engine as a name.
+        loras = self._lora_files.paths(job.loras)
+        environment = {}
         with tempfile.TemporaryDirectory(prefix="studio-mlx-") as scratch:
             root = Path(scratch)
             output = root / "output.mp4"
             if job.edit is not None:
-                command = self._edit_command(job, job.edit, root, output, cancelled)
+                command = self._edit_command(job, job.edit, root, output, cancelled, loras)
             else:
                 images = self._write_references(job, root)
                 audio = self._write_audio(job, root)
-                command = self._command(job, output, images, audio)
-                if (audio is not None or images) and job.enhance and self._enhances:
+                command = self._command(job, output, images, audio, loras)
+                triggers = self._lora_files.triggers(job.loras)
+                if triggers and self._will_enhance(job):
+                    # The CLI enhances inside its own process, so the trigger words go in there,
+                    # after the enhancer: a rewrite could drop them, and the LoRA needs them.
+                    environment["STUDIO_LORA_TRIGGERS"] = json.dumps(triggers)
+                if (audio is not None or images or triggers) and self._will_enhance(job):
                     python = self._checked(
                         str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
                     )
                     child = Path(__file__).with_name("mlx_video_generation_child.py")
                     command = [python, str(child), *command[1:]]
-            self._execute(command, progress, cancelled, fast_mode=job.fast_mode)
+            if loras and not (job.edit is not None and job.edit.lora_file):
+                environment["LTX2_LORA_MODE"] = "unfused"
+            with self._lora_files.hidden():
+                self._execute(command, progress, cancelled, fast_mode=job.fast_mode, environment=environment)
             if not output.is_file() or output.stat().st_size == 0:
                 raise StudioError("The MLX video pipeline did not write an MP4 file.")
             mp4 = output.read_bytes()
@@ -133,6 +151,9 @@ class MlxVideoRunner:
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
         self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
+        # One pipeline serves the whole batch, and its LoRAs attach when it loads, so the
+        # controller lets a batch through only with one set.
+        loras = self._lora_files.paths(jobs[0].loras)
         with tempfile.TemporaryDirectory(prefix="studio-mlx-batch-") as scratch:
             root = Path(scratch)
             commands = []
@@ -143,7 +164,7 @@ class MlxVideoRunner:
                 item.mkdir()
                 images = self._write_references(job, item)
                 audio = self._write_audio(job, item)
-                command = self._command(job, root / f"{index}.mp4", images, audio)
+                command = self._command(job, root / f"{index}.mp4", images, audio, loras)
                 if audio is not None and job.enhance and self._enhances:
                     # The enhancement child consumes this marker before the a2v parser sees it.
                     command.append("--enhance-prompt")
@@ -154,16 +175,24 @@ class MlxVideoRunner:
                 child = Path(__file__).with_name("mlx_video_batch_enhancement.py")
                 self._execute([str(python), str(child), str(manifest)], None, cancelled)
                 commands = json.loads(manifest.read_text())
+            # The enhancer has run by now, so the trigger words go after what it wrote.
+            for job, command in zip(jobs, commands, strict=True):
+                if self._will_enhance(job) and job.audio is None:
+                    place = command.index("-p") + 1
+                    command[place] = self._lora_files.with_triggers(command[place], job.loras)
+            manifest.write_text(json.dumps(commands))
             records = BatchRecords(jobs, commands, root, completed, started, progress, cancelled)
             child = Path(__file__).with_name("mlx_video_batch_child.py")
-            self._execute(
-                [str(python), str(child), policy or "sequential", str(manifest)],
-                None,
-                cancelled,
-                records.feed,
-                lambda: records.item_started_at,
-                fast_mode=jobs[0].fast_mode,
-            )
+            with self._lora_files.hidden():
+                self._execute(
+                    [str(python), str(child), policy or "sequential", str(manifest)],
+                    None,
+                    cancelled,
+                    records.feed,
+                    lambda: records.item_started_at,
+                    fast_mode=jobs[0].fast_mode,
+                    environment={"LTX2_LORA_MODE": "unfused"} if loras else None,
+                )
             if len(records.results) != len(jobs):
                 raise StudioError("The MLX video batch ended before every item finished.")
             return records.results
@@ -179,20 +208,30 @@ class MlxVideoRunner:
             results.append(result)
         return results
 
+    def _will_enhance(self, job: VideoJob) -> bool:
+        return job.enhance and self._enhances
+
+    @staticmethod
+    def _lora_flags(loras: tuple[tuple[str, float], ...]) -> list[str]:
+        return [flag for path, strength in loras for flag in ("--lora", path, f"{strength:g}")]
+
     def _command(
         self,
         job: VideoJob,
         output: Path,
         images: list[Path],
         audio: Path | None,
+        loras: tuple[tuple[str, float], ...] = (),
     ) -> list[str]:
         # A track turns the job into the audio-to-video task; every other job draws a clip,
         # and the distilled path is the fast one for both packs.
+        # A prompt the enhancer will rewrite gets its trigger words after the rewrite.
+        prompt = job.prompt if self._will_enhance(job) else self._lora_files.with_triggers(job.prompt, job.loras)
         command = [
             self._cli,
             "a2v" if audio is not None else "generate",
             "-p",
-            job.prompt,
+            prompt,
             "-H",
             str(job.height),
             "-W",
@@ -222,6 +261,7 @@ class MlxVideoRunner:
             command.append("--enhance-prompt")
         for path, reference in zip(images, job.references, strict=True):
             command.extend(("--image", str(path), str(reference.frame_index), f"{reference.strength:g}"))
+        command.extend(self._lora_flags(loras))
         return command
 
     def _edit_command(
@@ -231,6 +271,7 @@ class MlxVideoRunner:
         root: Path,
         output: Path,
         cancelled: Callable[[], bool] | None = None,
+        loras: tuple[tuple[str, float], ...] = (),
     ) -> list[str]:
         """Keep existing effects on their measured single-stage recipes.
 
@@ -256,7 +297,8 @@ class MlxVideoRunner:
         command = [
             *entrypoint,
             "-p",
-            job.prompt,
+            # An edit is not enhanced, so the trigger words go in as written.
+            self._lora_files.with_triggers(job.prompt, job.loras),
             "--video-conditioning",
             str(clip),
             "1.0",
@@ -287,6 +329,9 @@ class MlxVideoRunner:
             images = self._write_references(job, root)
             for path, reference in zip(images, job.references, strict=True):
                 command.extend(("--image", str(path), "-1", f"{reference.strength:g}", "0"))
+        # The picked LoRAs follow the effect's adapter. On the IC-LoRA path they are task
+        # LoRAs, so Layout to Render's second stage runs without them, as it runs without the effect.
+        command.extend(self._lora_flags(loras))
         return command
 
     def _lora(self, edit: VideoEdit, cancelled: Callable[[], bool] | None = None) -> Path:
@@ -377,6 +422,7 @@ class MlxVideoRunner:
         timeout_started: Callable[[], float | None] | None = None,
         *,
         fast_mode: bool | None = None,
+        environment: dict | None = None,
     ) -> None:
         reporter = _RenderProgress(command, progress) if progress else None
 
@@ -386,7 +432,7 @@ class MlxVideoRunner:
             if reporter:
                 reporter.feed(text)
 
-        environment = {}
+        environment = dict(environment or {})
         if fast_mode is not None:
             environment["LTX2_COMPUTE_DTYPE"] = "float16" if fast_mode else "float32"
         self._execute_process(

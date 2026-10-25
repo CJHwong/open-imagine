@@ -336,3 +336,42 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
     assert len(models) == len(set(models)) == 9
+
+
+LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
+
+
+@pytest.mark.parametrize("backend_id", ["qwen21", "qwen21_turbo", "viggle_turbo"])
+def test_a_qwen_backend_offers_the_loras_of_its_section(tmp_path: Path, backend_id):
+    text = (
+        f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "turbo"\nlora_path = "speed.safetensors"\n'
+        + LORA_TABLE.format(id=backend_id, modes='modes = ["edit"]\n')
+    )
+    backend = build_backends(settings(tmp_path, text))[backend_id]
+
+    record = backend.capabilities()
+    assert [lora.id for lora in record.mode("edit").loras] == ["example_warm"]
+    assert record.mode("generate").loras == ()
+
+
+def test_a_lora_that_names_a_mode_the_model_lacks_stops_the_start(tmp_path: Path):
+    text = 'default_backend = "qwen21"\n' + LORA_TABLE.format(id="qwen21", modes='modes = ["inpaint"]\n')
+    with pytest.raises(ConfigError, match=r"\[qwen21\]: A LoRA names a mode"):
+        build_backends(settings(tmp_path, text))
+
+
+def test_flux2_refuses_a_lora_table(tmp_path: Path):
+    text = 'default_backend = "flux2"\n[flux2]\nmodel_dir = "klein"\n' + LORA_TABLE.format(id="flux2", modes="")
+    with pytest.raises(ConfigError, match="takes no LoRAs"):
+        build_backends(settings(tmp_path, text))
+
+
+@pytest.mark.parametrize("backend_id", ["ltx25_mlx", "ltx23_mlx"])
+def test_a_video_backend_offers_the_loras_of_its_own_section(tmp_path: Path, backend_id):
+    text = f'default_backend = "qwen21"\ndefault_video_backend = "{backend_id}"\n[qwen21]\n' + LORA_TABLE.format(
+        id=backend_id, modes=""
+    )
+    backend = build_video_backends(settings(tmp_path, text))[backend_id]
+
+    assert [lora.id for lora in backend.capabilities().loras] == ["example_warm"]
+    assert backend._runner._lora_files.files[0].path == str((tmp_path / "warm.safetensors").resolve())
