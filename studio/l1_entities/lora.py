@@ -78,15 +78,15 @@ def parse_loras(raw: object, offered: tuple[Lora, ...], max_loras: int) -> tuple
 
     `raw` is a list of {"id", "strength"} objects, as the JSON API sends it, or the
     same list as one JSON string, as a form field carries it. Blank means no LoRA.
-    A pick without a strength takes the LoRA's own starting strength.
+    A pick without a strength takes the LoRA's own default strength. A pick at 0 is
+    off, the way the page's slider is: it is checked like any other, then left out,
+    so it does not count toward `max_loras`.
     """
     items = _items(raw)
     if not items:
         return ()
     if not offered:
         raise InvalidJob("This model offers no LoRAs.")
-    if len(items) > max_loras:
-        raise InvalidJob(f"This model takes at most {max_loras} LoRA{'' if max_loras == 1 else 's'}.")
     by_id = {lora.id: lora for lora in offered}
     picks: list[LoraUse] = []
     for item in items:
@@ -94,7 +94,10 @@ def parse_loras(raw: object, offered: tuple[Lora, ...], max_loras: int) -> tuple
         if any(chosen.id == pick.id for chosen in picks):
             raise InvalidJob(f"LoRA {pick.id} is picked twice.")
         picks.append(pick)
-    return tuple(picks)
+    used = tuple(pick for pick in picks if pick.strength != 0)
+    if len(used) > max_loras:
+        raise InvalidJob(f"This model takes at most {max_loras} LoRA{'' if max_loras == 1 else 's'}.")
+    return used
 
 
 def with_triggers(prompt: str, picks: tuple[LoraUse, ...], offered: tuple[Lora, ...]) -> str:

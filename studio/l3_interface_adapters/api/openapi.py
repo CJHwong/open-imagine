@@ -315,6 +315,7 @@ def openapi_document() -> dict[str, Any]:
                         "mode": {"type": "string"},
                         "prompt": {"type": "string"},
                         "reference": {"type": "integer", "description": "Which reference this edited, or -1"},
+                        "loras": LORAS_USED,
                     },
                 },
                 "ImageRun": {
@@ -501,6 +502,7 @@ def openapi_document() -> dict[str, Any]:
                         "num_frames": {"type": "integer"},
                         "frame_rate": {"type": "integer"},
                         "seed": {"type": "integer"},
+                        "loras": LORAS_USED,
                     },
                 },
                 "Progress": {
@@ -607,7 +609,8 @@ def _video_run(operation_id: str, summary: str) -> dict[str, Any]:
         },
         "responses": {
             "200": {
-                "description": "The clip, as the MP4 itself. The seed is in X-Studio-Seed. A stub server answers JSON.",
+                "description": "The clip, as the MP4 itself. The seed is in X-Studio-Seed, and the LoRAs it used, as a "
+                "JSON list, in X-Studio-Loras. A stub server answers JSON.",
                 "content": {
                     "video/mp4": {"schema": {"type": "string", "contentMediaType": "video/mp4"}},
                     "application/json": {"schema": {"$ref": "#/components/schemas/VideoStub"}},
@@ -878,10 +881,22 @@ def operation_schemas() -> dict[str, Any]:
     }
 
 
+LORAS_USED: dict[str, Any] = {
+    "type": "array",
+    "description": "The LoRAs the run used, each at the strength it got. A pick at 0 is left out.",
+    "items": {
+        "type": "object",
+        "required": ["id", "strength"],
+        "properties": {"id": {"type": "string"}, "strength": {"type": "number"}},
+    },
+}
+
+
 LORA_PICKS: dict[str, Any] = {
     "type": "array",
     "description": "LoRAs to apply, by id, from the model's loras in /api/v1/studio. At most max_loras. "
-    "A missing strength takes the LoRA's own. Each id once. A video batch uses one set for every item.",
+    "A missing strength takes the LoRA's own. A strength of 0 is off. Each id once. "
+    "A video batch uses one set for every item.",
     "items": {
         "type": "object",
         "required": ["id"],

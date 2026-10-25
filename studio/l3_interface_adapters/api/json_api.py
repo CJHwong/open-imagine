@@ -33,6 +33,7 @@ from studio.l3_interface_adapters.controllers.video_controller import VideoContr
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
 from studio.l3_interface_adapters.presenters.json_presenter import (
     image_document,
+    lora_document,
     native_image_progress,
     operation_document,
     progress_document,
@@ -322,6 +323,7 @@ class JsonApi:
                     frame_rate=result.frame_rate,
                     seed=result.seed,
                     stub=result.stub,
+                    loras=lora_document(result.loras),
                 )
             if isinstance(result, SpeechResult):
                 metadata.update(

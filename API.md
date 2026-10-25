@@ -638,11 +638,15 @@ mode, as `loras` and `max_loras`. For a video model they are on its capabilities
 }
 ```
 
-A pick without `strength` starts at the LoRA's own `strength`. Studio refuses an unknown id,
-a repeated id, a strength outside the LoRA's range, and more picks than `max_loras`. The
-model gets each LoRA's `trigger` words after the prompt, unless the prompt holds them already.
-The result records the prompt that you sent, without them. An empty list, or no field, means
-no LoRA.
+A pick without `strength` gets the LoRA's own `strength`. A pick at strength 0 is off: Studio
+checks it, then leaves it out, so it does not count toward `max_loras`. Studio refuses an
+unknown id, a repeated id, a strength outside the LoRA's range, and more picks than
+`max_loras`. The model gets each LoRA's `trigger` words after the prompt, unless the prompt
+holds them already. The result records the prompt that you sent, without them. An empty list,
+or no field, means no LoRA.
+
+The result records the LoRAs that ran, each at the strength it got: `loras` on each image and
+each batch item, and the `X-Studio-Loras` header, a JSON list, on a video's MP4.
 
 Every item of a video batch must pick the same LoRAs. Set `loras` once at the top level. A
 video model with `loras_with_audio: false` refuses LoRAs on a request that sends `audio`.

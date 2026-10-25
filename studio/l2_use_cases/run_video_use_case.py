@@ -2,6 +2,7 @@
 
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 
 from studio.l1_entities.errors import BackendBusy, BackendChanged, Cancelled
 from studio.l1_entities.video_job import VideoJob, VideoResult
@@ -35,7 +36,8 @@ class RunVideoUseCase:
             self._progress.begin("", kind="video", request_id=request_id)
             try:
                 self._residency.activate(backend_id)
-                return backend.run(job, self._progress.set_step, self._progress.cancel_requested)
+                result = backend.run(job, self._progress.set_step, self._progress.cancel_requested)
+                return replace(result, loras=job.loras)
             except Cancelled:
                 self._progress.clear_cancel()
                 raise
@@ -75,13 +77,19 @@ class RunVideoUseCase:
                 self._progress.begin(f"{index} of {total}", kind="video", request_id=request_id)
                 started(index, total)
 
-            return self._catalog.get(backend_id).run_batch(
+            # Each clip carries the LoRAs it ran with. A batch has one set, so the first
+            # job's picks are every clip's.
+            def done(index: int, result: VideoResult) -> None:
+                completed(index, replace(result, loras=jobs[0].loras))
+
+            results = self._catalog.get(backend_id).run_batch(
                 jobs,
-                completed,
+                done,
                 begin,
                 self._progress.set_step,
                 lambda: cancelled() or self._progress.cancel_requested(),
             )
+            return [replace(result, loras=jobs[0].loras) for result in results]
         except Exception:
             if cancelled() or self._progress.cancel_requested():
                 self._progress.clear_cancel()

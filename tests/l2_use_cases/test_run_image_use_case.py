@@ -412,6 +412,21 @@ def test_native_batch_holds_one_lock_and_retains_varied_results(studio):
     assert len(backend.jobs) == 2
 
 
+def test_each_image_of_a_native_batch_records_the_loras_it_ran_with(studio):
+    from studio.l1_entities.lora import LoraUse
+
+    use_case, backend, _, _ = studio
+    offer_loras(backend)
+    responses = use_case.execute_batch(
+        [request(options={"loras": '[{"id": "example_warm"}]'}), request()],
+        lambda *_: None,
+        lambda *_: None,
+        lambda: False,
+    )
+
+    assert [response.loras for response in responses] == [(LoraUse("example_warm", 0.8),), ()]
+
+
 def test_native_batch_validates_every_job_before_any_engine_work(studio):
     use_case, backend, _, _ = studio
     with pytest.raises(MissingPrompt):
@@ -578,6 +593,8 @@ def test_a_lora_pick_reaches_the_job_with_its_trigger_words(studio):
     assert job.options == {"steps": 2, "guidance": 1.0}
     # The page finds the result's run by the words it sent, so the triggers stay in the job.
     assert response.prompt == "a red apple"
+    # The result records what ran: the pick that named no strength got the LoRA's own.
+    assert response.loras == job.loras
 
 
 def test_a_blank_prompt_with_a_lora_is_still_refused(studio):

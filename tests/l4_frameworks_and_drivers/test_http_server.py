@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
+from studio.l1_entities.lora import Lora
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
@@ -297,6 +298,7 @@ def test_video_stub_route_returns_metadata_only(served):
         "num_frames": 145,
         "frame_rate": 24,
         "seed": None,
+        "loras": [],
     }
 
 
@@ -632,6 +634,21 @@ def test_the_video_generate_route_returns_the_mp4(served):
         assert answer.headers["Content-Type"] == "video/mp4"
         assert answer.headers["X-Studio-Seed"] == "42"
         assert answer.read() == b"fake mp4 bytes"
+        assert "X-Studio-Loras" not in answer.headers  # a clip with no LoRA names none
+
+
+def test_the_mp4_names_the_loras_it_ran_with(served):
+    """The header carries the job's picks at the strength each got, whatever the gateway
+    returned: a pick that names no strength records the LoRA's own."""
+    served[2]._capabilities = replace(
+        fake_video_capabilities(), loras=(Lora("mono", "Mono", strength=0.6),), max_loras=1
+    )
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/api/v1/videos/generate"
+    request = urllib.request.Request(
+        url, data=video_request(loras=[{"id": "mono"}]), headers={"Content-Type": "application/json"}, method="POST"
+    )
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert json.loads(answer.headers["X-Studio-Loras"]) == [{"id": "mono", "strength": 0.6}]
 
 
 def test_the_video_routes_fix_the_mode_they_name(served):

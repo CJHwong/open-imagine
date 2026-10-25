@@ -14,7 +14,7 @@ from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
-from studio.l3_interface_adapters.presenters.json_presenter import rewrite_document
+from studio.l3_interface_adapters.presenters.json_presenter import lora_document, rewrite_document
 
 # Where the page's own files live. GET /page/<name> serves one of them, and a
 # test points WEB at a directory of its own to reach both rules below.
@@ -307,6 +307,7 @@ def make_handler(
                         "num_frames": result.num_frames,
                         "frame_rate": result.frame_rate,
                         "seed": result.seed,
+                        "loras": lora_document(result.loras),
                     },
                     headers=headers,
                 )
@@ -315,6 +316,8 @@ def make_handler(
             else:
                 if result.seed is not None:
                     headers["X-Studio-Seed"] = str(result.seed)
+                if result.loras:
+                    headers["X-Studio-Loras"] = json.dumps(lora_document(result.loras))
                 self._send_bytes(result.mp4, content_type="video/mp4", headers=headers)
 
         def _api_result(self, action) -> tuple[Any, int]:

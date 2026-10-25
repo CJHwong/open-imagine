@@ -31,7 +31,7 @@ def test_no_pick_is_no_lora(raw):
     [
         ("[", "JSON list"),
         ({"id": "warm"}, "list of"),
-        ([{"id": "warm"}, {"id": "grain"}, {"id": "warm"}], "at most 2 LoRAs"),
+        ([{"id": "warm"}, {"id": "grain"}, {"id": "warm"}], "warm is picked twice"),
         (["warm"], "an object"),
         ([{"id": "cold"}], "one of warm, grain"),
         ([{"strength": 1}], "one of warm, grain"),
@@ -48,9 +48,29 @@ def test_a_bad_pick_is_refused_with_its_reason(raw, message):
         parse_loras(raw, OFFER, 2)
 
 
+def test_a_pick_at_0_is_off_and_does_not_count_toward_the_limit():
+    picks = parse_loras([{"id": "warm", "strength": 0}, {"id": "grain", "strength": 1}], OFFER, 1)
+
+    assert picks == (LoraUse("grain", 1.0),)
+    assert parse_loras([{"id": "warm", "strength": 0.0}], OFFER, 1) == ()
+
+
+def test_a_pick_at_0_is_still_checked():
+    with pytest.raises(InvalidJob, match="one of warm, grain"):
+        parse_loras([{"id": "cold", "strength": 0}], OFFER, 2)
+    with pytest.raises(InvalidJob, match="picked twice"):
+        parse_loras([{"id": "warm", "strength": 0}, {"id": "warm", "strength": 1}], OFFER, 2)
+
+
 def test_a_model_with_no_loras_refuses_a_pick():
     with pytest.raises(InvalidJob, match="offers no LoRAs"):
         parse_loras([{"id": "warm"}], (), 0)
+
+
+def test_more_picks_than_the_model_takes_are_refused():
+    dust = Lora("dust", "Dust")
+    with pytest.raises(InvalidJob, match=r"at most 2 LoRAs\.$"):
+        parse_loras([{"id": "warm"}, {"id": "grain"}, {"id": "dust"}], (*OFFER, dust), 2)
 
 
 def test_one_lora_is_named_in_the_singular():

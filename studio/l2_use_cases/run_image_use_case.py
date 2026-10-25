@@ -21,7 +21,7 @@ from studio.l1_entities.errors import (
     ReferenceExpired,
 )
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
-from studio.l1_entities.lora import with_triggers
+from studio.l1_entities.lora import LoraUse, with_triggers
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
@@ -72,6 +72,9 @@ class RunImageResponse:
     reference: int = -1
     """Which reference of the batch this image edited, or -1 when all of them made one
     picture. The page uses it to line the result up with the image it came from."""
+    loras: tuple[LoraUse, ...] = ()
+    """The LoRAs the image ran with, each at the strength used, so a pick that named no
+    strength still records the one it got."""
 
 
 class RunImageUseCase:
@@ -155,6 +158,7 @@ class RunImageUseCase:
                 f"{index} of {len(jobs)}",
                 self._clock() - began,
                 None,
+                loras=job.loras,
             )
             completed(index, response)
             results.append(response)
@@ -219,6 +223,7 @@ class RunImageUseCase:
             elapsed=self._clock() - started,
             next_run=next_run,
             reference=reference,
+            loras=job.loras,
         )
 
     def _job(self, request: RunImageRequest, mode: ModeSpec, references: tuple[ReferenceImage, ...]) -> ImageJob:
