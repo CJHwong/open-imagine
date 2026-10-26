@@ -1,0 +1,9 @@
+[project]
+name = "open-imagine-flux3-runtime"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "mflux @ git+https://github.com/mflux-community/mflux@63cec2b005bbb255447e0b42521c5cc6d6d5121c",
+  # Pillow 13 imports numbers._IntegralLike, unavailable in CPython 3.12.
+  "pillow>=12.3,<13",
+]
