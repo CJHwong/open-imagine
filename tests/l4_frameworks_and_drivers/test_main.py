@@ -486,13 +486,13 @@ def test_an_engine_error_names_the_pack_and_its_lora_by_id_and_never_by_path(mon
 
     def engine(command, *arguments, **options):
         lora = command[command.index("--lora") + 1]
-        raise StudioError(f"cannot open {command[command.index('--model') + 1]}/transformer.safetensors | lora {lora}")
+        raise StudioError(f"cannot open {command[command.index('--model') + 1]} | lora {lora}")
 
     backend._runner._execute_process = engine
     with pytest.raises(StudioError) as failed:
         backend.run(VideoJob("a cat", 384, 384, 49, 24, 7, loras=(LoraUse("example_warm", 1.0),)))
 
-    assert str(failed.value) == "cannot open the example_pack pack/transformer.safetensors | lora LoRA example_warm"
+    assert str(failed.value) == "cannot open the example_pack pack | lora LoRA example_warm"
     assert str(tmp_path) not in str(failed.value)
 
 
