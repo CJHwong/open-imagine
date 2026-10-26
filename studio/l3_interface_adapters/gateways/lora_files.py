@@ -70,14 +70,16 @@ class LoraFiles:
         """Each pick as the file and strength its engine loads, in the order picked."""
         by_id = {item.lora.id: item for item in self.files}
         loaded = []
-        for pick in picks:
-            item = by_id.get(pick.id)
-            if item is None:
-                raise StudioError(f"This model has no LoRA called {pick.id}.")
-            if not Path(item.path).is_file():
-                print(f"[LoRA {pick.id}] no file at {item.path}", file=sys.stderr, flush=True)
-                raise StudioError(f"The weights of LoRA {pick.id} are not on disk. The server log names the path.")
-            loaded.append((item.path, pick.strength))
+        # Inside, because a folder that cannot be read raises with the file's path.
+        with self.hidden():
+            for pick in picks:
+                item = by_id.get(pick.id)
+                if item is None:
+                    raise StudioError(f"This model has no LoRA called {pick.id}.")
+                if not Path(item.path).is_file():
+                    print(f"[LoRA {pick.id}] no file at {item.path}", file=sys.stderr, flush=True)
+                    raise StudioError(f"The weights of LoRA {pick.id} are not on disk. The server log names the path.")
+                loaded.append((item.path, pick.strength))
         return tuple(loaded)
 
     def hide(self, text: str) -> str:
