@@ -165,6 +165,24 @@ def test_a_local_turbo_edit_model_receives_its_path_and_official_scheduler_confi
     assert registered == [hook]
 
 
+def test_a_checkpoint_edit_folder_takes_the_config_it_names():
+    base_config = object()
+
+    class FakeQwenImage21Edit:
+        def __init__(self, quantize, model_path, model_config):
+            self.model_config = model_config
+            self.callbacks = Mock()
+
+    with heavy_modules(
+        {"mflux.models.qwen21.variants.edit.qwen_image_21_edit": {"QwenImage21Edit": FakeQwenImage21Edit}}
+    ):
+        model = build_model(
+            quantize=8, hook=StepHook(), model_path="/local/checkpoint", model_config=lambda: base_config
+        )
+
+    assert model.model_config is base_config
+
+
 class FakeEngine:
     """An mflux edit model stand-in. It records the kwargs and reads every path it is
     given, so a test can tell that the references were on disk for the call."""
