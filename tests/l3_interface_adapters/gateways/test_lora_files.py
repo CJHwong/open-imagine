@@ -119,3 +119,36 @@ def test_an_error_that_names_no_lora_file_passes_unchanged(tmp_path):
     with pytest.raises(RuntimeError) as failed, files.hidden():
         raise error
     assert failed.value is error
+
+
+def lora_in(folder, name="example-warm.safetensors"):
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / name).write_bytes(b"w")
+    return LoraFiles((LoraFile(Lora("example_warm", "Warm"), str(folder / name)),), 1)
+
+
+def test_a_folder_that_cannot_be_read_is_refused_by_the_lora_s_id(tmp_path):
+    folder = tmp_path / "example-private-loras"
+    files = lora_in(folder)
+    folder.chmod(0)
+    try:
+        with pytest.raises(StudioError) as refused:
+            files.paths((LoraUse("example_warm", 1.0),))
+    finally:
+        folder.chmod(0o755)
+
+    assert "example-private-loras" not in str(refused.value)
+    assert "LoRA example_warm" in str(refused.value)
+
+
+def test_an_error_that_names_where_a_linked_lora_leads_names_its_id(tmp_path):
+    files = lora_in(tmp_path / "example-private-loras")
+    link = tmp_path / "public-warm.safetensors"
+    link.symlink_to(tmp_path / "example-private-loras/example-warm.safetensors")
+    linked = LoraFiles((LoraFile(Lora("example_warm", "Warm"), str(link)),), 1)
+
+    with pytest.raises(StudioError) as failed, linked.hidden():
+        raise RuntimeError(f"bad shape in {link.resolve()}")
+
+    assert str(failed.value) == "bad shape in LoRA example_warm"
+    assert files.paths((LoraUse("example_warm", 1.0),))[0][1] == 1.0
