@@ -224,3 +224,7 @@ Its dedicated MLX child preserves virtual reference time -1, uses ancestral samp
 conditioning in both stages. It loads the LTX-2.5 v1_0 spatial upscaler explicitly and refuses missing
 weights/config; the pinned IC-LoRA loader otherwise looks for v1_1 and silently keeps random weights.
 Existing single-stage effects retain their sampling paths. The external engine checkout is not patched.
+
+### FLUX3 runtime isolation
+
+`gateways/image/flux3` is a built-in optional adapter. Its `runtime/uv.lock` pins the newer engine independently of the host environment. The gateway receives the process runner through injection and launches its configured Python directly, once per image. The runner owns cancellation and waits for exit before releasing the operation. Readiness checks and model selection do not load weights. No other image adapter imports this runtime.
