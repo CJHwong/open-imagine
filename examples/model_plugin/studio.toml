@@ -11,6 +11,14 @@ visible_voice_backends = ["example_voice"]
 # Plugin settings use the same section names as entry point IDs.
 [example_image]
 
+# A Qwen-Image-2.1 checkpoint on the studio's own mflux engine, from a folder on disk. It needs
+# the GPU. A studio that ran qwen21 holds the base model in the Hugging Face cache already: set
+# model_dir to the folder that this prints, and the checkpoint draws what qwen21 draws.
+#   ls -d ~/.cache/huggingface/hub/models--Qwen--Qwen-Image-2.1/snapshots/*
+# Then add "example_qwen" to visible_backends above.
+[example_qwen]
+model_dir = ""
+
 # An LTX-2.5 pack on the studio's own LTX engine, from a folder on disk. It needs the GPU and
 # the [mlx_video] engine settings from the repo's studio.toml. A studio that ran LTX-2.5 holds
 # the pack in the Hugging Face cache already: set pack_dir to the folder that this prints.

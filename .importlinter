@@ -68,6 +68,7 @@ modules =
     studio.l3_interface_adapters.gateways.image.flux2
     studio.l3_interface_adapters.gateways.image.flux3
     studio.l3_interface_adapters.gateways.image.viggle_turbo
+    studio.l3_interface_adapters.gateways.image.qwen_checkpoint
     studio.l3_interface_adapters.gateways.video.gemma3
     studio.l3_interface_adapters.gateways.video.ltx25
     studio.l3_interface_adapters.gateways.video.ltx23

@@ -1,11 +1,12 @@
 [project]
 name = "open-imagine-example-models"
 version = "0.1.0"
-description = "Image, Video and Voice plugin examples for Open Imagine; all but the LTX pack run on the CPU"
+description = "Image, Video and Voice plugin examples for Open Imagine; all but the LTX pack and the Qwen checkpoint run on the CPU"
 requires-python = ">=3.11"
 
 [project.entry-points."open_imagine.models.image"]
 example_image = "open_imagine_example.image:plugin"
+example_qwen = "open_imagine_example.qwen:plugin"
 
 [project.entry-points."open_imagine.models.video"]
 example_video = "open_imagine_example.video:plugin"

@@ -15,7 +15,7 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
-The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is wired the same way: layer 4 registers the official Turbo checkpoint's own sigma table, which lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py` because a backend may not import another backend.
+The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is not an engine choice. Layer 4 names the schedule, and the gateway registers it with mflux when a run starts, because the stub builds every backend on machines with no mflux. The official Turbo checkpoint's sigma table lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py`, because a backend may not import another backend.
 
 Image, Video, and Voice have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
 
@@ -27,18 +27,19 @@ Every generation model has one concrete gateway in its own media/model package:
 
 ```text
 gateways/
-  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3}/
+  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,qwen_checkpoint}/
   video/{ltx25,ltx23,ltx_pack}/
   audio/{drama3,auk,auk_flash}/
 ```
 
 Each package implements its media boundary. AuK and AuK Flash have separate gateways;
 LTX-2.3 and LTX-2.5 do too. A gateway fixes its model identity rather than selecting
-between models at runtime. `video/ltx_pack` is the exception: it takes its identity from the
-plugin record that names the pack. Existing public backend IDs remain stable.
+between models at runtime. `video/ltx_pack` and `image/qwen_checkpoint` are the exceptions: each
+takes its identity from the plugin record that names the weights. Existing public backend IDs remain stable.
 Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
 `video/ltx_runtime`, and `audio/auk_runtime`. These packages are implementation helpers, not additional
-model gateways. `.importlinter` forbids imports between the ten model packages and `video/ltx_pack`.
+model gateways. `.importlinter` forbids imports between the ten model packages, `video/ltx_pack` and
+`image/qwen_checkpoint`.
 Layer 4 constructs the model-specific gateway and injects its engine dependencies.
 LTX command construction, batching and memory profiles, sampler progress interpretation,
 and engine child scripts live in `video/ltx_runtime`. Gemma instructions, enhancement,
@@ -62,7 +63,8 @@ capability records without calling plugin engine factories. Native built-in fact
 remain unchanged. Plugin-only configurations own their runtime platform requirements.
 Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
 no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/model-plugins.md).
-An LTX pack is the exception to both rules, because it runs on the built-in LTX engine.
+An LTX pack and a Qwen checkpoint are the exceptions to both rules, because each runs on a
+built-in engine.
 
 A LoRA is declared by id in layer 1 (`l1_entities/lora.py`), on an image `ModeSpec` or on
 `VideoCapabilities`. The entity checks the picks of a request and supplies `with_triggers`. The
@@ -78,6 +80,12 @@ studio's own LTX engine. The record is data only, so the SDK imports no adapter.
 root builds the model as it builds the base packs, with their runner, enhancer and LoRA tables,
 behind the gateway `video/ltx_pack`. A run checks the pack's folder before the engine starts, and
 `gateways/hidden_paths.py` rewords an error that quotes the folder or a LoRA file.
+
+An image plugin can export a `QwenCheckpoint` record in the same way, to run a Qwen-Image-2.1
+checkpoint on the studio's own mflux engine. The composition root builds the two engines that
+`qwen21` drives, with the base model's config, the record's schedule and the plugin's LoRA
+tables, behind the gateway `image/qwen_checkpoint`. The two ComfyUI schedules that a record can
+name live in `image/shared/qwen_schedules.py`, beside the other Qwen schedules.
 
 ## Boundaries and composition
 
