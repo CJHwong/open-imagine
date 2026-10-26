@@ -49,8 +49,21 @@ def generate_kwargs(job: ImageJob, scheduler: str = "linear") -> dict:
     return kwargs
 
 
-def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_path: str | None = None, loras=()):
-    """Build the model and register mflux's MemorySaver and the step hook.
+def build_model(
+    quantize,
+    hook: StepHook,
+    lora_path: str | None = None,
+    model_path: str | None = None,
+    loras=(),
+    *,
+    model_config: Callable | None = None,
+    callbacks: tuple = (),
+):
+    """Build the model and register mflux's MemorySaver, any `callbacks`, and the step hook.
+
+    A local folder gets the official Turbo card's model config, unless `model_config`
+    names another one. A checkpoint record passes the base model's config, because its
+    weights come from the base model and its linear schedule needs the base shift.
 
     MemorySaver drops the 17.5 GB Qwen3-VL text encoder before the denoising
     loop. The encoder is dead weight once the prompt is encoded. Measured at
@@ -72,10 +85,12 @@ def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_pa
         model = QwenImage21(
             quantize=quantize,
             model_path=model_path,
-            model_config=official_turbo_model_config(),
+            model_config=(model_config or official_turbo_model_config)(),
             **lora_kwargs(lora_path, loras=loras),
         )
     model.callbacks.register(MemorySaver(model=model, keep_transformer=True, cache_limit_bytes=None, num_seeds=1))
+    for callback in callbacks:
+        model.callbacks.register(callback)
     model.callbacks.register(hook)
     return model
 

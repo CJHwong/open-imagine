@@ -5,6 +5,7 @@ import pytest
 from studio.l1_entities.errors import Cancelled
 from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import (
     StepHook,
+    base_model_config,
     lora_kwargs,
     official_turbo_model_config,
     release_mlx_buffers,
@@ -115,6 +116,13 @@ def test_official_turbo_uses_a_copy_of_the_model_config_without_dynamic_shift():
     assert turbo_config is not base_config
     assert (turbo_config.requires_sigma_shift, turbo_config.sigma_shift_terminal) == (False, None)
     assert (base_config.requires_sigma_shift, base_config.sigma_shift_terminal) == (True, 0.02)
+
+
+def test_a_checkpoint_folder_gets_the_base_config_that_mflux_uses_with_no_folder():
+    """The base shift stays on, so a linear schedule on the base weights matches qwen21."""
+    config = base_model_config()
+
+    assert (config.requires_sigma_shift, config.sigma_shift_terminal) == (True, 0.02)
 
 
 @pytest.mark.parametrize("recommended", [32 * 1024**3, 60 * 1024**3])

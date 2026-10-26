@@ -183,6 +183,41 @@ def test_a_local_turbo_model_receives_its_path_and_official_scheduler_config(mon
     assert registered[0] == "the memory saver"
 
 
+def test_a_checkpoint_folder_takes_the_config_and_the_callbacks_it_names():
+    """A checkpoint record's folder needs the base model's config, not the Turbo card's, and
+    an ancestral sampler needs its seed hook before the step hook."""
+    registered = []
+    base_config = object()
+
+    class FakeCallbacks:
+        def register(self, callback):
+            registered.append(callback)
+
+    class FakeQwenImage21:
+        def __init__(self, quantize, model_path, model_config):
+            self.model_path = model_path
+            self.model_config = model_config
+            self.callbacks = FakeCallbacks()
+
+    with heavy_modules(
+        {
+            "mflux.callbacks.instances.memory_saver": {"MemorySaver": Mock(return_value="the memory saver")},
+            "mflux.models.qwen21.variants.txt2img.qwen_image_21": {"QwenImage21": FakeQwenImage21},
+        }
+    ):
+        hook = StepHook()
+        model = build_model(
+            quantize=8,
+            hook=hook,
+            model_path="/local/checkpoint",
+            model_config=lambda: base_config,
+            callbacks=("the seed hook",),
+        )
+
+    assert model.model_config is base_config
+    assert registered == ["the memory saver", "the seed hook", hook]
+
+
 def test_the_model_is_built_once_and_kept_for_the_next_run():
     builder = EngineBuilder([FakeEngine(), FakeEngine()])
     generator = Qwen21Generator(quantize=None, build=builder)
