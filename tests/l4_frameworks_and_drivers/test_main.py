@@ -20,7 +20,7 @@ from studio.l4_frameworks_and_drivers.main import (
     build_video_backends,
 )
 from tests.support.fakes import FakeBackendGateway
-from tests.support.plugins import PACK, install, pack_entries
+from tests.support.plugins import CHECKPOINT, PACK, checkpoint_entries, install, pack_entries
 
 
 def settings(tmp_path: Path, text: str, **flags):
@@ -507,3 +507,194 @@ def test_the_example_pack_is_a_valid_record(monkeypatch, tmp_path: Path):
     backend = ltx_pack_backend(pack_settings(tmp_path), pack)
     assert backend.capabilities().backend_id == "example_ltx"
     assert [mode.id for mode in backend.capabilities().modes] == ["generate"]
+
+
+def checkpoint_settings(tmp_path: Path, section: str = "") -> Config:
+    """Plugin video and voice models, the example checkpoint as the one image model, and its section."""
+    return settings(
+        tmp_path,
+        'default_backend = "example_qwen"\n'
+        'default_video_backend = "example_video"\n'
+        'default_voice_backend = "example_voice"\n' + section,
+    )
+
+
+def checkpoint_folder(folder: Path) -> Path:
+    for relative in (
+        "processor/tokenizer.json",
+        "text_encoder/model.safetensors.index.json",
+        "text_encoder/model-00001-of-00001.safetensors",
+        "transformer/diffusion_pytorch_model.safetensors",
+        "vae/diffusion_pytorch_model.safetensors",
+    ):
+        (folder / relative).parent.mkdir(parents=True, exist_ok=True)
+        (folder / relative).write_bytes(b"")
+    return folder
+
+
+@pytest.mark.parametrize(
+    ("scheduler", "sampler", "generate", "edit", "hooks"),
+    [
+        ("linear", "euler", "linear", "linear", 0),
+        ("linear_quadratic", "euler", "qwen_linear_quadratic", "qwen_linear_quadratic", 0),
+        ("linear_quadratic", "euler_ancestral", "qwen_linear_quadratic_euler_ancestral", "qwen_linear_quadratic", 1),
+    ],
+)
+def test_a_checkpoint_is_built_like_the_qwen_models_from_its_own_section(
+    monkeypatch, tmp_path: Path, scheduler, sampler, generate, edit, hooks
+):
+    from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.qwen_checkpoint_backend_gateway import (
+        QwenCheckpointBackendGateway,
+    )
+    from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config
+    from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import AncestralSeedHook
+
+    registry = install(
+        monkeypatch, checkpoint_entries(replace(CHECKPOINT, scheduler=scheduler, generate_sampler=sampler))
+    )
+    section = '[example_qwen]\nmodel_dir = "checkpoint"\nquantize = 8\n' + LORA_TABLE.format(
+        id="example_qwen", modes='modes = ["edit"]\n'
+    )
+
+    backend = build_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
+
+    assert isinstance(backend, QwenCheckpointBackendGateway)
+    record = backend.capabilities()
+    assert (record.name, record.badge) == ("Example Qwen checkpoint", "int8")
+    assert record.mode("generate").loras == ()
+    assert [lora.id for lora in record.mode("edit").loras] == ["example_warm"]
+    folder = str((tmp_path / "checkpoint").resolve())
+    assert backend._model_dir == folder and backend._edit_scheduler == edit
+    generator, editor = backend._generator, backend._edit
+    assert (generator._model_path, editor._model_path) == (folder, folder)
+    assert (generator._quantize, editor._quantize) == (8, 8)
+    assert generator._scheduler == generate
+    assert generator._build.keywords["model_config"] is base_model_config
+    assert editor._build.keywords == {"model_config": base_model_config}
+    assert [type(hook) for hook in generator._build.keywords["callbacks"]] == [AncestralSeedHook] * hooks
+    assert generator._lora_files.files[0].path == str(tmp_path / "warm.safetensors")
+
+
+def test_each_field_of_the_record_reaches_the_checkpoint_s_capabilities(monkeypatch, tmp_path: Path):
+    checkpoint = replace(
+        CHECKPOINT, description="A finetune.", steps=(12, 8, 40), generate_size="1024x1536", max_edit_references=3
+    )
+    backend = build_backends(checkpoint_settings(tmp_path), install(monkeypatch, checkpoint_entries(checkpoint)))[
+        "example_qwen"
+    ]
+
+    record = backend.capabilities()
+    assert (record.description, record.badge) == ("A finetune.", "bf16")
+    generate = record.mode("generate")
+    assert [(param.id, param.default) for param in generate.params[:2]] == [("size", "1024x1536"), ("steps", 12)]
+    assert record.mode("edit").max_references == 3
+
+
+def test_a_checkpoint_that_its_record_cannot_build_stops_the_start(monkeypatch, tmp_path: Path):
+    registry = install(monkeypatch, checkpoint_entries(replace(CHECKPOINT, generate_sampler="euler_ancestral")))
+    with pytest.raises(ConfigError, match="Cannot build the Qwen checkpoint example_qwen: generate_sampler"):
+        build_backends(checkpoint_settings(tmp_path), registry)
+
+
+@pytest.mark.parametrize("section", ["", '[example_qwen]\nmodel_dir = ""\n'])
+def test_a_checkpoint_with_no_folder_setting_still_starts_and_its_run_names_the_setting(monkeypatch, tmp_path, section):
+    from studio.l1_entities.image_job import ImageJob
+
+    registry = install(monkeypatch, checkpoint_entries())
+    backend = build_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
+    with pytest.raises(StudioError, match=r"Set model_dir under \[example_qwen\]"):
+        backend.run(
+            ImageJob("generate", "a pear", 5, {"size": "1024x1024", "steps": 40, "strength": 0.4}, ()), None, None
+        )
+
+
+def test_a_checkpoint_s_table_that_names_a_missing_mode_stops_the_start(monkeypatch, tmp_path: Path):
+    section = LORA_TABLE.format(id="example_qwen", modes='modes = ["inpaint"]\n')
+    with pytest.raises(ConfigError, match=r"\[example_qwen\]: A LoRA names a mode"):
+        build_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
+
+
+def test_a_checkpoint_gets_a_stub_rewriter_on_the_stub_and_hidden_ones_are_not_imported(monkeypatch, tmp_path: Path):
+    from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
+    from studio.l4_frameworks_and_drivers import main
+
+    entries = checkpoint_entries(CHECKPOINT, replace(CHECKPOINT, backend_id="hidden_qwen"))
+    studio = main.create_studio(checkpoint_settings(tmp_path), stub=True, plugins=install(monkeypatch, entries))
+    try:
+        assert studio.catalog.get("example_qwen").capabilities().name == "Example Qwen checkpoint"
+        catalog = studio.rewriter._rewriter  # ty: ignore[unresolved-attribute] - the thread wrapper's catalog
+        assert isinstance(catalog._rewriters["example_qwen"], StubPromptRewriter)
+    finally:
+        studio.shutdown()
+    assert not next(item for item in entries if item.name == "hidden_qwen").load.called
+
+
+@pytest.mark.parametrize("named", [True, False])
+def test_a_real_checkpoint_needs_the_host_platform_and_gets_the_qwen_rewriter_its_section_names(
+    monkeypatch, tmp_path: Path, named
+):
+    from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import Qwen21Rewriter
+    from studio.l4_frameworks_and_drivers import main
+
+    section = (
+        '[example_qwen]\nrewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"\n'
+        'rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"\n'
+        if named
+        else ""
+    )
+    platform = Mock()
+    monkeypatch.setattr(main, "require_mlx", platform)
+    rewriters = main.build_rewriters(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
+    assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriter)
+
+    studio = main.create_studio(
+        checkpoint_settings(tmp_path, section), plugins=install(monkeypatch, checkpoint_entries())
+    )
+    studio.shutdown()
+    platform.assert_called_once_with()
+
+
+def test_an_engine_error_names_the_checkpoint_and_its_lora_by_id_and_never_by_path(monkeypatch, tmp_path: Path):
+    """The engines reword their LoRA paths, and the checkpoint's gateway rewords its folder around them."""
+    from studio.l1_entities.image_job import ImageJob
+    from studio.l1_entities.lora import LoraUse
+    from studio.l3_interface_adapters.gateways.image.qwen_checkpoint import qwen_checkpoint_backend_gateway
+
+    monkeypatch.setattr(qwen_checkpoint_backend_gateway, "register_schedules", lambda: None)
+    checkpoint_folder(tmp_path / "example-checkpoint")
+    (tmp_path / "warm.safetensors").write_bytes(b"weights")
+    section = '[example_qwen]\nmodel_dir = "example-checkpoint"\n' + LORA_TABLE.format(id="example_qwen", modes="")
+    backend = build_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))[
+        "example_qwen"
+    ]
+
+    def engine(quantize, hook, lora_path=None, model_path=None, loras: tuple = ()):
+        raise StudioError(f"cannot open {model_path} | lora {loras[0][0]}")
+
+    backend._generator._build = engine
+    job = ImageJob(
+        "generate",
+        "a pear",
+        5,
+        {"size": "1024x1024", "steps": 40, "strength": 0.4},
+        (),
+        loras=(LoraUse("example_warm", 1.0),),
+    )
+    with pytest.raises(StudioError) as failed:
+        backend.run(job, Mock(), Mock(return_value=False))
+
+    assert str(failed.value) == "cannot open the example_qwen checkpoint | lora LoRA example_warm"
+    assert str(tmp_path) not in str(failed.value)
+
+
+def test_the_example_checkpoint_is_a_valid_record(monkeypatch, tmp_path: Path):
+    from importlib import import_module
+
+    from studio.l4_frameworks_and_drivers.main import qwen_checkpoint_backend
+
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
+    checkpoint = import_module("open_imagine_example.qwen").plugin
+
+    backend = qwen_checkpoint_backend(checkpoint_settings(tmp_path), checkpoint)
+    assert backend.capabilities().backend_id == "example_qwen"
+    assert backend._generator._scheduler == "linear"

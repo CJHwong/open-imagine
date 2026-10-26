@@ -31,6 +31,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[mlx_video].batch_policy` | `auto`, `enhance_only`, or `sequential`. |
 | Backend `max_loras`, `[[<backend>.loras]]` | The LoRAs a model offers. See [LoRAs](#loras). |
 | LTX pack plugin `pack_dir` | The folder of the pack's weights. See [LTX packs](model-plugins.md#ltx-packs). |
+| Qwen checkpoint plugin `model_dir` | The folder of the checkpoint's weights. See [Qwen checkpoints](model-plugins.md#qwen-checkpoints). |
 | `[auk].child_script` | AuK child implementation. |
 | `[drama3].child_script`, `python_path` | Drama-3 child and optional prebuilt environment. |
 
@@ -48,6 +49,7 @@ each file under the model's section. These models take them:
 | `ltx25_mlx` | ltx-2-mlx | Generate and Edit, but not with an audio track |
 | `ltx23_mlx` | ltx-2-mlx | Generate, but not with an audio track |
 | An LTX pack plugin | ltx-2-mlx | As its family, `ltx25_mlx` or `ltx23_mlx` |
+| A Qwen checkpoint plugin | mflux | Generate and Edit; `modes` limits a LoRA to some of them |
 
 `flux2` takes no LoRAs, and a table under it stops the studio at start.
 

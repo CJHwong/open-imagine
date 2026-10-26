@@ -18,8 +18,9 @@ This is a real external package, discovered from its installed metadata. It supp
 Video requires `ffmpeg` on PATH. Add `--stub` to exercise their forms without calling their factories.
 Example Image and Example Video also offer LoRAs that only shift the color, so the LoRA section
 of each form has something to pick. See [LoRAs](../reference/model-plugins.md#loras) for the contract.
-The package also holds **Example LTX pack**, which runs an LTX-2.5 pack from a folder on the GPU.
-The example settings do not offer it. Their last section says how to add it.
+The package also holds **Example LTX pack**, which runs an LTX-2.5 pack from a folder on the GPU,
+and **Example Qwen checkpoint**, which runs a Qwen-Image-2.1 checkpoint from a folder on the GPU.
+The example settings do not offer them. Their sections say how to add each one.
 
 To offer the example alongside the built-in models:
 
@@ -37,7 +38,9 @@ per model, under modules that identify Image, Video or Audio. Replace the exampl
 work and capabilities with your model's actual implementation and supported settings.
 Do not import a built-in model gateway to advertise a different model. To run an LTX pack, such
 as a finetune, on the studio's own engine, export an `LtxPack` record and write no gateway. See
-[LTX packs](../reference/model-plugins.md#ltx-packs).
+[LTX packs](../reference/model-plugins.md#ltx-packs). To run a Qwen-Image-2.1 checkpoint the same
+way, export a `QwenCheckpoint` record. See
+[Qwen checkpoints](../reference/model-plugins.md#qwen-checkpoints).
 
 Register the module-level `plugin` record in your package's `pyproject.toml`:
 
