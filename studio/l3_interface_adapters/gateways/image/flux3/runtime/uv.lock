@@ -729,12 +729,14 @@ name = "open-imagine-flux3-runtime"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "mflux" },
     { name = "pillow" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2026.10.23" },
     { name = "mflux", git = "https://github.com/mflux-community/mflux?rev=63cec2b005bbb255447e0b42521c5cc6d6d5121c" },
     { name = "pillow", specifier = ">=12.3,<13" },
 ]
