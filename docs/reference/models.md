@@ -9,6 +9,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 | Image | Qwen-Image-2.1 | `qwen21` | Generate, starting image, instruction Edit with up to 10 references | Full precision by default |
 | Image | Viggle Turbo | `viggle_turbo` | Generate and Edit | Qwen base plus six-step adapter |
 | Image | FLUX.2 klein-base-9B, uncensored | `flux2` | Generate and Edit with up to four references | Full precision by default |
+| Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
 | Voice | **Drama-3 (default)** | `drama3` | Generate and Clone | Eight-bit MLX checkpoint |

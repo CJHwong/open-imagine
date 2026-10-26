@@ -34,6 +34,7 @@ from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway impo
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
 from studio.l3_interface_adapters.gateways.image.flux2.flux2_backend_gateway import Flux2BackendGateway
 from studio.l3_interface_adapters.gateways.image.flux2.klein_models import KleinModels
+from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway import Flux3BackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
     OfficialQwenTurboBackendGateway,
@@ -188,6 +189,17 @@ def flux2_backend(config: Config) -> Flux2BackendGateway:
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
 
 
+def flux3_backend(config: Config) -> Flux3BackendGateway:
+    quantize = config.backend("flux3").get("quantize", 8)
+    return Flux3BackendGateway(
+        config.required("flux3", "model_dir"),
+        config.required("flux3", "python_path"),
+        quantize,
+        badge=badge(quantize),
+        execute_process=SubprocessRunner().execute,
+    )
+
+
 def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
     """The two models qwen21 drives, built with Viggle's adapter and its schedule.
 
@@ -218,6 +230,7 @@ BACKENDS = {
     "qwen21": qwen21_backend,
     "qwen21_turbo": qwen21_turbo_backend,
     "flux2": flux2_backend,
+    "flux3": flux3_backend,
     "viggle_turbo": viggle_turbo_backend,
 }
 

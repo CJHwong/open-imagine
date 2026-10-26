@@ -27,7 +27,7 @@ Every generation model has one concrete gateway in its own media/model package:
 
 ```text
 gateways/
-  image/{qwen21,qwen21_turbo,viggle_turbo,flux2}/
+  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3}/
   video/{ltx25,ltx23,ltx_pack}/
   audio/{drama3,auk,auk_flash}/
 ```
@@ -38,7 +38,7 @@ between models at runtime. `video/ltx_pack` is the exception: it takes its ident
 plugin record that names the pack. Existing public backend IDs remain stable.
 Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
 `video/ltx_runtime`, and `audio/auk_runtime`. These packages are implementation helpers, not additional
-model gateways. `.importlinter` forbids imports between the nine model packages and `video/ltx_pack`.
+model gateways. `.importlinter` forbids imports between the ten model packages and `video/ltx_pack`.
 Layer 4 constructs the model-specific gateway and injects its engine dependencies.
 LTX command construction, batching and memory profiles, sampler progress interpretation,
 and engine child scripts live in `video/ltx_runtime`. Gemma instructions, enhancement,
