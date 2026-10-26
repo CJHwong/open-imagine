@@ -129,6 +129,27 @@ mflux reads one diffusers-layout folder, and its name must contain `klein-base-9
 
    Fetch only `model.safetensors`. The `.gguf` files there are for llama.cpp.
 
+## Optional Image: FLUX3 Image Klein
+
+Install its separate Python 3.12 runtime from the repository root:
+
+```sh
+UV_PROJECT_ENVIRONMENT=~/Library/Caches/models/flux3-runtime \
+  uv sync --locked --project studio/l3_interface_adapters/gateways/image/flux3/runtime
+```
+
+Accept the terms on [the model page](https://huggingface.co/black-forest-labs/flux-3-image-klein), authenticate with `uv run hf auth login`, then download the weights (about 20 GB):
+
+```sh
+uv run hf download black-forest-labs/flux-3-image-klein \
+  --revision 337337621b8526e120f2275d250242f4a6bedd75 \
+  --include 'transformer/*' 'text_encoder/*' 'vae/*' \
+  --local-dir ~/Library/Caches/models/flux3-image-klein
+uv run studio --backend flux3
+```
+
+Set `[flux3].model_dir` and `python_path` if you install elsewhere. The defaults are eight-bit weights and 16 steps. Write a full scene caption, including for edits.
+
 ## Offer the installed models
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with

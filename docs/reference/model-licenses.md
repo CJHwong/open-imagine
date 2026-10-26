@@ -14,3 +14,5 @@ Drama-3 weights use the [Fish Audio Community License 1.0](https://huggingface.c
 LTX-2.5 and its Layout to Render adapter carry the
 [LTX-2.x Community License](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render#license).
 The third-party MLX port's code license does not replace the model-weight terms.
+
+FLUX3 Image Klein weights carry the [FLUX Kommunity License](https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/337337621b8526e120f2275d250242f4a6bedd75/LICENSE.md).

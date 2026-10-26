@@ -7,6 +7,7 @@ import pytest
 from studio.l3_interface_adapters.gateways.image.flux2.capabilities import EDIT_TEMPLATES as flux2_edit_templates
 from studio.l3_interface_adapters.gateways.image.flux2.capabilities import LOOKS as flux2_looks
 from studio.l3_interface_adapters.gateways.image.flux2.capabilities import SIZES as flux2_sizes
+from studio.l3_interface_adapters.gateways.image.flux3.capabilities import SIZES as flux3_sizes
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import SIZES as qwen21_sizes
 
@@ -15,7 +16,7 @@ def capabilities():
     return qwen21_capabilities(badge="bf16")
 
 
-@pytest.mark.parametrize("sizes", [qwen21_sizes, flux2_sizes], ids=["qwen21", "flux2"])
+@pytest.mark.parametrize("sizes", [qwen21_sizes, flux2_sizes, flux3_sizes], ids=["qwen21", "flux2", "flux3"])
 def test_every_size_keeps_its_named_ratio_on_the_16_pixel_grid(sizes):
     """Within 1%, because the largest tier keeps the model's own sizes: 1664 x 928 is not quite 16:9."""
     for label, width, height in (size for size in sizes if isinstance(size, tuple)):

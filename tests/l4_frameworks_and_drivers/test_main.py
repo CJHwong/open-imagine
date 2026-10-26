@@ -336,7 +336,7 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
-    assert len(models) == len(set(models)) == 9
+    assert len(models) == len(set(models)) == 10
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
