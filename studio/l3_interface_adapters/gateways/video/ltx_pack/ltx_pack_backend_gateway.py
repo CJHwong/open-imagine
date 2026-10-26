@@ -54,8 +54,11 @@ class LtxPackBackendGateway(VideoBackendGateway):
         backend_id = self._capabilities.backend_id
         if not self._pack_dir:
             raise StudioError(f"Set pack_dir under [{backend_id}] to the folder of the pack.")
-        if not Path(self._pack_dir).is_dir():
-            print(f"[{backend_id}] no pack folder at {self._pack_dir}", file=sys.stderr, flush=True)
-            raise StudioError(f"The weights of the {backend_id} pack are not on disk. The server log names the path.")
+        # The check is inside, because a folder that cannot be read raises with its path.
         with hidden(((self._pack_dir, f"the {backend_id} pack"),)):
+            if not Path(self._pack_dir).is_dir():
+                print(f"[{backend_id}] no pack folder at {self._pack_dir}", file=sys.stderr, flush=True)
+                raise StudioError(
+                    f"The weights of the {backend_id} pack are not on disk. The server log names the path."
+                )
             yield

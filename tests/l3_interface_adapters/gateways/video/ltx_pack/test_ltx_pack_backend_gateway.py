@@ -71,10 +71,40 @@ def test_an_engine_error_that_quotes_the_folder_names_the_model(tmp_path):
     folder = tmp_path / "example-pack-q8"
     folder.mkdir()
     runner = Mock()
-    runner.run.side_effect = StudioError(f"The engine could not read {folder}/split_model.json")
+    runner.run.side_effect = StudioError(f"The engine could not read {folder}")
     backend, _ = gateway(folder, runner)
 
     with pytest.raises(StudioError) as failed:
         backend.run(JOB)
 
-    assert str(failed.value) == "The engine could not read the example_pack pack/split_model.json"
+    assert str(failed.value) == "The engine could not read the example_pack pack"
+
+
+def test_a_pack_whose_folder_cannot_be_read_is_refused_by_the_model_s_name(tmp_path):
+    parent = tmp_path / "example-hidden-folder"
+    folder = parent / "example-pack-q8"
+    folder.mkdir(parents=True)
+    backend, runner = gateway(folder)
+    parent.chmod(0)
+    try:
+        with pytest.raises(StudioError) as refused:
+            backend.run(JOB)
+    finally:
+        parent.chmod(0o755)
+
+    assert "example-hidden-folder" not in str(refused.value)
+    runner.run.assert_not_called()
+
+
+def test_an_engine_error_that_quotes_a_file_of_the_pack_names_the_model_and_not_the_file(tmp_path):
+    folder = tmp_path / "example-pack-q8"
+    folder.mkdir()
+    (folder / "example-private-variant.safetensors").write_bytes(b"")
+    runner = Mock()
+    runner.run.side_effect = StudioError(f"bad header in {folder}/example-private-variant.safetensors")
+    backend, _ = gateway(folder, runner)
+
+    with pytest.raises(StudioError) as failed:
+        backend.run(JOB)
+
+    assert str(failed.value) == "bad header in a file of the example_pack pack"
