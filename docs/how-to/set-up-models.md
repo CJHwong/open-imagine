@@ -129,23 +129,16 @@ mflux reads one diffusers-layout folder, and its name must contain `klein-base-9
 
    Fetch only `model.safetensors`. The `.gguf` files there are for llama.cpp.
 
-## Offer the installed models
-
-Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
-`visible_backends`, `visible_video_backends`, and `visible_voice_backends` in `studio.toml`.
-Selecting a model does not load its weights. The next operation loads it.
-See [model licenses](../reference/model-licenses.md) before choosing a model for your use.
-
 ## Optional Image: FLUX3 Image Klein
 
-Install its isolated Python 3.12 runtime from the repository root. This locks mflux to `63cec2b005bbb255447e0b42521c5cc6d6d5121c` without upgrading the main environment:
+Install its separate Python 3.12 runtime from the repository root:
 
 ```sh
 UV_PROJECT_ENVIRONMENT=~/Library/Caches/models/flux3-runtime \
   uv sync --locked --project studio/l3_interface_adapters/gateways/image/flux3/runtime
 ```
 
-Accept the terms on [the model page](https://huggingface.co/black-forest-labs/flux-3-image-klein), then authenticate with `uv run hf auth login`. Download the pinned weights (about 20 GB) to the default `[flux3].model_dir`:
+Accept the terms on [the model page](https://huggingface.co/black-forest-labs/flux-3-image-klein), authenticate with `uv run hf auth login`, then download the weights (about 20 GB):
 
 ```sh
 uv run hf download black-forest-labs/flux-3-image-klein \
@@ -155,4 +148,11 @@ uv run hf download black-forest-labs/flux-3-image-klein \
 uv run studio --backend flux3
 ```
 
-`[flux3].python_path` points to the environment's `bin/python`; change it if you install elsewhere. The default quantization is 8-bit. The child reads local weights offline and reports missing setup before launching. Model loading happens for each image; selection alone uses no GPU. Qwen remains the default on normal startup.
+Set `[flux3].model_dir` and `python_path` if you install elsewhere. The defaults are eight-bit weights and 16 steps. Write a full scene caption, including for edits.
+
+## Offer the installed models
+
+Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
+`visible_backends`, `visible_video_backends`, and `visible_voice_backends` in `studio.toml`.
+Selecting a model does not load its weights. The next operation loads it.
+See [model licenses](../reference/model-licenses.md) before choosing a model for your use.

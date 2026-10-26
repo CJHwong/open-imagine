@@ -32,7 +32,7 @@ def require_mlx() -> None:
     """
     if not mlx_available():
         raise EngineUnavailable(
-            "no MLX GPU is available on this machine, so no backend can run here: every image backend uses mflux, "
-            "and mflux requires an MLX GPU. "
+            "no MLX GPU is available on this machine, so no built-in engine can run here: the image backends use "
+            "mflux, the LTX video packs use the MLX port, and both require an MLX GPU. "
             "See studio/l3_interface_adapters/gateways/image/qwen21/PORTABILITY.md."
         )

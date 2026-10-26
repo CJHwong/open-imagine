@@ -64,6 +64,14 @@ model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 rewrite_quantize = 8                      # as [qwen21]
+# Your own LoRAs, one table each; docs/reference/configuration.md lists every key. The
+# same tables work under [qwen21], [viggle_turbo], [ltx25_mlx] and [ltx23_mlx].
+# max_loras = 1
+# [[qwen21_turbo.loras]]
+# id = "warm_film"
+# label = "Warm film"
+# path = "~/loras/warm-film.safetensors"
+# trigger = "warm film"
 
 [flux2]
 quantize = 0

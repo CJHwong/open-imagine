@@ -39,9 +39,3 @@ The rendered API reference with request examples is at **http://127.0.0.1:8765/a
 ## License
 
 The code is under the [MIT License](LICENSE). Each model's weights have their own license: see [model licenses](docs/reference/model-licenses.md).
-
-### Optional FLUX3 Image Klein
-
-FLUX3 is available as the optional `flux3` backend for Generate and Edit with up to two references. It defaults to 16 steps and eight-bit weights; Qwen remains the normal Image default. See the [model catalog](docs/reference/models.md#flux3-image-klein), [setup recipe](docs/how-to/set-up-models.md#optional-image-flux3-image-klein), and [weight license](docs/reference/model-licenses.md).
-
-Why it looks like this: FLUX3 needs a newer mflux than Qwen's pinned engine. A separate locked runtime runs one owned Python child per image, keeping dependency changes isolated and making cancellation release its model memory. Batch items remain sequential.

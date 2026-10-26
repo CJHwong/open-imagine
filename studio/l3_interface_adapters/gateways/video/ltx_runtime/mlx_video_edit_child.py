@@ -24,9 +24,12 @@ def main():
     parser.add_argument("--single-stage", action="store_true")
     parser.add_argument("--stage1-steps", type=int, required=True)
     parser.add_argument("--stage2-steps", type=int, required=True)
+    # The LoRAs a person picked. Custom edit has no task adapter of its own.
+    parser.add_argument("--lora", nargs=2, action="append", default=[])
     args = parser.parse_args()
     engine = cast(Any, importlib.import_module("ltx_pipelines_mlx.ic_lora"))
-    pipeline = engine.ICLoraPipeline(model_dir=args.model, lora_paths=[], low_memory=True)
+    loras = [(path, float(strength)) for path, strength in args.lora]
+    pipeline = engine.ICLoraPipeline(model_dir=args.model, lora_paths=loras, low_memory=True)
     pipeline.generate_and_save(
         prompt=args.p,
         output_path=args.o,

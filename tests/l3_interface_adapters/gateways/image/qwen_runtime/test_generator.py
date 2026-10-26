@@ -405,3 +405,122 @@ def test_prompt_cache_materializes_both_arrays_before_memory_saver_frees_the_enc
         generator_module._cache_prompt(model, "a pear")
     encoder.encode_prompt.assert_called_once_with("a pear", model.prompt_cache, "tokenizer", "encoder")
     evaluate.assert_called_once_with("embedding", "mask")
+
+
+class LoraEngine(FakeEngine):
+    loras: tuple = ()
+    model_path: str | None = None
+
+
+class LoraBuilder:
+    """A build stand-in that records the picked LoRAs each model was built with."""
+
+    def __init__(self):
+        self.built = []
+
+    def __call__(self, quantize, hook, lora_path=None, loras=(), model_path=None):
+        engine = LoraEngine(hook=hook)
+        engine.loras = loras
+        engine.model_path = model_path
+        self.built.append(engine)
+        return engine
+
+
+def picked(strength=0.7):
+    from studio.l1_entities.lora import LoraUse
+
+    return (LoraUse("example_warm", strength),)
+
+
+def test_a_lora_pick_builds_the_model_with_its_file_and_a_new_set_rebuilds_it(tmp_path):
+    from dataclasses import replace
+
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    path = files.files[0].path
+    builder = LoraBuilder()
+    generator = Qwen21Generator(quantize=None, build=builder, lora_files=files, model_path="/local/turbo")
+
+    generator.run(replace(job(), loras=picked()), no_steps, never_stop)
+    generator.run(replace(job(), loras=picked()), no_steps, never_stop)  # the same set keeps the model
+    generator.run(replace(job(), loras=picked(1.1)), no_steps, never_stop)
+    generator.run(job(), no_steps, never_stop)
+
+    assert [engine.loras for engine in builder.built] == [((path, 0.7),), ((path, 1.1),), ()]
+    assert {engine.model_path for engine in builder.built} == {"/local/turbo"}
+
+
+def test_a_lora_file_that_is_not_on_disk_is_refused_before_a_build(tmp_path):
+    from dataclasses import replace
+
+    from studio.l1_entities.errors import StudioError
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    (tmp_path / "example_warm.safetensors").unlink()
+    builder = LoraBuilder()
+    generator = Qwen21Generator(quantize=None, build=builder, lora_files=files)
+
+    with pytest.raises(StudioError, match="LoRA example_warm are not on disk") as refused:
+        generator.run(replace(job(), loras=picked()), no_steps, never_stop)
+    assert "safetensors" not in str(refused.value)
+    assert builder.built == []
+
+
+def test_a_build_error_that_names_a_lora_file_names_its_id_instead(tmp_path):
+    from dataclasses import replace
+
+    from studio.l1_entities.errors import StudioError
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    path = files.files[0].path
+
+    def broken(quantize, hook, lora_path=None, loras=(), model_path=None):
+        raise KeyError(f"no transformer key for {path}")
+
+    generator = Qwen21Generator(quantize=None, build=broken, lora_files=files)
+
+    with pytest.raises(StudioError, match="no transformer key for LoRA example_warm") as failed:
+        generator.run(replace(job(), loras=picked()), no_steps, never_stop)
+    assert path not in str(failed.value)
+    assert isinstance(failed.value.__cause__, KeyError)  # the server's traceback keeps the path
+
+
+def test_batch_preparation_builds_with_the_batch_s_loras(tmp_path, monkeypatch):
+    from dataclasses import replace
+
+    from tests.support.loras import lora_table
+
+    monkeypatch.setattr(generator_module, "_cache_prompt", lambda model, prompt: None)
+    files = lora_table(tmp_path)
+    builder = LoraBuilder()
+    generator = Qwen21Generator(quantize=None, build=builder, lora_files=files)
+
+    generator.prepare_batch([replace(job(), loras=picked())], never_stop)
+
+    assert builder.built[0].loras == ((files.files[0].path, 0.7),)
+
+
+def test_the_model_takes_the_picked_loras_unbaked():
+    class FakeCallbacks:
+        def register(self, callback):
+            pass
+
+    class FakeQwenImage21:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.callbacks = FakeCallbacks()
+
+    with heavy_modules(
+        {
+            "mflux.callbacks.instances.memory_saver": {"MemorySaver": Mock()},
+            "mflux.models.qwen21.variants.txt2img.qwen_image_21": {"QwenImage21": FakeQwenImage21},
+        }
+    ):
+        model = build_model(quantize=None, hook=StepHook(), loras=(("/loras/a.safetensors", 0.7),))
+
+    assert model.kwargs["lora_paths"] == ["/loras/a.safetensors"]
+    assert model.kwargs["lora_scales"] == [0.7]
+    assert model.kwargs["bake_lora"] is False

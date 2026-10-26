@@ -14,6 +14,7 @@ from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
 from studio.plugins import ModelPlugin
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
+from tests.support.plugins import PACK, entry, install, pack_entries
 
 
 def configuration():
@@ -279,3 +280,34 @@ def test_example_video_reports_encoder_failure_instead_of_callback_type_error(mo
     gateway = video.ExampleVideoGateway(PluginContext({}, SubprocessRunner().execute))
     with pytest.raises(StudioError, match=r"Example Video failed \(7\): fixture encoder error"):
         gateway.run(VideoJob("test", 256, 256, 17, 8, 7))
+
+
+def test_an_ltx_pack_is_a_video_declaration_that_the_host_builds(monkeypatch):
+    registry = install(monkeypatch, pack_entries())
+
+    assert registry.declaration("video", "example_pack") is PACK
+    assert registry.pack("video", "example_pack") is PACK
+    assert registry.pack("video", "ltx25_mlx") is None
+    with pytest.raises(ConfigError, match="runs an LTX pack"):
+        registry.build("video", "example_pack", configuration())
+    with pytest.raises(ConfigError, match="runs an LTX pack"):
+        registry.rewriter("video", "example_pack", configuration())
+    assert installed(monkeypatch)[0].pack("video", "example_video") is None
+
+
+@pytest.mark.parametrize(
+    ("pack", "group", "message"),
+    [
+        (PACK, "image", "an LtxPack is a video model"),
+        (replace(PACK, api_version=2), "video", "expected LtxPack API version 1"),
+        (replace(PACK, backend_id="other"), "video", "expected an LtxPack with backend_id 'example_pack'"),
+        (replace(PACK, family=["ltx25"]), "video", "an LtxPack's family must be text"),
+        (replace(PACK, description=None), "video", "an LtxPack's description must be text"),
+        (replace(PACK, edit="no"), "video", "an LtxPack's edit must be True or False"),
+        (replace(PACK, fast_mode=1), "video", "an LtxPack's fast_mode must be True or False"),
+    ],
+)
+def test_a_pack_record_that_the_host_cannot_trust_is_refused_by_name(monkeypatch, pack, group, message):
+    registry = install(monkeypatch, [entry(group, "example_pack", pack)])
+    with pytest.raises(ConfigError, match=rf"open_imagine.models.{group}/example_pack: {message}"):
+        registry.declaration(group, "example_pack")

@@ -12,7 +12,7 @@ import pytest
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.video_job import VideoJob
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
-from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
+from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import (
     assemble_studio,
     build_backends,
@@ -20,6 +20,7 @@ from studio.l4_frameworks_and_drivers.main import (
     build_video_backends,
 )
 from tests.support.fakes import FakeBackendGateway
+from tests.support.plugins import PACK, install, pack_entries
 
 
 def settings(tmp_path: Path, text: str, **flags):
@@ -336,3 +337,173 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
     assert len(models) == len(set(models)) == 10
+
+
+LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
+
+
+@pytest.mark.parametrize("backend_id", ["qwen21", "qwen21_turbo", "viggle_turbo"])
+def test_a_qwen_backend_offers_the_loras_of_its_section(tmp_path: Path, backend_id):
+    text = (
+        f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "turbo"\nlora_path = "speed.safetensors"\n'
+        + LORA_TABLE.format(id=backend_id, modes='modes = ["edit"]\n')
+    )
+    backend = build_backends(settings(tmp_path, text))[backend_id]
+
+    record = backend.capabilities()
+    assert [lora.id for lora in record.mode("edit").loras] == ["example_warm"]
+    assert record.mode("generate").loras == ()
+
+
+def test_a_lora_that_names_a_mode_the_model_lacks_stops_the_start(tmp_path: Path):
+    text = 'default_backend = "qwen21"\n' + LORA_TABLE.format(id="qwen21", modes='modes = ["inpaint"]\n')
+    with pytest.raises(ConfigError, match=r"\[qwen21\]: A LoRA names a mode"):
+        build_backends(settings(tmp_path, text))
+
+
+def test_flux2_refuses_a_lora_table(tmp_path: Path):
+    text = 'default_backend = "flux2"\n[flux2]\nmodel_dir = "klein"\n' + LORA_TABLE.format(id="flux2", modes="")
+    with pytest.raises(ConfigError, match="takes no LoRAs"):
+        build_backends(settings(tmp_path, text))
+
+
+@pytest.mark.parametrize("backend_id", ["ltx25_mlx", "ltx23_mlx"])
+def test_a_video_backend_offers_the_loras_of_its_own_section(tmp_path: Path, backend_id):
+    text = f'default_backend = "qwen21"\ndefault_video_backend = "{backend_id}"\n[qwen21]\n' + LORA_TABLE.format(
+        id=backend_id, modes=""
+    )
+    backend = build_video_backends(settings(tmp_path, text))[backend_id]
+
+    assert [lora.id for lora in backend.capabilities().loras] == ["example_warm"]
+    assert backend._runner._lora_files.files[0].path == str((tmp_path / "warm.safetensors").resolve())
+
+
+def pack_settings(tmp_path: Path, section: str = "") -> Config:
+    """Plugin image and voice models, the example pack as the one video model, and its section."""
+    return settings(
+        tmp_path,
+        'default_backend = "example_image"\n'
+        'default_video_backend = "example_pack"\n'
+        'default_voice_backend = "example_voice"\n'
+        '[mlx_video]\ncli_path = "bin/ltx-2-mlx"\n' + section,
+    )
+
+
+@pytest.mark.parametrize("family", ["ltx25", "ltx23"])
+def test_a_pack_is_built_like_the_base_packs_from_its_own_section(monkeypatch, tmp_path: Path, family):
+    from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
+
+    registry = install(monkeypatch, pack_entries(replace(PACK, family=family)))
+    section = '[example_pack]\npack_dir = "pack"\n' + LORA_TABLE.format(id="example_pack", modes="")
+
+    def enhanced(prompt, references):
+        return False
+
+    backend = build_video_backends(pack_settings(tmp_path, section), enhanced, registry)["example_pack"]
+
+    assert isinstance(backend, LtxPackBackendGateway)
+    assert backend.capabilities().name == "Example pack"
+    assert [lora.id for lora in backend.capabilities().loras] == ["example_warm"]
+    runner = backend._runner
+    assert (runner._model, runner._model_key) == (str((tmp_path / "pack").resolve()), "pack_dir")
+    assert runner._cli == str(tmp_path / "bin/ltx-2-mlx")
+    assert runner._enhances is True and runner._enhanced_prompt is enhanced
+    assert runner._keyframe_two_stage is (family == "ltx23")
+    assert runner._lora_files.files[0].path == str(tmp_path / "warm.safetensors")
+
+
+def test_each_field_of_the_record_reaches_the_pack_s_capabilities(monkeypatch, tmp_path: Path):
+    pack = replace(PACK, description="A pack.", precision="int4", edit=True, audio=True, fast_mode=True)
+    backend = build_video_backends(pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries(pack)))[
+        "example_pack"
+    ]
+
+    record = backend.capabilities()
+    assert (record.description, record.precision, record.fast_mode) == ("A pack.", "int4", True)
+    assert [mode.id for mode in record.modes] == ["generate", "edit"]
+    assert record.mode("generate").accepts_audio is True
+
+
+def test_a_pack_that_its_record_cannot_build_stops_the_start(monkeypatch, tmp_path: Path):
+    registry = install(monkeypatch, pack_entries(replace(PACK, family="ltx23", edit=True)))
+    with pytest.raises(ConfigError, match="Cannot build the LTX pack example_pack: only an ltx25 pack"):
+        build_video_backends(pack_settings(tmp_path), plugins=registry)
+
+
+@pytest.mark.parametrize("section", ["", '[example_pack]\npack_dir = ""\n'])
+def test_a_pack_with_no_folder_setting_still_starts_and_its_run_names_the_setting(monkeypatch, tmp_path, section):
+    """`--all-backends` offers every installed pack, also one that the settings do not mention.
+    A blank setting stays blank: resolved, it would name the folder of the settings file."""
+    registry = install(monkeypatch, pack_entries())
+    backend = build_video_backends(pack_settings(tmp_path, section), plugins=registry)["example_pack"]
+    with pytest.raises(StudioError, match=r"Set pack_dir under \[example_pack\]"):
+        backend.run(VideoJob("a cat", 384, 384, 121, 24, 7))
+
+
+def test_a_pack_takes_the_base_packs_rewriter_and_only_visible_packs_are_imported(monkeypatch, tmp_path: Path):
+    from studio.l4_frameworks_and_drivers import main
+
+    entries = pack_entries(PACK, replace(PACK, backend_id="hidden_pack"))
+    studio = main.create_studio(pack_settings(tmp_path), stub=True, plugins=install(monkeypatch, entries))
+    try:
+        assert studio.video_catalog is not None and studio.video_rewriter is not None
+        assert studio.video_catalog.get("example_pack").capabilities().name == "Example pack"
+        assert studio.video_rewriter.modes() == ("generate", "edit")
+    finally:
+        studio.shutdown()
+    assert not next(item for item in entries if item.name == "hidden_pack").load.called
+
+
+def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeypatch, tmp_path: Path):
+    """A plugin of its own has no rewriter, so its modes are empty. The Gemma rewriter offers Generate."""
+    from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
+    from studio.l4_frameworks_and_drivers import main
+
+    platform = Mock()
+    monkeypatch.setattr(main, "require_mlx", platform)
+    studio = main.create_studio(pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries()))
+    try:
+        assert studio.video_catalog is not None and studio.video_rewriter is not None
+        assert isinstance(studio.video_catalog.get("example_pack"), LtxPackBackendGateway)
+        assert studio.video_rewriter.modes() == ("generate",)
+    finally:
+        studio.shutdown()
+    platform.assert_called_once_with()
+
+
+def test_an_engine_error_names_the_pack_and_its_lora_by_id_and_never_by_path(monkeypatch, tmp_path: Path):
+    """The runner rewords its LoRA paths, and the pack's gateway rewords its folder around it."""
+    from studio.l1_entities.lora import LoraUse
+
+    folder = tmp_path / "example-pack-q8"
+    folder.mkdir()
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin/ltx-2-mlx").write_text("")
+    (tmp_path / "warm.safetensors").write_bytes(b"weights")
+    section = '[example_pack]\npack_dir = "example-pack-q8"\n' + LORA_TABLE.format(id="example_pack", modes="")
+    registry = install(monkeypatch, pack_entries())
+    backend = build_video_backends(pack_settings(tmp_path, section), plugins=registry)["example_pack"]
+
+    def engine(command, *arguments, **options):
+        lora = command[command.index("--lora") + 1]
+        raise StudioError(f"cannot open {command[command.index('--model') + 1]}/transformer.safetensors | lora {lora}")
+
+    backend._runner._execute_process = engine
+    with pytest.raises(StudioError) as failed:
+        backend.run(VideoJob("a cat", 384, 384, 49, 24, 7, loras=(LoraUse("example_warm", 1.0),)))
+
+    assert str(failed.value) == "cannot open the example_pack pack/transformer.safetensors | lora LoRA example_warm"
+    assert str(tmp_path) not in str(failed.value)
+
+
+def test_the_example_pack_is_a_valid_record(monkeypatch, tmp_path: Path):
+    from importlib import import_module
+
+    from studio.l4_frameworks_and_drivers.main import ltx_pack_backend
+
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
+    pack = import_module("open_imagine_example.ltx").plugin
+
+    backend = ltx_pack_backend(pack_settings(tmp_path), pack)
+    assert backend.capabilities().backend_id == "example_ltx"
+    assert [mode.id for mode in backend.capabilities().modes] == ["generate"]

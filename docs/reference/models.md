@@ -9,7 +9,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 | Image | Qwen-Image-2.1 | `qwen21` | Generate, starting image, instruction Edit with up to 10 references | Full precision by default |
 | Image | Viggle Turbo | `viggle_turbo` | Generate and Edit | Qwen base plus six-step adapter |
 | Image | FLUX.2 klein-base-9B, uncensored | `flux2` | Generate and Edit with up to four references | Full precision by default |
-| Image | FLUX3 Image Klein (optional) | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
+| Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
 | Voice | **Drama-3 (default)** | `drama3` | Generate and Clone | Eight-bit MLX checkpoint |
@@ -64,9 +64,3 @@ AuK Design starts with an empty description or an editable Template.
 
 All three workspaces accept ordered API batches of up to 16 items.
 The engines reuse supported models and conditioning; this does not imply parallel execution or a universal speedup.
-
-## FLUX3 Image Klein
-
-Select `flux3` explicitly or enable optional backends. It uses its own pinned MLX runtime, leaving the default Qwen environment unchanged. The distilled model defaults to 16 steps and 1024×1024. It has no guidance or negative-prompt control. Describe the complete desired scene, including for edits.
-
-Edit defaults to matching the first reference without upscaling, fitted to one megapixel on a 16-pixel grid. The one-megapixel cap applies to output; the engine prepares original input references separately, so large input photos can use more memory. Studio currently exposes two references; higher reference counts and prompt aids have not been validated. Each image starts an owned child process, including model loading, and cancellation waits for that process to exit. Batch items run sequentially.

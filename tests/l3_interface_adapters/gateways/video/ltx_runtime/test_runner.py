@@ -16,6 +16,11 @@ from studio.l4_frameworks_and_drivers import subprocess_runner
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 
+def never_run(*args, **kwargs):
+    """An execute_process for a test that patches `_execute`, so nothing calls it."""
+    raise AssertionError("the test patched _execute")
+
+
 def make_runner(*args, **kwargs):
     return MlxVideoRunner(*args, **kwargs, execute_process=SubprocessRunner().execute)
 
@@ -1336,3 +1341,192 @@ def test_layout_edit_forwards_the_look_and_uses_two_stage_child(tmp_path, monkey
     assert command[command.index("--stage2-steps") + 1] == "3"
     assert command[command.index("--refine-steps") + 1] == "3"
     assert command[command.index("--image") + 2 :] == ["-1", "1", "0"]
+
+
+def capture_with_options(monkeypatch, calls):
+    def fake_execute(self, command, progress=None, cancelled=None, **options):
+        calls.append((command, options))
+        Path(command[command.index("-o") + 1]).write_bytes(b"mp4 bytes")
+
+    monkeypatch.setattr(MlxVideoRunner, "_execute", fake_execute)
+
+
+def warm_pick(strength=0.7):
+    from studio.l1_entities.lora import LoraUse
+
+    return (LoraUse("example_warm", strength),)
+
+
+def test_a_lora_pick_adds_its_file_its_trigger_words_and_unfused_attachment(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    calls = []
+    capture_with_options(monkeypatch, calls)
+    files = lora_table(tmp_path, trigger="film grain")
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False, execute_process=never_run, lora_files=files)
+
+    runner.run(VideoJob("a cat", 384, 384, 9, 24, 7, loras=warm_pick()))
+    runner.run(VideoJob("a cat", 384, 384, 9, 24, 7))
+
+    command, options = calls[0]
+    assert command[command.index("-p") + 1] == "a cat, film grain"
+    assert command[-3:] == ["--lora", files.files[0].path, "0.7"]
+    assert options["environment"] == {"LTX2_LORA_MODE": "unfused"}
+    command, options = calls[1]
+    assert "--lora" not in command and options["environment"] == {}
+
+
+def test_an_enhanced_run_adds_the_trigger_words_after_the_engine_s_enhancer(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    calls = []
+    capture_with_options(monkeypatch, calls)
+    (tmp_path / "python").write_text("")
+    files = lora_table(tmp_path, trigger="film grain")
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", True, execute_process=never_run, lora_files=files)
+
+    runner.run(VideoJob("a cat", 384, 384, 9, 24, 7, enhance=True, loras=warm_pick()))
+
+    command, options = calls[0]
+    assert command[1].endswith("mlx_video_generation_child.py") and command[2] == "generate"
+    assert "--enhance-prompt" in command
+    assert command[command.index("-p") + 1] == "a cat"
+    assert options["environment"] == {"STUDIO_LORA_TRIGGERS": '["film grain"]', "LTX2_LORA_MODE": "unfused"}
+
+
+def test_a_lora_without_trigger_words_keeps_the_plain_enhanced_command(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    calls = []
+    capture_with_options(monkeypatch, calls)
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path)}, "pack", True, execute_process=never_run, lora_files=lora_table(tmp_path)
+    )
+
+    runner.run(VideoJob("a cat", 384, 384, 9, 24, 7, enhance=True, loras=warm_pick()))
+
+    command, options = calls[0]
+    assert command[1] == "generate"
+    assert options["environment"] == {"LTX2_LORA_MODE": "unfused"}
+
+
+def test_a_lora_file_that_is_not_on_disk_is_refused_before_the_engine_starts(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    calls = []
+    capture_with_options(monkeypatch, calls)
+    files = lora_table(tmp_path)
+    Path(files.files[0].path).unlink()
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False, execute_process=never_run, lora_files=files)
+
+    with pytest.raises(StudioError, match="not on disk"):
+        runner.run(VideoJob("a cat", 384, 384, 9, 24, 7, loras=warm_pick()))
+    assert calls == []
+
+
+def test_an_effect_takes_the_picked_loras_after_its_own_adapter(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    calls = []
+    capture_with_options(monkeypatch, calls)
+    (tmp_path / "python").write_text("")
+    adapters = tmp_path / "adapters"
+    adapters.mkdir()
+    (adapters / "relight.safetensors").write_bytes(b"adapter")
+    files = lora_table(tmp_path, trigger="film grain")
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path), "lora_dir": str(adapters)},
+        "pack",
+        False,
+        execute_process=never_run,
+        lora_files=files,
+    )
+    effect = VideoEdit("relight", 0.9, "relight.safetensors", b"clip", "clip.mp4")
+    custom = VideoEdit("custom", 1.0, "", b"clip", "clip.mp4")
+
+    runner.run(VideoJob("Relight it", 384, 384, 9, 24, 7, edit=effect, loras=warm_pick()))
+    runner.run(VideoJob("Relight it", 384, 384, 9, 24, 7, edit=custom, loras=warm_pick()))
+
+    for command, _ in calls:
+        assert command[command.index("-p") + 1] == "Relight it, film grain"
+        assert command[-3:] == ["--lora", files.files[0].path, "0.7"]
+    # The mode applies to the effect's adapter too, and its recipe was measured fused.
+    assert calls[0][1]["environment"] == {}
+    assert calls[1][1]["environment"] == {"LTX2_LORA_MODE": "unfused"}
+    assert calls[0][0][1:5] == ["ic-lora", "--lora", str(adapters / "relight.safetensors"), "0.9"]
+    assert calls[1][0][1].endswith("mlx_video_edit_child.py")
+
+
+def test_an_enhanced_batch_adds_the_trigger_words_after_the_shared_enhancer(tmp_path, monkeypatch):
+    import json
+
+    from studio.l3_interface_adapters.gateways.video.ltx_runtime import batch as mlx_video_batch
+    from tests.support.loras import lora_table
+
+    monkeypatch.setattr(mlx_video_batch, "physical_memory", lambda: 64 * 1024**3)
+    (tmp_path / "python").write_text("")
+    files = lora_table(tmp_path, trigger="film grain")
+    rendered = []
+
+    def execute(self, command, progress=None, cancelled=None, consume=None, timeout_started=None, **options):
+        manifest = Path(command[-1])
+        commands = json.loads(manifest.read_text())
+        if command[1].endswith("mlx_video_batch_enhancement.py"):
+            for item in commands:
+                item[item.index("-p") + 1] += " enhanced"
+                item.remove("--enhance-prompt")
+            manifest.write_text(json.dumps(commands))
+            return
+        rendered.append((commands, options["environment"]))
+        assert consume is not None
+        for index, item in enumerate(commands, 1):
+            consume(f'STUDIO_BATCH:{{"event":"start","index":{index}}}\n')
+            Path(item[item.index("-o") + 1]).write_bytes(b"mp4")
+            consume(f'STUDIO_BATCH:{{"event":"done","index":{index}}}\n')
+
+    monkeypatch.setattr(MlxVideoRunner, "_execute", execute)
+    runner = MlxVideoRunner(
+        {"cli_path": cli(tmp_path)}, "dgrauet/ltx-2.5-mlx-q8", True, execute_process=never_run, lora_files=files
+    )
+    jobs = [VideoJob(prompt, 1920, 1088, 49, 24, 7, enhance=True, loras=warm_pick()) for prompt in ["cat", "dog"]]
+
+    runner.run_batch(jobs, lambda *_: None, lambda *_: None, None, lambda: False)
+
+    commands, environment = rendered[0]
+    assert [item[item.index("-p") + 1] for item in commands] == ["cat enhanced, film grain", "dog enhanced, film grain"]
+    assert all(item[-3:] == ["--lora", files.files[0].path, "0.7"] for item in commands)
+    assert environment == {"LTX2_LORA_MODE": "unfused"}
+
+
+def test_the_lora_mode_reaches_the_engine_s_environment_and_leaves_the_studio_s_alone(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    monkeypatch.delenv("LTX2_LORA_MODE", raising=False)
+    executable = tmp_path / "ltx-2-mlx"
+    executable.write_text(
+        f"#!{sys.executable}\nimport os,sys\nfrom pathlib import Path\n"
+        "Path(sys.argv[sys.argv.index('-o')+1]).write_bytes(os.environ.get('LTX2_LORA_MODE', 'fused').encode())\n"
+    )
+    executable.chmod(0o755)
+    runner = make_runner({"cli_path": str(executable)}, "pack", False, lora_files=lora_table(tmp_path))
+
+    assert runner.run(VideoJob("cat", 384, 384, 9, 24, 7, loras=warm_pick())).mp4 == b"unfused"
+    assert runner.run(VideoJob("cat", 384, 384, 9, 24, 7)).mp4 == b"fused"
+    assert "LTX2_LORA_MODE" not in os.environ
+
+
+def test_an_engine_crash_that_prints_a_lora_file_names_its_id(tmp_path, monkeypatch):
+    from tests.support.loras import lora_table
+
+    files = lora_table(tmp_path)
+    path = files.files[0].path
+
+    def crash(self, command, *args, **options):
+        raise StudioError(f"The MLX video pipeline stopped (exit 1).\nAttaching LoRA (unfused): {path}")
+
+    monkeypatch.setattr(MlxVideoRunner, "_execute", crash)
+    runner = MlxVideoRunner({"cli_path": cli(tmp_path)}, "pack", False, execute_process=never_run, lora_files=files)
+
+    with pytest.raises(StudioError, match="Attaching LoRA \\(unfused\\): LoRA example_warm") as failed:
+        runner.run(VideoJob("a cat", 384, 384, 9, 24, 7, loras=warm_pick()))
+    assert path not in str(failed.value)

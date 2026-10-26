@@ -5,12 +5,13 @@ from collections.abc import Callable
 from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
 
 
 class Ltx25BackendGateway(VideoBackendGateway):
-    def __init__(self, runner):
-        self._capabilities = ltx25_mlx_capabilities()
+    def __init__(self, runner, loras: LoraFiles | None = None):
+        self._capabilities = (loras or LoraFiles()).offer_video(ltx25_mlx_capabilities())
         self._runner = runner
 
     def capabilities(self) -> VideoCapabilities:

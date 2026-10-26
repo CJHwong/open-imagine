@@ -1,5 +1,6 @@
 """studio.toml, read once at start, with the command-line flags on top."""
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,12 +72,30 @@ def load_config(
 def _settings(section: dict, base: Path) -> dict:
     settings = {}
     for key, value in section.items():
-        if key in ("python_path", "cli_path"):
+        if _blank(value):
+            # A blank path is a setting left empty. Resolved, it would name this file's folder.
+            pass
+        elif key in ("python_path", "cli_path"):
             # A venv's executable link selects the site-packages the runtime needs.
             value = str((base / Path(value).expanduser()).absolute())
         elif key.endswith(("_script", "_dir", "_path")):
             value = str((base / Path(value).expanduser()).resolve())
         if key == "quantize":
             value = value or None
+        if key == "loras" and isinstance(value, list):
+            # Each LoRA's file sits in a table of its own, so its path resolves here.
+            value = [_lora_entry(entry, base) for entry in value]
         settings[key] = value
     return settings
+
+
+def _blank(value) -> bool:
+    return isinstance(value, str) and not value.strip()
+
+
+def _lora_entry(entry, base: Path):
+    if isinstance(entry, dict) and isinstance(entry.get("path"), str) and not _blank(entry["path"]):
+        # Absolute, but not resolved: a Hugging Face cache file is a link to a blob without an
+        # extension, and MLX reads the format from the extension of the name it is given.
+        return {**entry, "path": os.path.abspath(base / Path(entry["path"]).expanduser())}
+    return entry
