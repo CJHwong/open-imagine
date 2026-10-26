@@ -71,6 +71,7 @@ modules =
     studio.l3_interface_adapters.gateways.video.gemma3
     studio.l3_interface_adapters.gateways.video.ltx25
     studio.l3_interface_adapters.gateways.video.ltx23
+    studio.l3_interface_adapters.gateways.video.ltx_pack
     studio.l3_interface_adapters.gateways.audio.auk
     studio.l3_interface_adapters.gateways.audio.auk_flash
     studio.l3_interface_adapters.gateways.audio.drama3

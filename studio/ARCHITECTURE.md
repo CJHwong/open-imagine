@@ -27,17 +27,18 @@ Every generation model has one concrete gateway in its own media/model package:
 
 ```text
 gateways/
-  image/{qwen21,qwen21_turbo,viggle_turbo,flux2}/
-  video/{ltx25,ltx23}/
+  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3}/
+  video/{ltx25,ltx23,ltx_pack}/
   audio/{drama3,auk,auk_flash}/
 ```
 
 Each package implements its media boundary. AuK and AuK Flash have separate gateways;
 LTX-2.3 and LTX-2.5 do too. A gateway fixes its model identity rather than selecting
-between models at runtime. Existing public backend IDs remain stable.
+between models at runtime. `video/ltx_pack` is the exception: it takes its identity from the
+plugin record that names the pack. Existing public backend IDs remain stable.
 Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
 `video/ltx_runtime`, and `audio/auk_runtime`. These packages are implementation helpers, not additional
-model gateways. `.importlinter` forbids imports between all nine model packages.
+model gateways. `.importlinter` forbids imports between the ten model packages and `video/ltx_pack`.
 Layer 4 constructs the model-specific gateway and injects its engine dependencies.
 LTX command construction, batching and memory profiles, sampler progress interpretation,
 and engine child scripts live in `video/ltx_runtime`. Gemma instructions, enhancement,
@@ -61,12 +62,22 @@ capability records without calling plugin engine factories. Native built-in fact
 remain unchanged. Plugin-only configurations own their runtime platform requirements.
 Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
 no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/model-plugins.md).
+An LTX pack is the exception to both rules, because it runs on the built-in LTX engine.
 
 A LoRA is declared by id in layer 1 (`l1_entities/lora.py`), on an image `ModeSpec` or on
 `VideoCapabilities`. The entity checks the picks of a request and supplies `with_triggers`. The
 image use case adds the trigger words to the job; a video gateway adds them after its own
 prompt enhancement. A result reports the prompt the request sent. Only
 the gateway maps an id to a file, so no path reaches the page, the API or an operation record.
+A built-in gateway keeps that map in `gateways/lora_files.py`. The composition root reads it from
+the backend's `[[<id>.loras]]` tables (`l4_frameworks_and_drivers/lora_table.py`), and a run
+refuses a file that is not on disk instead of fetching it.
+
+A video plugin can export an `LtxPack` record in place of a `ModelPlugin`, to run a pack on the
+studio's own LTX engine. The record is data only, so the SDK imports no adapter. The composition
+root builds the model as it builds the base packs, with their runner, enhancer and LoRA tables,
+behind the gateway `video/ltx_pack`. A run checks the pack's folder before the engine starts, and
+`gateways/hidden_paths.py` rewords an error that quotes the folder or a LoRA file.
 
 ## Boundaries and composition
 
@@ -224,7 +235,3 @@ Its dedicated MLX child preserves virtual reference time -1, uses ancestral samp
 conditioning in both stages. It loads the LTX-2.5 v1_0 spatial upscaler explicitly and refuses missing
 weights/config; the pinned IC-LoRA loader otherwise looks for v1_1 and silently keeps random weights.
 Existing single-stage effects retain their sampling paths. The external engine checkout is not patched.
-
-### FLUX3 runtime isolation
-
-`gateways/image/flux3` is a built-in optional adapter. Its `runtime/uv.lock` pins the newer engine independently of the host environment. The gateway receives the process runner through injection and launches its configured Python directly, once per image. The runner owns cancellation and waits for exit before releasing the operation. Readiness checks and model selection do not load weights. No other image adapter imports this runtime.

@@ -11,7 +11,9 @@ only explicitly visible plugins are imported. `--all-backends` makes all install
 | Video | `open_imagine.models.video` | `studio.plugins.video` | `VideoBackendGateway` |
 | Voice | `open_imagine.models.audio` | `studio.plugins.audio` | `VoiceBackendGateway` |
 
-Each entry point resolves to `studio.plugins.ModelPlugin`. This frozen record has:
+Each entry point resolves to `studio.plugins.ModelPlugin`. A video model that runs an LTX pack
+on the studio's own engine resolves to a `studio.plugins.video.LtxPack` instead. See
+[LTX packs](#ltx-packs). The `ModelPlugin` frozen record has:
 
 | Field | Contract |
 |---|---|
@@ -63,7 +65,8 @@ where supported; additional custom UI widgets require host support.
 
 The HTTP API remains unchanged. Select the installed backend ID in ordinary requests,
 inspect `/api/v1/studio` first, and use `/api/v1/operations` for batches and shared status.
-A missing rewriter is model-specific; a Video plugin never inherits LTX's Gemma rewriter.
+A missing rewriter is model-specific. A video `ModelPlugin` never inherits LTX's Gemma rewriter.
+An LTX pack does, because it runs on the LTX engine.
 Automatic native enhancement inside generation is the model gateway's responsibility.
 `job.enhance` is false when a Generate request sends `enhance: false`, and for every Edit. Then
 leave the prompt as it is.
@@ -86,7 +89,9 @@ A model can offer LoRAs. Declare them on the capability record: an image mode de
 
 A declaration names no file. The gateway maps each id to its own weights, so a path never
 reaches the page, the API or the operation record. Keep the files in the plugin's
-configuration, and resolve them in `load` or `run`.
+configuration, and resolve them in `load` or `run`. A `loras` list of tables in the plugin's
+section gets the same rule as the built-in models: the host resolves each entry's `path` from
+the configuration file, and `context.settings` holds the absolute path.
 
 The host checks each request before the run. It refuses an unknown id, a repeated id, a
 strength outside the LoRA's range, and more picks than `max_loras`. The job then carries the
@@ -103,6 +108,9 @@ depends on the media:
 Video differs because a video gateway enhances the prompt itself, and an exact Rewrite output
 must still match. Either way, the result records the prompt the request sent.
 
+An image batch takes one LoRA set for each mode, because an engine builds its model with one
+set. The host refuses a batch whose items in one mode pick different LoRAs.
+
 Two more rules apply to video only:
 
 - A video model applies one LoRA set to a whole batch, because a batch may keep one loaded
@@ -112,6 +120,60 @@ Two more rules apply to video only:
 
 The example package declares neutral LoRAs that shift the color of its output, so a pick has
 a visible result without a trained model.
+
+## LTX packs
+
+A video plugin can run an LTX pack on the studio's own engine, and bring no engine of its own.
+A pack is a folder of weights in the layout of `dgrauet/ltx-2.5-mlx-q8`, such as a finetune.
+The entry point exports a `studio.plugins.video.LtxPack` record in place of a `ModelPlugin`:
+
+```python
+from studio.plugins.video import LtxPack
+
+plugin = LtxPack(backend_id="acme_pack", name="Acme pack", family="ltx25")
+```
+
+| Field | Contract |
+|---|---|
+| `backend_id` | Equals the entry point name, as for a `ModelPlugin`. |
+| `name`, `description` | What the page shows. A blank description gets one from the family. |
+| `family` | `ltx25` or `ltx23`, the base model of the weights. It sets the keyframe path, and whether `edit` and `fast_mode` are allowed. Both families have the same sizes and frame rules. |
+| `precision` | The label for the precision of the weights, `int8` by default. It does not change how the engine loads the pack. |
+| `edit` | Offers the LTX-2.5 effects. Only an `ltx25` pack can set it. |
+| `audio` | Lets Generate take an audio track. |
+| `fast_mode` | Offers the LTX-2.5 float16 path. Only an `ltx25` pack can set it. |
+| `api_version` | `1`, as for a `ModelPlugin`. |
+
+The host checks the record when the plugin loads. A text field that is not text, or a switch
+that is not `True` or `False`, stops the studio at start with the plugin's name.
+
+The host builds the model as it builds `ltx25_mlx` and `ltx23_mlx`. The model uses the same
+runner, prompt enhancement, Rewrite and LoRA tables. Its settings go in its own section, and the
+engine settings, such as `cli_path`, stay under `[mlx_video]`:
+
+```toml
+[acme_pack]
+pack_dir = "~/models/acme-pack"
+
+[[acme_pack.loras]]
+id = "acme_motion"
+label = "Motion"
+path = "~/models/loras/acme-motion.safetensors"
+```
+
+A pack differs from the base packs in these ways:
+
+| Item | Rule |
+|---|---|
+| Looks and templates | A pack offers none. They were sampled on the base packs only. |
+| `edit`, `audio`, `fast_mode` | Off by default. Turn one on after you try it on the pack. |
+| Missing folder | A run refuses it before the engine starts, and names the pack by its id. Without the check, the engine stops with an error about a Hugging Face repo id. |
+| Folder name | The server log names the path. The page, the API and an engine error that quotes the folder name the pack by its id. |
+| Batch reuse | The reuse profiles, and the one shape that the base pack runs clip by clip, were measured on `dgrauet/ltx-2.5-mlx-q8` only. A pack takes neither. With `batch_policy = "auto"`, an enhanced pack batch shares one enhancement pass, then renders its clips one by one in one process. |
+| Platform | A visible pack needs MLX, as the built-in models do. |
+
+The studio does not check `pack_dir` at start, so `--all-backends` and the stub work without it.
+A run names the setting when it is missing.
 
 ## Process context
 
@@ -128,5 +190,6 @@ API version 1 identifies this contract independently of the plugin package's ver
 plugins into the environment running Studio, for example with `uv run --with <package> studio`.
 Restart after installing or updating. Existing built-in IDs, configuration and default model
 visibility remain unchanged. Plugin-only configurations do not inherit the built-ins' MLX platform gate;
-a plugin owns its engine/platform checks at runtime. This does not remove the host package's
-own installation requirements.
+a plugin owns its engine/platform checks at runtime. An LTX pack is the exception: it runs on the
+built-in engine, so it takes the gate. This does not remove the host package's own installation
+requirements.

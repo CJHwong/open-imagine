@@ -14,6 +14,7 @@ from studio.l3_interface_adapters.gateways.image.shared.qwen21_turbo_schedule im
     official_turbo_schedule,
     register_schedule,
 )
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 
 CHECKPOINT_FILES = (
     "model_index.json",
@@ -37,6 +38,7 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
         badge: str,
         model_dir: str,
         memory_scope: Callable[[], AbstractContextManager] = nullcontext,
+        loras: LoraFiles | None = None,
     ):
         self._generator = generator
         self._edit = edit
@@ -44,9 +46,10 @@ class OfficialQwenTurboBackendGateway(ImageBackendGateway):
         self._model_dir = Path(model_dir).expanduser()
         self._checkpoint_ready = False
         self._memory_scope = memory_scope
+        self._loras = loras or LoraFiles()
 
     def capabilities(self):
-        return qwen21_turbo_capabilities(self._badge)
+        return self._loras.offer_image(qwen21_turbo_capabilities(self._badge))
 
     def load(self) -> None:
         self._ensure_checkpoint()

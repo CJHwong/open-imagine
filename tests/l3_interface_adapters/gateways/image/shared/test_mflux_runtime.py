@@ -163,3 +163,14 @@ def test_active_memory_is_bounded_and_restores_the_previous_limit(recommended, f
         ("synchronize",),
         ("wired", previous),
     ]
+
+
+def test_picked_loras_follow_the_backend_s_own_adapter():
+    picked = (("/loras/a.safetensors", 0.7), ("/loras/b.safetensors", 1.2))
+
+    assert lora_kwargs("/adapters/turbo.safetensors", loras=picked) == {
+        "lora_paths": ["/adapters/turbo.safetensors", "/loras/a.safetensors", "/loras/b.safetensors"],
+        "lora_scales": [1.0, 0.7, 1.2],
+        "bake_lora": False,
+    }
+    assert lora_kwargs(None, loras=picked)["lora_paths"] == ["/loras/a.safetensors", "/loras/b.safetensors"]

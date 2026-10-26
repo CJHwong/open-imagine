@@ -53,6 +53,13 @@ def test_a_path_setting_resolves_against_the_settings_file(tmp_path: Path):
     assert config.backend("flux2")["model_dir"] == str(tmp_path / "weights/klein")
 
 
+@pytest.mark.parametrize("key", ["model_dir", "lora_path", "cli_path"])
+def test_a_blank_path_setting_stays_blank(tmp_path: Path, key):
+    """Resolved, a blank path names the folder of the settings file, which is always there."""
+    config = load_config(write(tmp_path, f'default_backend = "flux2"\n[flux2]\n{key} = " "\n'))
+    assert config.backend("flux2")[key] == " "
+
+
 def test_a_tilde_path_setting_expands_to_the_home_directory(tmp_path: Path):
     config = load_config(write(tmp_path, 'default_backend = "flux2"\n[flux2]\nmodel_dir = "~/models"\n'))
     assert config.backend("flux2")["model_dir"] == str(Path("~/models").expanduser())
