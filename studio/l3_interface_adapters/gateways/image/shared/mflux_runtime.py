@@ -129,3 +129,14 @@ def official_turbo_model_config():
     model_config.requires_sigma_shift = False
     model_config.sigma_shift_terminal = None
     return model_config
+
+
+def base_model_config():
+    """The base Qwen-Image-2.1 config, which mflux uses when it is given no folder.
+
+    A checkpoint record's weights come from the base model, so its folder gets the
+    same config: the resolution shift and the terminal rescale stay on.
+    """
+    from mflux.models.common.config.model_config import ModelConfig
+
+    return ModelConfig.qwen_image_21()

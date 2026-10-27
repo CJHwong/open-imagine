@@ -13,7 +13,9 @@ only explicitly visible plugins are imported. `--all-backends` makes all install
 
 Each entry point resolves to `studio.plugins.ModelPlugin`. A video model that runs an LTX pack
 on the studio's own engine resolves to a `studio.plugins.video.LtxPack` instead. See
-[LTX packs](#ltx-packs). The `ModelPlugin` frozen record has:
+[LTX packs](#ltx-packs). An image model that runs a Qwen-Image-2.1 checkpoint on the studio's
+own engine resolves to a `studio.plugins.image.QwenCheckpoint`. See
+[Qwen checkpoints](#qwen-checkpoints). The `ModelPlugin` frozen record has:
 
 | Field | Contract |
 |---|---|
@@ -66,7 +68,8 @@ where supported; additional custom UI widgets require host support.
 The HTTP API remains unchanged. Select the installed backend ID in ordinary requests,
 inspect `/api/v1/studio` first, and use `/api/v1/operations` for batches and shared status.
 A missing rewriter is model-specific. A video `ModelPlugin` never inherits LTX's Gemma rewriter.
-An LTX pack does, because it runs on the LTX engine.
+An LTX pack does, because it runs on the LTX engine. A Qwen checkpoint takes the Qwen rewriters
+when its section names them.
 Automatic native enhancement inside generation is the model gateway's responsibility.
 `job.enhance` is false when a Generate request sends `enhance: false`, and for every Edit. Then
 leave the prompt as it is.
@@ -175,6 +178,74 @@ A pack differs from the base packs in these ways:
 The studio does not check `pack_dir` at start, so `--all-backends` and the stub work without it.
 A run names the setting when it is missing.
 
+## Qwen checkpoints
+
+An image plugin can run a Qwen-Image-2.1 checkpoint on the studio's own engine, and bring no
+engine of its own. A checkpoint is a folder of weights in the mflux layout, such as a finetune
+whose transformer replaces the base one. The entry point exports a
+`studio.plugins.image.QwenCheckpoint` record in place of a `ModelPlugin`:
+
+```python
+from studio.plugins.image import QwenCheckpoint
+
+plugin = QwenCheckpoint(
+    backend_id="acme_qwen",
+    name="Acme Qwen",
+    scheduler="linear_quadratic",
+    generate_sampler="euler_ancestral",
+    steps=(12, 8, 40),
+)
+```
+
+| Field | Contract |
+|---|---|
+| `backend_id` | Equals the entry point name, as for a `ModelPlugin`. |
+| `name`, `description` | What the page shows. A blank description gets a default one. |
+| `scheduler` | `linear`, mflux's own sigmas with the base model's shift, or `linear_quadratic`, ComfyUI's sigmas with no shift. `linear` by default. |
+| `generate_sampler` | `euler`, or `euler_ancestral`, ComfyUI's rectified-flow Euler ancestral. Ancestral needs `linear_quadratic`. An edit always samples Euler on the same sigmas, because the edit engine has no other loop. |
+| `steps` | `(default, minimum, maximum)`, for both modes. `(40, 1, 100)` by default. An edit never goes below 2 steps, because mflux refuses an edit of one. |
+| `generate_size` | The default Generate size, one of the Qwen sizes, such as `"1024x1536"`. An edit matches its reference. |
+| `max_edit_references` | 1 to 10. 10 by default. |
+| `api_version` | `1`, as for a `ModelPlugin`. |
+
+The host checks the field types when the plugin loads, and the values when it builds the model.
+A wrong one stops the studio at start with the plugin's name.
+
+The host builds the model with the two engines that `qwen21` drives, and gives it the base
+model's config. Its settings go in its own section. The section takes `quantize`, the LoRA
+tables, and the two Rewrite models as the built-in Qwen sections do:
+
+```toml
+[acme_qwen]
+model_dir = "~/models/acme-qwen"
+quantize = 8
+rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
+rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+
+[[acme_qwen.loras]]
+id = "acme_detail"
+label = "Detail"
+path = "~/models/loras/acme-detail.safetensors"
+modes = ["edit"]
+```
+
+A checkpoint differs from the built-in Qwen models in these ways:
+
+| Item | Rule |
+|---|---|
+| Guidance | Fixed at 1. The form offers no guidance or negative prompt. |
+| Generate reference | Offered on both schedules, with Strength. On `linear_quadratic` it keeps little of the reference. That schedule holds its sigmas near 1 for half the run, so the default strength of 0.4 starts at sigma 0.98, almost pure noise. On `linear` at 1024 x 1024, 0.4 starts at 0.77. |
+| Looks, templates, region marking | A checkpoint offers none. They were sampled on the built-in models only. |
+| Estimate | None. A cost fit is measured on the checkpoint's own weights, so the page shows no time. |
+| Folder | It holds `transformer`, `vae` and `text_encoder` weights, `processor/tokenizer.json` and `text_encoder/model.safetensors.index.json`. An edit also needs `config.json` in each of the three weight folders, and `processor/preprocessor_config.json`. A text-to-image export does not write them, so its folder can generate but not edit. A part can be a link to the base snapshot. The host never writes into the folder. |
+| Missing folder or part | A run refuses it before the engine loads, and names the parts. Without the check, a blank path would load the base model and give an image with no error. |
+| Folder name | The server log names the path. The page, the API and an engine error that quotes the folder name the checkpoint by its id. |
+| Platform | A visible checkpoint needs MLX, as the built-in models do. |
+
+With the base model's own folder and the `linear` schedule, a checkpoint draws what `qwen21`
+draws. The studio does not check `model_dir` at start, so `--all-backends` and the stub work
+without it.
+
 ## Process context
 
 `PluginContext.settings` contains a copy of that model's `studio.toml` section, with paths
@@ -190,6 +261,6 @@ API version 1 identifies this contract independently of the plugin package's ver
 plugins into the environment running Studio, for example with `uv run --with <package> studio`.
 Restart after installing or updating. Existing built-in IDs, configuration and default model
 visibility remain unchanged. Plugin-only configurations do not inherit the built-ins' MLX platform gate;
-a plugin owns its engine/platform checks at runtime. An LTX pack is the exception: it runs on the
-built-in engine, so it takes the gate. This does not remove the host package's own installation
+a plugin owns its engine/platform checks at runtime. An LTX pack and a Qwen checkpoint are the
+exceptions: they run on the built-in engines, so they take the gate. This does not remove the host package's own installation
 requirements.

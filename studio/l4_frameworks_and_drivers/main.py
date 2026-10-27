@@ -39,10 +39,22 @@ from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway i
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
     OfficialQwenTurboBackendGateway,
 )
+from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.capabilities import qwen_checkpoint_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.qwen_checkpoint_backend_gateway import (
+    QwenCheckpointBackendGateway,
+)
+from studio.l3_interface_adapters.gateways.image.qwen_runtime import edit as qwen_edit
+from studio.l3_interface_adapters.gateways.image.qwen_runtime import generator as qwen_generator
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import Qwen21Rewriter
 from studio.l3_interface_adapters.gateways.image.shared import qwen21_turbo_schedule
+from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config
+from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (
+    AncestralSeedHook,
+    edit_scheduler,
+    generate_scheduler,
+)
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.image.thread_confined_backend_gateway import ThreadConfinedBackendGateway
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.viggle_turbo_backend_gateway import (
@@ -87,6 +99,7 @@ from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.lora_table import lora_files, no_loras
 from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
+from studio.plugins.image import QwenCheckpoint
 from studio.plugins.video import LtxPack
 
 PAGE = Path(__file__).with_name("web") / "page.html"
@@ -226,6 +239,58 @@ def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
     )
 
 
+def qwen_checkpoint_backend(config: Config, checkpoint: QwenCheckpoint) -> QwenCheckpointBackendGateway:
+    """A checkpoint that a plugin names, run by the two models that qwen21 drives.
+
+    The folder, the quantization, the LoRAs and the rewriter models come from the plugin's
+    own section. The folder gets the base model's config, because the weights come from the
+    base model. The gateway checks the folder when a run starts, as the LTX packs do:
+    `--all-backends` offers every installed checkpoint, with or without a section.
+    """
+    backend_id = checkpoint.backend_id
+    settings = config.backend(backend_id)
+    model_dir = str(settings.get("model_dir", ""))
+    quantize = settings.get("quantize")
+    try:
+        capabilities = qwen_checkpoint_capabilities(
+            backend_id,
+            checkpoint.name,
+            badge=badge(quantize),
+            description=checkpoint.description,
+            scheduler=checkpoint.scheduler,
+            generate_sampler=checkpoint.generate_sampler,
+            steps=checkpoint.steps,
+            generate_size=checkpoint.generate_size,
+            max_edit_references=checkpoint.max_edit_references,
+        )
+    except ValueError as error:
+        raise ConfigError(f"Cannot build the Qwen checkpoint {backend_id}: {error}") from None
+    loras = lora_files(config, backend_id)
+    callbacks = (AncestralSeedHook(),) if checkpoint.generate_sampler == "euler_ancestral" else ()
+    return offering(
+        QwenCheckpointBackendGateway(
+            Qwen21Generator(
+                quantize,
+                build=partial(qwen_generator.build_model, model_config=base_model_config, callbacks=callbacks),
+                scheduler=generate_scheduler(checkpoint.scheduler, checkpoint.generate_sampler),
+                model_path=model_dir,
+                lora_files=loras,
+            ),
+            Qwen21Edit(
+                quantize,
+                build=partial(qwen_edit.build_model, model_config=base_model_config),
+                model_path=model_dir,
+                lora_files=loras,
+            ),
+            capabilities,
+            model_dir,
+            edit_scheduler=edit_scheduler(checkpoint.scheduler),
+            loras=loras,
+        ),
+        backend_id,
+    )
+
+
 BACKENDS = {
     "qwen21": qwen21_backend,
     "qwen21_turbo": qwen21_turbo_backend,
@@ -346,12 +411,15 @@ def rewrite_quantize(config: Config, backend_id: str) -> int:
 def build_rewriters(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
     built = {}
     for backend_id in config.visible_backends:
-        if plugins and backend_id in plugins.ids("image"):
+        # A checkpoint runs on the Qwen engine, so it takes the Qwen rewriters as well.
+        checkpoint = plugins is not None and plugins.checkpoint("image", backend_id) is not None
+        if plugins and backend_id in plugins.ids("image") and not checkpoint:
             built[backend_id] = plugins.rewriter("image", backend_id, config, stub)
         else:
-            models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
+            rewriter = Qwen21Rewriter if checkpoint else REWRITERS.get(backend_id)
+            models = qwen21_rewrite_models(config, backend_id) if rewriter else None
             quantize = rewrite_quantize(config, backend_id)
-            built[backend_id] = REWRITERS[backend_id](models, quantize=quantize) if models else NoPromptRewriter()
+            built[backend_id] = rewriter(models, quantize=quantize) if rewriter and models else NoPromptRewriter()
     return built
 
 
@@ -431,11 +499,14 @@ def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dic
 def plugin_backend(
     plugins: ModelPlugins, kind: str, name: str, config: Config, stub: bool = False, enhanced_prompt=None
 ):
-    """A plugin's model. An LTX pack is built here, as the base packs are, also for the stub:
-    building it loads nothing. Every other plugin builds its own."""
+    """A plugin's model. An LTX pack or a Qwen checkpoint is built here, as the built-in models
+    are, also for the stub: building it loads nothing. Every other plugin builds its own."""
     pack = plugins.pack(kind, name)
     if pack is not None:
         return ltx_pack_backend(config, pack, enhanced_prompt)
+    checkpoint = plugins.checkpoint(kind, name)
+    if checkpoint is not None:
+        return qwen_checkpoint_backend(config, checkpoint)
     return plugins.build(kind, name, config, stub)
 
 
@@ -456,6 +527,7 @@ def create_studio(
     rewriters = build_rewriters(config, plugins, stub)
     # An LTX pack runs on the base packs' engine, so it takes their enhancer as well.
     packs = {name for name in video_backends if plugins.pack("video", name) is not None}
+    checkpoints = {name for name in backends if plugins.checkpoint("image", name) is not None}
     video_rewriters = {
         name: plugins.rewriter("video", name, config, stub)
         if name in plugins.ids("video") and name not in packs
@@ -469,16 +541,22 @@ def create_studio(
         }
         backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
         rewriters = {
-            backend_id: rewriters[backend_id] if backend_id in plugins.ids("image") else StubPromptRewriter()
+            backend_id: rewriters[backend_id]
+            if backend_id in plugins.ids("image") and backend_id not in checkpoints
+            else StubPromptRewriter()
             for backend_id in rewriters
         }
         video_backends = {
             backend_id: StubVideoBackendGateway(backend.capabilities())
             for backend_id, backend in video_backends.items()
         }
-    elif packs or any(
-        name in BACKENDS or name in VIDEO_BACKENDS or name in VOICE_BACKENDS
-        for name in (*backends, *video_backends, *voice_backends)
+    elif (
+        packs
+        or checkpoints
+        or any(
+            name in BACKENDS or name in VIDEO_BACKENDS or name in VOICE_BACKENDS
+            for name in (*backends, *video_backends, *voice_backends)
+        )
     ):
         require_mlx()
     return assemble_studio(

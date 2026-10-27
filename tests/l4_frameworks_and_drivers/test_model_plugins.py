@@ -14,7 +14,7 @@ from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
 from studio.plugins import ModelPlugin
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
-from tests.support.plugins import PACK, entry, install, pack_entries
+from tests.support.plugins import CHECKPOINT, PACK, checkpoint_entries, entry, install, pack_entries
 
 
 def configuration():
@@ -288,9 +288,9 @@ def test_an_ltx_pack_is_a_video_declaration_that_the_host_builds(monkeypatch):
     assert registry.declaration("video", "example_pack") is PACK
     assert registry.pack("video", "example_pack") is PACK
     assert registry.pack("video", "ltx25_mlx") is None
-    with pytest.raises(ConfigError, match="runs an LTX pack"):
+    with pytest.raises(ConfigError, match="own engine, so the host builds it"):
         registry.build("video", "example_pack", configuration())
-    with pytest.raises(ConfigError, match="runs an LTX pack"):
+    with pytest.raises(ConfigError, match="own engine, so the host builds it"):
         registry.rewriter("video", "example_pack", configuration())
     assert installed(monkeypatch)[0].pack("video", "example_video") is None
 
@@ -311,3 +311,43 @@ def test_a_pack_record_that_the_host_cannot_trust_is_refused_by_name(monkeypatch
     registry = install(monkeypatch, [entry(group, "example_pack", pack)])
     with pytest.raises(ConfigError, match=rf"open_imagine.models.{group}/example_pack: {message}"):
         registry.declaration(group, "example_pack")
+
+
+def test_a_qwen_checkpoint_is_an_image_declaration_that_the_host_builds(monkeypatch):
+    registry = install(monkeypatch, checkpoint_entries())
+
+    assert registry.declaration("image", "example_qwen") is CHECKPOINT
+    assert registry.checkpoint("image", "example_qwen") is CHECKPOINT
+    assert registry.checkpoint("image", "qwen21") is None
+    assert registry.pack("image", "example_qwen") is None
+    with pytest.raises(ConfigError, match="own engine, so the host builds it"):
+        registry.build("image", "example_qwen", configuration())
+    with pytest.raises(ConfigError, match="own engine, so the host builds it"):
+        registry.rewriter("image", "example_qwen", configuration())
+    assert installed(monkeypatch)[0].checkpoint("image", "example_image") is None
+
+
+@pytest.mark.parametrize(
+    ("checkpoint", "group", "message"),
+    [
+        (CHECKPOINT, "video", "a QwenCheckpoint is an image model"),
+        (replace(CHECKPOINT, api_version=2), "image", "expected QwenCheckpoint API version 1"),
+        (replace(CHECKPOINT, backend_id="other"), "image", "expected a QwenCheckpoint with backend_id 'example_qwen'"),
+        (replace(CHECKPOINT, name=None), "image", "a QwenCheckpoint's name must be text"),
+        (replace(CHECKPOINT, scheduler=1), "image", "a QwenCheckpoint's scheduler must be text"),
+        (replace(CHECKPOINT, generate_size=(1024, 1024)), "image", "a QwenCheckpoint's generate_size must be text"),
+        (replace(CHECKPOINT, steps=[12, 8, 40]), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
+        (replace(CHECKPOINT, steps=(12, 8)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
+        (replace(CHECKPOINT, steps=(12.0, 8, 40)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
+        (replace(CHECKPOINT, steps=(12, True, 40)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
+        (
+            replace(CHECKPOINT, max_edit_references=True),
+            "image",
+            "a QwenCheckpoint.s max_edit_references must be a whole number",
+        ),
+    ],
+)
+def test_a_checkpoint_record_that_the_host_cannot_trust_is_refused_by_name(monkeypatch, checkpoint, group, message):
+    registry = install(monkeypatch, [entry(group, "example_qwen", checkpoint)])
+    with pytest.raises(ConfigError, match=rf"open_imagine.models.{group}/example_qwen: {message}"):
+        registry.declaration(group, "example_qwen")
