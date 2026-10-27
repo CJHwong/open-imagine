@@ -18,6 +18,9 @@ Poll the returned `status_url` until its status is `succeeded`, `failed`, or `ca
 On success, fetch `result_url`. For an ordered batch, submit `items` with the shared settings and follow each item’s result URL.
 One operation reserves the engine; a conflicting request returns `409`.
 
+To check a request and estimate its time before you submit it, POST the same body to
+`/api/v1/images/plan` or `/api/v1/videos/plan`. A plan does not run the model or switch it.
+
 Read `/api/v1/state` for activity across workspaces and tabs.
 To stop work, POST an empty JSON object to `/api/v1/operations/{id}/cancel`.
 Download finished results before server retention expires.

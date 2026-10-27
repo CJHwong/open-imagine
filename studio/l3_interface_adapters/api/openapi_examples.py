@@ -237,6 +237,45 @@ def rewrite_examples(workspace: str) -> dict[str, Any]:
     return examples
 
 
+def plan_examples(workspace: str) -> dict[str, Any]:
+    """A plan takes the body of a run, so each example is a run's body with the media left out."""
+    if workspace == "videos":
+        return {
+            "clip_with_a_track": {
+                "summary": "Check a clip that follows a track, and estimate its time",
+                "description": "has_audio stands in for the track and reference_count for the keyframes. "
+                "A track takes the guided path, which costs more than twice the time of a plain clip.",
+                "value": {**VIDEO_SETTINGS, "reference_count": 1, "has_audio": True},
+            },
+            "effect": {
+                "summary": "Check an effect without its clip",
+                "description": "An edit needs no clip here. The effect's own size and length are the ones it accepts.",
+                "value": {
+                    "backend": "ltx25_mlx",
+                    "mode": "edit",
+                    "adapter": "day-to-night",
+                    "width": 768,
+                    "height": 448,
+                    "num_frames": 97,
+                    "frame_rate": 24,
+                },
+            },
+        }
+    return {
+        "edit_by_size": {
+            "summary": "Check an edit by the sizes of its pictures",
+            "description": "reference_sizes stands in for the pictures. The answer fills every default of the mode.",
+            "value": {
+                "backend": "qwen21_turbo",
+                "mode": "edit",
+                "reference_sizes": [[1536, 1024]],
+                "resolution": "match",
+                "count": 2,
+            },
+        },
+    }
+
+
 def operation_examples() -> dict[str, Any]:
     return {
         "image_variations": {

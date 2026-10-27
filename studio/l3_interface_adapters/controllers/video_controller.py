@@ -12,6 +12,7 @@ from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode
 from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBackendCatalogGateway
+from studio.l2_use_cases.plan_video_use_case import PlanVideoRequest, PlanVideoResponse, PlanVideoUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 
@@ -22,10 +23,12 @@ class VideoController:
         run: RunVideoUseCase,
         catalog: VideoBackendCatalogGateway,
         switch: SwitchVideoBackendUseCase,
+        plan: PlanVideoUseCase,
     ):
         self._run = run
         self._catalog = catalog
         self._switch = switch
+        self._plan = plan
 
     def capabilities(self, backend_id: str = "") -> VideoCapabilities:
         return self._catalog.get(backend_id or self._catalog.active_id()).capabilities()
@@ -37,6 +40,15 @@ class VideoController:
             raise InvalidJob("backend must be a video model id")
         backend = self._catalog.get(backend_id)
         return self._run.execute(video_job(payload, backend.capabilities()), backend_id, request_id)
+
+    def plan(self, payload: Mapping) -> PlanVideoResponse:
+        """What the run of this body would do, on the model it names or the active one. It
+        switches nothing, so the model need not be the active one."""
+        backend_id = payload.get("backend") or ""
+        if not isinstance(backend_id, str):
+            raise InvalidJob("backend must be a video model id")
+        backend_id, capabilities = self._plan.capabilities(backend_id)
+        return self._plan.execute(plan_request(payload, backend_id, capabilities))
 
     def cancel(self, payload: Mapping) -> bool:
         return self._run.cancel(_request_id(payload.get("request_id")))
@@ -89,12 +101,7 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         raise InvalidJob(
             f"{adapter.label} needs between {adapter.min_references} and {adapter.max_references} image references."
         )
-    if (
-        adapter is not None
-        and adapter.reference_frame_index is not None
-        and any(reference.frame_index != adapter.reference_frame_index for reference in references)
-    ):
-        raise InvalidJob(f"The look image must use frame_index {adapter.reference_frame_index}.")
+    _check_frames(references, adapter)
     audio = _audio(payload.get("audio"), mode, capabilities)
     loras = capabilities.parse_loras(payload.get("loras"))
     if loras and audio is not None and not capabilities.loras_with_audio:
@@ -115,6 +122,96 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
         loras=loras,
     )
+
+
+def plan_request(payload: Mapping, backend_id: str, capabilities: VideoCapabilities) -> PlanVideoRequest:
+    """The parts of a run body that a plan reads, checked as `video_job` checks them.
+
+    No prompt is needed, and no media: `reference_count` can stand in for the images and
+    `has_audio` for the track, and an edit needs no clip. A seed is checked when it is sent.
+    """
+    mode = capabilities.mode(_mode_id(payload.get("mode")))
+    adapter = _adapter(payload, mode, capabilities) if mode.needs_clip else None
+    if adapter is not None and adapter.width and adapter.height:
+        width, height = _adapter_dimensions(payload, adapter)
+    else:
+        width = _dimension(payload.get("width"), "width", capabilities)
+        height = _dimension(payload.get("height"), "height", capabilities)
+        _shape(width, height, capabilities, adapter)
+    num_frames = _frame_count(payload.get("num_frames"), capabilities)
+    if adapter is not None and adapter.num_frames and num_frames != adapter.num_frames:
+        raise InvalidJob(f"This effect renders {adapter.num_frames} frames.")
+    frame_rate = _frame_rate(payload.get("frame_rate"), capabilities)
+    if payload.get("seed") not in (None, ""):
+        _seed(payload.get("seed"), capabilities)
+    references = _reference_count(payload, num_frames, capabilities, adapter)
+    if adapter is not None and not adapter.min_references <= references <= adapter.max_references:
+        raise InvalidJob(
+            f"{adapter.label} needs between {adapter.min_references} and {adapter.max_references} image references."
+        )
+    audio = _has_audio(payload, mode, capabilities)
+    loras = capabilities.parse_loras(payload.get("loras"))
+    if loras and audio and not capabilities.loras_with_audio:
+        raise InvalidJob("This video model cannot apply LoRAs to a clip that follows an audio track.")
+    return PlanVideoRequest(
+        backend=backend_id,
+        mode=mode.id,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        frame_rate=frame_rate,
+        references=references,
+        audio=audio,
+        enhance=_enhance(payload.get("enhance", True), mode),
+        fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
+        loras=loras,
+        adapter=adapter.id if adapter else "",
+        adapter_strength=_adapter_strength(payload.get("adapter_strength"), adapter) if adapter else None,
+    )
+
+
+def _reference_count(
+    payload: Mapping, num_frames: int, capabilities: VideoCapabilities, adapter: VideoAdapter | None
+) -> int:
+    """The images that the clip carries: the images themselves, checked as a run checks them,
+    or `reference_count` in their place."""
+    if "reference_count" not in payload:
+        references = _references(payload.get("references", []), num_frames, capabilities)
+        _check_frames(references, adapter)
+        return len(references)
+    if payload.get("references"):
+        raise InvalidJob("Send references or reference_count, not both.")
+    count = payload["reference_count"]
+    if type(count) is not int or not 0 <= count <= capabilities.max_references:
+        raise InvalidJob(f"reference_count must be between 0 and {capabilities.max_references}")
+    return count
+
+
+def _check_frames(references: tuple[VideoReference, ...], adapter: VideoAdapter | None) -> None:
+    """An effect that reads its look image at one frame refuses the image at any other."""
+    if (
+        adapter is not None
+        and adapter.reference_frame_index is not None
+        and any(reference.frame_index != adapter.reference_frame_index for reference in references)
+    ):
+        raise InvalidJob(f"The look image must use frame_index {adapter.reference_frame_index}.")
+
+
+def _has_audio(payload: Mapping, mode: VideoMode, capabilities: VideoCapabilities) -> bool:
+    """Whether a track drives the clip: the track itself, or `has_audio` in its place."""
+    if "has_audio" not in payload:
+        return _audio(payload.get("audio"), mode, capabilities) is not None
+    if payload.get("audio") is not None:
+        raise InvalidJob("Send audio or has_audio, not both.")
+    if type(payload["has_audio"]) is not bool:
+        raise InvalidJob("has_audio must be a boolean")
+    if payload["has_audio"] and not mode.accepts_audio:
+        raise InvalidJob(
+            "An edit changes a clip. Audio is a Generate input."
+            if mode.needs_clip
+            else "This video model takes no audio track."
+        )
+    return payload["has_audio"]
 
 
 def _enhance(value, mode: VideoMode) -> bool:

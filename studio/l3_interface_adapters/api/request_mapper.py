@@ -28,6 +28,11 @@ def form_value(key: str, value: object) -> str:
         if not isinstance(value, list):
             raise InvalidJob("references must be an array of base64 strings")
         return json.dumps([reference_text(item) for item in value])
+    if key == "reference_sizes":
+        # A plan reads the pictures by their size alone, so a caller can send the sizes.
+        if not isinstance(value, list):
+            raise InvalidJob("reference_sizes must be an array of [width, height] pairs")
+        return json.dumps(value)
     if key == "loras":
         # The picks travel as one JSON field. A caller sends a list; the page's batch sends
         # the form's own field, which is that list as a string already. The mode checks

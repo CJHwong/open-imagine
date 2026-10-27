@@ -36,6 +36,7 @@ from studio.l3_interface_adapters.presenters.json_presenter import (
     lora_document,
     native_image_progress,
     operation_document,
+    plan_document,
     progress_document,
     rewrite_document,
     studio_document,
@@ -397,6 +398,46 @@ class JsonApi:
             images.append(image_document(response))
             self._operations.retain(operation["id"], {"images": images.copy()})
         return {"images": images}
+
+    def image_plan(self, payload: Mapping[str, object]) -> dict[str, Any]:
+        """What the run of this body would do, on the backend it names or the active one.
+
+        It switches nothing and takes no lock, so it answers while a run holds the engine, and it
+        records no operation. The body names its mode, because one route serves both. The Looks
+        go through the run's own prompt step, because an avoid part fills the negative, and a
+        negative can double the passes. The step checks the per-reference instructions as well.
+        """
+        mode = str(payload.get("mode") or "generate")
+        sizes = payload.get("reference_sizes")
+        # The prompt step counts one instruction for each picture. Sizes sent in place of the
+        # pictures count as the pictures there, and only there.
+        stand_in = isinstance(sizes, list) and "references" not in payload
+        body = self._plan_payload({**payload, "references": sizes} if stand_in else payload, mode, "image")
+        if stand_in:
+            del body["references"]
+        body.pop("per_reference_prompts", None)
+        document = plan_document(self._controller.plan(image_form(body, mode)))
+        # A run over the JSON API stops at this many images, so a plan refuses more.
+        if document["count"] > BATCH_LIMIT:
+            raise InvalidJob(f"A batch may hold at most {BATCH_LIMIT} images.")
+        return document
+
+    def video_plan(self, payload: Mapping[str, object]) -> dict[str, Any]:
+        """What the run of this body would do, on the video model it names or the active one.
+        Like an image plan, it switches nothing and records no operation."""
+        mode = str(payload.get("mode") or "generate")
+        return plan_document(self._video_backend().plan(self._plan_payload(payload, mode, "video")))
+
+    def _plan_payload(self, payload: Mapping[str, object], mode: str, workspace: str) -> dict[str, Any]:
+        """The body after the run's prompt step. The step reads the model's Looks first, so a
+        model id that no model has gets the answer of any model that the plan does not offer."""
+        backend_id = payload.get("backend") or ""
+        if not isinstance(backend_id, str):
+            raise InvalidJob("backend must be a model id")
+        try:
+            return self._prompt_payload(payload, mode, video=workspace == "video")
+        except UnknownBackend as error:
+            raise InvalidJob(f"No {workspace} model is offered as {backend_id}.") from error
 
     def image_rewrite(self, payload: Mapping[str, object]) -> dict[str, Any]:
         return self.observe(
