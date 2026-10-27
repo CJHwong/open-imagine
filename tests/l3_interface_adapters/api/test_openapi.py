@@ -8,6 +8,9 @@ from studio.l1_entities.lora import Lora
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities
 from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
+from studio.l3_interface_adapters.api.request_mapper import image_form
+from studio.l3_interface_adapters.controllers.form_controller import plan_request as image_plan_request
+from studio.l3_interface_adapters.controllers.video_controller import plan_request as video_plan_request
 from studio.l3_interface_adapters.controllers.video_controller import video_job
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
@@ -288,3 +291,24 @@ def test_video_rewrite_describes_real_image_grounding_and_cache_identity():
     sample = route["requestBody"]["content"]["application/json"]["examples"]["animate_reference"]
     assert base64.b64decode(sample["value"]["references"][0]["png_base64"], validate=True).startswith(b"\x89PNG")
     assert "same first image" in sample["description"]
+
+
+def test_every_plan_example_passes_the_checks_of_the_model_it_names():
+    paths = openapi_document()["paths"]
+    content = "requestBody", "content", "application/json", "examples"
+
+    def examples(path):
+        node = paths[path]["post"]
+        for key in content:
+            node = node[key]
+        return [example["value"] for example in node.values()]
+
+    for body in examples("/api/v1/videos/plan"):
+        assert body["backend"] == "ltx25_mlx"
+        video_plan_request(body, "ltx25_mlx", ltx25_mlx_capabilities())
+    for body in examples("/api/v1/images/plan"):
+        assert body["backend"] == "qwen21_turbo"
+        values = {key: value for key, value in body.items() if key != "mode"}
+        request = image_plan_request(image_form(values, body["mode"]))
+        options = qwen21_turbo_capabilities().mode(request.mode).parse_options(request.options)
+        assert options["resolution"] == "match"

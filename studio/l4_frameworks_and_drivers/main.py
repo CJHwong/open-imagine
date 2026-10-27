@@ -11,6 +11,8 @@ from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
+from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
+from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
@@ -630,6 +632,7 @@ def assemble_studio(
             RunVideoUseCase(video_catalog, progress, engine_lock, residency),
             video_catalog,
             SwitchVideoBackendUseCase(video_catalog, engine_lock, residency),
+            PlanVideoUseCase(video_catalog),
         )
     controller = FormController(
         describe=DescribeStudioUseCase(catalog, rewriter, video_catalog, video_rewriter),
@@ -655,6 +658,7 @@ def assemble_studio(
         read_rewrite_progress=ReadRewriteProgressUseCase(rewrite_progress),
         cancel_rewrite=CancelRewriteUseCase(rewrite_progress),
         release_model=ReleaseModelUseCase(engine_lock, residency),
+        plan=PlanImageUseCase(catalog),
     )
     presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"))
     # The JSON API rides on the same controllers: one route map, two transports.

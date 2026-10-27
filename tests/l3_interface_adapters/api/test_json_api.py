@@ -880,3 +880,198 @@ def test_omitted_voice_mode_uses_the_active_backend_default():
     api = api_for(FakeController(), voice=voice)
     operation = api.reserve({"kind": "voice", "text": "Hello"})
     assert operation["mode"] == "generate" and operation["backend"] == "drama3"
+
+
+class PlanningController(FakeController):
+    """A controller that plans: it records each form, and reads its Looks and templates from
+    `capabilities`, or finds no model at all."""
+
+    def __init__(self, capabilities=None):
+        super().__init__()
+        self.planned = []
+        self._capabilities = capabilities
+
+    def capabilities(self, backend_id):
+        from studio.l1_entities.errors import UnknownBackend
+
+        if self._capabilities is None:
+            raise UnknownBackend(f"no backend registered as {backend_id}")
+        return self._capabilities
+
+    def plan(self, form):
+        from studio.l1_entities.image_estimate import ImageEstimate
+        from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
+
+        self.planned.append(dict(form))
+        estimate = ImageEstimate("constants", 4, 512, 512, 0, 2.0, 1.0, 5.0)
+        return PlanImageResponse("fake", form["mode"], 2, {"steps": 4}, (), False, estimate)
+
+
+class PlanningVideo(FakeVideo):
+    def __init__(self, answer):
+        super().__init__()
+        self.answer = answer
+
+    def plan(self, payload):
+        self.payloads.append(payload)
+        return self.answer
+
+
+def test_an_image_plan_reads_the_body_of_a_run_through_its_prompt_step():
+    from dataclasses import replace
+
+    from studio.l1_entities.capabilities import Template
+
+    original = FakeController().page().active
+    mode = replace(
+        original.mode("generate"),
+        templates=(Template("Portrait", "", "A portrait of [subject]."),),
+        each_reference=True,
+    )
+    controller = PlanningController(replace(original, modes=(mode,)))
+
+    document = api_for(controller).image_plan(
+        {
+            "template": "Portrait",
+            "template_values": {"subject": "a woman"},
+            "each_reference": True,
+            "per_reference_prompts": ["in blue", "in green"],
+            "reference_sizes": [[512, 512], [640, 480]],
+            "count": 2,
+        }
+    )
+
+    form = controller.planned[0]
+    assert form["mode"] == "generate"
+    assert form["prompt"] == "A portrait of a woman. in blue"
+    assert form["reference_sizes"] == "[[512, 512], [640, 480]]"
+    assert "references" not in form
+    assert "per_reference_prompts" not in form
+    assert document == {
+        "backend": "fake",
+        "mode": "generate",
+        "count": 2,
+        "effective_options": {"steps": 4},
+        "estimate": {
+            "basis": "constants",
+            "steps": 4,
+            "width": 512,
+            "height": 512,
+            "reference_count": 0,
+            "per_item_seconds": 2.0,
+            "setup_seconds": 1.0,
+            "total_seconds": 5.0,
+            "excludes": ["weight download", "model load", "queue wait"],
+        },
+    }
+
+
+def test_an_image_plan_refuses_a_backend_that_is_not_an_id():
+    with pytest.raises(InvalidJob, match="backend must be a model id"):
+        api_for(PlanningController()).image_plan({"backend": 3})
+
+
+def test_an_image_plan_with_looks_for_a_model_that_does_not_exist_is_a_bad_request():
+    with pytest.raises(InvalidJob, match="No image model is offered as ghost"):
+        api_for(PlanningController()).image_plan({"backend": "ghost", "looks": {"Light": "Soft"}})
+
+
+def test_a_video_plan_is_the_video_controller_s_plan_as_a_document():
+    from studio.l1_entities.lora import LoraUse
+    from studio.l1_entities.video_estimate import ClipEstimate
+    from studio.l2_use_cases.plan_video_use_case import PlanVideoResponse
+
+    estimate = ClipEstimate("provisional", 11, 960, 544, 0, 190.0, 90.0, 280.0, ("queue wait",))
+    video = PlanningVideo(
+        PlanVideoResponse("video-fake", "generate", 1, {"width": 960}, (LoraUse("motion", 0.5),), True, estimate)
+    )
+
+    document = api_for(FakeController(), video=video).video_plan({"width": 960})
+
+    assert video.payloads == [{"width": 960}]
+    assert document["effective_options"] == {"width": 960, "loras": [{"id": "motion", "strength": 0.5}]}
+    assert document["estimate"]["excludes"] == ["queue wait"]
+    assert document["estimate"]["total_seconds"] == 280.0
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ({"per_reference_prompts": 5, "each_reference": True}, "one instruction per reference"),
+        ({"per_reference_prompts": ["a", "b"], "each_reference": True}, "one instruction per reference"),
+        ({"per_reference_prompts": ["a"]}, "requires each_reference"),
+    ],
+)
+def test_an_image_plan_checks_the_instructions_for_each_reference_as_a_run_does(body, message):
+    from dataclasses import replace
+
+    original = FakeController().page().active
+    controller = PlanningController(replace(original, modes=(replace(original.mode("generate"), each_reference=True),)))
+
+    with pytest.raises(InvalidJob, match=message):
+        api_for(controller).image_plan({"reference_sizes": [[512, 512]], **body})
+
+
+def test_an_image_plan_refuses_more_images_than_a_json_run_makes():
+    from studio.l1_entities.image_estimate import ImageEstimate
+    from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
+
+    class LargePlan(PlanningController):
+        def plan(self, form):
+            estimate = ImageEstimate("unavailable", 4, 512, 512, 1)
+            return PlanImageResponse("fake", "edit", BATCH_LIMIT + 1, {}, (), False, estimate)
+
+    with pytest.raises(InvalidJob, match=f"at most {BATCH_LIMIT} images"):
+        api_for(LargePlan()).image_plan({"mode": "edit"})
+
+
+def test_a_video_plan_checks_its_looks_and_template_as_a_run_does():
+    from studio.l1_entities.video_estimate import ClipEstimate
+    from studio.l2_use_cases.plan_video_use_case import PlanVideoResponse
+
+    class Discoverable(PlanningVideo):
+        def capabilities(self, backend_id=""):
+            return VideoCapabilities(
+                backend_id="video-fake",
+                name="Fake",
+                badge="",
+                description="",
+                shapes=(VideoShape("1:1", 512, 512),),
+                default_shape_ratio="1:1",
+                min_frames=9,
+                max_frames=121,
+                frame_step=8,
+                duration_presets=(121,),
+                default_frames=121,
+                frame_rate=24,
+                max_references=1,
+                min_reference_strength=0,
+                max_reference_strength=1,
+                reference_strength_step=0.1,
+                default_reference_strength=1,
+                min_seed=0,
+                max_seed=10,
+                min_dimension=256,
+                max_dimension=1024,
+                dimension_step=32,
+            )
+
+    answer = PlanVideoResponse("video-fake", "generate", 1, {}, (), False, ClipEstimate("unavailable", 11, 8, 8, 0))
+    api = api_for(FakeController(), video=Discoverable(answer))
+
+    with pytest.raises(InvalidJob):
+        api.video_plan({"template": "nope"})
+    with pytest.raises(InvalidJob):
+        api.video_plan({"looks": {"Bogus": "x"}})
+    assert api.video_plan({"width": 512})["backend"] == "video-fake"
+
+
+def test_a_video_plan_for_a_model_that_does_not_exist_is_a_bad_request():
+    from studio.l1_entities.errors import UnknownBackend
+
+    class Missing(FakeVideo):
+        def capabilities(self, backend_id=""):
+            raise UnknownBackend(f"no video backend registered as {backend_id}")
+
+    with pytest.raises(InvalidJob, match="No video model is offered as ghost"):
+        api_for(FakeController(), video=Missing()).video_plan({"backend": "ghost", "looks": {"Light": "Soft"}})

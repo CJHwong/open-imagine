@@ -15,6 +15,7 @@ from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase, StudioView
+from studio.l2_use_cases.plan_image_use_case import PlanImageRequest, PlanImageResponse, PlanImageUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
@@ -35,6 +36,7 @@ class FormController:
         read_rewrite_progress: ReadRewriteProgressUseCase,
         cancel_rewrite: CancelRewriteUseCase,
         release_model: ReleaseModelUseCase,
+        plan: PlanImageUseCase,
     ):
         self._describe = describe
         self._run = run
@@ -45,6 +47,7 @@ class FormController:
         self._read_rewrite_progress = read_rewrite_progress
         self._cancel_rewrite = cancel_rewrite
         self._release_model = release_model
+        self._plan = plan
 
     def capabilities(self, backend_id: str):
         return self._describe.capabilities(backend_id)
@@ -54,6 +57,9 @@ class FormController:
 
     def run(self, form: Mapping[str, str]) -> RunImageResponse:
         return self._run.execute(run_request(form))
+
+    def plan(self, form: Mapping[str, str]) -> PlanImageResponse:
+        return self._plan.execute(plan_request(form))
 
     def run_batch(self, forms, completed, started, cancelled) -> list[RunImageResponse]:
         return self._run.execute_batch([run_request(form) for form in forms], completed, started, cancelled)
@@ -104,6 +110,41 @@ def run_request(form: Mapping[str, str]) -> RunImageRequest:
         # The page sets this only when it appended the region mask as the last reference.
         mask=bool(form.get("mask")),
     )
+
+
+def plan_request(form: Mapping[str, str]) -> PlanImageRequest:
+    """The form of a run, read for its plan. The pictures count only by their size, so a
+    caller may send `reference_sizes`, a JSON array of [width, height], in their place."""
+    if form.get("references") and form.get("reference_sizes"):
+        raise InvalidJob("Send references or reference_sizes, not both")
+    if form.get("reference_sizes"):
+        sizes = _sizes(form["reference_sizes"])
+    else:
+        sizes = tuple((image.width, image.height) for image in _references(form.get("references") or "[]"))
+    return PlanImageRequest(
+        mode=form.get("mode") or "generate",
+        options=form,
+        reference_sizes=sizes,
+        total=_whole(form.get("total") or form.get("count") or "1", "count"),
+        backend=form.get("backend", "").strip(),
+        each_reference=bool(form.get("each_reference")),
+        mask=bool(form.get("mask")),
+        seed=form.get("seed", ""),
+    )
+
+
+def _sizes(raw: str) -> tuple[tuple[int, int], ...]:
+    try:
+        sizes = json.loads(raw)
+    except json.JSONDecodeError:
+        sizes = None
+    if not isinstance(sizes, list) or not all(_is_size(pair) for pair in sizes):
+        raise InvalidJob("reference_sizes must be an array of [width, height] pairs of whole numbers above 0")
+    return tuple((pair[0], pair[1]) for pair in sizes)
+
+
+def _is_size(pair: object) -> bool:
+    return isinstance(pair, list) and len(pair) == 2 and all(type(side) is int and side > 0 for side in pair)
 
 
 def rewrite_request(form: Mapping[str, str]) -> RewriteRequest:

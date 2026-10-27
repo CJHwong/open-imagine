@@ -24,6 +24,8 @@ The rendered view loads a pinned Swagger UI asset from a CDN.
 | Select a video model | `POST /api/v1/videos/backend` with `{"backend":"ltx25_mlx"}` |
 | Release model memory | `POST /api/v1/memory/release` |
 | Read rewrite progress | `GET /api/v1/rewrite/state` |
+| Check an image request and estimate its time | `POST /api/v1/images/plan` |
+| Check a video request and estimate its time | `POST /api/v1/videos/plan` |
 
 Existing synchronous generate, edit, rewrite, progress, and cancel routes remain available.
 A synchronous image request returns JSON with base64 PNG images. A video request returns MP4 bytes.
@@ -388,6 +390,74 @@ GET /api/v1/videos/backends/{id}
 These routes do not load weights or switch the active model.
 Use them to compare supported modes, prompt aids, effect recipes, and parameter limits.
 Then submit the chosen `backend` in the generation request.
+
+## Plan a request
+
+Send the body of a run to `POST /api/v1/images/plan` or `POST /api/v1/videos/plan`.
+One route serves both modes, so add `"mode": "edit"` to the body of an edit.
+The server runs the same checks as the run, but it does not run the model.
+It does not switch the active model, take the GPU, or record an operation.
+It answers while another run holds the GPU.
+
+```sh
+curl -sS http://localhost:8765/api/v1/images/plan \
+  -H 'Content-Type: application/json' \
+  -d '{"backend":"qwen21_turbo","mode":"edit","reference_sizes":[[1536,1024]],"count":2}'
+```
+
+```json
+{
+  "backend": "qwen21_turbo",
+  "mode": "edit",
+  "count": 2,
+  "effective_options": {"resolution": "match", "steps": 8, "cfg": 1.0, "negative": ""},
+  "estimate": {
+    "basis": "constants",
+    "steps": 8,
+    "width": 1536,
+    "height": 1024,
+    "reference_count": 1,
+    "per_item_seconds": 70.3,
+    "setup_seconds": 0.0,
+    "total_seconds": 140.7,
+    "excludes": ["weight download", "model load", "queue wait"]
+  }
+}
+```
+
+A request that the run refuses gets the same `400` error from the plan.
+A model that the studio does not offer also gets `400`.
+An image plan for more than 16 images gets `400`, because a JSON run stops at 16.
+
+| Field | Meaning |
+|---|---|
+| `count` | The images or clips that the request makes. One result for each reference multiplies it. |
+| `effective_options` | Every setting of the mode, with each default filled in. Send it back to the run as it is. |
+| `estimate.basis` | `constants`, `provisional`, or `unavailable`. |
+| `estimate.total_seconds` | The time of the whole request, or `null` when the basis is `unavailable`. |
+| `estimate.excludes` | The time that the figure does not hold. |
+
+A plan needs no prompt and no media.
+For an image, send `reference_sizes` as `[width, height]` pairs in place of `references`.
+For a video, send `reference_count` in place of `references` and `has_audio` in place of `audio`.
+An edit plan needs no clip.
+
+An image figure is the figure that the page shows under the run button for a fresh tab.
+It uses the same constants and the same formula.
+
+A video figure is `provisional`. It comes from a fit to recorded runs on one machine.
+Expect an error of about 10 to 40%. The fit counts these parts of a clip:
+
+- The latent tokens of the clip, from its size and frame count.
+- The steps of the two stages, and the decode.
+- The prompt enhancer, unless the request sends `enhance: false`.
+- Each LoRA, at about 10 seconds.
+- The guided path for an audio track, and for a keyframe on LTX-2.3. This path costs about 2.5 times more.
+- For an edit, a fit over the tokens of the output, times the effect's own `cost_factor`. An edit never costs less than the model loads.
+
+The figure counts Fast mode at the default speed and adds `Fast mode speedup` to `excludes`.
+No run measured the time that Fast mode saves.
+The constants are in the `estimate` field of each video model's capabilities.
 
 ## Cut an audio selection
 
