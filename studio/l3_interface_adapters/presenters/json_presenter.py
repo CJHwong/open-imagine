@@ -9,6 +9,8 @@ from typing import Any
 from studio.l1_entities.lora import LoraUse
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
+from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
+from studio.l2_use_cases.plan_video_use_case import PlanVideoResponse
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import RunImageResponse
 
@@ -28,6 +30,23 @@ def image_document(response: RunImageResponse) -> dict[str, Any]:
         "prompt": response.prompt,
         "reference": response.reference,
         "loras": lora_document(response.loras),
+    }
+
+
+def plan_document(response: PlanImageResponse | PlanVideoResponse) -> dict[str, Any]:
+    """What a run would do. The LoRAs join the settings when the model offers any, so a
+    caller can send `effective_options` back to the run route as they are."""
+    options = dict(response.effective_options)
+    if response.offers_loras:
+        options["loras"] = lora_document(response.loras)
+    estimate = asdict(response.estimate)
+    estimate["excludes"] = list(estimate["excludes"])
+    return {
+        "backend": response.backend,
+        "mode": response.mode,
+        "count": response.count,
+        "effective_options": options,
+        "estimate": estimate,
     }
 
 

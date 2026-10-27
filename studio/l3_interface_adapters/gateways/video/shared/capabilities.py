@@ -5,8 +5,92 @@ measured prompt aids and modes here.
 """
 
 from studio.l1_entities.capabilities import Template
-from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
+from studio.l1_entities.video_capabilities import (
+    VideoAdapter,
+    VideoCapabilities,
+    VideoEstimate,
+    VideoMode,
+    VideoShape,
+)
 from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
+
+# The time of a clip, as `VideoEstimate` reads it. Every figure is provisional.
+#
+# The shape of a Generate run is an older runner's fit: the Python API of the same MLX port, in
+# low-memory mode, from a stress test of a 2.3 finetune at int4 on the M5 Pro with 64 GB on
+# 2026-10-17, over 10.9 to 31.6 thousand tokens. An int8 pack took 5.6% longer. It gave
+# 87 s for 768 x 512 x 73 and 306 s for 1280 x 704 x 121, against that runner's 86 s and 307 s.
+# The CLI that this studio drives is slower, so `scale` and `fixed_seconds` are fitted, by
+# relative error, to this studio's own recorded runs of LTX-2.5 q8 on the same machine. The
+# prompt pass was on in each of them:
+#
+#   clip                  measured        fit
+#   384 x 384 x 25         91.4 s         102 s    design-decisions.md, audio entry
+#   1280 x 704 x 73       393.2 s         312 s    design-decisions.md, two runs of one clip
+#   1280 x 704 x 73       499.8 s         312 s
+#   1920 x 1088 x 17      248.4 s         227 s    batch.py, per item
+#   1920 x 1088 x 97      790.0 s        1007 s    max_dimension below
+#
+# The 40.9 s for 384 x 384 x 121 under SHAPES is left out: it is shorter than the 91.4 s of a
+# shorter clip at that size, so the two runs did not pay the same loads, and neither says which.
+#
+# No run timed the prompt pass alone. The 15 s for it is the time that an enhancer of the same
+# size took before a clip in the older studio. A LoRA added about 7 s to a 3 s clip at 480p,
+# and two added 25 s to a 5 s clip at 1080p, in the older runner: 10 s each. An audio track
+# took 243.4 s against 91.4 s for the same clip, about 2.5 times, on the guided path. A
+# keyframe on 2.3 takes the same guided path, so it takes the same factor, unmeasured.
+#
+# An effect is fitted on its own: seconds = a + b x thousands of tokens of the output, from the
+# portrait and landscape checks of PROMPTS.md through /api/v1/videos/edit:
+#
+#   effect           output             measured     fit
+#   Day to night     448 x 768 x 97      338.0 s     318 s
+#   Day to night     768 x 448 x 97      273.3 s     318 s
+#   Deblur           544 x 960 x 121     850.9 s     760 s
+#   Decompression    544 x 960 x 121     544.0 s     760 s
+#   Clean plate      576 x 1024 x 49     324.5 s     279 s
+#   Restore          544 x 960 x 97      633.1 s     582 s
+#   Water            704 x 1280 x 97    1376.9 s    1142 s
+#   Water            1280 x 704 x 97     958.8 s    1142 s
+#
+# Upscale 2x sits off that fit: 986.1 s for a 768 x 1280 x 121 output, 0.62 of the fit's
+# 1598 s. Layout to Render has no timed run, so it takes the fit as it is.
+GENERATE_LOAD = (2.33, 0.874)
+GENERATE_STAGE_1 = (2.037, 0.1260)
+GENERATE_STAGE_2 = (2.628, 0.08134)
+GENERATE_DECODE = (-10.44, 0.3331)
+GENERATE_SCALE = 1.46
+GENERATE_FIXED_SECONDS = 87.0
+ENHANCE_SECONDS = 15.0
+LORA_SECONDS = 10.0
+GUIDED_FACTOR = 2.5
+EDIT_SECONDS = (-190.5, 116.45)
+UPSCALE_COST = 0.62
+# The fit holds int4. An int8 pack, such as both base packs, takes 5.6% longer.
+PACK_FACTORS = {"int4": 1.0, "int8": 1.056}
+EXCLUDES = ("weight download", "queue wait")
+
+
+def video_estimate(family: str, precision: str) -> VideoEstimate:
+    """The constants of a pack of this family at this precision. A precision that no run
+    measured takes the int8 figure."""
+    return VideoEstimate(
+        load=GENERATE_LOAD,
+        stage_1=GENERATE_STAGE_1,
+        stage_2=GENERATE_STAGE_2,
+        decode=GENERATE_DECODE,
+        scale=GENERATE_SCALE,
+        pack_factor=PACK_FACTORS.get(precision, PACK_FACTORS["int8"]),
+        fixed_seconds=GENERATE_FIXED_SECONDS,
+        enhance_seconds=ENHANCE_SECONDS,
+        lora_seconds=LORA_SECONDS,
+        guided_factor=GUIDED_FACTOR,
+        # The runner takes the two-stage path for a keyframe on 2.3 only.
+        guided_with_references=family == "ltx23",
+        edit=EDIT_SECONDS,
+        excludes=EXCLUDES,
+    )
+
 
 # These three first fills reproduce the API probes from 2026-10-20. The sideways and
 # orbit probes also moved forward, so they do not earn separate templates.
@@ -207,6 +291,7 @@ VIDEO_ADAPTERS = (
         prompt=UPSCALE_PROMPT,
         doubles_output=True,
         card="Pixel-Spatial-Upscaler",
+        cost_factor=UPSCALE_COST,
     ),
 )
 
@@ -281,6 +366,7 @@ def _capabilities(
         templates=((LTX25_TEMPLATES if family == "ltx25" else VIDEO_TEMPLATES) if aids else ()),
         modes=(generate, edit_mode) if edit else (generate,),
         adapters=VIDEO_ADAPTERS if edit else (),
+        estimate=video_estimate(family, precision),
     )
 
 

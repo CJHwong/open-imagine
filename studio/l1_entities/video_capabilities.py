@@ -88,6 +88,9 @@ class VideoAdapter:
     card: str = ""
     """The collection the effect's weights come from, when they are fetched. Empty means the
     weights are the person's own to place, and the studio does not go looking for them."""
+    cost_factor: float = 1.0
+    """How this effect's time compares with the edit fit of `VideoEstimate`, which most of the
+    effects follow. An effect whose measured runs sit off that fit says by how much here."""
 
     def __post_init__(self) -> None:
         if self.mode not in ("generate", "edit"):
@@ -96,6 +99,38 @@ class VideoAdapter:
             raise ValueError(f"an adapter's prompt_mode is text, optional or empty, not {self.prompt_mode!r}")
         if self.prompt_mode == "empty" and self.prompt:
             raise ValueError(f"{self.id} refuses a prompt, so it cannot seed one")
+
+
+@dataclass(frozen=True)
+class VideoEstimate:
+    """The constants behind the time that a clip costs, over the thousands of latent tokens
+    of the clip. `video_estimate.py` holds the formula.
+
+    Each pair is a constant and a slope. A Generate run loads with `load`, runs the steps of
+    stage 1 on a quarter of the tokens and the steps of stage 2 on all of them, each as
+    a N + b N^2, and decodes with `decode`, which grows with the megapixels of all the frames.
+    `scale` turns that run into this runner's seconds, and `pack_factor` scales it for the
+    precision of the weights. `fixed_seconds` is paid once per clip: the loads and the prompt
+    pass. A request without the prompt pass saves `enhance_seconds` of it. Each LoRA adds
+    `lora_seconds`. An audio track takes the guided path, which multiplies the clip by
+    `guided_factor`, and so does a reference image when `guided_with_references` is set.
+    An Edit takes `edit`, a constant and a slope over the tokens of the output, with the
+    loads of a clip as its floor. `excludes` names the time that no figure holds.
+    """
+
+    load: tuple[float, float]
+    stage_1: tuple[float, float]
+    stage_2: tuple[float, float]
+    decode: tuple[float, float]
+    scale: float = 1.0
+    pack_factor: float = 1.0
+    fixed_seconds: float = 0.0
+    enhance_seconds: float = 0.0
+    lora_seconds: float = 0.0
+    guided_factor: float = 1.0
+    guided_with_references: bool = False
+    edit: tuple[float, float] = (0.0, 0.0)
+    excludes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -157,6 +192,8 @@ class VideoCapabilities:
     loras_with_audio: bool = False
     """Whether a clip that follows an audio track can also pick LoRAs. An engine whose audio
     path cannot apply them says so here, and the form clears the picks when a track is set."""
+    estimate: VideoEstimate | None = None
+    """The constants of the time that a clip costs. None means that a plan names no seconds."""
 
     def __post_init__(self) -> None:
         check_offer(self.loras, self.max_loras, f"video model {self.backend_id!r}")

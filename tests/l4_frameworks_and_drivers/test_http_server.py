@@ -1359,3 +1359,29 @@ def test_native_image_batch_prepares_all_jobs_once_and_retains_browser_identity(
     manifest = json.loads(body)
     assert manifest["completed"] == 2
     assert [item["prompt"] for item in manifest["items"]] == ["a pear", "an apple"]
+
+
+def test_the_image_plan_route_answers_the_settings_without_a_run(served):
+    server = served[1]
+    status, _, body = post_json(server, "/api/v1/images/plan", {"backend": "other", "count": 2, "steps": 5})
+
+    assert status == 200
+    document = json.loads(body)
+    assert (document["backend"], document["mode"], document["count"]) == ("other", "generate", 2)
+    assert document["effective_options"] == {"steps": 5, "guidance": 1.0}
+    assert document["estimate"]["basis"] == "unavailable"
+    assert post_json(server, "/api/v1/images/plan", {"backend": "missing"})[0] == 400
+    assert json.loads(call(server, "/api/v1/studio")[2])["image"]["active"] == "fake"
+
+
+def test_the_video_plan_route_answers_the_clip_without_a_run(served):
+    _, server, video_backend, other_video = served
+    clip = {"backend": "video-other", "width": 960, "height": 544, "num_frames": 121, "frame_rate": 24}
+    status, _, body = post_json(server, "/api/v1/videos/plan", clip)
+
+    assert status == 200
+    document = json.loads(body)
+    assert (document["backend"], document["mode"], document["count"]) == ("video-other", "generate", 1)
+    assert document["effective_options"]["num_frames"] == 121
+    assert video_backend.jobs == [] and other_video.jobs == []
+    assert post_json(server, "/api/v1/videos/plan", {**clip, "num_frames": 4})[0] == 400

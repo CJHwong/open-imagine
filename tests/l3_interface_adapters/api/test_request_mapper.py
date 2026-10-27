@@ -91,3 +91,9 @@ def test_the_page_s_own_lora_field_passes_as_it_is():
     blank when nothing is picked. The mode parses it, so the mapper must not refuse it."""
     assert image_form({"loras": ""}, "generate")["loras"] == ""
     assert image_form({"loras": '[{"id": "example_warm"}]'}, "generate")["loras"] == '[{"id": "example_warm"}]'
+
+
+def test_the_sizes_of_the_pictures_travel_as_one_json_field():
+    assert form_value("reference_sizes", [[1024, 768]]) == "[[1024, 768]]"
+    with pytest.raises(InvalidJob, match="reference_sizes must be an array"):
+        form_value("reference_sizes", "1024x768")
