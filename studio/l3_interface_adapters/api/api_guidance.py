@@ -126,6 +126,20 @@ GUIDANCE = {
         "num_frames; adapters are not interchangeable and some re-synthesize motion. Send the clip as bare base64. "
         "This call waits and returns MP4 bytes. Prefer startOperation with kind=video and mode=edit for long jobs."
     ),
+    "planImage": (
+        "Use this before a run to check the request and estimate its time. Send the body that generateImage or "
+        "editImage would take, and add mode=edit for an edit; no prompt is needed. It switches no model, takes no "
+        "lock and records no operation, "
+        "so it answers while a run holds the GPU. Send effective_options back as the run's settings. "
+        "total_seconds is the figure that the page shows; it excludes the model load and any queue wait."
+    ),
+    "planVideo": (
+        "Use this before a video run to check the request and estimate its time. Send the body that generateVideo "
+        "or editVideo would take, and add mode=edit for an effect. Leave out the media: reference_count stands in "
+        "for references and has_audio for audio. It switches no model and records no operation. The estimate "
+        "basis is provisional: read it as a "
+        "range of about 10 to 40%, not a promise."
+    ),
     "rewriteImagePrompt": (
         "Use this to expand a rough image prompt or explain a referenced image before generation. "
         "Send prompt and optional image references; read the returned prompt and optional size suggestion. "

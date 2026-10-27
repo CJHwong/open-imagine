@@ -196,3 +196,25 @@ def test_the_frame_controls_sit_on_the_port_s_grid(build):
         assert (frames - 1) % capabilities.frame_step == 0
         assert capabilities.min_frames <= frames <= capabilities.max_frames
     assert capabilities.default_frames in capabilities.duration_presets
+
+
+def test_every_pack_carries_the_time_of_a_clip_for_its_family_and_precision():
+    ltx25 = ltx25_mlx_capabilities()
+    ltx23 = ltx23_mlx_capabilities()
+    small = ltx_pack_capabilities("small", "Small", "ltx23", precision="int4")
+
+    assert ltx25.estimate is not None and ltx23.estimate is not None and small.estimate is not None
+    # 2.3 samples a keyframe on its guided path; 2.5 keeps the distilled one.
+    assert ltx23.estimate.guided_with_references is True
+    assert ltx25.estimate.guided_with_references is False
+    # The 4-bit weights are the measured base, and 8-bit weights run a little slower.
+    assert small.estimate.pack_factor == 1.0
+    assert ltx23.estimate.pack_factor > 1.0
+    assert ltx25.estimate.excludes == ("weight download", "queue wait")
+
+
+def test_only_the_upscaler_sits_off_the_edit_fit():
+    factors = {adapter.id: adapter.cost_factor for adapter in ltx25_mlx_capabilities().adapters}
+
+    assert factors.pop("upscale-2x") == pytest.approx(0.62)
+    assert set(factors.values()) == {1.0}

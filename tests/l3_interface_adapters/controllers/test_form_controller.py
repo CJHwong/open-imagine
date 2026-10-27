@@ -15,7 +15,12 @@ from PIL import Image, PngImagePlugin
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.run_image_use_case import RunImageRequest
-from studio.l3_interface_adapters.controllers.form_controller import FormController, rewrite_request, run_request
+from studio.l3_interface_adapters.controllers.form_controller import (
+    FormController,
+    plan_request,
+    rewrite_request,
+    run_request,
+)
 from tests.support.fakes import fake_capabilities
 
 
@@ -44,6 +49,7 @@ def uses():
             "read_rewrite_progress",
             "cancel_rewrite",
             "release_model",
+            "plan",
         )
     }
 
@@ -278,3 +284,49 @@ def test_a_native_batch_parses_all_forms_before_the_use_case(controller, uses):
     requests, *callbacks = uses["run"].execute_batch.call_args.args
     assert [item.prompt for item in requests] == ["cat", "dog"]
     assert callbacks == [completed, started, cancelled]
+
+
+def test_a_plan_reads_the_form_of_a_run(controller, uses):
+    answer = object()
+    uses["plan"].execute.return_value = answer
+    form = {
+        "mode": "edit",
+        "references": json.dumps([encoded(size=(40, 30)), encoded(size=(20, 10))]),
+        "count": "3",
+        "backend": " other ",
+        "each_reference": "1",
+        "mask": "1",
+        "steps": "4",
+    }
+
+    assert controller.plan(form) is answer
+    request = uses["plan"].execute.call_args.args[0]
+    assert request.mode == "edit"
+    assert request.options is form
+    assert request.reference_sizes == ((40, 30), (20, 10))
+    assert (request.total, request.backend, request.each_reference, request.mask) == (3, "other", True, True)
+
+
+def test_a_plan_takes_the_sizes_of_the_pictures_in_their_place():
+    request = plan_request({"reference_sizes": "[[1024, 768], [512, 512]]"})
+
+    assert request.reference_sizes == ((1024, 768), (512, 512))
+    assert (request.mode, request.total, request.backend) == ("generate", 1, "")
+    assert plan_request({}).reference_sizes == ()
+
+
+def test_a_plan_reads_the_count_and_the_seed_as_a_run_reads_them():
+    request = plan_request({"total": "3", "count": "1", "seed": "7"})
+
+    assert (request.total, request.seed) == (3, "7")
+
+
+def test_a_plan_refuses_the_pictures_and_their_sizes_together():
+    with pytest.raises(InvalidJob, match="not both"):
+        plan_request({"references": json.dumps([encoded()]), "reference_sizes": "[[8, 8]]"})
+
+
+@pytest.mark.parametrize("raw", ["[[8, 8", '{"w": 8}', "[[8]]", "[[8, 0]]", "[[8, 8.5]]", "[[8, true]]", "[8, 8]"])
+def test_a_plan_refuses_sizes_that_are_not_pairs_of_whole_numbers(raw):
+    with pytest.raises(InvalidJob, match="reference_sizes must be an array"):
+        plan_request({"reference_sizes": raw})

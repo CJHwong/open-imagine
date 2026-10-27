@@ -201,6 +201,10 @@ def make_handler(
             elif path in ("/api/v1/images/generate", "/api/v1/images/edit"):
                 mode = "edit" if path.endswith("edit") else "generate"
                 body, status = self._api_result(lambda: api.image_run(self._read_json(), mode))
+            elif path == "/api/v1/images/plan":
+                body, status = self._api_result(lambda: api.image_plan(self._read_json()))
+            elif path == "/api/v1/videos/plan":
+                body, status = self._api_result(lambda: api.video_plan(self._read_json()))
             elif path == "/api/v1/images/rewrite":
                 body, status = self._api_result(lambda: api.image_rewrite(self._read_json()))
             elif path == "/api/v1/videos/rewrite":

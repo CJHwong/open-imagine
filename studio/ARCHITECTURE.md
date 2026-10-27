@@ -8,8 +8,8 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 
 | Layer | Directory | What it holds |
 |---|---|---|
-| 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, and the capabilities record: modes, params, Looks, templates, estimate |
-| 2. Use cases | `l2_use_cases/` | Run image, video, or Voice jobs, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
+| 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, the capabilities record: modes, params, Looks, templates, estimate, and the time formulas of an image request and a clip |
+| 2. Use cases | `l2_use_cases/` | Run image, video, or Voice jobs, plan an image or video request without a run, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
 | 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, and `gateways/audio`, in-memory stores, and the GPU thread for MLX calls |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, generic subprocess driver, config file, platform probe, page, and `main.py`, which wires everything |
 
@@ -95,6 +95,9 @@ Dependencies point inward; application policy uses ports, and the composition ro
 
 - `PrepareBatchUseCase` owns batch envelope policy: item limits, inherited defaults, one model and
   one result per item. The HTTP adapter does not define a second batch limit.
+- `PlanImageUseCase` and `PlanVideoUseCase` run the checks of a run and return its settings and its
+  time. They read the capabilities of the named model through the catalog port only. They take no
+  lock, switch no model and record no operation, so they answer while a run holds the GPU.
 - `CompleteOperationUseCase` owns the common success/failure path. Its only dependency is the
   `OperationGateway` port. It accepts and returns plain operation records, retaining the prepared result
   and recording failures before propagating them. Transport serialization happens in the adapter.

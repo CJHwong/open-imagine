@@ -9,10 +9,11 @@ from PIL import Image
 from studio.l1_entities.errors import InvalidJob, UnreadableImage, UnsupportedMode
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode, VideoShape
 from studio.l1_entities.video_job import VideoJob, VideoResult
+from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 from studio.l3_interface_adapters.controllers import video_controller as video_controller_module
-from studio.l3_interface_adapters.controllers.video_controller import VideoController, video_job
+from studio.l3_interface_adapters.controllers.video_controller import VideoController, plan_request, video_job
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
@@ -67,7 +68,7 @@ def build_video_controller(run=None, capabilities=None):
     lock = threading.Lock()
     selected_run = run or RunVideoUseCase(catalog, InMemoryProgressGateway(), lock, residency)
     switch = SwitchVideoBackendUseCase(catalog, lock, residency)
-    return VideoController(selected_run, catalog, switch), catalog
+    return VideoController(selected_run, catalog, switch, PlanVideoUseCase(catalog)), catalog
 
 
 def test_video_batch_validates_every_item_before_any_engine_call():
@@ -706,3 +707,118 @@ def test_video_batch_rejects_mixed_loras_before_running():
             lambda *_: None,
             lambda: False,
         )
+
+
+def plan_payload(**overrides):
+    """A plan body: the shape of the clip and no media, prompt or request id."""
+    values = {"width": 960, "height": 544, "num_frames": 121, "frame_rate": 24}
+    values.update(overrides)
+    return values
+
+
+def test_a_plan_reads_a_run_body_without_its_media_and_switches_nothing():
+    controller, catalog = build_video_controller(capabilities=lora_capabilities())
+
+    response = controller.plan(plan_payload(seed=7, reference_count=2, enhance=False, loras=[{"id": "example_warm"}]))
+
+    assert response.backend == "video-fake"
+    assert response.effective_options == {
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "frame_rate": 24,
+        "enhance": False,
+        "fast_mode": False,
+    }
+    assert response.estimate.reference_count == 2
+    assert [pick.id for pick in response.loras] == ["example_warm"]
+    assert controller.plan(plan_payload(backend="video-other")).backend == "video-other"
+    assert catalog.active_id() == "video-fake"
+
+
+def test_a_plan_counts_the_images_and_the_track_it_is_sent():
+    capabilities = editing_capabilities()
+    look = {"name": "look.png", "image": png_data(), "frame_index": 0, "strength": 1.0}
+
+    request = plan_request(plan_payload(references=[look], audio=audio_payload()), "video-fake", capabilities)
+    stand_in = plan_request(plan_payload(reference_count=1, has_audio=True), "video-fake", capabilities)
+    bare = plan_request(plan_payload(), "video-fake", capabilities)
+
+    assert (request.references, request.audio) == (1, True)
+    assert (stand_in.references, stand_in.audio) == (1, True)
+    assert (bare.references, bare.audio, bare.adapter, bare.adapter_strength) == (0, False, "", None)
+
+
+def test_an_edit_plan_needs_no_clip_and_names_its_effect():
+    request = plan_request(
+        plan_payload(mode="edit", adapter="relight", adapter_strength=0.6, enhance=True),
+        "video-fake",
+        editing_capabilities(),
+    )
+
+    assert (request.mode, request.adapter, request.adapter_strength) == ("edit", "relight", 0.6)
+    assert request.enhance is False
+
+
+def test_an_effect_plan_runs_at_the_geometry_its_card_trained_at():
+    adapter = VideoAdapter(
+        id="relight",
+        label="Relight",
+        hint="",
+        mode="edit",
+        file="relight.safetensors",
+        width=960,
+        height=544,
+        num_frames=97,
+    )
+    capabilities = editing_capabilities(adapter)
+
+    request = plan_request(plan_payload(mode="edit", adapter="relight", num_frames=97), "video-fake", capabilities)
+
+    assert (request.width, request.height, request.num_frames) == (960, 544, 97)
+    with pytest.raises(InvalidJob, match="97 frames"):
+        plan_request(plan_payload(mode="edit", adapter="relight"), "video-fake", capabilities)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"seed": "abc"}, "seed"),
+        ({"width": 961}, "width"),
+        ({"reference_count": 9}, "reference_count must be between 0 and 8"),
+        ({"reference_count": -1}, "reference_count must be between 0 and 8"),
+        ({"reference_count": True}, "reference_count must be between 0 and 8"),
+        ({"reference_count": 1, "references": [{"image": "x"}]}, "references or reference_count, not both"),
+        ({"has_audio": "yes"}, "has_audio must be a boolean"),
+        ({"has_audio": True, "audio": {"data": "x"}}, "audio or has_audio, not both"),
+        ({"mode": "edit", "adapter": "relight", "has_audio": True}, "Audio is a Generate input"),
+        ({"mode": "edit", "adapter": "relight", "reference_count": 1}, "Relight needs between 0 and 0"),
+        ({"loras": [{"id": "example_warm"}], "has_audio": True}, "cannot apply LoRAs"),
+        ({"backend": 3}, "backend must be a video model id"),
+        ({"backend": "video-missing"}, "No video model is offered as video-missing"),
+    ],
+)
+def test_a_plan_refuses_what_a_run_refuses(overrides, message):
+    controller, _ = build_video_controller(capabilities=lora_capabilities())
+
+    with pytest.raises(InvalidJob, match=message):
+        controller.plan(plan_payload(**overrides))
+
+
+def test_a_plan_refuses_a_track_on_a_model_that_takes_none():
+    controller, _ = build_video_controller()
+
+    with pytest.raises(InvalidJob, match="takes no audio track"):
+        controller.plan(plan_payload(has_audio=True))
+
+
+def test_a_plan_checks_the_frame_of_a_look_image_as_a_run_does():
+    from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
+
+    capabilities = ltx25_mlx_capabilities()
+    value = plan_payload(mode="edit", adapter="layout-to-render", width=768, height=448, num_frames=49)
+    look = {"name": "look.png", "image": png_data(), "frame_index": 0, "strength": 1.0}
+
+    assert plan_request({**value, "references": [look]}, "ltx25_mlx", capabilities).references == 1
+    with pytest.raises(InvalidJob, match="look image must use frame_index 0"):
+        plan_request({**value, "references": [{**look, "frame_index": 5}]}, "ltx25_mlx", capabilities)

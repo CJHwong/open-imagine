@@ -14,6 +14,7 @@ from studio.l3_interface_adapters.api.discovery_schemas import discovery_schemas
 from studio.l3_interface_adapters.api.openapi_examples import (
     image_examples,
     operation_examples,
+    plan_examples,
     rewrite_examples,
     video_examples,
     voice_examples,
@@ -99,6 +100,7 @@ def openapi_document() -> dict[str, Any]:
             **audio_paths(),
             **batch_paths(),
             **discovery_paths(),
+            **plan_paths(),
             "/api/v1/openapi.json": {
                 "get": {
                     "tags": ["studio"],
@@ -203,6 +205,7 @@ def openapi_document() -> dict[str, Any]:
                 **discovery_schemas(),
                 **voice_schemas(),
                 **batch_schemas(),
+                **plan_schemas(),
                 "Error": {
                     "type": "object",
                     "required": ["error"],
@@ -1215,6 +1218,140 @@ def batch_schemas() -> dict[str, Any]:
                 "seconds": {"type": "number"},
                 "sample_rate": {"type": "integer"},
                 "seed": {"type": "integer"},
+            },
+        },
+    }
+
+
+def plan_paths() -> dict[str, Any]:
+    """The plan routes: a run's body in, its checked settings and its time out, and no run."""
+    return {
+        f"/api/v1/{workspace}/plan": {
+            "post": {
+                "tags": [workspace],
+                "operationId": operation_id,
+                "summary": summary,
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/" + schema},
+                            "examples": plan_examples(workspace),
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "The settings that the run would take, and its time",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Plan"}}},
+                    },
+                    "400": _error("A value or a mode that the run would refuse, or a model that is not offered"),
+                    **unconfigured,
+                },
+            }
+        }
+        for workspace, schema, operation_id, summary, unconfigured in (
+            ("images", "ImagePlanRequest", "planImage", "Check an image request and estimate its time", {}),
+            (
+                "videos",
+                "VideoPlanRequest",
+                "planVideo",
+                "Check a video request and estimate its time",
+                {"503": _error("The studio serves no video model")},
+            ),
+        )
+    }
+
+
+def plan_schemas() -> dict[str, Any]:
+    seconds = {"type": ["number", "null"]}
+    return {
+        "ImagePlanRequest": {
+            "type": "object",
+            "description": "The body of a generate or edit run, with its mode. No prompt is needed. Send "
+            "reference_sizes in place of references when the pictures are not at hand.",
+            "properties": {
+                "mode": {"type": "string", "default": "generate", "description": "Send edit to plan an edit"},
+                "backend": {"type": "string", "description": "Blank plans on the active model and switches nothing"},
+                "count": {"type": "integer", "minimum": 1},
+                "references": {"type": "array", "items": {"$ref": "#/components/schemas/ImageReference"}},
+                "reference_sizes": {
+                    "type": "array",
+                    "description": "The [width, height] of each picture, in the order of references",
+                    "items": {
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 1},
+                        "minItems": 2,
+                        "maxItems": 2,
+                    },
+                },
+                "each_reference": {"type": "boolean"},
+                "mask": {"type": "boolean"},
+                "loras": LORA_PICKS,
+            },
+            "additionalProperties": True,
+        },
+        "VideoPlanRequest": {
+            "type": "object",
+            "description": "The body of a video run, with its mode. No prompt, request id or media is needed: "
+            "reference_count stands in for references, has_audio for audio, and an edit needs no clip.",
+            "required": ["width", "height", "num_frames", "frame_rate"],
+            "properties": {
+                "mode": {"type": "string", "default": "generate", "description": "Send edit to plan an effect"},
+                "backend": {"type": "string", "description": "Blank plans on the active model and switches nothing"},
+                "adapter": {"type": "string"},
+                "adapter_strength": {"type": "number"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "num_frames": {"type": "integer"},
+                "frame_rate": {"type": "integer"},
+                "seed": {"type": "integer"},
+                "reference_count": {"type": "integer", "minimum": 0},
+                "has_audio": {"type": "boolean"},
+                "enhance": {"type": "boolean", "default": True},
+                "fast_mode": {"type": "boolean", "default": False},
+                "loras": LORA_PICKS,
+            },
+            "additionalProperties": True,
+        },
+        "Plan": {
+            "type": "object",
+            "required": ["backend", "mode", "count", "effective_options", "estimate"],
+            "properties": {
+                "backend": {"type": "string"},
+                "mode": {"type": "string"},
+                "count": {"type": "integer", "description": "The images or clips that the request makes"},
+                "effective_options": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "description": "Every setting that the run would take, with each default filled in. loras is "
+                    "present when the model offers LoRAs.",
+                },
+                "estimate": {"$ref": "#/components/schemas/PlanEstimate"},
+            },
+        },
+        "PlanEstimate": {
+            "type": "object",
+            "required": ["basis", "steps", "width", "height", "reference_count", "total_seconds", "excludes"],
+            "properties": {
+                "basis": {
+                    "type": "string",
+                    "enum": ["constants", "provisional", "unavailable"],
+                    "description": "constants: the page's own figure. provisional: a video fit from a few runs, "
+                    "about 10 to 40% off. unavailable: the model declares no constants, and the seconds are null.",
+                },
+                "steps": {"type": "integer"},
+                "width": {"type": "integer"},
+                "height": {"type": "integer"},
+                "reference_count": {"type": "integer"},
+                "per_item_seconds": seconds,
+                "setup_seconds": seconds,
+                "total_seconds": seconds,
+                "excludes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The time that the figure does not hold",
+                },
             },
         },
     }
