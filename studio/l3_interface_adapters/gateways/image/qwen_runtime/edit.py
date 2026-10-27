@@ -94,12 +94,21 @@ def written(references):
         yield paths
 
 
-def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_path: str | None = None, loras=()):
+def build_model(
+    quantize,
+    hook: StepHook,
+    lora_path: str | None = None,
+    model_path: str | None = None,
+    loras=(),
+    *,
+    model_config: Callable | None = None,
+):
     """Build the edit model and register the step hook.
 
     The edit variant loads the vision tower the text-to-image variant does not,
     so the two models do not both fit on a 64 GB machine and the gateway frees
-    one for the other.
+    one for the other. A local folder gets the Turbo card's model config, unless
+    `model_config` names another one, as the generator does.
     """
     from mflux.models.qwen21.variants.edit.qwen_image_21_edit import QwenImage21Edit
 
@@ -111,7 +120,7 @@ def build_model(quantize, hook: StepHook, lora_path: str | None = None, model_pa
         model = QwenImage21Edit(
             quantize=quantize,
             model_path=model_path,
-            model_config=official_turbo_model_config(),
+            model_config=(model_config or official_turbo_model_config)(),
             **lora_kwargs(lora_path, loras=loras),
         )
     model.callbacks.register(hook)

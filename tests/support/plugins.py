@@ -10,10 +10,12 @@ from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import Stu
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
 from studio.plugins import ModelPlugin
+from studio.plugins.image import QwenCheckpoint
 from studio.plugins.video import LtxPack
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
 
 PACK = LtxPack("example_pack", "Example pack", "ltx25")
+CHECKPOINT = QwenCheckpoint("example_qwen", "Example Qwen checkpoint")
 
 
 def fake_plugins() -> dict:
@@ -47,4 +49,14 @@ def pack_entries(*packs: LtxPack) -> list:
         entry("image", "example_image", plugins["image"]),
         entry("voice", "example_voice", plugins["voice"]),
         *(entry("video", pack.backend_id, pack) for pack in packs or (PACK,)),
+    ]
+
+
+def checkpoint_entries(*checkpoints: QwenCheckpoint) -> list:
+    """The video and voice examples, and Qwen checkpoints in place of the image example."""
+    plugins = fake_plugins()
+    return [
+        entry("video", "example_video", plugins["video"]),
+        entry("voice", "example_voice", plugins["voice"]),
+        *(entry("image", checkpoint.backend_id, checkpoint) for checkpoint in checkpoints or (CHECKPOINT,)),
     ]

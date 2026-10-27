@@ -19,6 +19,7 @@ from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway impo
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from studio.plugins import API_VERSION, ModelPlugin, PluginContext
+from studio.plugins.image import QwenCheckpoint
 from studio.plugins.video import LtxPack
 
 GROUPS = {
@@ -51,13 +52,15 @@ class ModelPlugins:
     def ids(self, kind: str) -> tuple[str, ...]:
         return tuple(self.entries[kind])
 
-    def declaration(self, kind: str, name: str) -> ModelPlugin | LtxPack:
+    def declaration(self, kind: str, name: str) -> ModelPlugin | LtxPack | QwenCheckpoint:
         if name not in self.loaded:
             entry = self.entries[kind][name]
             try:
                 plugin = entry.load()
                 if isinstance(plugin, LtxPack):
                     _check_pack(plugin, kind, name)
+                elif isinstance(plugin, QwenCheckpoint):
+                    _check_checkpoint(plugin, kind, name)
                 else:
                     _check_plugin(plugin, kind, name)
                 self.loaded[name] = plugin
@@ -72,6 +75,14 @@ class ModelPlugins:
             return None
         plugin = self.declaration(kind, name)
         return plugin if isinstance(plugin, LtxPack) else None
+
+    def checkpoint(self, kind: str, name: str) -> QwenCheckpoint | None:
+        """The record of a plugin that runs a Qwen checkpoint on the host's engine. None for
+        any other model. The composition root builds such a model, as it builds its own."""
+        if name not in self.entries[kind]:
+            return None
+        plugin = self.declaration(kind, name)
+        return plugin if isinstance(plugin, QwenCheckpoint) else None
 
     def context(self, config: Config, name: str) -> PluginContext:
         return PluginContext(MappingProxyType(config.backend(name)), SubprocessRunner().execute)
@@ -110,7 +121,7 @@ class ModelPlugins:
     def _model_plugin(self, kind: str, name: str) -> ModelPlugin:
         plugin = self.declaration(kind, name)
         if not isinstance(plugin, ModelPlugin):
-            raise ConfigError(f"{name} runs an LTX pack, so the host builds it and its rewriter.")
+            raise ConfigError(f"{name} runs on the host's own engine, so the host builds it and its rewriter.")
         return plugin
 
 
@@ -136,3 +147,25 @@ def _check_pack(pack: LtxPack, kind: str, name: str) -> None:
     for field in ("edit", "audio", "fast_mode"):
         if not isinstance(getattr(pack, field), bool):
             raise ValueError(f"an LtxPack's {field} must be True or False")
+
+
+def _check_checkpoint(checkpoint: QwenCheckpoint, kind: str, name: str) -> None:
+    if kind != "image":
+        raise ValueError("a QwenCheckpoint is an image model: register it under open_imagine.models.image")
+    if checkpoint.api_version != API_VERSION:
+        raise ValueError(f"expected QwenCheckpoint API version {API_VERSION}")
+    if checkpoint.backend_id != name:
+        raise ValueError(f"expected a QwenCheckpoint with backend_id {name!r}")
+    for field in ("name", "description", "scheduler", "generate_sampler", "generate_size"):
+        if not isinstance(getattr(checkpoint, field), str):
+            raise ValueError(f"a QwenCheckpoint's {field} must be text")
+    steps = checkpoint.steps
+    if not isinstance(steps, tuple) or len(steps) != 3 or not all(_whole(value) for value in steps):
+        raise ValueError("a QwenCheckpoint's steps must be three whole numbers: default, minimum, maximum")
+    if not _whole(checkpoint.max_edit_references):
+        raise ValueError("a QwenCheckpoint's max_edit_references must be a whole number")
+
+
+def _whole(value) -> bool:
+    # bool is an int in Python, and True would pass as 1.
+    return isinstance(value, int) and not isinstance(value, bool)
