@@ -11,6 +11,8 @@ default_video_backend = "ltx25_mlx"
 visible_video_backends = ["ltx25_mlx"]
 default_voice_backend = "drama3"
 visible_voice_backends = ["drama3"]
+default_music_backend = "yue2"
+visible_music_backends = ["yue2"]
 
 [mlx_video]
 # Image-aware LTX enhancement requires mlx-vlm==0.4.3 in this CLI environment.
@@ -109,3 +111,13 @@ child_script = "studio/l3_interface_adapters/gateways/audio/auk_runtime/auk_chil
 child_script = "studio/l3_interface_adapters/gateways/audio/drama3/drama3_child.py"
 # Optional: an existing environment with the exact versions declared by the child.
 # python_path = "~/ltx-experiments/drama3-env/bin/python"
+
+[yue2]
+# Native MLX Q8 only. Q8 score/token generation, BF16 acoustic synthesis, FP32 decoder.
+engine = "mlx-q8"
+model_dir = "~/Library/Caches/models/yue2-mlx"
+vae_dir = "~/Library/Caches/models/yue2-mlx-vae"
+python_path = "~/Library/Caches/yue2-mlx-runtime/c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8/venv/bin/python"
+
+# Separate pinned transcription weights for Reference audio / Cover song.
+transcription_cache_dir = "~/Library/Caches/models/yue2-transcription"

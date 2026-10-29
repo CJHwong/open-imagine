@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnreadableImage
+from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l3_interface_adapters.api.json_api import JsonApi
@@ -71,7 +72,7 @@ def make_handler(
             if path.startswith("/api/v1/"):
                 self._api_post(path)
                 return
-            if self.path in ("/voice/operations", "/image/operations"):
+            if self.path in ("/voice/operations", "/image/operations", "/music/operations"):
                 self._start_operation(source="ui")
                 return
             if self.path == "/video/generate":
@@ -99,9 +100,11 @@ def make_handler(
                             lambda: (api.switch_backend(form, "video") if api else video_controller.switch(form)) or ""
                         )
                     )
-            elif self.path == "/voice/backend":
+            elif self.path in ("/voice/backend", "/music/backend"):
                 self._send(
-                    self._outcome(lambda: api.switch_backend(form, "voice") or "")
+                    self._outcome(
+                        lambda: api.switch_backend(form, "music" if self.path == "/music/backend" else "voice") or ""
+                    )
                     if api
                     else "Voice generation is not configured."
                 )
@@ -148,15 +151,31 @@ def make_handler(
                 "/api/v1/openapi.json": api.openapi,
                 "/api/v1/studio": api.studio,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
+                "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": api.progress,
                 "/api/v1/state": api.state,
                 "/api/v1/rewrite/state": api.rewrite_state,
             }
             if (
-                path.startswith(("/api/v1/images/backends/", "/api/v1/videos/backends/", "/api/v1/voice/backends/"))
+                path.startswith(
+                    (
+                        "/api/v1/images/backends/",
+                        "/api/v1/videos/backends/",
+                        "/api/v1/voice/backends/",
+                        "/api/v1/music/backends/",
+                    )
+                )
                 and path.count("/") == 5
             ):
-                workspace = "voice" if "/voice/" in path else "image" if "/images/" in path else "video"
+                workspace = (
+                    "music"
+                    if "/music/" in path
+                    else "voice"
+                    if "/voice/" in path
+                    else "image"
+                    if "/images/" in path
+                    else "video"
+                )
                 body, status = self._api_result(lambda: api.backend_capabilities(workspace, path.rsplit("/", 1)[1]))
                 self._send_json(body, status=status)
                 return
@@ -184,6 +203,9 @@ def make_handler(
                 else:
                     self._send_json(result, status=status)
                 return
+            if path == "/api/v1/music/generate":
+                self._run_voice(kind="music")
+                return
             if path == "/api/v1/voice/generate":
                 self._run_voice()
                 return
@@ -193,8 +215,21 @@ def make_handler(
             if path.startswith("/api/v1/operations/") and path.endswith("/cancel"):
                 operation_id = path.removeprefix("/api/v1/operations/").removesuffix("/cancel")
                 body, status = self._api_result(lambda: api.cancel_operation(operation_id))
-            elif path in ("/api/v1/images/backend", "/api/v1/videos/backend", "/api/v1/voice/backend"):
-                workspace = "voice" if "/voice/" in path else "image" if "/images/" in path else "video"
+            elif path in (
+                "/api/v1/images/backend",
+                "/api/v1/videos/backend",
+                "/api/v1/voice/backend",
+                "/api/v1/music/backend",
+            ):
+                workspace = (
+                    "music"
+                    if "/music/" in path
+                    else "voice"
+                    if "/voice/" in path
+                    else "image"
+                    if "/images/" in path
+                    else "video"
+                )
                 body, status = self._api_result(lambda: api.switch_backend(self._read_json(), workspace))
             elif path == "/api/v1/memory/release":
                 body, status = self._api_result(api.release_model)
@@ -257,6 +292,29 @@ def make_handler(
         def _operation_get(self, path: str) -> None:
             assert api is not None
             suffix = path.removeprefix("/api/v1/operations/")
+            if suffix.endswith("/metadata"):
+                owner = suffix.removesuffix("/metadata")
+
+                def read_metadata():
+                    result = (
+                        api.item_result(*owner.split("/items/", 1))
+                        if "/items/" in owner
+                        else api.operation_result(owner)
+                    )
+                    if not isinstance(result, MusicResult):
+                        raise InvalidJob("This operation has no Music metadata.")
+                    return {
+                        "score": result.score,
+                        "metadata": result.metadata,
+                        "stub": result.stub,
+                        "seed": result.seed,
+                        "seconds": result.seconds,
+                        "sample_rate": result.sample_rate,
+                    }
+
+                body, status = self._api_result(read_metadata)
+                self._send_json(body, status=status)
+                return
             if suffix.endswith("/result"):
                 operation_id = suffix.removesuffix("/result")
                 if "/items/" in operation_id:
@@ -266,7 +324,7 @@ def make_handler(
                     result, status = self._api_result(lambda: api.operation_result(operation_id))
                 if isinstance(result, VideoResult):
                     self._send_video_result(result)
-                elif isinstance(result, SpeechResult):
+                elif isinstance(result, (MusicResult, SpeechResult)):
                     self._send_voice_result(result)
                 else:
                     self._send_json(result, status=status)
@@ -274,17 +332,17 @@ def make_handler(
             body, status = self._api_result(lambda: api.operation(suffix))
             self._send_json(body, status=status)
 
-        def _run_voice(self):
+        def _run_voice(self, kind="voice"):
             assert api is not None
             operation = {}
 
             def run():
                 payload = self._read_json()
-                operation.update(api.reserve({**payload, "kind": "voice"}))
+                operation.update(api.reserve({**payload, "kind": kind}))
                 return api.execute_operation(operation, payload)
 
             result, status = self._api_result(run)
-            if not isinstance(result, SpeechResult):
+            if not isinstance(result, (SpeechResult, MusicResult)):
                 self._send_json(result, status=status)
                 return
             self._send_voice_result(
@@ -292,11 +350,25 @@ def make_handler(
             )
 
         def _send_voice_result(self, result, headers=None):
+            if isinstance(result, MusicResult) and not result.wav:
+                self._send_json(
+                    {
+                        "score": result.score,
+                        "metadata": result.metadata,
+                        "stub": result.stub,
+                        "seed": result.seed,
+                        "seconds": result.seconds,
+                        "sample_rate": result.sample_rate,
+                    },
+                    headers=headers,
+                )
+                return
             headers = {
                 **(headers or {}),
                 "X-Studio-Seed": str(result.seed),
                 "X-Studio-Duration": str(result.seconds),
                 "X-Studio-Sample-Rate": str(result.sample_rate),
+                "X-Studio-Stub": str(getattr(result, "stub", False)).lower(),
             }
             self._send_bytes(result.wav, content_type="audio/wav", headers=headers)
 

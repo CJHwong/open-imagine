@@ -6,7 +6,7 @@ Official Qwen Turbo temporarily raises the MLX wired-memory budget during Genera
 
 ## Discover controls
 
-Read `GET /api/v1/studio` before a run. It describes the selected image, video, and Voice models.
+Read `GET /api/v1/studio` before a run. It describes the selected image, video, Voice, and Music models.
 Each capability record declares its supported modes and controls.
 These can include sizes, limits, Looks, templates, and effects.
 The rendered API reference is at `/api/docs`, with endpoint search and request examples.
@@ -21,6 +21,10 @@ The rendered view loads a pinned Swagger UI asset from a CDN.
 | Read its output | `GET /api/v1/operations/{id}/result` |
 | Cancel that operation | `POST /api/v1/operations/{id}/cancel` |
 | Select an image model | `POST /api/v1/images/backend` with `{"backend":"qwen21_turbo"}` |
+| Read Music controls | `GET /api/v1/music/capabilities` |
+| Read another Music model without selecting it | `GET /api/v1/music/backends/{id}` |
+| Select a Music model | `POST /api/v1/music/backend` with `{"backend":"yue2"}` |
+| Read Music score and metadata | `GET /api/v1/operations/{id}/metadata` |
 | Select a video model | `POST /api/v1/videos/backend` with `{"backend":"ltx25_mlx"}` |
 | Release model memory | `POST /api/v1/memory/release` |
 | Read rewrite progress | `GET /api/v1/rewrite/state` |
@@ -330,7 +334,7 @@ Never interpret an engine's 100% sampler progress as a completed operation.
 ## Ordered batches
 
 Send `items` to run distinct jobs under one operation.
-The batch uses one backend and one media kind: `image`, `video`, or `voice`.
+The batch uses one backend and one media kind: `image`, `video`, `voice`, or `music`.
 Top-level fields supply defaults. Each item can override its prompt, seed, settings, or media.
 Each item produces one output. Set `count` to one and keep `each_reference` false.
 A batch accepts 1 to 16 items and runs them in order.
@@ -745,3 +749,226 @@ missing upscaler files fail clearly. Source audio is not preserved.
 The rendered docs contain a complete example with explicit base64 placeholders.
 [Official guide](https://docs.ltx.io/open-source-model/vfx-post-production/layout-to-render) ·
 [Model card](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render).
+
+## Music jobs
+
+Music uses `kind: "music"` in the shared operations API. Read `/api/v1/studio` for available models.
+Read `/api/v1/music/capabilities` for the selected model or `/api/v1/music/backends/yue2` without changing selection.
+Install the [Music runtime and weights](docs/how-to/music.md#install-weights) before a real run.
+
+| Mode | Required inputs | Result |
+|---|---|---|
+| `generate` | Style and lyrics, or Style with `instrumental: true` | 48 kHz stereo WAV |
+| `plan` | Same inputs as Generate; `cot: full` or `melody` | JSON score without audio |
+| `transcribe` | `reference_audio` | JSON score and transcription metadata |
+| `cover` | `reference_audio`, Style, and lyrics or `instrumental: true` | New performance as stereo WAV |
+
+For API instrumentals, explicitly send `"instrumental": true`. Blank lyrics alone fail validation.
+The browser sets this flag for you when its Lyrics field is blank.
+
+For example, this request returns `400` with `lyrics must contain 1 to 20000 characters`:
+
+```json
+{"kind": "music", "style": "Warm acoustic piano.", "lyrics": ""}
+```
+
+Add the explicit flag to generate an instrumental:
+
+```json
+{"kind": "music", "style": "Warm acoustic piano.", "lyrics": "", "instrumental": true}
+```
+
+Supply sectioned lyrics for vocals. Transcription does not require Style or lyrics and does not transcribe sung words into Lyrics.
+Send full descriptions in `style`; the browser's Genre and Style preset chips expand text before submission.
+
+Use `abc` with `mode: generate` to render a supplied score. `cot` must be `full` or `melody`.
+Non-instrumental rendering preserves the supplied ABC text. Instrumental rendering can transform the score to move vocal melody into instrumental parts.
+Reference modes reject a simultaneous `abc` value. Encode actual audio bytes as bare base64 in `reference_audio`; use `reference_name` for the filename.
+The decoded limit is 32 MiB. Uploaded reference bytes stay out of public operation and item settings.
+
+`steps` accepts 8, 16, or 32; `cfg_scale` accepts 0 through 5. The defaults are 32 and 1.
+Duration follows the generated composition; there is no fixed-duration request field.
+Instrumentals and score planning require `cot: full` or `melody`. A token-cap failure does not produce a successful incomplete song.
+
+### Runnable Python client
+
+Save this standard-library example as `music_api.py`. It submits one operation, polls its own ID, and saves retained results under `music-api-output`.
+The `cancel` command starts a vocal request and immediately cancels that same ID. It never cancels another client's operation.
+The `batch` command runs two items serially with shared defaults and explicit item overrides.
+
+```python
+import base64
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+BASE = os.environ.get("STUDIO_URL", "http://127.0.0.1:8765").rstrip("/")
+LYRICS = "[Verse]\nMorning light crosses the floor\nFootsteps gather at the door\n\n[Chorus]\nCarry this song into the day\nLet the bright notes lead the way"
+STYLE = "Use a pop arrangement with a steady pulse and a clear melodic hook. Feature acoustic piano and warm lead vocals."
+
+
+def request(path, payload=None):
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {} if body is None else {"Content-Type": "application/json"}
+    with urlopen(Request(BASE + path, data=body, headers=headers), timeout=60) as response:
+        return response.read(), response.headers.get_content_type()
+
+
+def read_json(path, payload=None):
+    body, _ = request(path, payload)
+    return json.loads(body) if body else None
+
+
+def build_payload(choice, filename=None):
+    common = {"kind": "music", "backend": "yue2", "cot": "full", "steps": 32, "cfg_scale": 1, "seed": 42}
+    vocal = {**common, "mode": "generate", "style": STYLE, "lyrics": LYRICS, "instrumental": False}
+    instrumental = {**vocal, "style": "Warm acoustic piano with a clear melody and gentle rhythmic accents.", "lyrics": "", "instrumental": True}
+    examples = {
+        "vocal": vocal,
+        "instrumental": instrumental,
+        "plan": {**instrumental, "mode": "plan"},
+        "batch": {**vocal, "items": [{"seed": 42}, {"seed": 43, "lyrics": "", "instrumental": True, "style": instrumental["style"]}]},
+        "cancel": vocal,
+    }
+    if choice in examples:
+        return examples[choice]
+    if choice not in {"render", "transcribe", "cover"} or not filename:
+        raise SystemExit("Choose vocal, instrumental, plan, batch, cancel, or render/transcribe/cover FILE")
+    source = Path(filename)
+    if choice == "render":
+        return {**instrumental, "abc": source.read_text(encoding="utf-8")}
+    reference = {"reference_audio": base64.b64encode(source.read_bytes()).decode("ascii"), "reference_name": source.name}
+    return {**(vocal if choice == "cover" else common), **reference, "mode": choice, "transcription_task": "full"}
+
+
+def poll(operation):
+    while True:
+        current = read_json(operation["status_url"])
+        if current["status"] not in {"running", "stopping"}:
+            return current
+        time.sleep(1)
+
+
+def download(result_url, folder):
+    folder.mkdir(parents=True, exist_ok=True)
+    body, media_type = request(result_url)
+    suffix = ".wav" if media_type == "audio/wav" else ".json"
+    (folder / ("result" + suffix)).write_bytes(body)
+    document = json.loads(body) if suffix == ".json" else {}
+    if "items" in document:
+        for item in document["items"]:
+            download(item["result_url"], folder / str(item["index"]))
+        return
+    details = read_json(result_url.removesuffix("/result") + "/metadata")
+    (folder / "metadata.json").write_text(json.dumps(details, indent=2), encoding="utf-8")
+    (folder / "score.abc").write_text(details["score"], encoding="utf-8")
+
+
+def main():
+    choice = sys.argv[1] if len(sys.argv) > 1 else "vocal"
+    payload = build_payload(choice, sys.argv[2] if len(sys.argv) > 2 else None)
+    capabilities = read_json("/api/v1/music/backends/yue2")
+    print("Music modes:", capabilities["modes"])
+    operation = read_json("/api/v1/operations", payload)
+    folder = Path("music-api-output") / operation["id"]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "receipt.json").write_text(json.dumps(operation, indent=2), encoding="utf-8")
+    print("Operation:", operation["id"], flush=True)
+    if choice == "cancel":
+        try:
+            request(operation["status_url"] + "/cancel", {})
+        except HTTPError as error:
+            if error.code != 409:
+                raise
+            print("The operation finished before cancellation was accepted.")
+    current = poll(operation)
+    (folder / "status.json").write_text(json.dumps(current, indent=2), encoding="utf-8")
+    if current.get("result_url"):
+        download(current["result_url"], folder)
+    print(current["status"], folder)
+    if current["status"] == "failed":
+        raise SystemExit(str(current.get("error", "Music operation failed")))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except HTTPError as error:
+        raise SystemExit(f"HTTP {error.code}: {error.read().decode('utf-8', errors='replace')}")
+    except URLError as error:
+        raise SystemExit(str(error.reason))
+```
+
+Run one command at a time. Set `STUDIO_URL` when your server uses another address.
+For `render`, replace `<operation-id>` below with the ID printed by your successful `plan` command.
+For reference modes, supply an actual recording instead of an encoded placeholder.
+
+```sh
+python3 music_api.py vocal
+python3 music_api.py instrumental
+python3 music_api.py plan
+python3 music_api.py render "music-api-output/<operation-id>/score.abc"
+python3 music_api.py transcribe reference.wav
+python3 music_api.py cover reference.wav
+python3 music_api.py batch
+python3 music_api.py cancel
+```
+
+The example renders supplied scores as instrumentals. For a vocal score, use `instrumental: false` and provide its matching lyrics.
+The example uses `transcription_task: full`. Choose the scope that matches what you want to keep from the reference:
+
+| `transcription_task` | Musical scope |
+|---|---|
+| `full` | Melody and chords |
+| `melody-full` | Vocal and instrumental melody |
+| `melody-vocal` | Vocal melody only |
+
+One request makes one result. For variations, submit `items` with explicit seeds; the advertised maximum is 16 items.
+The batch result is a manifest, even after failure or cancellation. Download each completed item's `result_url`; indices start at one.
+Item metadata uses `/api/v1/operations/{id}/items/{index}/metadata`. A batch has no single Music metadata result.
+The client saves JSON scores, WAV audio, metadata, and ABC files. Metadata also retains available MIDI/LAB artifacts as base64.
+
+### Completion, timing, and retention
+
+A `202` response acknowledges the operation; it does not mean generation succeeded. Poll until `succeeded`, `failed`, or `cancelled`.
+A running single result returns `409`. A batch manifest exposes completed items while later items run.
+The client downloads partial batch results before reporting a terminal failure.
+
+Invalid requests return `400`; a busy server or stale cancellation returns `409`. Missing Music support returns `503`.
+Engine failures appear in the operation's `error` field. Do not retry a busy request as though it entered a queue.
+Retained results expire after at most one hour. The 32-operation and 256 MiB limits can evict them sooner, including metadata.
+Expired results return `404`, and restarting the server clears history. Save downloads promptly; browser Keep is separate.
+
+Use `finished_at - started_at` from the operation for total processing time; `seconds` describes output audio duration.
+For batches, those operation timestamps cover the whole batch. Do not report them as each item's generation time.
+Nested engine timings describe individual phases and can overlap with other recorded timing scopes.
+`metadata.transcription_cache_hit` marks reuse of a reference transcription.
+On a cache hit, `metadata.transcription.elapsed_seconds` describes the original transcription, not work performed for the current request.
+The worker retains one successful transcription for the same audio bytes and transcription task. Releasing the worker clears that cache.
+
+The synchronous `POST /api/v1/music/generate` accepts the same single-job fields and returns WAV or JSON according to mode.
+Prefer asynchronous operations for polling, cancellation, retained metadata, and serial batches.
+
+A successful synchronous response includes its ID in `X-Studio-Operation`.
+Use that ID with `/api/v1/operations/{id}/metadata` to fetch the score and generation details.
+After saving `music_api.py` above, run this header example beside it:
+
+```python
+import json
+from pathlib import Path
+from urllib.request import Request, urlopen
+from music_api import BASE, build_payload, read_json
+
+payload = json.dumps(build_payload("instrumental")).encode("utf-8")
+request = Request(BASE + "/api/v1/music/generate", data=payload,
+                  headers={"Content-Type": "application/json"})
+with urlopen(request, timeout=3600) as response:
+    operation_id = response.headers["X-Studio-Operation"]
+    Path("synchronous.wav").write_bytes(response.read())
+metadata = read_json(f"/api/v1/operations/{operation_id}/metadata")
+Path("synchronous-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+```

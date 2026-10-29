@@ -78,7 +78,7 @@ def parse_args():
     parser.add_argument(
         "--all-backends",
         action="store_true",
-        help="enable model selection for Image, Video and Voice, including models studio.toml hides",
+        help="enable model selection for Image, Video, Voice and Music, including models studio.toml hides",
     )
     parser.add_argument(
         "-q",

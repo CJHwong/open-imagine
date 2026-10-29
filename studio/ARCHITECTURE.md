@@ -9,19 +9,24 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 | Layer | Directory | What it holds |
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, the capabilities record: modes, params, Looks, templates, estimate, and the time formulas of an image request and a clip |
-| 2. Use cases | `l2_use_cases/` | Run image, video, or Voice jobs, plan an image or video request without a run, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
-| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, and `gateways/audio`, in-memory stores, and the GPU thread for MLX calls |
+| 2. Use cases | `l2_use_cases/` | Run image, video, Voice, or Music jobs, plan an image or video request without a run, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
+| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, `gateways/audio`, and `gateways/music`, in-memory stores, and the GPU thread for MLX calls |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, generic subprocess driver, config file, platform probe, page, and `main.py`, which wires everything |
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
 The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is not an engine choice. Layer 4 names the schedule, and the gateway registers it with mflux when a run starts, because the stub builds every backend on machines with no mflux. The official Turbo checkpoint's sigma table lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py`, because a backend may not import another backend.
 
-Image, Video, and Voice have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
+Image, Video, Voice, and Music have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
 
 Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway`. A use case ends in `_use_case.py` and `UseCase`. Controllers and presenters do the same. Entities and the records passed between layers have no suffix.
 
 ## Model gateway ownership
+
+YuE2 uses one pinned native MLX Q8 worker. The composition root wires it into
+Music's shared model boundary, and result metadata records the engine and
+precision. Q8 applies to autoregressive generation; acoustic synthesis remains BF16.
+The former PyTorch Music worker and engine fallback are removed.
 
 Every generation model has one concrete gateway in its own media/model package:
 
@@ -30,6 +35,7 @@ gateways/
   image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,qwen_checkpoint}/
   video/{ltx25,ltx23,ltx_pack}/
   audio/{drama3,auk,auk_flash}/
+  music/yue2/
 ```
 
 Each package implements its media boundary. AuK and AuK Flash have separate gateways;
@@ -246,3 +252,19 @@ Its dedicated MLX child preserves virtual reference time -1, uses ancestral samp
 conditioning in both stages. It loads the LTX-2.5 v1_0 spatial upscaler explicitly and refuses missing
 weights/config; the pinned IC-LoRA loader otherwise looks for v1_1 and silently keeps random weights.
 Existing single-stage effects retain their sampling paths. The external engine checkout is not patched.
+
+## Music
+
+Music owns separate `MusicJob`, `MusicResult`, `MusicCapabilities`, catalog and gateway ports,
+controller and run/switch use cases. Its model packages live under `gateways/music/<id>` and
+are independent of speech model packages. `gateways/audio/stdio_child.py` is the shared JSON
+pipe process helper, used by both media. Music shares the operation reservation, non-queueing
+engine lock and model residency map. All model IDs, including Music, are globally reserved.
+The current plugin SDK still extends Image, Video and Voice only.
+
+YuE2 runs in an isolated pinned child, uses local generator and decoder weights, and preserves
+48 kHz stereo. Music operations retain audio separately from score/configuration metadata.
+Ordered batches run sequentially and retain each completed result. Browser storage uses one
+record per song, so tabs do not replace each other's whole galleries. No speech script splitting
+or mono-reference normalization is applied. The Music workspace and its controls are separate
+from Voice; keyboard submission uses the active workspace.

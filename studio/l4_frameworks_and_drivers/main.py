@@ -19,13 +19,16 @@ from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgre
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageUseCase
+from studio.l2_use_cases.run_music_use_case import RunMusicUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
+from studio.l2_use_cases.switch_music_backend_use_case import SwitchMusicBackendUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 from studio.l2_use_cases.switch_voice_backend_use_case import SwitchVoiceBackendUseCase
 from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
+from studio.l3_interface_adapters.controllers.music_controller import MusicController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
 from studio.l3_interface_adapters.gateways.audio.auk.auk_backend_gateway import AukBackendGateway
@@ -66,6 +69,9 @@ from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway imp
 from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
+from studio.l3_interface_adapters.gateways.in_memory_music_backend_catalog_gateway import (
+    InMemoryMusicBackendCatalogGateway,
+)
 from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
@@ -78,6 +84,8 @@ from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gatew
 from studio.l3_interface_adapters.gateways.in_memory_voice_backend_catalog_gateway import (
     InMemoryVoiceBackendCatalogGateway,
 )
+from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
+from studio.l3_interface_adapters.gateways.music.yue2.yue2_backend_gateway import Yue2BackendGateway
 from studio.l3_interface_adapters.gateways.prompt_rewriters import (
     CatalogPromptRewriter,
     NoPromptRewriter,
@@ -486,8 +494,42 @@ def build_voice_backends(config: Config, plugins: ModelPlugins | None = None, st
     return {name: registry[name](config) for name in config.visible_voice_backends}
 
 
+def music_yue2_backend(config: Config):
+    settings = config.backend("yue2")
+    if settings.get("engine", "mlx-q8") != "mlx-q8":
+        raise ConfigError("YuE2 only supports the mlx-q8 engine. Remove the old PyTorch settings.")
+    script = Path(__file__).parents[1] / "l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py"
+    python = settings.get("python_path")
+    command = [str(python), str(script)] if python else ["uv", "run", "--script", str(script)]
+    model_dir = str(settings.get("model_dir", Path.home() / "Library/Caches/models/yue2-mlx"))
+    vae_dir = str(settings.get("vae_dir", model_dir + "-vae"))
+    if Path(vae_dir).resolve().is_relative_to(Path(model_dir).resolve()):
+        raise ConfigError(
+            "[yue2].vae_dir must be outside model_dir; converted model integrity requires a clean directory."
+        )
+    transcription_cache = str(
+        settings.get("transcription_cache_dir", Path.home() / "Library/Caches/models/yue2-transcription")
+    )
+    command += ["--transcription-cache-dir", transcription_cache]
+    command += ["--model-dir", model_dir, "--vae-dir", vae_dir]
+    return Yue2BackendGateway(StdioChild(command), model_dir, vae_dir)
+
+
+MUSIC_BACKENDS = {"yue2": music_yue2_backend}
+
+
+def build_music_backends(config: Config, stub=False):
+    unknown = set(config.visible_music_backends) - MUSIC_BACKENDS.keys()
+    if unknown:
+        raise ConfigError(f"no music backend called {', '.join(sorted(unknown))}")
+    return {
+        name: StubMusicBackendGateway() if stub else MUSIC_BACKENDS[name](config)
+        for name in config.visible_music_backends
+    }
+
+
 def discover_plugins() -> ModelPlugins:
-    return ModelPlugins({"image": BACKENDS, "video": VIDEO_BACKENDS, "voice": VOICE_BACKENDS})
+    return ModelPlugins({"image": BACKENDS, "video": VIDEO_BACKENDS, "voice": VOICE_BACKENDS, "music": MUSIC_BACKENDS})
 
 
 def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dict:
@@ -526,6 +568,7 @@ def create_studio(
     video_backends = build_video_backends(config, enhancer.is_enhanced, plugins, stub)
     video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
     voice_backends = build_voice_backends(config, plugins, stub)
+    music_backends = build_music_backends(config, stub)
     rewriters = build_rewriters(config, plugins, stub)
     # An LTX pack runs on the base packs' engine, so it takes their enhancer as well.
     packs = {name for name in video_backends if plugins.pack("video", name) is not None}
@@ -569,6 +612,9 @@ def create_studio(
         video_backends=video_backends,
         default_video_id=config.default_video_backend,
         visible_video_ids=config.visible_video_backends,
+        music_backends=music_backends,
+        default_music_id=config.default_music_backend,
+        visible_music_ids=config.visible_music_backends,
         voice_backends=voice_backends,
         default_voice_id=config.default_voice_backend,
         visible_voice_ids=config.visible_voice_backends,
@@ -585,6 +631,9 @@ def assemble_studio(
     video_backends: dict | None = None,
     default_video_id: str | None = None,
     visible_video_ids: tuple[str, ...] = (),
+    music_backends=None,
+    default_music_id="yue2",
+    visible_music_ids=(),
     voice_backend=None,
     voice_backends=None,
     default_voice_id="auk",
@@ -618,7 +667,12 @@ def assemble_studio(
         video_rewriter = CatalogPromptRewriter(video_rewriters, video_catalog)
     if video_rewriter is not None:
         video_rewriter = ThreadConfinedPromptRewriter(video_rewriter, gpu)
-    runtimes = {**confined, **(video_backends or {}), **(voice_backends or {})}
+    music_catalog = None
+    if music_backends:
+        music_catalog = InMemoryMusicBackendCatalogGateway(
+            music_backends, default_music_id, visible_music_ids or tuple(music_backends)
+        )
+    runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())
@@ -671,11 +725,20 @@ def assemble_studio(
             voice_catalog,
             SwitchVoiceBackendUseCase(voice_catalog, engine_lock, residency),
         )
+    music_controller = None
+    if music_catalog is not None:
+        music_backend = music_catalog.get(music_catalog.active_id())
+        music_controller = MusicController(
+            RunMusicUseCase(music_backend, progress, engine_lock, residency, music_catalog),
+            music_catalog,
+            SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
+        )
     operations = InMemoryOperationGateway()
     api = JsonApi(
         controller,
         video_controller,
         voice_controller,
+        music=music_controller,
         operations=operations,
         completion=CompleteOperationUseCase(operations),
         batches=PrepareBatchUseCase(),
