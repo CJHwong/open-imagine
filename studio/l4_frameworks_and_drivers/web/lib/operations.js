@@ -43,28 +43,31 @@ function elapsed(operation) {
 function render(operation) {
   const panel = document.getElementById('shared-operation');
   const label = document.getElementById('shared-operation-label');
-  const progress = document.getElementById('shared-operation-progress');
   const cancel = document.getElementById('shared-operation-cancel');
   panel.hidden = !operation;
   if (!operation) return;
   const state = operation.progress || {};
-  if (progressId !== operation.id) { progressId = operation.id; overallPercent = null; }
+  // Music reports separate phase totals, with unknown token counts between them.
+  if (progressId !== operation.id || operation.kind === 'music') { progressId = operation.id; overallPercent = null; }
   if (state.total > 0) overallPercent = Math.max(overallPercent || 0, Math.min(99, Math.floor(state.step / state.total * 100)));
   const percent = overallPercent;
-  const labels = {rewrite: 'Rewriting prompt', video: 'Generating video', voice: 'Generating voice', image: 'Generating image'};
+  const labels = {rewrite: 'Rewriting prompt', video: 'Generating video', music: 'Generating music', voice: 'Generating voice', image: 'Generating image'};
   const name = operation.kind === 'image' && operation.mode === 'edit' ? 'Editing image' : labels[operation.kind] || 'Generating media';
   const stopping = operation.status === 'stopping';
   const phase = stopping ? 'Stopping' : state.stage === 'preparing' ? 'Loading model'
     : state.total && state.step >= state.total ? 'Finishing' : name;
-  const detail = [operation.model, operation.batch_total ? 'Item ' + (operation.batch_index || 1) + ' of ' + operation.batch_total
+  // Music already names its model without the quantisation in its own header and stage, so
+  // the shared line reads the same name rather than the longer server label beside it.
+  const model = operation.kind === 'music'
+    ? String(operation.model || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim()
+    : operation.model;
+  const detail = [model, operation.batch_total ? 'Item ' + (operation.batch_index || 1) + ' of ' + operation.batch_total
     : state.label ? 'Image ' + state.label : ''].filter(Boolean).join(' · ');
   label.textContent = !stopping && operation.kind === 'rewrite' && state.stage === 'preparing' ? 'Preparing prompt rewrite' : phase;
   document.getElementById('shared-operation-detail').textContent = detail;
   document.getElementById('shared-operation-percent').textContent = percent === null ? '' : percent + '%';
   const seconds = Math.floor(elapsed(operation));
   document.getElementById('shared-operation-elapsed').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' elapsed';
-  if (percent === null) progress.removeAttribute('value');
-  else progress.value = percent;
   cancel.disabled = stopping;
   cancel.querySelector('span').textContent = stopping ? 'Stopping…' : 'Cancel';
   panel.dataset.operationId = operation.id;
@@ -124,7 +127,7 @@ async function importBatch(operation, answer) {
 }
 
 async function importResult(operation) {
-  if (imported.has(operation.id) || (operation.client_id === page.clientId && operation.kind !== 'voice'
+  if (imported.has(operation.id) || (operation.client_id === page.clientId && !['voice', 'music'].includes(operation.kind)
       && !(operation.kind === 'image' && operation.batch_total))) return;
   if (operation.source === 'ui' && operation.library_id !== page.libraryId && !owners.has(operation.client_id)) return;
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
@@ -145,7 +148,10 @@ async function importResult(operation) {
     return;
   }
   if (!answer.ok) throw new Error('The completed result could not be loaded.');
-  if (operation.kind === 'voice') {
+  if (operation.kind === 'music') {
+    await customElements.whenDefined('music-studio');
+    await page.music().importOperation(operation, answer);
+  } else if (operation.kind === 'voice') {
     await customElements.whenDefined('voice-studio');
     await page.voice().importOperation(operation, answer);
   } else if (operation.batch_total || Array.isArray(operation.settings?.items)) {

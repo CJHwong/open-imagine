@@ -85,9 +85,8 @@ with sync_playwright() as p:
       window.statusTimer = setInterval(() => {
         const panel = document.getElementById('shared-operation');
         if (panel.hidden) return;
-        const progress = document.getElementById('shared-operation-progress');
         const text = document.querySelector('#canvas .percent')?.textContent;
-        statusSamples.push({id: panel.dataset.operationId, bar: progress.hasAttribute('value') ? progress.value : null,
+        statusSamples.push({id: panel.dataset.operationId,
           preview: text?.endsWith('%') ? parseInt(text) : null});
       }, 25);
     }""")
@@ -104,11 +103,10 @@ with sync_playwright() as p:
         page.wait_for_timeout(100)
     assert page.locator("#shared-operation").is_hidden()
     samples = page.evaluate("clearInterval(statusTimer); statusSamples")
-    for source in ("bar", "preview"):
-        values = [s[source] for s in samples if s[source] is not None]
-        assert len(set(values)) > 3, (source, values)
-        assert all(a <= b for a, b in pairwise(values)), (source, values)
-        assert max(values) < 100
+    values = [s["preview"] for s in samples if s["preview"] is not None]
+    assert len(set(values)) > 3, values
+    assert all(a <= b for a, b in pairwise(values)), values
+    assert max(values) < 100
     assert page.locator("#strip .frame:not(.pending)").count() == 2
     print(
         "PASS one status bar, batch-edit progress never decreases, no premature 100%, mobile cancel, completion",
@@ -139,7 +137,7 @@ with sync_playwright() as p:
         page.wait_for_function("mode => mediaMode === mode", arg=kind)
         box = page.locator("#shared-operation-cancel").bounding_box()
         assert box and 0 <= box["y"] < 844 - box["height"], (kind, box)
-        assert not page.locator("#shared-operation-progress").get_attribute("value")
+        assert page.locator("#shared-operation-percent").inner_text() == ""
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.unroute("**/api/v1/state")
         page.wait_for_function("!document.body.classList.contains('busy')")

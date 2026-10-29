@@ -12,8 +12,8 @@ class PrepareBatchUseCase:
     def execute(self, payload: Mapping[str, object]) -> list[dict[str, Any]]:
         """Validate the envelope before any item can consume model memory."""
         kind = payload.get("kind")
-        if not isinstance(kind, str) or kind not in ("image", "video", "voice"):
-            raise InvalidJob("A batch kind must be image, video or voice.")
+        if not isinstance(kind, str) or kind not in ("image", "video", "voice", "music"):
+            raise InvalidJob("A batch kind must be image, video, voice or music.")
         items = payload.get("items")
         if not isinstance(items, list) or not 1 <= len(items) <= BATCH_LIMIT:
             raise InvalidJob(f"items must contain between 1 and {BATCH_LIMIT} objects.")

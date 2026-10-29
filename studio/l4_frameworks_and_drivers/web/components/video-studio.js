@@ -202,6 +202,9 @@ class VideoStudio extends LitElement {
   // Set by the page from the mode. An edit changes a clip and takes no image references, so
   // the media door refuses an image while it is on.
   needsClip = false;
+  // Whether the empty stage may offer the templates. The page sets it from the mode and the
+  // capabilities: an edit's prompt is the effect's own words, so templates stay away there.
+  templateShortcut = false;
   galleryStore = null;
   keepEnabled = true;
   // Whether the browser promised to keep the store. `null` is "not asked yet"; the gallery's
@@ -302,6 +305,9 @@ class VideoStudio extends LitElement {
   }
 
   firstUpdated() {
+    // The page may have set the empty stage's template shortcut before this element upgraded,
+    // so the upgrade asks again rather than keeping the default.
+    document.dispatchEvent(new CustomEvent('video-studio-ready'));
     this.renderImageReferences();
     this.renderSourceVideos();
     this.renderSelectedClip();
@@ -926,6 +932,11 @@ class VideoStudio extends LitElement {
       if (menu) toggleMenu(menu);
     }
     if (action === 'add-media') this.openMediaChooser();
+    if (action === 'browse-video-templates') {
+      // The click would reach the document and close the menu it just opened.
+      event.stopPropagation();
+      this.dispatchEvent(new CustomEvent('video-templates-open', {bubbles: true, composed: true}));
+    }
     if (action === 'remove-reference') this.removeImageReference(control.dataset.referenceId);
     if (action === 'select-reference') this.selectReference(control.dataset.referenceId);
     if (action === 'remove-clip') this.removeClip(control.dataset.clipId);
@@ -1726,6 +1737,15 @@ class VideoStudio extends LitElement {
     }));
   }
 
+  // The empty stage's template shortcut follows the mode, so the page sets it the way it
+  // sets needsClip, and the stage redraws when the answer changes.
+  setTemplateShortcut(offered) {
+    const next = Boolean(offered);
+    if (this.templateShortcut === next) return;
+    this.templateShortcut = next;
+    this.renderPreview();
+  }
+
   renderPreview() {
     const preview = this.querySelector('#video-preview-content-root');
     if (!preview) return;
@@ -1887,10 +1907,12 @@ class VideoStudio extends LitElement {
   renderClip(clip) {
     if (clip && !clip.stub && !clip.url) return html`<div class="video-empty" role="status">Loading video…<video id="video-preview" hidden preload="none"></video></div>`;
     if (!clip) {
-      return html`<div class="video-empty">
+      return html`<div class="video-empty empty">
         <div class="video-empty-mark">VIDEO</div>
         <strong>Preview a video</strong>
         <span>Select a source video or generated clip.</span>
+        ${this.templateShortcut ? html`<button type="button" class="btn" data-action="browse-video-templates">
+          <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>Browse templates</button>` : ''}
       </div>`;
     }
     const preview = html`<div class="video-preview-pane">

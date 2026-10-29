@@ -93,7 +93,7 @@ with sync_playwright() as playwright:
                 "els => els.every(el => getComputedStyle(el).filter === 'none' && getComputedStyle(el).mixBlendMode === 'normal')"
             )
             if workspace == "Video":
-                colors = page.locator(".video-empty").evaluate("""el => {
+                colors = page.locator("#video-studio .video-empty").evaluate("""el => {
                   const style = getComputedStyle(el);
                   const rgb = style.color.match(/[0-9]+/g).map(Number);
                   return ['#' + rgb.map(c => c.toString(16).padStart(2, '0')).join(''), style.getPropertyValue('--box').trim()];

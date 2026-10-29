@@ -37,10 +37,10 @@ const openRows = new Map();
 // and the second once every tree here has drawn.
 const settles = new Map();
 
-const FORMS = ['image', 'video'];
+const FORMS = ['image', 'video', 'music'];
 
 function formOf(element) {
-  return element.dataset.form === 'video' ? 'video' : 'image';
+  return FORMS.includes(element.dataset.form) ? element.dataset.form : 'image';
 }
 
 function boardOf(element) {
@@ -194,15 +194,12 @@ customElements.define('look-adds', LookAdds);
 // this fires while the module is evaluated: after the markup, before any
 // interaction. The handle is in place before the first render, because Lit
 // renders on a microtask and this dispatch is synchronous.
-document.dispatchEvent(new CustomEvent('look-rows-ready', {
-  detail: {
-    configure: function (helpers) {
-      const form = FORMS.includes(helpers.form) ? helpers.form : 'image';
-      boards.set(form, helpers);
-      lookElements(form).forEach(function (element) {
-        if (element.bindBoard) element.bindBoard();
-        element.requestUpdate();
-      });
-    },
-  },
-}));
+export function configureLookRows(helpers) {
+  const form = FORMS.includes(helpers.form) ? helpers.form : 'image';
+  boards.set(form, helpers);
+  lookElements(form).forEach(function (element) {
+    if (element.bindBoard) element.bindBoard();
+    element.requestUpdate();
+  });
+}
+document.dispatchEvent(new CustomEvent('look-rows-ready', {detail: {configure: configureLookRows}}));

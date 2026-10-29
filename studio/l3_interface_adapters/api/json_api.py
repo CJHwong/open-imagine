@@ -23,6 +23,7 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from studio.l1_entities.errors import Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.operation import OperationOutput
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
@@ -56,6 +57,7 @@ class JsonApi:
         video: VideoController | None = None,
         voice: VoiceController | None = None,
         *,
+        music=None,
         operations: OperationGateway,
         completion: CompleteOperationUseCase,
         batches: PrepareBatchUseCase,
@@ -63,6 +65,7 @@ class JsonApi:
         self._controller = controller
         self._video = video
         self._voice = voice
+        self._music = music
         self._operations = operations
         self._completion = completion
         self._batches = batches
@@ -117,11 +120,11 @@ class JsonApi:
 
     def reserve(self, payload: Mapping[str, object], *, source: str = "api", owner: str = "") -> dict[str, Any]:
         kind = payload.get("kind")
-        if kind not in ("image", "video", "rewrite", "voice"):
-            raise InvalidJob("kind must be image, video, voice or rewrite")
-        workspace = payload.get("workspace") or (kind if kind in ("video", "voice") else "image")
-        if workspace not in ("image", "video", "voice"):
-            raise InvalidJob("workspace must be image, video or voice")
+        if kind not in ("image", "video", "rewrite", "voice", "music"):
+            raise InvalidJob("kind must be image, video, voice, music or rewrite")
+        workspace = payload.get("workspace") or (kind if kind in ("video", "voice", "music") else "image")
+        if workspace not in ("image", "video", "voice", "music"):
+            raise InvalidJob("workspace must be image, video, voice or music")
         if kind != "rewrite" and workspace != kind:
             raise InvalidJob("workspace must match the operation kind")
         mode = payload.get("mode") or (
@@ -129,21 +132,33 @@ class JsonApi:
             if kind == "voice"
             else "generate"
         )
-        if mode not in (("generate", "clone", "design", "edit") if kind == "voice" else ("generate", "edit")):
-            raise InvalidJob("mode must be generate or edit")
+        allowed_modes = ("generate", "clone", "design", "edit") if kind == "voice" else ("generate", "edit")
+        if kind == "music":
+            allowed_modes = self._music_backend().model_capabilities(payload.get("backend", "")).modes
+        if mode not in allowed_modes:
+            raise InvalidJob("This mode is not offered for the selected workspace")
         if (
             kind == "voice"
             and "backend" in payload
             and (not isinstance(payload["backend"], str) or not payload["backend"])
         ):
             raise InvalidJob("backend must be a nonempty Voice model id")
+        if workspace == "music":
+            if kind != "music":
+                raise InvalidJob("Music does not offer prompt rewriting.")
+            music = self._music_backend()
+            if "items" in payload:
+                for item in self._batches.execute(payload):
+                    music.validate(item)
+            else:
+                music.validate(payload)
         document = self.studio().get(workspace)
         backend = payload.get("backend") or (document["active"] if document else "")
         model = next((one["name"] for one in document["backends"] if one["id"] == backend), "") if document else ""
         batch_metadata = {}
         if "items" in payload:
             batch_metadata["batch_total"] = len(self._batches.execute({**payload, "backend": backend}))
-        excluded = {"references", "reference", "clip", "audio", "reference_token", "items"}
+        excluded = {"references", "reference", "clip", "audio", "reference_audio", "reference_token", "items"}
         settings = {key: value for key, value in payload.items() if key not in excluded}
         return operation_document(
             self._operations.begin(
@@ -191,6 +206,11 @@ class JsonApi:
                 raise Cancelled("The operation was cancelled before it started.")
             if "items" in body:
                 return self._batch(operation, body)
+            if kind == "music":
+                music = self._music_backend()
+                selected = body.get("backend", music.active_id())
+                music.switch({"backend": selected})
+                return music.run({**body, "backend": selected})
             if kind == "voice":
                 voice = self._voice_backend()
                 selected = body.get("backend", voice.active_id())
@@ -287,6 +307,12 @@ class JsonApi:
                 "backends": self._voice.backends(),
                 "capabilities": self.voice_capabilities(),
             }
+        if self._music is not None:
+            document["music"] = {
+                "active": self._music.active_id(),
+                "backends": self._music.backends(),
+                "capabilities": self._music.capabilities(),
+            }
         return document
 
     def backend_capabilities(self, workspace, backend_id):
@@ -294,7 +320,7 @@ class JsonApi:
         try:
             capabilities = (
                 controller.model_capabilities(backend_id)
-                if workspace == "voice"
+                if workspace in ("voice", "music")
                 else controller.capabilities(backend_id)
             )
             return asdict(capabilities)
@@ -302,9 +328,19 @@ class JsonApi:
             raise OperationMissing(str(error)) from None
 
     def _workspace_controller(self, workspace):
+        if workspace == "music":
+            return self._music_backend()
         if workspace == "voice":
             return self._voice_backend()
         return self._controller if workspace == "image" else self._video_backend()
+
+    def music_capabilities(self):
+        return self._music_backend().capabilities()
+
+    def _music_backend(self):
+        if self._music is None:
+            raise StudioError("Music generation is not configured.")
+        return self._music
 
     def voice_capabilities(self):
         return self._voice_backend().capabilities()
@@ -342,7 +378,9 @@ class JsonApi:
                 "result_url": f"/api/v1/operations/{operation_id}/items/{index}/result",
                 "prompt": effective_items[index - 1].get("prompt", item.get("text", "")),
                 "settings": {
-                    key: value for key, value in item.items() if key not in ("references", "reference", "audio", "clip")
+                    key: value
+                    for key, value in item.items()
+                    if key not in ("references", "reference", "audio", "reference_audio", "clip")
                 },
                 "completed_at": time.time(),
             }
@@ -357,6 +395,10 @@ class JsonApi:
                     seed=result.seed,
                     stub=result.stub,
                     loras=lora_document(result.loras),
+                )
+            if isinstance(result, MusicResult):
+                metadata.update(
+                    seconds=result.seconds, sample_rate=result.sample_rate, seed=result.seed, stub=result.stub
                 )
             if isinstance(result, SpeechResult):
                 metadata.update(seconds=result.seconds, sample_rate=result.sample_rate, seed=result.seed)
@@ -375,6 +417,10 @@ class JsonApi:
                 started,
                 self.cancellation_requested,
             )
+        elif operation["kind"] == "music":
+            music = self._music_backend()
+            music.switch({"backend": operation["backend"]})
+            music.run_batch(items, completed, started, self.cancellation_requested)
         elif operation["kind"] == "voice":
             voice = self._voice_backend()
             voice.switch({"backend": operation["backend"]})

@@ -2,7 +2,7 @@ import {LitElement, html, svg, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3
 import './video-gallery-preview.js';
 import './gallery-media.js';
 import './gallery-window.js';
-import {pencilLoop} from './gallery-marker.js';
+import {pencilLoop, playingMark} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 
 const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-' + name}></use></svg>`;
@@ -11,7 +11,7 @@ const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-'
 // never media storage, input selection, or generation state.
 class GalleryBrowser extends LitElement {
   static properties = {
-    workspace: {type: String}, items: {attribute: false}, selectedId: {attribute: false},
+    workspace: {type: String}, items: {attribute: false}, selectedId: {attribute: false}, playingId: {attribute: false},
     choose: {attribute: false}, removeItem: {attribute: false}, download: {attribute: false},
     keeping: {type: Boolean}, pending: {type: Boolean}, pendingSelected: {type: Boolean},
     showPending: {attribute: false}, playback: {attribute: false},
@@ -210,12 +210,14 @@ class GalleryBrowser extends LitElement {
     if (item.peaks?.length) return svg`<svg class="gallery-wave" viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
       ${item.peaks.map((peak, index) => svg`<line x1=${(index + 0.5) * 160 / item.peaks.length}
         x2=${(index + 0.5) * 160 / item.peaks.length} y1=${30 - Math.max(1, peak / maximum * 25)} y2=${30 + Math.max(1, peak / maximum * 25)} />`)}</svg>`;
-    return html`<span class="gallery-no-preview">${this.workspace === 'voice' ? 'Audio' : 'No preview'}</span>`;
+    return html`<span class="gallery-no-preview">${this.workspace === 'music' ? '♫' : this.workspace === 'voice' ? 'Audio' : 'No preview'}</span>`;
   }
   card(row) {
     const item = row.item;
     const selected = String(this.selectedId) === String(item.id) && !this.pendingSelected;
-    return html`<article class="gallery-card${this.checked.has(item.id) ? ' checked' : ''}">
+    const playing = this.workspace === 'music' && this.playingId != null
+      && (row.batch || [item]).some(entry => String(entry.id) === String(this.playingId));
+    return html`<article class="gallery-card${this.checked.has(item.id) ? ' checked' : ''}${playing ? ' is-playing' : ''}">
       <button type="button" class=${'frame gallery-card-pick' + (selected && !row.batch ? ' selected' : '')}
         data-row-id=${row.batch ? 'batch-' + item.id : item.id}
         data-item-id=${row.batch ? nothing : item.id} ?disabled=${this.working}
@@ -223,6 +225,7 @@ class GalleryBrowser extends LitElement {
         aria-pressed=${row.batch ? nothing : String(selected)}
         @click=${() => row.batch ? this.change('group', item.batch) : this.pick(item)}>
         <span class="still">${this.thumbnail(item)}
+          ${playing ? playingMark() : nothing}
           ${item.duration ? html`<span class="gallery-duration">${item.duration.toFixed(1)} s</span>` : nothing}
           ${row.batch ? html`<span class="gallery-batch-count">${row.batch.length} results</span>` : nothing}
         </span>

@@ -13,6 +13,7 @@ from studio.l3_interface_adapters.api.api_guidance import GUIDANCE
 from studio.l3_interface_adapters.api.discovery_schemas import discovery_schemas
 from studio.l3_interface_adapters.api.openapi_examples import (
     image_examples,
+    music_examples,
     operation_examples,
     plan_examples,
     rewrite_examples,
@@ -30,7 +31,7 @@ from studio.l3_interface_adapters.api.voice_prompt_guides import (
 DESCRIPTION = """Use the same model controls as the Studio page through JSON.
 
 1. Read `GET /api/v1/studio` for available model IDs and `GET /api/v1/state` for active work.
-2. Inspect a candidate with `GET /api/v1/{images|videos|voice}/backends/{id}`. This does not load or select it.
+2. Inspect a candidate with `GET /api/v1/{images|videos|voice|music}/backends/{id}`. This does not load or select it.
    Read its modes, parameters, templates, and adapters before constructing a request. Do not guess IDs or ranges.
 3. Choose a named request example below. Replace every angle-bracket media placeholder with actual file bytes encoded as base64.
 4. Prefer `POST /api/v1/operations` for work that takes time. Save its `status_url` and poll it.
@@ -57,6 +58,9 @@ Drama `max_tokens` limits audio tokens per internal chunk, not words or final du
 another seed or a clean reference can help a model that does not finish. Increasing the cap can prolong looping.
 
 Images return JSON with base64 PNG. Videos return MP4. Voice returns WAV.
+Music generate/cover return stereo WAV; plan/transcribe return JSON with score and metadata.
+Music instrumentals require instrumental=true. Blank lyrics alone do not enable instrumental output.
+Read Music examples for reference transcription, covers, supplied scores, and serial batches.
 The retained result route uses the same media type as the synchronous route.
 Image references accept bare base64 or data URLs. Video keyframes and other media require bare base64.
 The one-pixel PNG examples test transport only. Replace them with useful scene images.
@@ -87,6 +91,7 @@ def openapi_document() -> dict[str, Any]:
         "servers": [{"url": "/", "description": "This studio"}],
         "tags": [
             {"name": "studio", "description": "What this server can run"},
+            {"name": "music", "description": "Stereo songs from style and sectioned lyrics, with optional ABC scores"},
             {"name": "images", "description": "Stills: generate, edit, rewrite\n\n" + IMAGE_PROMPT_REFERENCES},
             {"name": "videos", "description": "Clips: generate, edit, rewrite\n\n" + VIDEO_PROMPT_REFERENCES},
             {
@@ -97,6 +102,7 @@ def openapi_document() -> dict[str, Any]:
         "paths": {
             **operation_paths(),
             **voice_paths(),
+            **music_paths(),
             **audio_paths(),
             **batch_paths(),
             **discovery_paths(),
@@ -204,6 +210,7 @@ def openapi_document() -> dict[str, Any]:
                 **operation_schemas(),
                 **discovery_schemas(),
                 **voice_schemas(),
+                **music_schemas(),
                 **batch_schemas(),
                 **plan_schemas(),
                 "Error": {
@@ -550,6 +557,14 @@ def openapi_document() -> dict[str, Any]:
                                 },
                             },
                         },
+                        "music": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "active": {"type": "string"},
+                                "backends": {"type": "array", "items": {"$ref": "#/components/schemas/Backend"}},
+                                "capabilities": {"$ref": "#/components/schemas/MusicCapabilities"},
+                            },
+                        },
                         "voice": {
                             "type": ["object", "null"],
                             "properties": {
@@ -702,7 +717,7 @@ def operation_paths() -> dict[str, Any]:
                 "schema": {
                     "oneOf": [
                         {"$ref": "#/components/schemas/" + name}
-                        for name in ("ImageRun", "VideoStub", "Rewrite", "BatchResult")
+                        for name in ("ImageRun", "VideoStub", "Rewrite", "BatchResult", "MusicScoreResult")
                     ]
                 }
             }
@@ -842,9 +857,9 @@ def operation_schemas() -> dict[str, Any]:
                 "type": "string",
                 "description": "Browser library identity from X-Studio-Library when present",
             },
-            "kind": {"enum": ["image", "video", "voice", "rewrite"]},
-            "workspace": {"enum": ["image", "video", "voice"]},
-            "mode": {"enum": ["generate", "edit", "clone", "design"]},
+            "kind": {"enum": ["image", "video", "voice", "music", "rewrite"]},
+            "workspace": {"enum": ["image", "video", "voice", "music"]},
+            "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover"]},
             "status": {"enum": ["running", "stopping", "succeeded", "failed", "cancelled"]},
             "started_at": {"type": "number", "description": "Unix seconds"},
             "finished_at": {"type": ["number", "null"]},
@@ -890,14 +905,15 @@ def operation_schemas() -> dict[str, Any]:
                     ("image", ("ImageRequest", "ImageEditRequest", "BatchRequest")),
                     ("video", ("VideoRequest", "VideoEditRequest", "BatchRequest")),
                     ("voice", ("VoiceRequest", "BatchRequest")),
+                    ("music", ("MusicRequest", "BatchRequest")),
                     ("rewrite", ("OperationRewriteRequest",)),
                 )
             ],
             "description": "Use the request schema for the selected kind, or BatchRequest for ordered items. Add kind and optionally workspace, mode, client_id. Each accepted operation owns its whole batch.",
             "properties": {
-                "kind": {"enum": ["image", "video", "voice", "rewrite"]},
-                "workspace": {"enum": ["image", "video", "voice"]},
-                "mode": {"enum": ["generate", "edit", "clone", "design"]},
+                "kind": {"enum": ["image", "video", "voice", "music", "rewrite"]},
+                "workspace": {"enum": ["image", "video", "voice", "music"]},
+                "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover"]},
                 "client_id": {"type": "string"},
             },
         },
@@ -1181,6 +1197,7 @@ def batch_paths() -> dict[str, Any]:
                                     "oneOf": [
                                         {"$ref": "#/components/schemas/ImageRun"},
                                         {"$ref": "#/components/schemas/VideoStub"},
+                                        {"$ref": "#/components/schemas/MusicScoreResult"},
                                     ]
                                 }
                             },
@@ -1211,7 +1228,7 @@ def batch_schemas() -> dict[str, Any]:
             "required": ["kind", "items"],
             "description": "Top-level fields are defaults for every item. Items override defaults. Use one backend and kind for the entire batch. Video items must also share the top-level fast_mode boolean (default false); it cannot change between items. Each item yields one result: count must be one and each_reference must be false. Items run in order; completed outputs survive later failure or cancellation. Indices start at one.",
             "properties": {
-                "kind": {"enum": ["image", "video", "voice"]},
+                "kind": {"enum": ["image", "video", "voice", "music"]},
                 "backend": {"type": "string"},
                 "mode": {"type": "string"},
                 "seed": {"type": "integer"},
@@ -1221,7 +1238,7 @@ def batch_schemas() -> dict[str, Any]:
                     "maxItems": 16,
                     "items": {
                         "type": "object",
-                        "description": "A partial ImageRequest, VideoRequest, or VoiceRequest. Inherits missing fields from the batch. Nested items and backend/kind/workspace changes are forbidden.",
+                        "description": "A partial ImageRequest, VideoRequest, VoiceRequest, or MusicRequest. Inherits missing fields from the batch. Nested items and backend/kind/workspace changes are forbidden.",
                         "properties": {
                             "prompt": {"type": "string"},
                             "text": {"type": "string"},
@@ -1250,7 +1267,7 @@ def batch_schemas() -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "index": {"type": "integer", "minimum": 1},
-                "kind": {"enum": ["image", "video", "voice"]},
+                "kind": {"enum": ["image", "video", "voice", "music"]},
                 "status": {"const": "succeeded"},
                 "result_url": {"type": "string"},
                 "prompt": {"type": "string"},
@@ -1419,6 +1436,7 @@ def discovery_paths() -> dict[str, Any]:
             ("images", "ImageCapabilities", "readImageBackend"),
             ("videos", "VideoCapabilities", "readVideoBackend"),
             ("voice", "VoiceCapabilities", "readVoiceBackend"),
+            ("music", "MusicCapabilities", "readMusicBackend"),
         )
     }
 
@@ -1492,4 +1510,316 @@ def audio_paths() -> dict[str, Any]:
                 },
             }
         }
+    }
+
+
+def music_paths() -> dict[str, Any]:
+    return {
+        "/api/v1/music/capabilities": {
+            "get": {
+                "operationId": "readMusicCapabilities",
+                "tags": ["music"],
+                "responses": {
+                    "200": {
+                        "description": "Music controls",
+                        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MusicCapabilities"}}},
+                    }
+                },
+            }
+        },
+        "/api/v1/music/backend": {
+            "post": {
+                "operationId": "selectMusicBackend",
+                "tags": ["music"],
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["backend"],
+                                "properties": {"backend": {"type": "string"}},
+                            }
+                        }
+                    },
+                },
+                "responses": {"204": {"description": "Selected"}, "409": _error("Model busy")},
+            }
+        },
+        "/api/v1/music/generate": {
+            "post": {
+                "operationId": "generateMusic",
+                "tags": ["music"],
+                "summary": "Create songs, compose scores, transcribe audio or cover a reference; prefer asynchronous operations",
+                "requestBody": {
+                    "required": True,
+                    "content": {
+                        "application/json": {
+                            "schema": {"$ref": "#/components/schemas/MusicRequest"},
+                            "examples": music_examples(),
+                        }
+                    },
+                },
+                "responses": {
+                    "200": {
+                        "description": "48 kHz stereo recording, or a JSON score-only result for plan/transcribe",
+                        "headers": {
+                            "X-Studio-Operation": {
+                                "description": "Operation ID for polling and /api/v1/operations/{id}/metadata.",
+                                "schema": {"type": "string"},
+                            },
+                            "X-Studio-Completed": {
+                                "description": "Completion time in Unix seconds.",
+                                "schema": {"type": "number"},
+                            },
+                            "X-Studio-Seed": {
+                                "description": "Actual seed; WAV responses only. JSON results contain seed in the body.",
+                                "schema": {"type": "integer"},
+                            },
+                            "X-Studio-Duration": {
+                                "description": "Audio duration in seconds; WAV responses only, not processing duration.",
+                                "schema": {"type": "number"},
+                            },
+                            "X-Studio-Sample-Rate": {
+                                "description": "Sample rate; WAV responses only.",
+                                "schema": {"const": 48000},
+                            },
+                            "X-Studio-Stub": {
+                                "description": "Whether this WAV is a silent test preview.",
+                                "schema": {"enum": ["true", "false"]},
+                            },
+                        },
+                        "content": {
+                            "audio/wav": {"schema": {"type": "string", "format": "binary"}},
+                            "application/json": {"schema": {"$ref": "#/components/schemas/MusicScoreResult"}},
+                        },
+                    },
+                    "400": _error("Invalid composition"),
+                    "409": _error("Model busy or cancelled"),
+                    "503": _error("Music unavailable"),
+                },
+            }
+        },
+        "/api/v1/operations/{id}/metadata": {
+            "get": {
+                "operationId": "readMusicMetadata",
+                "tags": ["music"],
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    PRIVATE_KEY,
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Score, runtime settings, timings and model identities",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/MusicMetadataResult"}}
+                        },
+                    },
+                    "400": _error("This result is not a single Music result"),
+                    "404": _error("Missing or expired operation"),
+                    "409": _error("The operation has no completed result"),
+                },
+            }
+        },
+        "/api/v1/operations/{id}/items/{index}/metadata": {
+            "get": {
+                "operationId": "readMusicItemMetadata",
+                "tags": ["music"],
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    {"name": "index", "in": "path", "required": True, "schema": {"type": "integer", "minimum": 1}},
+                    PRIVATE_KEY,
+                ],
+                "responses": {
+                    "200": {
+                        "description": "One completed Music item's details",
+                        "content": {
+                            "application/json": {"schema": {"$ref": "#/components/schemas/MusicMetadataResult"}}
+                        },
+                    },
+                    "400": _error("Invalid index or result is not Music"),
+                    "404": _error("Missing, unfinished or expired item"),
+                    "409": _error("Operation result is unavailable"),
+                },
+            }
+        },
+    }
+
+
+def music_schemas() -> dict[str, Any]:
+    return {
+        "MusicRequest": {
+            "type": "object",
+            "allOf": [
+                {
+                    "if": {"not": {"required": ["mode"], "properties": {"mode": {"const": "transcribe"}}}},
+                    "then": {"required": ["style"], "properties": {"style": {"pattern": r"\S"}}},
+                },
+                {
+                    "if": {
+                        "not": {
+                            "anyOf": [
+                                {"required": ["mode"], "properties": {"mode": {"const": "transcribe"}}},
+                                {"required": ["instrumental"], "properties": {"instrumental": {"const": True}}},
+                            ]
+                        }
+                    },
+                    "then": {"required": ["lyrics"], "properties": {"lyrics": {"pattern": r"\S"}}},
+                },
+                {
+                    "if": {"required": ["mode"], "properties": {"mode": {"enum": ["cover", "transcribe"]}}},
+                    "then": {
+                        "required": ["reference_audio"],
+                        "properties": {"reference_audio": {"minLength": 4}, "abc": {"pattern": r"^\s*$"}},
+                    },
+                    "else": {"properties": {"reference_audio": {"const": ""}}},
+                },
+                {
+                    "if": {
+                        "anyOf": [
+                            {"required": ["mode"], "properties": {"mode": {"const": "plan"}}},
+                            {"required": ["instrumental"], "properties": {"instrumental": {"const": True}}},
+                            {"required": ["abc"], "properties": {"abc": {"pattern": r"\S"}}},
+                        ]
+                    },
+                    "then": {"properties": {"cot": {"enum": ["full", "melody"]}}},
+                },
+            ],
+            "properties": {
+                "style": {"type": "string", "maxLength": 4000},
+                "lyrics": {"type": "string", "maxLength": 20000},
+                "abc": {"type": "string", "maxLength": 100000},
+                "cot": {"enum": ["full", "melody", "off"], "default": "full"},
+                "backend": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "An offered Music backend ID. Omit to use the active Music backend.",
+                },
+                "mode": {"enum": ["generate", "plan", "transcribe", "cover"], "default": "generate"},
+                "instrumental": {"type": "boolean", "default": False},
+                "steps": {"enum": [8, 16, 32], "default": 32},
+                "cfg_scale": {"type": "number", "minimum": 0, "maximum": 5, "default": 1},
+                "transcription_task": {"enum": ["full", "melody-full", "melody-vocal"], "default": "melody-full"},
+                "reference_audio": {
+                    "type": "string",
+                    "contentEncoding": "base64",
+                    "pattern": r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+                    "maxLength": 44739244,
+                    "description": "Reference audio bytes, at most 32 MiB; required for cover/transcribe and excluded from public operation metadata.",
+                },
+                "reference_name": {"type": "string", "maxLength": 255, "pattern": r"^[^\u0000]*$"},
+                "seed": {
+                    "anyOf": [{"type": ["integer", "null"], "minimum": 0, "maximum": 4294967295}, {"const": ""}],
+                    "description": "Omit, null, or an empty string chooses a random seed.",
+                },
+            },
+            "description": "Style is required except for transcribe. Lyrics are required except for transcribe or instrumental output. Cover/transcribe require reference_audio and reject supplied ABC. Plan returns a score without synthesis. Supplied ABC requires full or melody planning. Non-instrumental rendering preserves supplied ABC exactly. Instrumental output transforms the score by transferring vocal melody to the instrumental voice. Duration is generated, not fixed; capped generations fail rather than publishing incomplete outputs. One request makes one song; for several, POST a BatchRequest with an items array to /api/v1/operations, up to the advertised max_batch.",
+        },
+        "MusicMetadataResult": {
+            "type": "object",
+            "required": ["score", "metadata", "seed", "seconds", "sample_rate", "stub"],
+            "properties": {
+                "score": {"type": "string", "description": "ABC score. Direct generation may return an empty score."},
+                "metadata": {"$ref": "#/components/schemas/MusicRuntimeMetadata"},
+                "seed": {"type": "integer", "minimum": 0, "maximum": 4294967295},
+                "seconds": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Audio duration, not processing time. Score-only results use zero.",
+                },
+                "sample_rate": {"const": 48000},
+                "stub": {"type": "boolean"},
+            },
+        },
+        "MusicRuntimeMetadata": {
+            "type": "object",
+            "description": "Mode-dependent engine details. Fields can be absent for score-only results or test previews. Additional engine fields remain available.",
+            "properties": {
+                "engine": {"type": "string"},
+                "config": {"type": "object", "description": "Effective engine configuration."},
+                "weights": {"type": "object", "description": "Loaded model identities."},
+                "timing": {
+                    "type": "object",
+                    "description": "Engine phase timings. Use operation started_at/finished_at for total processing duration.",
+                },
+                "transcription": {
+                    "type": "object",
+                    "description": "Reference transcription report. elapsed_seconds describes the original transcription on cache hits.",
+                },
+                "transcription_cache_hit": {"type": "boolean"},
+                "artifacts": {"type": "array", "items": {"$ref": "#/components/schemas/MusicArtifact"}},
+            },
+        },
+        "MusicArtifact": {
+            "type": "object",
+            "required": ["name", "content_type", "base64"],
+            "properties": {
+                "name": {"type": "string"},
+                "content_type": {"enum": ["audio/midi", "text/plain"]},
+                "base64": {"type": "string", "contentEncoding": "base64"},
+            },
+        },
+        "MusicScoreResult": {
+            "type": "object",
+            "required": ["score", "metadata", "seed", "seconds", "stub", "sample_rate"],
+            "properties": {
+                "score": {"type": "string"},
+                "metadata": {"$ref": "#/components/schemas/MusicRuntimeMetadata"},
+                "seed": {"type": "integer"},
+                "seconds": {"const": 0},
+                "stub": {"type": "boolean"},
+                "sample_rate": {"const": 48000},
+            },
+        },
+        "MusicCapabilities": {
+            "type": "object",
+            "description": "Everything this Music backend accepts. Read it before composing; the form draws its limits and defaults from it.",
+            "required": [
+                "backend_id",
+                "name",
+                "badge",
+                "modes",
+                "synthesis_steps",
+                "default_steps",
+                "max_reference_bytes",
+                "transcription_tasks",
+                "planning_modes",
+                "default_planning",
+                "sample_rate",
+                "channels",
+                "max_style_characters",
+                "max_lyrics_characters",
+                "max_score_characters",
+                "max_batch",
+                "description",
+                "loading_note",
+            ],
+            "properties": {
+                "backend_id": {"type": "string"},
+                "name": {"type": "string", "description": "Display name, such as YuE2 (MLX Q8)"},
+                "badge": {"type": "string", "description": "Short note on precision, shown beside the name"},
+                "modes": {
+                    "type": "array",
+                    "items": {"enum": ["generate", "plan", "transcribe", "cover"]},
+                    "description": "Workflows this backend offers: a song, a score alone, a score from a recording, or a cover of a recording",
+                },
+                "synthesis_steps": {"type": "array", "items": {"type": "integer"}},
+                "default_steps": {"type": "integer"},
+                "max_reference_bytes": {"type": "integer"},
+                "transcription_tasks": {
+                    "type": "array",
+                    "items": {"enum": ["full", "melody-full", "melody-vocal"]},
+                },
+                "planning_modes": {"type": "array", "items": {"enum": ["full", "melody", "off"]}},
+                "default_planning": {"enum": ["full", "melody", "off"]},
+                "sample_rate": {"const": 48000},
+                "channels": {"const": 2},
+                "max_style_characters": {"type": "integer"},
+                "max_lyrics_characters": {"type": "integer"},
+                "max_score_characters": {"type": "integer"},
+                "max_batch": {"type": "integer", "description": "Most songs one BatchRequest may ask for"},
+                "description": {"type": "string"},
+                "loading_note": {"type": "string", "description": "What to install before the first generation"},
+            },
+        },
     }

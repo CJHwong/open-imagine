@@ -94,12 +94,6 @@
   background-image: repeating-linear-gradient(90deg, transparent 0 23px, rgba(222, 201, 151, .10) 23px 24px);
 }
 [data-theme=broadcast] .audio-preview-wave-bar-selected { fill: #dec997; }
-[data-theme=broadcast] #shared-operation-progress::-webkit-progress-value {
-  background: repeating-linear-gradient(90deg, #dec997 0 10px, #252b2e 10px 12px);
-}
-[data-theme=broadcast] #shared-operation-progress::-moz-progress-bar {
-  background: repeating-linear-gradient(90deg, #dec997 0 10px, #252b2e 10px 12px);
-}
 
 :root[data-theme=risograph], [data-theme=risograph] .stage {
   color-scheme: light;
