@@ -145,7 +145,10 @@ The API accepts those prepared inputs. Theme and Keep preferences remain in the 
 
 ## Tabs and retained results
 
-Every open tab reads shared server status from startup.
+Every visible tab reads shared server status from startup.
+Visible tabs poll every five seconds while idle and every 350 milliseconds during generation.
+Hidden tabs stop shared polling and refresh immediately when visible.
+The server continues running jobs after a tab becomes hidden.
 Tabs show API operations, matching cancellation, failures, and completed results.
 An API rewrite appears separately until you choose Use prompt, so it does not replace an unfinished draft.
 Model selection also reaches other tabs without replacing their prompt text.
@@ -162,7 +165,9 @@ Public results remain in server memory for up to 10 minutes after completion.
 Retention also has limits of 32 operations and 256 MiB, including metadata.
 Older results can expire sooner when either limit fills. Missing results return `404`.
 A server restart clears public operation history. Private results remain encrypted on disk for one hour. The existing Keep setting controls browser storage independently.
-The server checks expiry while idle as well as during requests. Startup removes expired private results.
+The server checks expiry during requests and once per minute in the background.
+Requests reject expired results immediately. Background deletion can follow expiry by about one minute while the server runs.
+Startup removes expired private results.
 
 A browser Image batch submits ordered items to the same prepared batch use case as this API. One reservation covers preparation and every image; completed items appear incrementally and survive reload or cancellation. Per-reference UI edits expand into one-reference items with their own prompts and consecutive seeds. Single-image form requests retain their compatibility transport.
 Prepared UI and asynchronous API batches run entirely on the server, including after their tab closes.

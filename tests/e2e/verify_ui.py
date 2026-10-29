@@ -2225,6 +2225,13 @@ with sync_playwright() as playwright:
     tab.get_by_role("menuitemradio", name=FIRST, exact=True).click()
     tab.wait_for_function(toggle_reads(FIRST), timeout=180000)
 
+    page.bring_to_front()
+    page.wait_for_function(toggle_reads(FIRST), timeout=10000)
+    check(
+        "the original tab observes the selected model before its controls are used",
+        page.locator("#backend-toggle").inner_text() == FIRST,
+    )
+
     # The frames made above reached the first tab as well: a kept image goes out
     # on the store's channel and every open tab admits it. The store checks below
     # count the frames in the first tab's strip, so this puts it back at empty.

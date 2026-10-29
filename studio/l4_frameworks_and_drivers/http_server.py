@@ -2,6 +2,7 @@
 
 import json
 import threading
+import time
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,8 +34,13 @@ PRIVATE_KEY_ELSEWHERE = f"{PRIVATE_KEY_HEADER} works only with POST /api/v1/oper
 
 class StudioHTTPServer(ThreadingHTTPServer):
     expire: Callable[[], None]
+    _next_expiry_check = 0.0
 
     def service_actions(self) -> None:
+        now = time.monotonic()
+        if now < self._next_expiry_check:
+            return
+        self._next_expiry_check = now + 60
         self.expire()
 
 
