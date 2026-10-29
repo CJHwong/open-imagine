@@ -1543,11 +1543,23 @@ def test_delete_without_an_api_reports_the_missing_configuration():
     assert answers == [({"error": "The JSON API is not configured."}, 503)]
 
 
-def test_the_server_checks_expiry_between_requests():
+def test_the_server_checks_expiry_at_most_once_per_minute(monkeypatch):
     from unittest.mock import Mock
 
+    clock = [100.0]
+    monkeypatch.setattr("time.monotonic", lambda: clock[0])
     server = http_server.StudioHTTPServer(("127.0.0.1", 0), cast(Any, None))
     server.expire = Mock()
-    server.service_actions()
-    server.expire.assert_called_once_with()
-    server.server_close()
+    try:
+        server.service_actions()
+        clock[0] = 159.9
+        server.service_actions()
+        server.expire.assert_called_once_with()
+        clock[0] = 160.0
+        server.service_actions()
+        assert server.expire.call_count == 2
+        clock[0] = 160.5
+        server.service_actions()
+        assert server.expire.call_count == 2
+    finally:
+        server.server_close()

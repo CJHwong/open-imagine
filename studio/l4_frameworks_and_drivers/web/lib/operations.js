@@ -27,6 +27,10 @@ function remember(id) {
 document.addEventListener('operation-imported', function (event) { remember(event.detail); });
 let active = null;
 let polling = false;
+let pollTimer = null;
+let refreshPending = false;
+let serverBusy = false;
+let localBusy = false;
 let stopped = false;
 let lastFailure = '';
 let progressId = null;
@@ -158,8 +162,36 @@ async function importResult(operation) {
   else remember(operation.id);
 }
 
+function clearPollTimer() {
+  window.clearTimeout(pollTimer);
+  pollTimer = null;
+}
+
+function observeLocalWork() {
+  function changed() {
+    const working = document.body.matches('.busy, .video-busy, .rewriting')
+      || Boolean(document.querySelector('#voice-generate[data-state]:not([data-state="idle"])'));
+    if (working === localBusy) return;
+    localBusy = working;
+    if (working) poll();
+  }
+  const observer = new MutationObserver(changed);
+  observer.observe(document.body, {attributes: true, attributeFilter: ['class']});
+  const voice = document.getElementById('voice-studio');
+  if (voice) observer.observe(voice, {subtree: true, childList: true, attributes: true, attributeFilter: ['data-state']});
+  changed();
+}
+
+function schedulePoll() {
+  clearPollTimer();
+  if (stopped || document.hidden) return;
+  pollTimer = window.setTimeout(poll, (serverBusy || localBusy) && !lastFailure ? 350 : 5000);
+}
+
 async function poll() {
-  if (polling || stopped) return;
+  if (stopped || document.hidden) return;
+  if (polling) { refreshPending = true; return; }
+  clearPollTimer();
   polling = true;
   try {
     const answer = await fetch('/api/v1/state', {cache: 'no-store'});
@@ -176,6 +208,7 @@ async function poll() {
     if (!answer.ok) throw new Error('Shared status is unavailable.');
     const state = await answer.json();
     active = state.active;
+    serverBusy = Boolean(state.busy || active);
     awake.set(active);
     if (active && !observed.has(active.id)) {
       observed.add(active.id);
@@ -205,11 +238,14 @@ async function poll() {
     }
     lastFailure = '';
   } catch (error) {
+    serverBusy = false;
     awake.set(false);
     if (lastFailure !== error.message) page.notify('info', error.message);
     lastFailure = error.message;
   } finally {
     polling = false;
+    if (refreshPending) { refreshPending = false; poll(); }
+    else schedulePoll();
   }
 }
 
@@ -223,11 +259,14 @@ document.dispatchEvent(new CustomEvent('operations-ready', {
       console.warn('Operation owners were not saved:', error);
     }
     document.getElementById('shared-operation-cancel').addEventListener('click', cancelActive);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
-    window.addEventListener('pagehide', function () { stopped = true; awake.set(false); });
+    document.addEventListener('visibilitychange', function () {
+      clearPollTimer();
+      if (!document.hidden) poll();
+    });
+    window.addEventListener('pagehide', function () { stopped = true; clearPollTimer(); awake.set(false); });
     window.addEventListener('pageshow', function () { stopped = false; poll(); });
+    observeLocalWork();
     poll();
-    window.setInterval(poll, 350);
     return {refresh: poll};
   }},
 }));

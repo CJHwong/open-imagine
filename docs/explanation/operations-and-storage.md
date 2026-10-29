@@ -2,7 +2,10 @@
 
 The UI and API use the same application use cases and model checks.
 One active operation owns the engine. It selects the corresponding UI workspace and locks conflicting controls.
-Every connected tab follows its progress, pending gallery item, and result, including when an API client starts it.
+Every visible tab follows its progress, pending gallery item, and result, including when an API client starts it.
+Visible tabs poll every five seconds while idle and every 350 milliseconds during generation.
+Hidden tabs stop shared polling and refresh immediately when visible.
+The server continues running jobs after a tab becomes hidden.
 This keeps the browser useful as a monitor for scripts and agents.
 
 Models load on demand. Workspace switches release inactive model memory.
@@ -34,4 +37,6 @@ Download outputs you need to keep beyond these limits.
 Private operations store encrypted results in `~/.local/share/open-imagine/private-results/private-results.sqlite3`.
 The original caller key permits repeated downloads until deletion or one hour after completion.
 Completed private results survive restart. Public requests never show private operations.
-The server removes expired results while idle and on startup.
+The server checks expiry during requests, once per minute in the background, and on startup.
+Requests reject expired results immediately. Background deletion can follow expiry by about one minute.
+The GPU worker blocks on its queue between calls. These scheduling changes leave model caching unchanged.
