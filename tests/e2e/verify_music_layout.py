@@ -196,6 +196,7 @@ def main():
         mobile_context.close()
         # Opening a score never carries it to a newly selected recording.
         page.set_viewport_size({"width": 1280, "height": 800})
+        page.locator("#music-style").fill("Warm piano pop, two voices")
         page.locator("#music-lyrics").fill("[Verse]\nAnother morning melody")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(2)

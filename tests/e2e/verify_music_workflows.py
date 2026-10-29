@@ -37,10 +37,13 @@ def verify_automatic_instrumental(browser, base):
     expect(page.locator("#music-instrumental")).to_have_count(0)
     expect(page.locator("#music-lyrics")).to_be_visible()
     for count, lyrics, instrumental in [(1, "", True), (2, "  \n\t ", True), (3, "[Verse]\nMorning melody", False)]:
+        page.locator("#music-style").fill("Gentle acoustic piano")
         page.locator("#music-lyrics").fill(lyrics)
         expect(page.locator("#music-generate")).to_be_enabled()
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(count)
+        expect(page.locator("#music-style")).to_have_value("")
+        expect(page.locator("#music-lyrics")).to_have_value("")
         assert submitted[-1]["instrumental"] is instrumental
         expect(page.locator("#music-instrumental")).to_have_count(0)
         expect(page.locator("#music-lyrics")).to_be_visible()
@@ -76,9 +79,36 @@ def verify_automatic_instrumental(browser, base):
     expect(page.locator("#music-instrumental")).to_have_count(0)
     expect(page.locator("#music-lyrics")).to_be_visible()
     expect(page.locator("#music-lyrics")).to_have_value("")
+    page.locator("#music-style").fill("Gentle acoustic piano")
     page.locator("#music-generate").click()
     expect(page.locator(".music-song")).to_have_count(4)
     assert submitted[-1]["instrumental"] is True
+    page.close()
+
+
+def verify_cancel_restores_words(browser, base):
+    """Run empties the words it sent, and Cancel puts them back."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.evaluate("document.querySelector('music-studio').setKeeping(false)")
+    page.locator("#music-style").fill("Gentle acoustic piano")
+    page.locator("#music-lyrics").fill("[Verse]\nMorning melody")
+    page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    # Sixteen variations keep the stub busy long enough to stop it.
+    page.locator("#music-count").select_option("16")
+    page.locator("#music-generate").click()
+    expect(page.locator("#music-style")).to_have_value("")
+    expect(page.locator("#music-lyrics")).to_have_value("")
+    page.wait_for_function(
+        "document.getElementById('music-run-labels').getAttribute('data-state') === 'busy'", timeout=30000
+    )
+    page.locator("#music-generate").click()
+    page.wait_for_function(
+        "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
+    )
+    expect(page.locator("#music-style")).to_have_value("Gentle acoustic piano")
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
     page.close()
 
 
@@ -207,6 +237,7 @@ def main():
         page.locator("#music-steps").select_option("8")
         page.locator("#music-cfg-scale").fill("1.4")
         page.locator("#music-count").select_option("2")
+        page.locator("#music-style").fill("Warm piano pop")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(3)
         assert submitted[-1]["items"] == [{"seed": 42}, {"seed": 43}]
@@ -218,6 +249,7 @@ def main():
         page.locator("#music-seed").fill("-1")
         page.locator("#music-cfg-scale").fill("9")
         page.locator('label[for="music-mode-generate"]').click()
+        page.locator("#music-style").fill("Warm piano pop")
         with page.expect_file_chooser() as chosen:
             page.locator("#music-reference-choose").click()
         chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
@@ -300,6 +332,7 @@ def main():
         # A cover keeps Style and Lyrics and starts from the recording's composition.
         page.locator('label[for="music-mode-generate"]').click()
         expect(page.locator("#music-mode")).to_have_value("cover")
+        page.locator("#music-style").fill("Warm piano pop")
         page.locator("#music-lyrics").fill("[Verse]\nA different morning song")
         advanced.evaluate("node=>node.open=true")
         page.locator("#music-steps").select_option("16")
@@ -316,6 +349,8 @@ def main():
         page.locator("#music-reference-remove").click()
         expect(page.locator("#music-mode")).to_have_value("generate")
         expect(page.locator(".music-reference-scope")).to_be_hidden()
+        # The cover run emptied the words, so the form asks for them again.
+        page.locator("#music-style").fill("Warm piano pop")
         expect(page.locator("#music-generate")).to_be_enabled()
         expect(page.locator("#music-controls audio, #music-controls video")).to_have_count(0)
         transfer = page.evaluate_handle(
@@ -340,10 +375,11 @@ def main():
         assert page.locator("#music-studio").evaluate("node=>node.scrollWidth<=node.clientWidth")
         assert errors == [], errors
         verify_automatic_instrumental(browser, base)
+        verify_cancel_restores_words(browser, base)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "
-        "variations, reference-driven cover and transcription, exports, drops and validation."
+        "variations, reference-driven cover and transcription, exports, drops, validation, and cancel restore."
     )
 
 

@@ -93,6 +93,7 @@ def main():
         expect(play).to_be_enabled()
         play.click()
         expect(current.get_by_role("button", name="Pause", exact=True)).to_be_visible()
+        page.locator("#music-style").fill("Warm piano instrumental")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(2)
         assert page.evaluate("()=>!window.playerAudio.paused")

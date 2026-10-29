@@ -1338,12 +1338,12 @@
   .music-transport { position: relative; }
   .music-lyrics-section { margin: 32px 0 16px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); }
   .music-lyrics-section:first-child { margin-top: 0; }
-  .music-lyrics-line { margin: 0 0 16px; font: 600 clamp(26px, 4vw, 42px)/1.4 var(--sans); letter-spacing: -.025em; overflow-wrap: anywhere; }
+  .music-lyrics-line { margin: 0 0 12px; font: 500 15px/1.6 var(--sans); letter-spacing: normal; overflow-wrap: anywhere; }
 
   .music-inline-lyrics { padding: 0 8px 0 0; background: none; }
   .music-inline-lyrics .music-lyrics-section { margin: 18px 0 10px; font: 10px var(--mono); letter-spacing: .08em; }
   .music-inline-lyrics .music-lyrics-section:first-child { margin-top: 0; }
-  .music-inline-lyrics .music-lyrics-line { margin: 0 0 12px; font-size: clamp(18px, 1.9vw, 26px); line-height: 1.45; }
+  .music-inline-lyrics .music-lyrics-line { margin: 0 0 10px; }
   .music-inline-lyrics:has(.music-lyrics-empty) { display: grid; place-items: center; }
   .music-inline-lyrics .music-lyrics-empty { margin: 16px 0; font-size: 14px; color: var(--text-2); }
 
