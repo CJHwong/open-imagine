@@ -1075,3 +1075,98 @@ def test_a_video_plan_for_a_model_that_does_not_exist_is_a_bad_request():
 
     with pytest.raises(InvalidJob, match="No video model is offered as ghost"):
         api_for(FakeController(), video=Missing()).video_plan({"backend": "ghost", "looks": {"Light": "Soft"}})
+
+
+OWNER = "a" * 64
+
+
+def test_a_private_operation_records_none_of_its_callers_words():
+    api = api_for(FakeController(run=lambda _: response()))
+    operation = api.reserve(
+        {"kind": "image", "prompt": "pear", "seed": 3, "client_id": "rx-1-1", "library_id": "tab"}, owner=OWNER
+    )
+
+    assert operation["private"] is True
+    assert operation["prompt"] == "" and operation["settings"] == {} and operation["library_id"] == ""
+    assert operation["client_id"] == "rx-1-1"
+    assert "owner" not in operation
+    assert api.studio()["private_operations"] is True
+
+
+def test_only_the_owner_sees_a_private_operation_and_others_see_a_busy_studio():
+    from studio.l1_entities.errors import OperationMissing
+
+    api = api_for(FakeController(run=lambda _: response()))
+    operation = api.reserve({"kind": "image", "prompt": "pear"}, owner=OWNER)
+
+    other = api.state()
+    assert other["active"] is None and other["operations"] == [] and other["busy"] is True
+    own = api.state(OWNER)
+    assert own["active"]["id"] == operation["id"] and own["busy"] is True
+    for read in (
+        lambda: api.operation(operation["id"]),
+        lambda: api.operation(operation["id"], "b" * 64),
+        lambda: api.operation_result(operation["id"]),
+        lambda: api.item_result(operation["id"], "1"),
+        lambda: api.cancel_operation(operation["id"]),
+    ):
+        with pytest.raises(OperationMissing, match="expired or does not exist"):
+            read()
+    assert api.operation(operation["id"], OWNER)["status"] == "running"
+
+
+def test_a_private_result_is_handed_to_its_owner_once():
+    from studio.l1_entities.errors import OperationMissing
+
+    api = api_for(FakeController(run=lambda _: response()))
+    payload = {"kind": "image", "prompt": "pear"}
+    operation = api.reserve(payload, owner=OWNER)
+    api.execute_operation(operation, payload)
+
+    assert api.operation_result(operation["id"], OWNER)["images"][0]["prompt"] == "a pear"
+    assert api.operation(operation["id"], OWNER)["result_url"] is None
+    with pytest.raises(OperationMissing):
+        api.operation_result(operation["id"], OWNER)
+    assert api.state()["operations"] == [] and api.state()["busy"] is False
+
+
+def test_a_page_stop_still_reaches_a_private_run():
+    api = api_for(FakeController())
+    operation = api.reserve({"kind": "image"}, owner=OWNER)
+    api.cancel_image()
+    assert api.operation(operation["id"], OWNER)["status"] == "stopping"
+    rewrite = api_for(FakeController())
+    rewrite.reserve({"kind": "rewrite"}, owner=OWNER)
+    rewrite.cancel_rewrite()
+    assert rewrite.cancellation_requested()
+
+
+def test_the_owner_can_stop_its_private_run():
+    api = api_for(FakeController())
+    operation = api.reserve({"kind": "image"}, owner=OWNER)
+    api.cancel_operation(operation["id"], OWNER)
+    assert api.operation(operation["id"], OWNER)["status"] == "stopping"
+
+
+@pytest.mark.parametrize("kind", ["image", "voice"])
+def test_a_private_batch_lists_no_words_and_hands_each_item_over_once(kind):
+    from studio.l1_entities.errors import OperationMissing
+    from studio.l1_entities.voice_job import SpeechResult
+
+    class SpeakingVoice(FakeVoice):
+        def run(self, payload):
+            return SpeechResult(b"wav", 1.2, 24000, 7, 4, text="spoken " + str(payload.get("text")))
+
+    api = api_for(batch_of(1), voice=SpeakingVoice())
+    payload = {"kind": kind, "items": [{"prompt": "one", "text": "one"}, {"prompt": "two", "text": "two"}]}
+    operation = api.reserve(payload, owner=OWNER)
+    manifest = api.execute_operation(operation, payload)
+
+    for item in manifest["items"]:
+        assert "prompt" not in item and "settings" not in item
+    assert api.operation_result(operation["id"], OWNER) == manifest
+    assert api.operation_result(operation["id"], OWNER) == manifest
+    assert api.item_result(operation["id"], "1", OWNER)
+    with pytest.raises(OperationMissing):
+        api.item_result(operation["id"], "1", OWNER)
+    assert api.operation(operation["id"], OWNER)["prompt"] == ""

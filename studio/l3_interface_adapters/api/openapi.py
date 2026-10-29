@@ -525,6 +525,10 @@ def openapi_document() -> dict[str, Any]:
                 "Studio": {
                     "type": "object",
                     "properties": {
+                        "private_operations": {
+                            "type": "boolean",
+                            "description": "The studio honors X-Studio-Private-Key on POST /api/v1/operations.",
+                        },
                         "image": {
                             "type": "object",
                             "properties": {
@@ -669,6 +673,19 @@ def _error(description: str) -> dict[str, Any]:
     }
 
 
+PRIVATE_KEY = {
+    "name": "X-Studio-Private-Key",
+    "in": "header",
+    "required": False,
+    "description": "Optional. 32 to 512 visible ASCII characters. An operation started with this key is private: "
+    "its record keeps no prompt or settings, only the same key can read it, and each result or batch item "
+    "is handed over once and then forgotten. Other callers see only that the studio is busy. "
+    "A write accepts it only on POST /api/v1/operations and its cancel route. Any other write, and any route "
+    "outside /api/v1/, answers 400 with this header.",
+    "schema": {"type": "string", "minLength": 32, "maxLength": 512},
+}
+
+
 def operation_paths() -> dict[str, Any]:
     reads = {
         "/api/v1/state": ("readState", "Active work, recent results, and selected models", "State"),
@@ -708,9 +725,12 @@ def operation_paths() -> dict[str, Any]:
         }
         if "{id}" in path:
             paths[path]["get"]["parameters"] = identifier
+        if path != "/api/v1/rewrite/state":
+            paths[path]["get"]["parameters"] = [*paths[path]["get"].get("parameters", []), PRIVATE_KEY]
     paths["/api/v1/operations"] = {
         "post": {
             "operationId": "startOperation",
+            "parameters": [PRIVATE_KEY],
             "tags": ["studio"],
             "summary": "Start work and return immediately",
             "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Results remain in memory for at most one hour, 32 operations, or 256 MiB, whichever limit comes first. The server retains no results after a restart. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
@@ -737,7 +757,7 @@ def operation_paths() -> dict[str, Any]:
         "post": {
             "operationId": "cancelOperation",
             "tags": ["studio"],
-            "parameters": identifier,
+            "parameters": [*identifier, PRIVATE_KEY],
             "summary": "Stop this active operation",
             "responses": {
                 "204": {"description": "The stop was requested"},
@@ -829,6 +849,10 @@ def operation_schemas() -> dict[str, Any]:
                 "description": "Live sampler or rewrite progress. total=0 means indeterminate, so show elapsed time instead of a percentage. Sampler completion does not mean the result is ready; wait for a terminal operation status.",
             },
             "error": {"type": ["string", "null"]},
+            "private": {
+                "type": "boolean",
+                "description": "Present and true only when started with X-Studio-Private-Key. Its prompt and settings are empty.",
+            },
             "result_url": {"type": ["string", "null"]},
             "batch_index": {"type": "integer", "minimum": 1},
             "batch_total": {"type": "integer", "minimum": 1, "maximum": 16},
@@ -869,6 +893,10 @@ def operation_schemas() -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "active": {"oneOf": [{"$ref": "#/components/schemas/Operation"}, {"type": "null"}]},
+                "busy": {
+                    "type": "boolean",
+                    "description": "An operation runs, including a private one that this caller cannot see.",
+                },
                 "operations": {"type": "array", "items": {"$ref": "#/components/schemas/Operation"}},
                 "studio": {"$ref": "#/components/schemas/Studio"},
             },
@@ -1130,6 +1158,7 @@ def batch_paths() -> dict[str, Any]:
                         "required": True,
                         "schema": {"type": "integer", "minimum": 1, "maximum": 16},
                     },
+                    PRIVATE_KEY,
                 ],
                 "responses": {
                     "200": {

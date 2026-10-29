@@ -113,6 +113,18 @@ class InMemoryOperationGateway(OperationGateway):
                 raise OperationMissing("This operation has no retained result.")
             return self._results[operation_id]
 
+    def take_result(self, operation_id: str) -> Any:
+        """Hand a private result to its caller once, then forget it. A batch manifest
+        holds no media and its caller reads it again, so it stays until it expires."""
+        with self._lock:
+            result = self.result(operation_id)
+            if isinstance(result, dict) and "items" in result:
+                return result
+            del self._results[operation_id]
+            self._records[operation_id]["result_retained"] = False
+            self._measure(operation_id)
+            return result
+
     def stopping(self, operation_id: str) -> dict[str, Any]:
         with self._lock:
             self.get(operation_id)
@@ -126,10 +138,15 @@ class InMemoryOperationGateway(OperationGateway):
     def retain(self, operation_id: str, result: object) -> None:
         with self._lock:
             self._results[operation_id] = result
-            record = self._records[operation_id]
-            record["result_retained"] = True
-            result_size = result_bytes(result) + sum(result_bytes(item) for item in self._items.get(operation_id, []))
-            self._sizes[operation_id] = len(json.dumps(record).encode()) + result_size
+            self._records[operation_id]["result_retained"] = True
+            self._measure(operation_id)
+
+    def _measure(self, operation_id: str) -> None:
+        size = len(json.dumps(self._records[operation_id]).encode())
+        if operation_id in self._results:
+            size += result_bytes(self._results[operation_id])
+        size += sum(result_bytes(item) for item in self._items.get(operation_id, []) if item is not None)
+        self._sizes[operation_id] = size
 
     def append_image(self, operation_id: str, image: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -161,9 +178,17 @@ class InMemoryOperationGateway(OperationGateway):
         with self._lock:
             self.get(operation_id)
             items = self._items.get(operation_id, [])
-            if not 1 <= index <= len(items):
+            if not 1 <= index <= len(items) or items[index - 1] is None:
                 raise OperationMissing("This batch item has no retained result.")
             return items[index - 1]
+
+    def take_item_result(self, operation_id, index):
+        """Hand one private batch item to its caller once, then forget it."""
+        with self._lock:
+            result = self.item_result(operation_id, index)
+            self._items[operation_id][index - 1] = None
+            self._measure(operation_id)
+            return result
 
     def pause(self, operation_id: str, next_index: int) -> None:
         with self._lock:
@@ -209,8 +234,10 @@ class InMemoryOperationGateway(OperationGateway):
                     sample_rate=result.sample_rate,
                     seed=result.seed,
                     steps=result.steps,
-                    prompt=result.text or record.get("prompt", ""),
                 )
+                # A private record keeps no words of its caller, not even the spoken text.
+                if not record.get("owner"):
+                    record["prompt"] = result.text or record.get("prompt", "")
             self.retain(operation_id, result)
             self._active = None
             self._prune()

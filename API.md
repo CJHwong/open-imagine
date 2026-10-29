@@ -60,6 +60,53 @@ A stale cancellation also returns `409` and cannot stop a newer operation.
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+## Private operations
+
+Send `X-Studio-Private-Key` when another person or program must not see your work.
+Use a random key of 32 to 512 visible ASCII characters, and send the same key on every route.
+
+```sh
+curl -sS http://localhost:8765/api/v1/operations \
+  -H 'Content-Type: application/json' \
+  -H "X-Studio-Private-Key: $STUDIO_PRIVATE_KEY" \
+  -d '{"kind":"image","prompt":"A red teapot on a wooden table.","client_id":"job-1"}'
+```
+
+The studio keeps the SHA-256 of the key, not the key.
+`/api/v1/studio` reports `"private_operations": true` when the server supports this.
+
+| What | A private operation |
+|---|---|
+| Prompt, settings, library | Not in the record. The record shows `""` and `{}`, and `private: true` |
+| Batch item list | Lists each item without its prompt or settings |
+| Status, result, cancel | Answer only the same key. Any other caller gets `404` |
+| `/api/v1/state` | Lists the operation only for the same key. Other callers see `busy: true` |
+| Result | Deleted after the first read. A second read gets `404` |
+| Batch item result | Deleted after its first read. The item list stays readable |
+| Unread result | Expires after one hour, as other results do |
+| The page | Never shows it, because the page has no key |
+
+Save the result before you read it again: the studio cannot send it twice.
+Every read under `/api/v1/` accepts the key, and `/api/v1/state` uses it.
+A write accepts it only on `POST /api/v1/operations` and the cancel route.
+Any other write, and every route outside `/api/v1/`, answers `400` when the header is present.
+A stop from the page still stops a private run, because one GPU serves all callers.
+
+### What a run still holds
+
+The record keeps none of your words, but the run needs them.
+These copies stay on the studio machine. No HTTP answer to another caller contains them.
+
+| Copy | How long it lasts |
+|---|---|
+| Prompt and inputs in the engine's memory | Until the run ends |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, LTX video, voice and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them |
+| The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
+| The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |
+
+The key keeps your work from other callers.
+It does not keep your work from a person who can read the memory, disk or process list of this machine.
+
 ## Prompt aids and reference inputs
 
 Send `looks` as a mapping from each offered row name to one option label.

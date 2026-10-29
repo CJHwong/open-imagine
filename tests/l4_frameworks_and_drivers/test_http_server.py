@@ -1385,3 +1385,92 @@ def test_the_video_plan_route_answers_the_clip_without_a_run(served):
     assert document["effective_options"]["num_frames"] == 121
     assert video_backend.jobs == [] and other_video.jobs == []
     assert post_json(server, "/api/v1/videos/plan", {**clip, "num_frames": 4})[0] == 400
+
+
+PRIVATE = {"X-Studio-Private-Key": "k" * 40}
+
+
+def wait_for(server, operation_id, headers):
+    import time
+
+    for _ in range(200):
+        status, _, body = call(server, "/api/v1/operations/" + operation_id, **headers)
+        if status == 200 and json.loads(body)["status"] not in ("running", "stopping"):
+            return json.loads(body)
+        time.sleep(0.01)
+    raise AssertionError("the operation did not finish")
+
+
+def post_private(server, path, payload):
+    return call(server, path, json.dumps(payload).encode(), **{"Content-Type": "application/json", **PRIVATE})
+
+
+def test_a_private_operation_answers_only_its_key_and_its_result_only_once(served):
+    server = served[1]
+    status, _, body = post_private(
+        server, "/api/v1/operations", {"kind": "image", "prompt": "pear", "seed": 12, "client_id": "rx-1-1"}
+    )
+    assert status == 202
+    operation = json.loads(body)
+    assert operation["private"] is True and operation["prompt"] == "" and operation["settings"] == {}
+
+    finished = wait_for(server, operation["id"], PRIVATE)
+    assert finished["status"] == "succeeded" and finished["prompt"] == ""
+    _, _, body = call(server, "/api/v1/state")
+    assert json.loads(body)["operations"] == [] and "pear" not in body
+    _, _, body = call(server, "/api/v1/state", **PRIVATE)
+    assert [one["client_id"] for one in json.loads(body)["operations"]] == ["rx-1-1"]
+    other = {"X-Studio-Private-Key": "o" * 40}
+    for path in ("", "/result", "/items/1/result"):
+        assert call(server, "/api/v1/operations/" + operation["id"] + path)[0] == 404
+        assert call(server, "/api/v1/operations/" + operation["id"] + path, **other)[0] == 404
+    assert post_json(server, "/api/v1/operations/" + operation["id"] + "/cancel")[0] == 404
+
+    status, _, body = call(server, finished["result_url"], **PRIVATE)
+    assert status == 200 and json.loads(body)["images"][0]["seed"] == 12
+    assert call(server, finished["result_url"], **PRIVATE)[0] == 404
+    assert post_private(server, "/api/v1/operations/" + operation["id"] + "/cancel", {})[0] == 409
+
+
+@pytest.mark.parametrize("key", ["short", "k" * 513, "k" * 39 + " ", "k" * 39 + "é"])
+def test_a_malformed_private_key_is_refused_on_reads_and_writes(served, key):
+    server = served[1]
+    status, _, body = call(server, "/api/v1/state", **{"X-Studio-Private-Key": key})
+    assert status == 400 and "X-Studio-Private-Key" in json.loads(body)["error"]
+    status, _, _ = call(
+        server,
+        "/api/v1/operations",
+        json.dumps({"kind": "image"}).encode(),
+        **{"Content-Type": "application/json", "X-Studio-Private-Key": key},
+    )
+    assert status == 400
+
+
+@pytest.mark.parametrize("path", ["/api/v1/images/generate", "/api/v1/images/backend", "/api/v1/memory/release"])
+def test_a_private_key_is_refused_where_the_studio_cannot_keep_it_private(served, path):
+    status, _, body = post_private(served[1], path, {"prompt": "pear", "backend": "fake"})
+    assert status == 400 and "only with POST /api/v1/operations" in json.loads(body)["error"]
+    assert "pear" not in body
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/image/operations"),
+        ("POST", "/voice/operations"),
+        ("POST", "/generate"),
+        ("POST", "/video/generate"),
+        ("POST", "/rewrite"),
+        ("GET", "/progress"),
+        ("GET", "/"),
+    ],
+)
+def test_a_private_key_is_refused_on_the_pages_own_routes(served, method, path):
+    """The page's routes keep no owner. A key sent there would start shared work, so the
+    route refuses the key and does not drop it."""
+    server = served[1]
+    body = json.dumps({"kind": "image", "prompt": "pear"}).encode() if method == "POST" else None
+    status, _, answer = call(server, path, body, **{"Content-Type": "application/json", **PRIVATE})
+    assert status == 400 and "only with POST /api/v1/operations" in json.loads(answer)["error"]
+    assert "pear" not in answer
+    assert json.loads(call(server, "/api/v1/state")[2])["operations"] == []

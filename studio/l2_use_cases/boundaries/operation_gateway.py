@@ -34,6 +34,9 @@ class OperationGateway(ABC):
     def result(self, operation_id: str) -> Any: ...
 
     @abstractmethod
+    def take_result(self, operation_id: str) -> Any: ...
+
+    @abstractmethod
     def stopping(self, operation_id: str) -> dict[str, Any]: ...
 
     @abstractmethod
@@ -50,6 +53,9 @@ class OperationGateway(ABC):
 
     @abstractmethod
     def item_result(self, operation_id, index): ...
+
+    @abstractmethod
+    def take_item_result(self, operation_id, index): ...
 
     @abstractmethod
     def pause(self, operation_id: str, next_index: int) -> None: ...

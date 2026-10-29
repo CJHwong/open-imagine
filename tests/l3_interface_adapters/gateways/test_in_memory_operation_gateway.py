@@ -203,3 +203,50 @@ def test_model_controls_reserve_the_slot_and_release_it_after_errors():
     with pytest.raises(ValueError, match="control failed"):
         operations.exclusive(control)
     assert not operations.busy()
+
+
+def test_a_taken_result_is_handed_over_once_and_forgotten():
+    from studio.l1_entities.errors import OperationMissing
+
+    operations = Operations()
+    operation = operations.begin({"kind": "image", "owner": "digest"})
+    operations.finish(operation["id"], {"images": [{"png_base64": "x" * 4096}]})
+    before = operations._sizes[operation["id"]]
+
+    assert operations.take_result(operation["id"]) == {"images": [{"png_base64": "x" * 4096}]}
+
+    assert operations.get(operation["id"])["result_retained"] is False
+    assert operations._sizes[operation["id"]] < before - 4096
+    with pytest.raises(OperationMissing):
+        operations.take_result(operation["id"])
+
+
+def test_a_taken_batch_manifest_stays_readable_and_each_item_is_taken_once():
+    from studio.l1_entities.errors import OperationMissing
+
+    operations = Operations()
+    operation = operations.begin({"kind": "image", "owner": "digest", "batch_total": 2})
+    operations.retain(operation["id"], {"items": [], "batch_total": 2, "completed": 0})
+    operations.batch_completed(operation["id"], {"images": ["one"]}, {"index": 1})
+    manifest = operations.batch_completed(operation["id"], {"images": ["two"]}, {"index": 2})
+    operations.finish(operation["id"], manifest)
+
+    assert operations.take_result(operation["id"]) == manifest
+    assert operations.take_result(operation["id"]) == manifest
+    assert operations.take_item_result(operation["id"], 2) == {"images": ["two"]}
+    with pytest.raises(OperationMissing):
+        operations.take_item_result(operation["id"], 2)
+    with pytest.raises(OperationMissing):
+        operations.item_result(operation["id"], 2)
+    assert operations.item_result(operation["id"], 1) == {"images": ["one"]}
+
+
+@pytest.mark.parametrize("owner,prompt", [("", "Hello there"), ("digest", "")])
+def test_a_private_speech_record_keeps_no_spoken_text(owner, prompt):
+    from studio.l1_entities.voice_job import SpeechResult
+
+    operations = Operations()
+    operation = operations.begin({"kind": "voice", "prompt": "", "owner": owner})
+    operations.finish(operation["id"], SpeechResult(b"wav", 1.0, 24000, 7, 4, text="Hello there"))
+
+    assert operations.get(operation["id"])["prompt"] == prompt
