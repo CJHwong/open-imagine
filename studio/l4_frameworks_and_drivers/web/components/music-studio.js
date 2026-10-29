@@ -279,6 +279,8 @@ class MusicStudio extends HTMLElement {
     this.storageQueue = Promise.resolve();
     this.coverImports = new Set();
     this.coverFailures = new Map();
+    this.clearedText = null;
+    this.restoreOnStop = false;
   }
   connectedCallback() {
     if (this.ready) return;
@@ -535,6 +537,26 @@ class MusicStudio extends HTMLElement {
       .map(key => [key.replaceAll('-', '_'), this.controls.querySelector('#music-' + key).value]));
     return {...values, instrumental: !values.lyrics.trim()};
   }
+  // Run empties the words it sent, as the Image workspace does. A cancelled run puts them
+  // back, because the run never used them.
+  clearInputs() {
+    const style = this.controls.querySelector('#music-style');
+    const lyrics = this.controls.querySelector('#music-lyrics');
+    this.clearedText = {style: style.value, lyrics: lyrics.value};
+    style.value = '';
+    lyrics.value = '';
+    this.controls.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  restoreInputs() {
+    const snapshot = this.clearedText;
+    this.clearedText = null;
+    this.restoreOnStop = false;
+    if (!snapshot) return;
+    this.controls.querySelector('#music-style').value = snapshot.style;
+    this.controls.querySelector('#music-lyrics').value = snapshot.lyrics;
+    this.controls.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  prepareCancel() { this.restoreOnStop = Boolean(this.clearedText); }
   savedDraft() { return {...this.draft(), reference: this.reference || null}; }
   async setReference(file) {
     if (this.busy) return;
@@ -720,12 +742,15 @@ class MusicStudio extends HTMLElement {
     try {
       const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operation.id) + '/cancel', {method: 'POST'});
       if (!answer.ok) throw new Error((await answer.json()).error || 'The operation could not be stopped.');
+      this.prepareCancel();
     } catch (error) { this.stopping = false; this.options.notify('error', error.message); this.sync(); }
   }
   setOperation(operation) {
     if (operation?.kind === 'music' && this.operation?.id !== operation.id) this.showGeneration = true;
+    const stopped = !operation && Boolean(this.operation) && this.restoreOnStop;
     this.operation = operation;
     if (!this.ownOperation) this.stopping = false;
+    if (stopped) this.restoreInputs();
     this.sync();
     this.syncGallery();
   }
@@ -755,6 +780,7 @@ class MusicStudio extends HTMLElement {
       const operation = await answer.json();
       if (!answer.ok) throw new Error(operation.error || 'Music generation could not start.');
       this.setOperation(operation);
+      this.clearInputs();
       document.dispatchEvent(new CustomEvent('music-submitted'));
     } catch (error) { this.options.notify('error', error.message); }
     finally { this.pending = false; this.sync(); this.options.onBusyChange(); }
