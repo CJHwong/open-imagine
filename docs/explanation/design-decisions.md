@@ -116,6 +116,11 @@ See the [README](../../README.md#documentation) for an overview.
 - **One model family in memory.** Image and video workspaces keep separate model choices, but they share one memory slot. The server loads weights only when a run needs them. A workspace switch releases the inactive model. Prompt rewriting uses the same lock and releases its weights when the rewrite ends. Within a run, a model the run uses more than once is held until its last use, and a model it uses once is freed when that use ends. The video transformer is the one held today, and a batch of images holds its engine for the whole batch. A clip builds its video encoder twice as well, 0.59 GB and about a second of the upsampler's 2.4 s, and that one is left alone: sharing it means either copying two blocks' own call bodies, which would drift from the pipeline and could skip the upsample step itself, or caching inside the loader that builds it, which risks handing back the wrong model. Neither is worth 0.7 percent of a clip. The sizes decide what can be held together: on a 64 GB machine the LTX transformer is 39.1 GB and the text encoder it needs beside it is 24.5 GB, which is 63.6 GB of the machine and leaves nothing for macOS and the server, so those two are never resident together and a clip loads them in turn. A workspace switch is what gives the slot back.
 - **The server retains results in memory and binds 127.0.0.1.**
   Recent operation metadata and outputs support API clients and all open tabs.
-  Results expire after one hour, 32 operations, or 256 MiB, whichever limit comes first.
-  A restart clears server history. Temporary media files last only for the run that needs them.
+  Public results expire after 10 minutes, 32 operations, or 256 MiB, whichever limit comes first.
+  A restart clears public server history. Temporary media files last only for the run that needs them.
   Browser Keep controls local storage independently. Browser storage belongs to the address and port.
+
+Private operations store encrypted results in `~/.local/share/open-imagine/private-results/private-results.sqlite3`.
+The original caller key permits repeated downloads until deletion or one hour after completion.
+Completed private results survive restart. Public requests never show private operations.
+The server removes expired results while idle and on startup.

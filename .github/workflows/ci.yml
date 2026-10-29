@@ -30,7 +30,7 @@ jobs:
       # The import-linter and ty hooks run `uv run --frozen`, so the env has to exist before prek.
       # --locked fails the job on a stale uv.lock.
       - name: Sync the env
-        run: uv sync --locked
+        run: uv sync --locked --python 3.13
 
       - name: prek
         run: |

@@ -246,3 +246,15 @@ Its dedicated MLX child preserves virtual reference time -1, uses ancestral samp
 conditioning in both stages. It loads the LTX-2.5 v1_0 spatial upscaler explicitly and refuses missing
 weights/config; the pinned IC-LoRA loader otherwise looks for v1_1 and silently keeps random weights.
 Existing single-stage effects retain their sampling paths. The external engine checkout is not patched.
+
+### Private result storage
+
+`InMemoryOperationGateway` keeps public results in memory for ten minutes after completion.
+It delegates private media to `EncryptedResultGateway`, which stores authenticated ciphertext in a local SQLite database.
+The composition root supplies the private storage folder. An exclusive file lock prevents concurrent recovery or deletion.
+The `--private-results-dir` option selects another folder. Stub servers and tests use isolated storage by default.
+A separate key derives from the original caller key for each operation. The authentication hash cannot decrypt results.
+Only active operations retain derived keys in memory. The server stores no encryption keys on disk.
+Redacted metadata permits operation discovery after restart. Private errors use generic text in the disk record.
+Private downloads remain readable until explicit deletion or one hour after completion.
+The HTTP server calls expiry cleanup during its idle loop. Startup also removes expired private results.

@@ -60,6 +60,62 @@ A stale cancellation also returns `409` and cannot stop a newer operation.
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+## Private operations
+
+Send `X-Studio-Private-Key` when another person or program must not see your work.
+Use a random key of 32 to 512 visible ASCII characters, and send the same key on every route.
+
+```sh
+curl -sS http://localhost:8765/api/v1/operations \
+  -H 'Content-Type: application/json' \
+  -H "X-Studio-Private-Key: $STUDIO_PRIVATE_KEY" \
+  -d '{"kind":"image","prompt":"A red teapot on a wooden table.","client_id":"job-1"}'
+```
+
+The studio keeps the SHA-256 of the key, not the key.
+`/api/v1/studio` reports `"private_operations": true` when the server supports this.
+
+| What | A private operation |
+|---|---|
+| Prompt, settings, library | Not in the record. The record shows `""` and `{}`, and `private: true` |
+| Batch item list | Lists each item without its prompt or settings |
+| Status, result, cancel | Answer only the same key. Any other caller gets `404` |
+| `/api/v1/state` | Lists the operation only for the same key. Other callers see `busy: true` |
+| Result | Encrypted on disk. Repeated downloads work until deletion or expiry |
+| Batch item result | Encrypted on disk. Each item supports repeated downloads |
+| Expiry | One hour after completion. Downloads do not extend it |
+| Server restart | Completed private results remain available with the same key |
+| Delete | `DELETE /api/v1/operations/{id}` with the same key removes the operation and every result |
+| The page | Never shows it, because the page has no key |
+
+Private results use authenticated encryption with a separate key derived from the caller's original key.
+The authentication hash cannot decrypt the result. The server keeps the encryption key only while the operation runs.
+The database is `~/.local/share/open-imagine/private-results/private-results.sqlite3`, with owner-only file permissions.
+Use `--private-results-dir <folder>` to select another folder. One server can own each folder.
+Stub servers use isolated storage unless this option selects a folder.
+Its operation records contain redacted metadata and the authentication hash. Result bodies and batch manifests are encrypted.
+After a restart, interrupted operations show `failed`; completed items remain readable until expiry.
+Stored errors use a generic message, so engine errors cannot put private words into disk metadata.
+Every read under `/api/v1/` accepts the key, and `/api/v1/state` uses it.
+A write accepts it on `POST /api/v1/operations`, the cancel route, and the private operation delete route.
+Any other write, and every route outside `/api/v1/`, answers `400` when the header is present.
+A stop from the page still stops a private run, because one GPU serves all callers.
+
+### What a run still holds
+
+The record keeps none of your words, but the run needs them.
+These copies stay on the studio machine. No HTTP answer to another caller contains them.
+
+| Copy | How long it lasts |
+|---|---|
+| Prompt and inputs in the engine's memory | Until the run ends |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, LTX video, voice and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them |
+| The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
+| The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |
+
+The key keeps your work from other callers.
+It does not keep your work from a person who can read the memory, disk or process list of this machine.
+
 ## Prompt aids and reference inputs
 
 Send `looks` as a mapping from each offered row name to one option label.
@@ -102,10 +158,11 @@ Each image includes `completed_at`, the Unix time when that image completed.
 Native video responses include the same completion time in `X-Studio-Completed`.
 The browser uses completion times to reject old results whose responses arrive after Clear all.
 
-Results remain in server memory for up to one hour after completion.
+Public results remain in server memory for up to 10 minutes after completion.
 Retention also has limits of 32 operations and 256 MiB, including metadata.
 Older results can expire sooner when either limit fills. Missing results return `404`.
-A server restart clears operation history. The existing Keep setting controls browser storage independently.
+A server restart clears public operation history. Private results remain encrypted on disk for one hour. The existing Keep setting controls browser storage independently.
+The server checks expiry while idle as well as during requests. Startup removes expired private results.
 
 A browser Image batch submits ordered items to the same prepared batch use case as this API. One reservation covers preparation and every image; completed items appear incrementally and survive reload or cancellation. Per-reference UI edits expand into one-reference items with their own prompts and consecutive seeds. Single-image form requests retain their compatibility transport.
 Prepared UI and asynchronous API batches run entirely on the server, including after their tab closes.
