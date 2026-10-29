@@ -64,3 +64,12 @@ AuK Design starts with an empty description or an editable Template.
 
 All three workspaces accept ordered API batches of up to 16 items.
 The engines reuse supported models and conditioning; this does not imply parallel execution or a universal speedup.
+
+## Music
+
+| Model | Workspace | Inputs | Output |
+|---|---|---|---|
+| YuE2 (`yue2`) | Music | Style, lyrics, ABC score or reference audio | 48 kHz stereo WAV, ABC, transcription MIDI/LAB |
+
+[Music setup and API](../how-to/music.md). The separate worker uses native MLX Q8 on Apple Silicon;
+weights are installed explicitly before generating. Song duration follows the composition.

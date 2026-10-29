@@ -10,9 +10,9 @@ GUIDANCE = {
         "examples name their intended model because settings do not transfer between models."
     ),
     "readStudio": (
-        "Start here when asked to make or edit an image, video, or speech clip, or to choose a model. "
+        "Start here when asked to make or edit an image, video, speech clip, or song, or to choose a model. "
         "Read each workspace's backends and active ID; capabilities describe its currently selected model. "
-        "To compare another listed model, call readImageBackend, readVideoBackend, or readVoiceBackend without "
+        "To compare another listed model, call readImageBackend, readVideoBackend, readVoiceBackend, or readMusicBackend without "
         "switching or loading it. Copy mode IDs, parameter values, template names, and adapter IDs exactly."
     ),
     "readState": (
@@ -29,7 +29,7 @@ GUIDANCE = {
     ),
     "readOperationResult": (
         "Fetch an operation's result_url to retrieve completed media. A single image returns JSON with base64 PNG; "
-        "video returns MP4 bytes; speech returns WAV bytes. Explicit batches return a JSON manifest: fetch each "
+        "video returns MP4 bytes; speech and Music generate/cover return WAV bytes. Music plan/transcribe return JSON scores and metadata. Explicit batches return a JSON manifest: fetch each "
         "item's result_url separately. Batch manifests can be read during generation and after failure/cancellation. "
         "A pending single result returns 409; missing or expired results return 404. Save bytes locally before expiry."
     ),
@@ -175,7 +175,7 @@ GUIDANCE = {
     ),
     "readBatchItemResult": (
         "Fetch an item's result_url from a batch manifest as soon as that item completes; index starts at one. "
-        "Image items return JSON/base64 PNG; video and voice items return raw MP4/WAV. "
+        "Image items return JSON/base64 PNG; video and voice items return raw MP4/WAV. Music items return WAV for generate/cover or JSON for plan/transcribe. "
         "Later item failure or cancellation preserves completed items, so download available items instead of "
         "rerunning the entire batch. A missing, not-yet-retained, or expired item returns 404."
     ),
@@ -189,7 +189,7 @@ GUIDANCE = {
     "readProgress": (
         "Use this legacy aggregate progress view only when you need the currently active sampler. "
         "Prefer readState/readOperation to track ownership, errors, cancellation, and completion for image, video, "
-        "or voice. total=0 means unknown progress; do not divide by zero or interpret a sampler's last step as "
+        "voice, or Music. total=0 means unknown progress; do not divide by zero or interpret a sampler's last step as "
         "ready media. Wait for the operation's terminal status and result_url."
     ),
     "readRewriteState": (
@@ -225,3 +225,14 @@ for _operation in ("generateImage", "editImage", "readImageBackend"):
 
 for _operation in ("generateVideo", "editVideo", "readVideoBackend"):
     GUIDANCE[_operation] += "\n\n" + VIDEO_PROMPT_REFERENCES
+
+GUIDANCE.update(
+    {
+        "readMusicCapabilities": "Read the selected Music model's composition limits and stereo output format. This loads no model.",
+        "readMusicBackend": "Inspect an offered Music model without selecting or loading it. Use its supported planning modes and input limits.",
+        "selectMusicBackend": "Select a Music model without loading its weights. An active operation prevents switching.",
+        "generateMusic": "Choose generate, plan, transcribe or cover from Music capabilities. Prefer startOperation with kind=music for long requests. Plan/transcribe return score-only JSON; generate/cover return 48 kHz stereo WAV. Reference modes require base64 reference_audio (32 MiB maximum) and reject supplied ABC; reference bytes stay out of public metadata. Supply lyrics for vocal generation/covers. Set instrumental=true explicitly for instrumental output; blank lyrics alone are invalid. Instrumental output transfers vocal melody into the instrumental score. Steps 8/16/32 and cfg_scale from 0 to 5 control synthesis. Fetch metadata for ABC, model identities and MIDI/LAB transcription artifacts. Truncated outputs fail the job.",
+        "readMusicMetadata": "Fetch a completed Music operation's score, effective settings, timings and weight identities before retention expires. The result URL returns WAV for recordings or JSON for score-only plan/transcribe results.",
+        "readMusicItemMetadata": "Fetch one completed Music batch item's score, settings and model identities. Indices start at one; fetch completed items even if a later item failed or was cancelled.",
+    }
+)

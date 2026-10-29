@@ -16,3 +16,17 @@ LTX-2.5 and its Layout to Render adapter carry the
 The third-party MLX port's code license does not replace the model-weight terms.
 
 FLUX3 Image Klein weights carry the [FLUX Kommunity License](https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/337337621b8526e120f2275d250242f4a6bedd75/LICENSE.md).
+
+## YuE2
+
+YuE2 code is Apache-2.0. Its model weights use CC BY-NC 4.0 plus additional permission
+for individual creators to monetize generated outputs. Company commercial use requires
+separate licensing. Weight redistribution has its own attribution requirements.
+[Upstream model terms](https://github.com/multimodal-art-projection/YuE/blob/main/MODEL_LICENSE).
+
+
+SheetSage2 and MERT2 transcription weights separately use CC BY-NC 4.0. Their pinned
+licenses do not include YuE2’s additional individual-creator permission. The setup utility
+retains these licenses alongside the checkpoints:
+[SheetSage2 license](https://huggingface.co/m-a-p/SheetSage2/blob/eab522a8168e8b8b8c4856bf8609cd86198f01fe/LICENSE),
+[MERT2 license](https://huggingface.co/m-a-p/MERT-v2-FullSong/blob/d8ba1c745e733b3908ce6ad16ebeb17ac7600a42/LICENSE).

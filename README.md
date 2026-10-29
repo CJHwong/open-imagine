@@ -1,10 +1,12 @@
 <h1 align="center"><img src="docs/images/logo.svg" width="120" alt=""><br>Open Imagine</h1>
 
-A local Image, Video, and Voice studio for Apple Silicon, with a shared UI and API.
+A local Image, Video, Voice, and Music studio for Apple Silicon, with a shared UI and API.
 
 - **Image:** generate and edit with Qwen Image Turbo, references, and region marking.
 - **Video:** create clips with LTX-2.5 from text, keyframes, and audio; apply editing effects or turn a layout animation and look image into a rendered shot.
 - **Voice:** generate speech and clone voices with Drama-3; use AuK for voice design and instruction edits.
+- **Music:** create songs and instrumentals, compose and edit scores, transcribe audio and cover reference recordings with native MLX Q8 YuE2 on Apple Silicon. [Set up Music](docs/how-to/music.md).
+  Repeated covers reuse a transcription. See the [measured comparison](docs/how-to/music.md#why-it-looks-like-this).
 
 Run ordered batches through the API and watch progress and results in the browser, synchronized across tabs.
 

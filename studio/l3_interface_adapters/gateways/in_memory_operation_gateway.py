@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing
+from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
@@ -247,6 +248,10 @@ class InMemoryOperationGateway(OperationGateway):
                     frame_rate=result.frame_rate,
                     seed=result.seed,
                 )
+            if isinstance(result, MusicResult):
+                record.update(
+                    seconds=result.seconds, sample_rate=result.sample_rate, seed=result.seed, stub=result.stub
+                )
             if isinstance(result, SpeechResult):
                 record.update(
                     seconds=result.seconds,
@@ -321,6 +326,8 @@ class InMemoryOperationGateway(OperationGateway):
 def result_bytes(result):
     if isinstance(result, VideoResult):
         return len(result.mp4 or b"")
+    if isinstance(result, MusicResult):
+        return len(result.wav) + len(json.dumps(result.metadata).encode()) + len(result.score.encode())
     if isinstance(result, SpeechResult):
         return len(result.wav)
     return len(json.dumps(result).encode())

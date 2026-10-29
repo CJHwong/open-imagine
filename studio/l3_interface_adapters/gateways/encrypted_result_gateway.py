@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from studio.l1_entities.errors import OperationMissing, StudioError
 from studio.l1_entities.lora import LoraUse
+from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 
@@ -124,10 +125,10 @@ def encode_result(result: Any) -> bytes:
         fields = asdict(result)
         fields["mp4"] = base64.b64encode(result.mp4).decode() if result.mp4 is not None else None
         envelope = {"type": "video", "value": fields}
-    elif isinstance(result, SpeechResult):
+    elif isinstance(result, (MusicResult, SpeechResult)):
         fields = asdict(result)
         fields["wav"] = base64.b64encode(result.wav).decode()
-        envelope = {"type": "voice", "value": fields}
+        envelope = {"type": "music" if isinstance(result, MusicResult) else "voice", "value": fields}
     else:
         envelope = {"type": "json", "value": result}
     return json.dumps(envelope).encode()
@@ -140,6 +141,9 @@ def decode_result(plaintext: bytes) -> Any:
         fields["mp4"] = base64.b64decode(fields["mp4"]) if fields["mp4"] is not None else None
         fields["loras"] = tuple(LoraUse(**entry) for entry in fields["loras"])
         return VideoResult(**fields)
+    if envelope["type"] == "music":
+        fields["wav"] = base64.b64decode(fields["wav"])
+        return MusicResult(**fields)
     if envelope["type"] == "voice":
         fields["wav"] = base64.b64decode(fields["wav"])
         return SpeechResult(**fields)

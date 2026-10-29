@@ -40,7 +40,7 @@ import time
 import urllib.parse
 
 from PIL import Image
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 PORT = sys.argv[1]
 OUT = tempfile.mkdtemp(prefix="studio-e2e-") + "/"
@@ -156,6 +156,14 @@ def mask_tones(b64):
 def mask_alpha(b64):
     """Every distinct alpha in the mask. The threshold writes one value."""
     return set(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA").getchannel("A").getdata())
+
+
+def reference_count(page, expected):
+    # Gallery references hydrate blob bytes asynchronously, then Lit renders them.
+    # count() alone can sample before that work finishes, even after click returns.
+    images = page.locator("#thumbs").get_by_role("img")
+    expect(images).to_have_count(expected)
+    return images.count()
 
 
 def wait_idle(page):
@@ -727,18 +735,18 @@ with sync_playwright() as playwright:
     # Edit this
     button(page, "Edit this").click()
     check("Edit this switches to edit", page.get_by_role("radio", name="Edit").is_checked())
-    check("Edit this leaves one reference", page.locator("#thumbs").get_by_role("img").count() == 1)
+    check("Edit this leaves one reference", reference_count(page, 1) == 1)
     check("Edit this clears the prompt", page.input_value("#prompt") == "")
     # LEFT: the summary line again.
     seed = page.locator(".facts span", has_text="Seed").first.inner_text().split()[-1]
     check("Edit this keeps the seed", page.input_value("#seed") == seed, seed)
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
-    check("Use as reference adds a second", page.locator("#thumbs").get_by_role("img").count() == 2)
+    check("Use as reference adds a second", reference_count(page, 2) == 2)
     # LEFT: the film frame's numbers again.
     source = page.inner_text(".shot .edge span:last-child")
     button(page, "Edit this").click()
-    check("Edit this resets to one", page.locator("#thumbs").get_by_role("img").count() == 1)
+    check("Edit this resets to one", reference_count(page, 1) == 1)
 
     # One-image edit and the compare slider
     page.fill("#prompt", "Change only the teapot's color to glossy cobalt blue. Keep everything else unchanged.")
@@ -843,7 +851,7 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitem", name="Use as reference").click()
     page.fill("#prompt", "Put the two teapots side by side on one table.")
     page.dispatch_event("#prompt", "input")
-    check("a two-image edit holds both references", page.locator("#thumbs").get_by_role("img").count() == 2)
+    check("a two-image edit holds both references", reference_count(page, 2) == 2)
     page.click("#go")
     wait_idle(page)
     check(
@@ -1312,6 +1320,8 @@ with sync_playwright() as playwright:
     check("the brush is back for the one-reference edit", mark.count() == 1)
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use as reference").click()
+    reference_count(page, 2)
+    expect(mark).to_have_count(0)
     check("the brush steps aside with two references", mark.count() == 0)
 
     # Run empties the form, and Cancel puts it back. The region is part of what
@@ -1338,9 +1348,7 @@ with sync_playwright() as playwright:
     region_rows(page).nth(0).fill("change the sky to dusk")
     check(
         "the form is set up for a run",
-        page.locator("#thumbs").get_by_role("img").count() == 1
-        and region_rows(page).count() == 1
-        and page.input_value("#count") == "2",
+        reference_count(page, 1) == 1 and region_rows(page).count() == 1 and page.input_value("#count") == "2",
     )
 
     page.click("#go")
@@ -1356,9 +1364,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Run takes the references and the region with it",
-        page.locator("#thumbs").get_by_role("img").count() == 0
-        and mark.count() == 0
-        and region_rows(page).count() == 0,
+        reference_count(page, 0) == 0 and mark.count() == 0 and region_rows(page).count() == 0,
     )
 
     # LEFT: the progress card's percentage again.
@@ -1383,7 +1389,7 @@ with sync_playwright() as playwright:
     )
     check(
         "Cancel puts the settings and the reference back",
-        page.input_value("#steps") == steps_max and page.locator("#thumbs").get_by_role("img").count() == 1,
+        page.input_value("#steps") == steps_max and reference_count(page, 1) == 1,
         f"steps {page.input_value('#steps')} against {steps_max}, "
         f"thumbs {page.locator('#thumbs').get_by_role('img').count()}",
     )
@@ -1421,8 +1427,18 @@ with sync_playwright() as playwright:
     page.click("#theme-toggle")
     themes = page.locator("#theme-menu [role=menuitemradio]").all_inner_texts()
     check(
-        "the theme menu offers four",
-        themes == ["Darkroom", "Leica M", "Kodak Instamatic", "Polaroid SX-70"],
+        "the theme menu offers all eight themes",
+        themes
+        == [
+            "Darkroom",
+            "Leica M",
+            "Kodak Instamatic",
+            "Polaroid SX-70",
+            "Blueprint",
+            "Cel Studio",
+            "Broadcast",
+            "Risograph",
+        ],
         str(themes),
     )
     page.keyboard.press("Escape")
@@ -1456,11 +1472,15 @@ with sync_playwright() as playwright:
     fresh.goto(f"http://127.0.0.1:{PORT}/")
     check("a new tab keeps Darkroom", fresh.evaluate("document.documentElement.dataset.theme") is None)
     fresh.close()
-    for frame in frames(page).all():
-        frame.click()
-        # LEFT: the caption again.
-        if page.inner_text(".prompt-line").startswith("A ceramic teapot"):
-            break
+    # Read the published gallery to choose the original short prompt, then wait
+    # for hydration. Reading the previous caption immediately after click can
+    # select a different frame before its blob-backed stage finishes rendering.
+    seed = page.evaluate(
+        "gallery.find(entry => entry.mode === 'generate' && entry.prompt.startsWith('A ceramic teapot')).seed"
+    )
+    page.get_by_role("button", name=f"generate, seed {seed}", exact=True).click()
+    expect(page.locator(".prompt-line")).to_have_text(re.compile(r"^A ceramic teapot"))
+    expect(page.locator("#stage-bar").get_by_role("paragraph")).to_have_count(1)
     # A caption the page does not cut stays a paragraph. A role of its own is what
     # it gains when the page turns it into a control. `#stage-bar` is the id the
     # page publishes for the bar, and it is not in the design's contract.

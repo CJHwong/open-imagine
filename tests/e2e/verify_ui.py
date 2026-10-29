@@ -2011,7 +2011,7 @@ with sync_playwright() as playwright:
         "Clear all empties the strip and the stage with it",
         frames(page) == 0
         and page.locator("#strip-wrap").is_hidden()
-        and "Nothing here yet" in page.locator("#canvas").inner_text(),
+        and "Preview an image" in page.locator("#canvas").inner_text(),
         page.locator("#strip-note").inner_text(),
     )
     check(

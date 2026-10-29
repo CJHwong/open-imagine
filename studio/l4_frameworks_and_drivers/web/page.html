@@ -35,6 +35,7 @@
 <script type="module" src="/page/components/progress-card.js"></script>
 <script type="module" src="/page/components/video-studio.js"></script>
 <script type="module" src="/page/components/voice-studio.js"></script>
+<script type="module" src="/page/components/music-studio.js"></script>
 <script type="module" src="/page/lib/store.js"></script>
 <script type="module" src="/page/lib/drafts.js"></script>
 <script type="module" src="/page/lib/operations.js"></script>
@@ -85,6 +86,7 @@
         <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
         <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
         <button type="button" id="media-voice-mode" aria-pressed="false" hidden>Voice</button>
+        <button type="button" id="media-music-mode" aria-pressed="false" hidden>Music</button>
       </nav>
       <div class="readout">
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
@@ -106,7 +108,6 @@
         <span id="shared-operation-percent"></span><span id="shared-operation-elapsed"></span>
       </div>
       <button id="shared-operation-cancel" type="button" class="pill"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span>Cancel</span></button>
-      <progress id="shared-operation-progress" max="100" aria-label="Overall operation progress"></progress>
     </section>
     <section id="shared-rewrite-result" class="shared-operation" hidden>
       <label for="shared-rewrite-text">Rewritten prompt</label>
@@ -123,6 +124,7 @@
 
     <video-studio id="video-studio" hidden></video-studio>
     <voice-studio id="voice-studio" hidden></voice-studio>
+    <music-studio id="music-studio" hidden></music-studio>
 
     <section class="strip-wrap" id="strip-wrap" hidden>
       <div class="strip-head">
@@ -154,6 +156,7 @@
     <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
+        <fieldset id="music-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="voice-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="image-controls" class="mode-controls">
         <div class="modes" role="radiogroup" aria-label="Image mode">
@@ -457,6 +460,7 @@
         <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
       </div>
       <div class="footer voice-footer" id="voice-footer" hidden></div>
+      <div class="footer" id="music-footer" hidden></div>
     </form>
   </aside>
 </div>
@@ -553,9 +557,10 @@
   const refsZone = document.getElementById('refs');
   const videoStudio = document.getElementById('video-studio');
   const voiceStudio = document.getElementById('voice-studio');
+  const musicStudio = document.getElementById('music-studio');
   const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
   let guide;
-  let mediaMode = ['video', 'voice'].includes(requestedWorkspace) ? requestedWorkspace : 'image';
+  let mediaMode = ['video', 'voice', 'music'].includes(requestedWorkspace) ? requestedWorkspace : 'image';
   let workspaceSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
@@ -571,10 +576,11 @@
   }
 
   function setWorkspaceControlsDisabled() {
-    const disabled = workspaceSwitchPending || Boolean(sharedOperation) || busy() || videoRunState !== 'idle' || Boolean(voiceStudio.busy);
+    const disabled = workspaceSwitchPending || Boolean(sharedOperation) || busy() || videoRunState !== 'idle' || Boolean(voiceStudio.busy) || Boolean(musicStudio.busy);
     document.getElementById('media-image-mode').disabled = disabled;
     document.getElementById('media-video-mode').disabled = disabled;
     document.getElementById('media-voice-mode').disabled = disabled;
+    document.getElementById('media-music-mode').disabled = disabled;
     document.getElementById('video-fast-mode').disabled = disabled;
   }
 
@@ -660,7 +666,9 @@
   // workspaces run different models, and a title naming only the image model read wrong
   // in the video one. A run's progress goes in front of it, so a run can be watched from
   // another tab.
+  function musicDisplayName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
   function workspaceTitle() {
+    if (mediaMode === 'music') return 'Music - ' + (STUDIO.music?.backend?.name || 'YuE2');
     if (mediaMode === 'voice') return 'Voice - ' + (STUDIO.voice?.backend?.name || 'AuK Flash');
     const video = mediaMode === 'video';
     const family = video ? STUDIO.video : STUDIO;
@@ -673,6 +681,7 @@
   }
 
   function applyMediaMode(next) {
+    if (mediaMode === 'music' && next !== 'music') musicStudio.pausePlayback?.();
     if (mediaMode === 'voice' && next !== 'voice') {
       voiceStudio.stopRecording?.();
       voiceStudio.pausePlayback?.();
@@ -682,20 +691,27 @@
     form.dataset.mediaMode = mediaMode;
     const video = mediaMode === 'video';
     const voice = mediaMode === 'voice';
-    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video && !voice));
+    const music = mediaMode === 'music';
+    document.getElementById('media-music-mode').setAttribute('aria-pressed', String(music));
+    musicStudio.hidden = !music;
+    document.getElementById('music-footer').hidden = !music;
+    document.getElementById('music-controls').hidden = !music;
+    document.getElementById('music-controls').disabled = !music;
+    musicStudio.sync?.();
+    document.getElementById('media-image-mode').setAttribute('aria-pressed', String(!video && !voice && !music));
     document.getElementById('media-video-mode').setAttribute('aria-pressed', String(video));
     document.getElementById('media-voice-mode').setAttribute('aria-pressed', String(voice));
-    document.getElementById('image-stage').hidden = video || voice;
+    document.getElementById('image-stage').hidden = video || voice || music;
     videoStudio.hidden = !video;
     voiceStudio.hidden = !voice;
-    document.getElementById('image-footer').hidden = video || voice;
+    document.getElementById('image-footer').hidden = video || voice || music;
     document.getElementById('video-footer').hidden = !video;
     document.getElementById('voice-footer').hidden = !voice;
-    document.getElementById('strip-wrap').hidden = video || voice || (!gallery.length && !busy());
+    document.getElementById('strip-wrap').hidden = video || voice || music || (!gallery.length && !busy());
     document.getElementById('video-controls').hidden = !video;
     document.getElementById('voice-controls').hidden = !voice;
-    document.getElementById('image-controls').hidden = video || voice;
-    document.getElementById('image-controls').disabled = video || voice;
+    document.getElementById('image-controls').hidden = video || voice || music;
+    document.getElementById('image-controls').disabled = video || voice || music;
     document.getElementById('video-controls').disabled = !video;
     document.getElementById('voice-controls').disabled = !voice;
     setWorkspaceControlsDisabled();
@@ -712,7 +728,7 @@
       applyMediaMode(next);
       return;
     }
-    if (workspaceSwitchPending || sharedOperation || busy() || videoRunState !== 'idle' || voiceStudio.busy) return;
+    if (workspaceSwitchPending || sharedOperation || busy() || videoRunState !== 'idle' || voiceStudio.busy || musicStudio.busy) return;
     workspaceSwitchPending = true;
     setWorkspaceControlsDisabled();
     try {
@@ -736,7 +752,7 @@
   }
 
   async function sendVoiceToVideo(selection) {
-    if (sharedBusy() || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
+    if (sharedOperation || musicStudio.busy || voiceStudio.busy || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
       throw new Error('Another operation is active.');
     }
     if (!STUDIO.video) throw new Error('Video studio is not available.');
@@ -748,6 +764,7 @@
       throw new Error('The audio could not be added to Video.');
     }
     voiceStudio.pausePlayback();
+    musicStudio.pausePlayback();
     await setMediaMode('video');
   }
 
@@ -918,6 +935,7 @@
     // overwrite the prompt the adapter answers to, so they are hidden there. That also keeps
     // the prompt's head to two pills, which is what fits a narrow sidebar.
     document.getElementById('video-templates-toggle').hidden = mode.needs_clip;
+    syncVideoTemplateShortcut();
     // The selector the edit chooses from, and the strength that choice was measured at. The
     // selector sits in the prompt head and the strength sits under the prompt: before a choice
     // there is nothing to say, so both lines of it stay away.
@@ -1055,12 +1073,14 @@
 
   document.getElementById('media-image-mode').addEventListener('click', function () { setMediaMode('image'); });
   document.getElementById('media-video-mode').addEventListener('click', function () { setMediaMode('video'); });
+  document.getElementById('media-music-mode').addEventListener('click', function () { setMediaMode('music'); });
   document.getElementById('media-voice-mode').addEventListener('click', function () { setMediaMode('voice'); });
   form.addEventListener('submit', function (event) {
-    if (mediaMode !== 'voice') return;
+    if (!['voice', 'music'].includes(mediaMode)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    voiceStudio.generate();
+    if (mediaMode === 'music') musicStudio.generate();
+    else voiceStudio.generate();
   }, true);
   document.getElementById('share-references-video').addEventListener('click', shareReferencesWithVideo);
   document.addEventListener('video-frame-captured', function (event) {
@@ -1103,6 +1123,14 @@
 
   function videoCapabilities() {
     return STUDIO.video && STUDIO.video.capabilities;
+  }
+
+  // The empty stage offers the templates the sidebar offers, and only where the mode has
+  // them: an edit's prompt is the effect's own words.
+  function syncVideoTemplateShortcut() {
+    const capabilities = videoCapabilities();
+    const offered = !videoModeInForce().needs_clip && Boolean(capabilities && capabilities.templates.length);
+    if (typeof videoStudio.setTemplateShortcut === 'function') videoStudio.setTemplateShortcut(offered);
   }
 
   function videoShapeInFront() {
@@ -1282,6 +1310,7 @@
     syncVideoSeedSummary();
     syncVideoFrameCount();
     videoTemplatesToggle.hidden = !capabilities.templates.length;
+    syncVideoTemplateShortcut();
   }
 
   function syncVideoFrameCount() {
@@ -1372,6 +1401,12 @@
     if (videoTemplatesMenu.hidden) renderVideoTemplates();
     else menus.closeMenus();
   });
+  // The empty stage's own shortcut opens the same menu, so the two cannot disagree.
+  document.addEventListener('video-templates-open', function () {
+    if (videoTemplatesMenu.hidden) renderVideoTemplates();
+    else menus.closeMenus();
+  });
+  document.addEventListener('video-studio-ready', syncVideoTemplateShortcut);
   document.getElementById('video-prompt').addEventListener('keydown', function (event) {
     if (event.key !== 'Tab' || event.shiftKey) return;
     if (selectVideoPlaceholder(event.target, event.target.selectionEnd)) event.preventDefault();
@@ -2133,7 +2168,7 @@
     const hasVideoResults = videoStudio.clips.some(function (clip) {
       return clip.kind === 'generated' && !clip.stub;
     });
-    if (!on && (gallery.length || hasVideoResults || voiceStudio.takesCount)
+    if (!on && (gallery.length || hasVideoResults || voiceStudio.takesCount || musicStudio.takesCount)
       && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
       return;
     }
@@ -2152,6 +2187,7 @@
     kept.announce(on);
     videoStudio.setKeeping(on);
     if (voiceStudio.setKeeping) voiceStudio.setKeeping(on);
+    musicStudio.setKeeping?.(on);
     markKeep();
     renderStrip();
     if (on) gallery.slice().reverse().forEach(kept.keep);
@@ -2197,6 +2233,7 @@
           if (drafts) drafts.keep(keeping);
           videoStudio.setKeeping(keeping);
           if (voiceStudio.setKeeping) voiceStudio.setKeeping(keeping);
+          musicStudio.setKeeping?.(keeping);
           markKeep();
           renderStrip();
         }
@@ -2292,7 +2329,7 @@
       },
     });
     const savedWorkspace = keeping && localStorage.getItem('studio-draft-workspace');
-    if (!requestedWorkspace && !sharedOperation && ['image', 'video', 'voice'].includes(savedWorkspace)) applyMediaMode(savedWorkspace);
+    if (!requestedWorkspace && !sharedOperation && ['image', 'video', 'voice', 'music'].includes(savedWorkspace)) applyMediaMode(savedWorkspace);
   });
 
   // Shared state never replaces a draft. Results enter the existing browser libraries.
@@ -2306,6 +2343,7 @@
       notify: showToast,
       video: function () { return videoStudio; },
       voice: function () { return voiceStudio; },
+      music: function () { return musicStudio; },
       setActive: function (operation) {
         const previous = sharedOperation;
         sharedOperation = operation;
@@ -2317,8 +2355,8 @@
         const fresh = operation && previous?.id !== operation.id;
         if (fresh) {
           observedImageResult = operation.kind === 'image' ? operation.id : null;
-          const workspace = operation.workspace || operation.kind;
-          if (['image', 'video', 'voice'].includes(workspace)) applyMediaMode(workspace);
+          const workspace = musicStudio.isCoverOperation?.(operation) ? 'music' : operation.workspace || operation.kind;
+          if (['image', 'video', 'voice', 'music'].includes(workspace)) applyMediaMode(workspace);
           const mode = operation.mode || operation.settings?.mode;
           if (workspace === 'image' && mode) formApi.observeMode(mode);
           if (workspace === 'video' && mode) chooseVideoMode(mode);
@@ -2332,6 +2370,7 @@
         }
         if (run) run.observeOperation(operation);
         if (voiceStudio.setOperation) voiceStudio.setOperation(operation);
+        musicStudio.setOperation?.(operation);
         setWorkspaceControlsDisabled();
         document.body.dataset.sharedBusy = String(sharedBusy());
         form.inert = sharedBusy();
@@ -2359,10 +2398,23 @@
       },
       beforeState: function () { if (drafts) drafts.suspend(); },
       afterState: function () { if (drafts) drafts.resume(); },
-      observeDrafts: function (operations) { if (drafts) drafts.observe(operations); },
+      observeDrafts: function (operations) {
+        if (drafts) drafts.observe(operations);
+        musicStudio.observeCoverOperations?.(operations);
+      },
       syncModels: function (state) {
         STUDIO.rewrite_modes = state.rewrite_modes || [];
         let changed = false;
+        const music = state.music;
+        if (music) {
+          if (!STUDIO.music || STUDIO.music.backend.id !== music.active) changed = true;
+          STUDIO.music = {backend: {id: music.active, name: musicDisplayName(music.capabilities.name), badge: music.capabilities.badge},
+            backends: music.backends.map(one => [one.id, musicDisplayName(one.name), '']), capabilities: music.capabilities};
+          document.getElementById('media-music-mode').hidden = false;
+          musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
+            keeping: () => keeping, notify: showToast, onSendToVideo: sendVoiceToVideo,
+            onBusyChange: () => { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
+        }
         const voice = state.voice;
         if (voice) {
           if (!STUDIO.voice || STUDIO.voice.backend.id !== voice.active) changed = true;
@@ -2434,6 +2486,8 @@
         renderStage();
       },
       showRewrite: function (operation, result) {
+        if (musicStudio.isCoverOperation?.(operation)
+            || (operation.kind === 'rewrite' && /:music-cover:[^:]+:brief$/.test(operation.client_id || ''))) return;
         if (result.cancelled || !result.prompt) return;
         document.getElementById('shared-rewrite-text').value = result.prompt;
         document.getElementById('shared-rewrite-result').hidden = false;
@@ -2577,6 +2631,7 @@
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (event.target.closest('input, textarea, select, [contenteditable]')) return;
     if (document.querySelector('.menu:not([hidden])')) return;
+    if (mediaMode === 'music') return;
     if (mediaMode === 'voice') {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
         if (voiceStudio.stepTake(event.key === 'ArrowRight' ? 1 : -1)) event.preventDefault();
@@ -2612,6 +2667,7 @@
   document.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
+    if (mediaMode === 'music') { musicStudio.generate(); return; }
     if (mediaMode === 'voice') { voiceStudio.generate(); return; }
     if (!go.disabled && !busy()) form.requestSubmit(go);
   });
@@ -2620,6 +2676,7 @@
   // backend, but the model itself waits until the next run to load its weights.
   function activeModelFamily() {
     if (mediaMode === 'video') return STUDIO.video;
+    if (mediaMode === 'music') return STUDIO.music;
     if (mediaMode === 'voice') return STUDIO.voice;
     return { backend: STUDIO.backend, backends: STUDIO.backends };
   }
@@ -2637,7 +2694,7 @@
     guide?.sync(mediaMode, backend.id);
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
-    toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || videoRunState !== 'idle';
+    toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle';
     toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
     menu.replaceChildren();
     if (backends.length < 2 || !menus) return;
@@ -2675,11 +2732,11 @@
   }
 
   function switchBackend(id, name, workspace) {
-    const family = workspace === 'voice' ? STUDIO.voice : workspace === 'video' ? STUDIO.video : { backend: STUDIO.backend };
+    const family = workspace === 'music' ? STUDIO.music : workspace === 'voice' ? STUDIO.voice : workspace === 'video' ? STUDIO.video : { backend: STUDIO.backend };
     if (id === family.backend.id) return;
-    const endpoint = workspace === 'voice' ? '/voice/backend' : workspace === 'video' ? '/video/backend' : '/backend';
+    const endpoint = workspace === 'music' ? '/music/backend' : workspace === 'voice' ? '/voice/backend' : workspace === 'video' ? '/video/backend' : '/backend';
     const toggle = document.getElementById('backend-toggle');
-    if (sharedBusy() || busy() || voiceStudio.locked || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
+    if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
     toggle.disabled = true;
     showToast('info', 'Selecting ' + name + '. It will load when you generate.');
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })

@@ -20,6 +20,9 @@ class Config:
     default_voice_backend: str = "drama3"
     visible_voice_backends: tuple[str, ...] = ("drama3", "auk_base", "auk")
 
+    default_music_backend: str = "yue2"
+    visible_music_backends: tuple[str, ...] = ("yue2",)
+
     def backend(self, backend_id: str) -> dict:
         """One backend's settings. Paths are absolute, and a quantize of 0 means none."""
         return dict(self.sections.get(backend_id, {}))
@@ -66,6 +69,10 @@ def load_config(
         sections=sections,
         default_voice_backend=default_voice,
         visible_voice_backends=visible_voice,
+        default_music_backend=raw.get("default_music_backend", "yue2"),
+        visible_music_backends=tuple(
+            dict.fromkeys((raw.get("default_music_backend", "yue2"), *raw.get("visible_music_backends", ["yue2"])))
+        ),
     )
 
 

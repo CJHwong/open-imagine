@@ -1207,7 +1207,8 @@ class VoiceStudio extends LitElement {
             }}></audio-preview>` : html`
             <div class="voice-empty video-empty empty"><div class="video-empty-mark">AUDIO</div><strong>Preview audio</strong>
               <span>${item ? 'This segment has no audio yet.' : this.mode === 'edit' ? 'Add a reference recording and describe the change.' : this.hasParam('voice') ? 'Write a script, choose a voice and generate an audio clip.' : 'Write a script and generate an audio clip.'}</span>
-              ${!item ? html`<button type="button" class="pill" @click=${() => document.getElementById('voice-text').focus()}>${this.mode === 'edit' ? 'Describe the change' : 'Write a script'}</button>` : nothing}
+              ${!item ? html`<button type="button" class="btn" @click=${() => document.getElementById('voice-text').focus()}>
+                <svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>${this.mode === 'edit' ? 'Describe the change' : 'Write a script'}</button>` : nothing}
             </div>`}
         </div>
         ${this.showingGeneration ? nothing : this.renderDetails(item)}

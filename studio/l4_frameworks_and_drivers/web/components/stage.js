@@ -117,20 +117,24 @@ function madeBadge(entry) {
   return badge;
 }
 
-// An empty stage names the next step and offers it as a button.
+// An empty stage names the next step and offers it as a button. It carries the same mark,
+// serif line and one action as the Video, Voice and Music stages.
 function renderEmpty() {
   const empty = document.createElement('div');
-  empty.className = 'empty';
+  empty.className = 'empty video-empty';
+  const mark = document.createElement('div');
+  mark.className = 'video-empty-mark';
+  mark.textContent = 'IMAGE';
   const title = document.createElement('strong');
-  const line = document.createElement('p');
+  const line = document.createElement('span');
   const start = document.createElement('button');
   start.type = 'button';
   start.className = 'btn';
   const references = page.references();
+  empty.append(mark, title, line);
   if (page.editing() && references.length) {
     title.textContent = 'Ready to edit';
     line.textContent = 'Say what to change, then press Edit.';
-    empty.append(title, line);
     page.canvas.append(empty);
     return;
   }
@@ -140,21 +144,20 @@ function renderEmpty() {
     start.innerHTML = icon('image-in') + 'Choose an image';
     start.addEventListener('click', function () { page.referenceInput.click(); });
   } else if (!page.currentMode().templates.length) {
-    title.textContent = 'Nothing here yet';
+    title.textContent = 'Preview an image';
     line.textContent = 'Write a prompt and press Generate.';
-    empty.append(title, line);
     page.canvas.append(empty);
     return;
   } else {
-    title.textContent = 'Nothing here yet';
-    line.textContent = 'Write a prompt and press Generate, or start from a template.';
+    title.textContent = 'Preview an image';
+    line.textContent = 'Write a prompt, or start from a template.';
     start.innerHTML = icon('layout') + 'Browse templates';
     start.addEventListener('click', function (event) {
       event.stopPropagation();  // the click would reach the document and close the menu
       page.openTemplates();
     });
   }
-  empty.append(title, line, start);
+  empty.append(start);
   page.canvas.append(empty);
 }
 

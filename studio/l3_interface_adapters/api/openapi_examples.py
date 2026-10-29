@@ -276,8 +276,82 @@ def plan_examples(workspace: str) -> dict[str, Any]:
     }
 
 
+def music_examples() -> dict[str, Any]:
+    song = {
+        "backend": "yue2",
+        "mode": "generate",
+        "style": "English piano pop with warm vocals and a gentle rhythm at 100 BPM",
+        "lyrics": "[Verse]\nMorning light across the bay\nBrings another hopeful day",
+        "cot": "full",
+        "seed": 7,
+    }
+    reference = {
+        "reference_audio": "<replace with base64 of your audio recording>",
+        "reference_name": "reference.wav",
+        "transcription_task": "melody-full",
+    }
+    score = (
+        "X:1\nT:Original verification melody\nM:4/4\nL:1/4\nQ:1/4=100\n"
+        'V: Vocal clef=treble name="Vocal Melody"\nV: Ins clef=treble name="Instrumental"\nK:C\n'
+        '% verse\nV: Vocal\n"C"C2E2|"Am"G2E2|"F"F2A2|"G"G4|\n'
+        "V: Ins\nC,2G,2|A,2E,2|F,2C2|G,4|\n"
+    )
+    return {
+        "generate": {
+            "summary": "Generate a song with supplied lyrics",
+            "description": "Style describes the arrangement; lyrics provide the words to sing. The result is stereo WAV. Duration follows the composition.",
+            "value": {**song, "steps": 32, "cfg_scale": 1},
+        },
+        "instrumental": {
+            "summary": "Generate an instrumental without lyrics",
+            "description": "Set instrumental to true explicitly; blank lyrics alone do not select it in the API. Instrumentals require full or melody planning.",
+            "value": {
+                **song,
+                "style": "Instrumental acoustic piano with gentle phrasing at 100 BPM",
+                "lyrics": "",
+                "instrumental": True,
+                "steps": 32,
+                "cfg_scale": 1,
+            },
+        },
+        "plan": {
+            "summary": "Compose a score without audio synthesis",
+            "description": "The result is JSON with an ABC score and planning metadata. Save the score for a later generate request with abc.",
+            "value": {**song, "mode": "plan"},
+        },
+        "render_score": {
+            "summary": "Render a supplied score as a new song",
+            "description": "Replace abc with a complete score from a plan or metadata response. This sample uses the native format. Keep full or melody planning.",
+            "value": {**song, "abc": score, "steps": 32, "cfg_scale": 1},
+        },
+        "transcribe": {
+            "summary": "Transcribe reference audio into a score",
+            "description": "Replace reference_audio with raw base64 audio bytes, at most 32 MiB. No style or lyrics are required. The result contains notation, not audio.",
+            "value": {"backend": "yue2", "mode": "transcribe", **reference, "seed": 7},
+        },
+        "cover": {
+            "summary": "Create a new performance from reference audio",
+            "description": "Replace reference_audio with raw base64 audio bytes, at most 32 MiB. Supply new style and lyrics. Do not also supply abc.",
+            "value": {**song, "mode": "cover", **reference, "steps": 32, "cfg_scale": 1},
+        },
+    }
+
+
 def operation_examples() -> dict[str, Any]:
     return {
+        **{
+            "music_" + name: {**example, "value": {"kind": "music", **example["value"]}}
+            for name, example in music_examples().items()
+        },
+        "music_batch": {
+            "summary": "Generate two Music variations with explicit seeds",
+            "description": "Shared style and lyrics apply to both items. Items run serially. Download completed items even if a later item fails or is cancelled.",
+            "value": {
+                "kind": "music",
+                **music_examples()["generate"]["value"],
+                "items": [{"seed": 7}, {"seed": 8}],
+            },
+        },
         "image_variations": {
             "summary": "Start four image variations and return immediately",
             "value": {"kind": "image", **image_examples()["seed_variations"]["value"]},

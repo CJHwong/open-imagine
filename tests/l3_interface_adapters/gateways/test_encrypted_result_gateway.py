@@ -4,6 +4,7 @@ import pytest
 
 from studio.l1_entities.errors import OperationMissing
 from studio.l1_entities.lora import LoraUse
+from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l3_interface_adapters.gateways.encrypted_result_gateway import EncryptedResultGateway, encryption_key
@@ -17,6 +18,8 @@ KEY = "a private random caller key of at least 32 characters"
         {"images": [{"png_base64": "secret picture", "prompt": "secret prompt"}]},
         VideoResult(b"secret movie", 64, 64, 9, 24, 7, loras=(LoraUse("style", 0.5),)),
         VideoResult(None, 64, 64, 9, 24, None, stub=True),
+        MusicResult(b"secret song", 2.5, 48000, 7, "secret score", {"lyrics": "secret lyrics"}),
+        MusicResult(b"", 0, 48000, 8, "secret score", {"mode": "plan"}, stub=True),
         SpeechResult(b"secret audio", 1.0, 24000, 7, 4, text="secret words"),
     ],
 )
