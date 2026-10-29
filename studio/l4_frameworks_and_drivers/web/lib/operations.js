@@ -176,7 +176,8 @@ function clearPollTimer() {
 function observeLocalWork() {
   function changed() {
     const working = document.body.matches('.busy, .video-busy, .rewriting')
-      || Boolean(document.querySelector('#voice-generate[data-state]:not([data-state="idle"])'));
+      || Boolean(document.querySelector('#voice-generate[data-state]:not([data-state="idle"])'))
+      || Boolean(document.querySelector('#music-generate[data-state]:not([data-state="idle"])'));
     if (working === localBusy) return;
     localBusy = working;
     if (working) poll();
@@ -185,6 +186,8 @@ function observeLocalWork() {
   observer.observe(document.body, {attributes: true, attributeFilter: ['class']});
   const voice = document.getElementById('voice-studio');
   if (voice) observer.observe(voice, {subtree: true, childList: true, attributes: true, attributeFilter: ['data-state']});
+  const music = document.getElementById('music-generate');
+  if (music) observer.observe(music, {attributes: true, attributeFilter: ['data-state']});
   changed();
 }
 

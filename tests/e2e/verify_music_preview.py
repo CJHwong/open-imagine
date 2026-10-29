@@ -132,6 +132,7 @@ def main():
         expect(bar.get_by_role("menuitem", name="Regenerate artwork", exact=True, include_hidden=True)).to_be_enabled()
         expect(current.locator(".music-artwork > img")).to_be_visible()
 
+        page.locator("#music-style").fill("Warm piano pop, original song")
         page.locator("#music-lyrics").fill("[Chorus]\nAnother morning on the road")
         if not page.locator(".music-advanced-fields").evaluate("node => node.open"):
             page.locator(".music-advanced-fields summary").click()

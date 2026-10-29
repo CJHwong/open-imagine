@@ -62,6 +62,12 @@ def main():
             assert current.locator(".music-track-text").evaluate("node=>node.clientHeight") == content_height
             expect(inline.get_by_role("heading", name="Verse", exact=True)).to_be_visible()
             expect(inline.locator(".music-lyrics-line")).to_have_count(33)
+            assert (
+                inline.locator(".music-lyrics-line").first.evaluate(
+                    "node => parseFloat(getComputedStyle(node).fontSize)"
+                )
+                == 15
+            )
             expect(current.locator(".music-song-style")).to_be_hidden()
             expect(page.locator("#music-style")).to_have_value("My editable draft style")
             current.get_by_role("button", name="Play", exact=True).click()

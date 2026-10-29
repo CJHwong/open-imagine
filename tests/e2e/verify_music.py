@@ -51,7 +51,7 @@ def main():
         operation = response.value.json()
         expect(page.locator(".music-song")).to_have_count(1)
         assert not any(url.endswith("/generate") or url.endswith("/image/operations") for url in requests)
-        expect(page.locator(".music-song h3")).to_have_text("Untitled")
+        expect(page.locator(".music-song .music-song-title")).to_have_text("Untitled")
         expect(page.locator(".music-stub-note")).to_contain_text("Stub preview")
         expect(page.locator(".music-count")).to_have_text("1 song")
         expect(page.locator(".music-gallery")).to_be_visible()
@@ -110,10 +110,11 @@ def main():
         expect(page.locator("#music-studio")).to_be_hidden()
         page.locator("#media-music-mode").click()
         expect(page.locator(".music-song")).to_have_count(1)
-        # Default Keep is on: saved recordings and drafts survive a reload.
+        # Default Keep is on: saved recordings survive a reload, and Run already emptied
+        # the draft it sent.
         page.reload()
         page.locator("#media-music-mode").click()
-        expect(page.locator("#music-style")).to_have_value("English, warm piano pop, 88 BPM")
+        expect(page.locator("#music-style")).to_have_value("")
         expect(page.locator(".music-song")).to_have_count(1)
         # A storage failure must keep the card until durable deletion succeeds.
         page.evaluate("""() => {
@@ -140,6 +141,8 @@ def main():
             return window.musicPut.apply(this, args);
           };
         }""")
+        # A retry sends the words again, because the failed run emptied them.
+        page.locator("#music-style").fill("English, warm piano pop, 88 BPM")
         with page.expect_response(lambda response: response.url.endswith("/music/operations")) as response:
             page.locator("#music-generate").click()
         retry_operation = response.value.json()
@@ -161,8 +164,11 @@ def main():
         delayed = []
         other.route("**/operations/*/metadata", lambda route: delayed.append(route))
         other.goto(base + "/?workspace=music")
+        # The draft arrives empty because the last run emptied it.
+        other.locator("#music-style").fill("English, warm piano pop, 88 BPM")
         expect(other.locator("#music-generate")).to_be_enabled()
         with page.expect_response(lambda response: response.url.endswith("/music/operations")) as response:
+            page.locator("#music-style").fill("English, warm piano pop, 88 BPM")
             page.locator("#music-generate").click()
         late = response.value.json()
         expect(page.locator(".music-song")).to_have_count(1)
@@ -190,12 +196,14 @@ def main():
             route.fulfill(response=response, json=body)
 
         page.route("**/operations/*/metadata", nonstub_metadata)
+        page.locator("#music-style").fill("English, warm piano pop, 88 BPM")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(1)
         send = page.locator(".music-output-details [data-music-send]")
         expect(send).to_be_enabled()
         held = []
         page.route("**/music/operations", lambda route: held.append(route))
+        page.locator("#music-style").fill("English, warm piano pop, 88 BPM")
         page.locator("#music-generate").click()
         expect(send).to_be_disabled()
         expect(page.locator(".music-generation")).to_be_visible()

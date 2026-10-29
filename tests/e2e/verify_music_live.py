@@ -51,11 +51,13 @@ def main():
         expect(page.locator("#music-abc")).to_have_value(SCORE)
         edited = SCORE.replace("C2E2", "E2G2")
         page.locator("#music-abc").fill(edited)
+        page.locator("#music-style").fill("English, warm piano pop, clear vocals, piano, bass, 100 BPM")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(2, timeout=240000)
         assert page.locator("#music-studio").evaluate("node=>node.songs.at(-1).score") == edited
         page.locator("#music-abc").fill("")
         page.locator("#music-seed").fill("12345")
+        page.locator("#music-style").fill("English, warm piano pop, clear vocals, piano, bass, 100 BPM")
         with page.expect_response("**/music/operations") as answer:
             page.locator("#music-generate").click()
         operation = answer.value.json()

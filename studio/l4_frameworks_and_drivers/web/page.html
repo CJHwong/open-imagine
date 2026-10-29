@@ -2339,6 +2339,7 @@
       libraryId: LIBRARY_ID,
       prepareNativeCancel: function (operation) {
         if (operation.kind === 'image' && operation.client_id === CLIENT_ID) run?.prepareCancel(operation);
+        if (operation.kind === 'music' && operation.client_id === CLIENT_ID) musicStudio.prepareCancel?.();
       },
       notify: showToast,
       video: function () { return videoStudio; },
