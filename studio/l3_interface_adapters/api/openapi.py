@@ -68,8 +68,8 @@ Media placeholders are deliberately invalid and must be replaced. Never send exa
 
 The page and API share operation status, cancellation, model choices, and retained results.
 Keep settings and local gallery deletion remain browser preferences.
-Results expire after one hour, 32 operations, or 256 MiB, whichever limit comes first.
-A restart clears all retained server results.
+Public results expire after 10 minutes, 32 operations, or 256 MiB, whichever limit comes first.
+A restart clears public results. Private results remain encrypted on disk for one hour and support repeated downloads.
 """
 
 # A 1 x 1 PNG, so the reference examples in the schemas are real bytes a reader can send.
@@ -532,6 +532,10 @@ def openapi_document() -> dict[str, Any]:
                 "Studio": {
                     "type": "object",
                     "properties": {
+                        "private_operations": {
+                            "type": "boolean",
+                            "description": "The studio honors X-Studio-Private-Key on POST /api/v1/operations.",
+                        },
                         "image": {
                             "type": "object",
                             "properties": {
@@ -684,6 +688,19 @@ def _error(description: str) -> dict[str, Any]:
     }
 
 
+PRIVATE_KEY = {
+    "name": "X-Studio-Private-Key",
+    "in": "header",
+    "required": False,
+    "description": "Optional. 32 to 512 visible ASCII characters. An operation started with this key is private: "
+    "its record keeps no prompt or settings, only the same key can read it, and each result or batch item "
+    "stays encrypted on disk for one hour and supports repeated downloads. Other callers see only that the studio is busy. "
+    "A write accepts it on POST /api/v1/operations, its cancel route, and DELETE /api/v1/operations/{id}. Any other write, and any route "
+    "outside /api/v1/, answers 400 with this header.",
+    "schema": {"type": "string", "minLength": 32, "maxLength": 512},
+}
+
+
 def operation_paths() -> dict[str, Any]:
     reads = {
         "/api/v1/state": ("readState", "Active work, recent results, and selected models", "State"),
@@ -723,12 +740,15 @@ def operation_paths() -> dict[str, Any]:
         }
         if "{id}" in path:
             paths[path]["get"]["parameters"] = identifier
+        if path != "/api/v1/rewrite/state":
+            paths[path]["get"]["parameters"] = [*paths[path]["get"].get("parameters", []), PRIVATE_KEY]
     paths["/api/v1/operations"] = {
         "post": {
             "operationId": "startOperation",
+            "parameters": [PRIVATE_KEY],
             "tags": ["studio"],
             "summary": "Start work and return immediately",
-            "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Results remain in memory for at most one hour, 32 operations, or 256 MiB, whichever limit comes first. The server retains no results after a restart. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
+            "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
             "requestBody": {
                 "required": True,
                 "content": {
@@ -748,11 +768,23 @@ def operation_paths() -> dict[str, Any]:
             },
         }
     }
+    paths["/api/v1/operations/{id}"]["delete"] = {
+        "operationId": "deletePrivateOperation",
+        "tags": ["studio"],
+        "parameters": [*identifier, PRIVATE_KEY],
+        "summary": "Delete a private operation and all its results",
+        "responses": {
+            "204": {"description": "The private operation and results were deleted"},
+            "400": _error("Public operations do not support deletion"),
+            "404": _error("The operation is missing or belongs to another key"),
+            "409": _error("Cancel the active operation before deleting it"),
+        },
+    }
     paths["/api/v1/operations/{id}/cancel"] = {
         "post": {
             "operationId": "cancelOperation",
             "tags": ["studio"],
-            "parameters": identifier,
+            "parameters": [*identifier, PRIVATE_KEY],
             "summary": "Stop this active operation",
             "responses": {
                 "204": {"description": "The stop was requested"},
@@ -844,6 +876,10 @@ def operation_schemas() -> dict[str, Any]:
                 "description": "Live sampler or rewrite progress. total=0 means indeterminate, so show elapsed time instead of a percentage. Sampler completion does not mean the result is ready; wait for a terminal operation status.",
             },
             "error": {"type": ["string", "null"]},
+            "private": {
+                "type": "boolean",
+                "description": "Present and true only when started with X-Studio-Private-Key. Its prompt and settings are empty.",
+            },
             "result_url": {"type": ["string", "null"]},
             "batch_index": {"type": "integer", "minimum": 1},
             "batch_total": {"type": "integer", "minimum": 1, "maximum": 16},
@@ -885,6 +921,10 @@ def operation_schemas() -> dict[str, Any]:
             "type": "object",
             "properties": {
                 "active": {"oneOf": [{"$ref": "#/components/schemas/Operation"}, {"type": "null"}]},
+                "busy": {
+                    "type": "boolean",
+                    "description": "An operation runs, including a private one that this caller cannot see.",
+                },
                 "operations": {"type": "array", "items": {"$ref": "#/components/schemas/Operation"}},
                 "studio": {"$ref": "#/components/schemas/Studio"},
             },
@@ -1146,6 +1186,7 @@ def batch_paths() -> dict[str, Any]:
                         "required": True,
                         "schema": {"type": "integer", "minimum": 1, "maximum": 16},
                     },
+                    PRIVATE_KEY,
                 ],
                 "responses": {
                     "200": {
@@ -1563,7 +1604,10 @@ def music_paths() -> dict[str, Any]:
             "get": {
                 "operationId": "readMusicMetadata",
                 "tags": ["music"],
-                "parameters": [{"name": "id", "in": "path", "required": True, "schema": {"type": "string"}}],
+                "parameters": [
+                    {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}},
+                    PRIVATE_KEY,
+                ],
                 "responses": {
                     "200": {
                         "description": "Score, runtime settings, timings and model identities",
@@ -1584,6 +1628,7 @@ def music_paths() -> dict[str, Any]:
                 "parameters": [
                     {"name": "id", "in": "path", "required": True, "schema": {"type": "string"}},
                     {"name": "index", "in": "path", "required": True, "schema": {"type": "integer", "minimum": 1}},
+                    PRIVATE_KEY,
                 ],
                 "responses": {
                     "200": {

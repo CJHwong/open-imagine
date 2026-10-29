@@ -8,8 +8,14 @@ between the two doors.
 
 A batch is one request here. The page follows a chain, one image per request, and
 this reads that chain to its end and answers with every image in one document.
+
+A caller that sends a private key owns its operations. The record keeps none of its
+words: it holds no prompt and no settings, and only that key can read it. Its result
+stays encrypted on disk for one hour and supports repeated downloads. The run itself still needs the words, and
+API.md lists the copies that a run makes.
 """
 
+import hashlib
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -112,7 +118,7 @@ class JsonApi:
         operation = self.reserve({**payload, "kind": kind}, source=source)
         return self.complete(operation["id"], action, serialize)
 
-    def reserve(self, payload: Mapping[str, object], *, source: str = "api") -> dict[str, Any]:
+    def reserve(self, payload: Mapping[str, object], *, source: str = "api", owner: str = "") -> dict[str, Any]:
         kind = payload.get("kind")
         if kind not in ("image", "video", "rewrite", "voice", "music"):
             raise InvalidJob("kind must be image, video, voice, music or rewrite")
@@ -164,15 +170,17 @@ class JsonApi:
                     "mode": mode,
                     "backend": backend,
                     "model": model,
-                    "prompt": payload.get("prompt", payload.get("text", "")),
+                    "prompt": "" if owner else payload.get("prompt", payload.get("text", "")),
                     "width": payload.get("width"),
                     "height": payload.get("height"),
                     "num_frames": payload.get("num_frames"),
                     "frame_rate": payload.get("frame_rate"),
-                    "settings": settings,
+                    "settings": {} if owner else settings,
                     "client_id": payload.get("client_id", ""),
-                    "library_id": payload.get("library_id", ""),
-                }
+                    "library_id": "" if owner else payload.get("library_id", ""),
+                    "owner": owner_digest(owner),
+                },
+                private_key=owner,
             )
         )
 
@@ -216,8 +224,16 @@ class JsonApi:
 
         return self.complete(operation["id"], action, observed=operation)
 
-    def operation(self, operation_id: str) -> dict[str, Any]:
-        return self._operation_document(self._operations.get(operation_id))
+    def operation(self, operation_id: str, viewer: str = "") -> dict[str, Any]:
+        return self._operation_document(self._readable(operation_id, viewer))
+
+    def _readable(self, operation_id: str, viewer: str) -> dict[str, Any]:
+        """A private record answers only its owner. Anyone else gets the answer for an
+        operation that does not exist, so the record's existence does not leak."""
+        record = self._operations.get(operation_id)
+        if not visible(record, viewer):
+            raise OperationMissing("The operation expired or does not exist.")
+        return record
 
     def _operation_document(self, operation: dict[str, Any]) -> dict[str, Any]:
         operation = operation_document(operation)
@@ -236,15 +252,27 @@ class JsonApi:
             operation["progress"] = native_image_progress(operation["progress"])
         return operation
 
-    def operation_result(self, operation_id: str):
-        return self._operations.result(operation_id)
+    def operation_result(self, operation_id: str, viewer: str = ""):
+        self._readable(operation_id, viewer)
+        return self._operations.result(operation_id, private_key=viewer)
 
-    def state(self) -> dict[str, Any]:
-        operations = [self._operation_document(one) for one in self._operations.recent()]
+    def delete_operation(self, operation_id: str, viewer: str = "") -> None:
+        if not self._readable(operation_id, viewer).get("owner"):
+            raise InvalidJob("Only private operations support deletion.")
+        self._operations.delete(operation_id)
+
+    def state(self, viewer: str = "") -> dict[str, Any]:
+        """`busy` stays true while a private operation that this viewer cannot see runs."""
+        recent = [one for one in self._operations.recent() if visible(one, viewer)]
+        operations = [self._operation_document(one) for one in recent]
         active = next((one for one in operations if one["status"] in ("running", "stopping")), None)
-        return {"active": active, "operations": operations, "studio": self.studio()}
+        return {"active": active, "busy": self._operations.busy(), "operations": operations, "studio": self.studio()}
 
-    def cancel_operation(self, operation_id: str) -> None:
+    def cancel_operation(self, operation_id: str, viewer: str = "") -> None:
+        self._readable(operation_id, viewer)
+        self._stop(operation_id)
+
+    def _stop(self, operation_id: str) -> None:
         operation = self._operations.stopping(operation_id)
         if operation["kind"] == "image" and operation["status"] == "stopping":
             self._controller.watch_cancel(
@@ -272,6 +300,7 @@ class JsonApi:
 
     def studio(self) -> dict[str, Any]:
         document = studio_document(self._controller.page())
+        document["private_operations"] = True
         if self._voice is not None:
             document["voice"] = {
                 "active": self._voice.active_id(),
@@ -321,12 +350,13 @@ class JsonApi:
             raise StudioError("Voice generation is not configured.")
         return self._voice
 
-    def item_result(self, operation_id, index):
+    def item_result(self, operation_id, index, viewer: str = ""):
         if isinstance(index, str):
             if not index.isdecimal():
                 raise InvalidJob("The batch item index must be a positive integer.")
             index = int(index)
-        return self._operations.item_result(operation_id, index)
+        self._readable(operation_id, viewer)
+        return self._operations.item_result(operation_id, index, private_key=viewer)
 
     def _batch(self, operation, body):
         items = self._batches.execute({**body, "kind": operation["kind"], "backend": operation["backend"]})
@@ -354,6 +384,8 @@ class JsonApi:
                 },
                 "completed_at": time.time(),
             }
+            if operation.get("private"):
+                del metadata["prompt"], metadata["settings"]
             if isinstance(result, VideoResult):
                 metadata.update(
                     width=result.width,
@@ -369,12 +401,9 @@ class JsonApi:
                     seconds=result.seconds, sample_rate=result.sample_rate, seed=result.seed, stub=result.stub
                 )
             if isinstance(result, SpeechResult):
-                metadata.update(
-                    seconds=result.seconds,
-                    sample_rate=result.sample_rate,
-                    seed=result.seed,
-                    prompt=result.text or metadata["prompt"],
-                )
+                metadata.update(seconds=result.seconds, sample_rate=result.sample_rate, seed=result.seed)
+                if not operation.get("private"):
+                    metadata["prompt"] = result.text or metadata["prompt"]
             manifest = self._operations.batch_completed(operation_id, result, metadata)
 
         if operation["kind"] == "video":
@@ -505,14 +534,14 @@ class JsonApi:
     def cancel_image(self) -> None:
         active = self._operations.active()
         if active is not None and active["kind"] == "image":
-            self.cancel_operation(active["id"])
+            self._stop(active["id"])
         else:
             self._controller.cancel()
 
     def cancel_rewrite(self) -> None:
         active = self._operations.active()
         if active is not None and active["kind"] == "rewrite":
-            self.cancel_operation(active["id"])
+            self._stop(active["id"])
         else:
             self._controller.cancel_rewrite()
 
@@ -552,3 +581,11 @@ class JsonApi:
         if self._video is None:
             raise StudioError("Video generation is not configured.")
         return self._video
+
+
+def visible(record: Mapping[str, Any], viewer: str) -> bool:
+    return record.get("owner", "") in ("", owner_digest(viewer))
+
+
+def owner_digest(private_key: str) -> str:
+    return hashlib.sha256(private_key.encode("ascii")).hexdigest() if private_key else ""

@@ -6,13 +6,15 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from studio.l1_entities.errors import BackendBusy, Cancelled, OperationMissing
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
+from studio.l3_interface_adapters.gateways.encrypted_result_gateway import EncryptedResultGateway, encryption_key
 
 
 class InMemoryOperationGateway(OperationGateway):
@@ -20,8 +22,9 @@ class InMemoryOperationGateway(OperationGateway):
         self,
         max_count: int = 32,
         max_bytes: int = 256 * 1024 * 1024,
-        max_age: float = 3600,
+        max_age: float = 600,
         clock: Callable[[], float] = time.time,
+        private_directory: Path | None = None,
     ):
         self._lock = threading.RLock()
         self._records: dict[str, dict[str, Any]] = {}
@@ -35,14 +38,29 @@ class InMemoryOperationGateway(OperationGateway):
         self._max_count = max_count
         self._max_bytes = max_bytes
         self._max_age = max_age
+        self._private_results = EncryptedResultGateway(private_directory)
+        self._private_keys: dict[str, bytes] = {}
+        for record in self._private_results.records():
+            operation_id = record["id"]
+            if record["status"] in ("running", "stopping"):
+                record.update(
+                    status="failed", finished_at=self._clock(), error="The server restarted during this operation."
+                )
+                self._private_results.save_record(record)
+            self._records[operation_id] = record
+            self._items[operation_id] = [None] * record.get("batch_completed", 0)
+            self._measure(operation_id)
+        self._prune()
 
-    def begin(self, description: dict[str, Any]) -> dict[str, Any]:
+    def begin(self, description: dict[str, Any], private_key: str = "") -> dict[str, Any]:
         with self._lock:
             self._prune()
+            if description.get("owner") and not private_key:
+                raise InvalidJob("A private operation requires its original key.")
             if self._active is not None or self._reservation is not None:
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
             operation_id = uuid.uuid4().hex
-            self._records[operation_id] = {
+            record = {
                 **description,
                 "id": operation_id,
                 "status": "running",
@@ -51,7 +69,13 @@ class InMemoryOperationGateway(OperationGateway):
                 "error": None,
                 "result_retained": False,
             }
-            self._sizes[operation_id] = len(json.dumps(self._records[operation_id]).encode())
+            size = len(json.dumps(record).encode())
+            if description.get("owner"):
+                key = encryption_key(private_key, operation_id)
+                self._private_results.save_record(record)
+                self._private_keys[operation_id] = key
+            self._records[operation_id] = record
+            self._sizes[operation_id] = size
             self._active = operation_id
             return self.get(operation_id)
 
@@ -103,13 +127,17 @@ class InMemoryOperationGateway(OperationGateway):
             self._prune()
             return copy.deepcopy(list(reversed(self._records.values())))
 
-    def result(self, operation_id: str) -> Any:
+    def result(self, operation_id: str, private_key: str = "") -> Any:
         with self._lock:
             record = self.get(operation_id)
             result = self._results.get(operation_id)
-            batch_manifest = isinstance(result, dict) and "items" in result
+            batch_manifest = (record.get("owner") and record.get("batch_total") and record["result_retained"]) or (
+                isinstance(result, dict) and "items" in result
+            )
             if record["status"] in ("running", "stopping") and not batch_manifest:
                 raise BackendBusy("The operation has not finished.")
+            if record.get("owner"):
+                return self._private_results.read(operation_id, 0, encryption_key(private_key, operation_id))
             if operation_id not in self._results:
                 raise OperationMissing("This operation has no retained result.")
             return self._results[operation_id]
@@ -126,11 +154,22 @@ class InMemoryOperationGateway(OperationGateway):
 
     def retain(self, operation_id: str, result: object) -> None:
         with self._lock:
-            self._results[operation_id] = result
-            record = self._records[operation_id]
-            record["result_retained"] = True
-            result_size = result_bytes(result) + sum(result_bytes(item) for item in self._items.get(operation_id, []))
-            self._sizes[operation_id] = len(json.dumps(record).encode()) + result_size
+            if self._records[operation_id].get("owner"):
+                self._private_results.write(operation_id, 0, result, self._private_keys[operation_id])
+            else:
+                self._results[operation_id] = result
+            self._records[operation_id]["result_retained"] = True
+            self._measure(operation_id)
+
+    def _measure(self, operation_id: str) -> None:
+        size = len(json.dumps(self._records[operation_id]).encode())
+        if operation_id in self._results:
+            size += result_bytes(self._results[operation_id])
+        size += sum(result_bytes(item) for item in self._items.get(operation_id, []) if item is not None)
+        if self._records[operation_id].get("owner"):
+            size += self._private_results.size(operation_id)
+            self._private_results.save_record(self._records[operation_id])
+        self._sizes[operation_id] = size
 
     def append_image(self, operation_id: str, image: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -145,25 +184,30 @@ class InMemoryOperationGateway(OperationGateway):
 
     def batch_completed(self, operation_id, result, metadata):
         with self._lock:
-            self._items.setdefault(operation_id, []).append(result)
-            self._records[operation_id]["batch_completed"] = len(self._items[operation_id])
+            private = bool(self._records[operation_id].get("owner"))
+            self._items.setdefault(operation_id, []).append(None if private else result)
+            completed = len(self._items[operation_id])
+            self._records[operation_id]["batch_completed"] = completed
             previous = self._results.get(
                 operation_id, {"items": [], "batch_total": self._records[operation_id]["batch_total"]}
             )
-            manifest = {
-                **previous,
-                "items": [*previous["items"], metadata],
-                "completed": len(self._items[operation_id]),
-            }
+            if private:
+                key = self._private_keys[operation_id]
+                self._private_results.write(operation_id, completed, result, key)
+                if self._records[operation_id]["result_retained"]:
+                    previous = self._private_results.read(operation_id, 0, key)
+            manifest = {**previous, "items": [*previous["items"], metadata], "completed": completed}
             self.retain(operation_id, manifest)
             return manifest
 
-    def item_result(self, operation_id, index):
+    def item_result(self, operation_id, index, private_key: str = ""):
         with self._lock:
-            self.get(operation_id)
+            record = self.get(operation_id)
             items = self._items.get(operation_id, [])
             if not 1 <= index <= len(items):
                 raise OperationMissing("This batch item has no retained result.")
+            if record.get("owner"):
+                return self._private_results.read(operation_id, index, encryption_key(private_key, operation_id))
             return items[index - 1]
 
     def pause(self, operation_id: str, next_index: int) -> None:
@@ -214,10 +258,14 @@ class InMemoryOperationGateway(OperationGateway):
                     sample_rate=result.sample_rate,
                     seed=result.seed,
                     steps=result.steps,
-                    prompt=result.text or record.get("prompt", ""),
                 )
+                # A private record keeps no words of its caller, not even the spoken text.
+                if not record.get("owner"):
+                    record["prompt"] = result.text or record.get("prompt", "")
             self.retain(operation_id, result)
             self._active = None
+            self._private_keys.pop(operation_id, None)
+            self._measure(operation_id)
             self._prune()
             return record["finished_at"]
 
@@ -229,7 +277,32 @@ class InMemoryOperationGateway(OperationGateway):
                 error=str(error),
             )
             self._active = None
+            self._private_keys.pop(operation_id, None)
+            self._measure(operation_id)
             self._prune()
+
+    def expire(self) -> None:
+        with self._lock:
+            self._prune()
+
+    def delete(self, operation_id: str) -> None:
+        with self._lock:
+            self.get(operation_id)
+            if operation_id == self._active:
+                raise BackendBusy("Cancel the operation before deleting it.")
+            self._discard(operation_id)
+
+    def close(self) -> None:
+        with self._lock:
+            self._private_results.close()
+
+    def _discard(self, operation_id: str) -> None:
+        if self._records[operation_id].get("owner"):
+            self._private_results.delete(operation_id)
+        del self._records[operation_id]
+        self._results.pop(operation_id, None)
+        self._items.pop(operation_id, None)
+        self._sizes.pop(operation_id, None)
 
     def _prune(self) -> None:
         if self._active in self._continuations and self._clock() >= self._continuations[self._active][1]:
@@ -238,12 +311,16 @@ class InMemoryOperationGateway(OperationGateway):
             if operation_id == self._active:
                 continue
             record = self._records[operation_id]
-            expired = self._clock() - record["finished_at"] > self._max_age
-            if expired or len(self._records) > self._max_count or sum(self._sizes.values()) > self._max_bytes:
-                del self._records[operation_id]
-                self._results.pop(operation_id, None)
-                self._items.pop(operation_id, None)
-                self._sizes.pop(operation_id, None)
+            private = bool(record.get("owner"))
+            max_age = 3600 if private else self._max_age
+            expired = self._clock() - record["finished_at"] > max_age
+            public_ids = [identifier for identifier, entry in self._records.items() if not entry.get("owner")]
+            over_limit = not private and (
+                len(public_ids) > self._max_count
+                or sum(self._sizes[identifier] for identifier in public_ids) > self._max_bytes
+            )
+            if expired or over_limit:
+                self._discard(operation_id)
 
 
 def result_bytes(result):

@@ -122,12 +122,16 @@ class Studio:
     video_catalog: InMemoryVideoBackendCatalogGateway | None
     residency: InMemoryModelResidencyGateway
     cancel: CancelRunUseCase
+    operations: InMemoryOperationGateway
     rewriter: PromptRewriterGateway | None = None
 
     video_rewriter: PromptRewriterGateway | None = None
 
     def active_capabilities(self):
         return self.catalog.get(self.catalog.active_id()).capabilities()
+
+    def expire(self) -> None:
+        self.operations.expire()
 
     def shutdown(self) -> None:
         """Free the one resident model and the prompt rewriter.
@@ -137,6 +141,7 @@ class Studio:
         """
         self.cancel.execute()
         self.residency.release()
+        self.operations.close()
         if self.rewriter is not None:
             self.rewriter.release()
         if self.video_rewriter is not None:
@@ -559,6 +564,7 @@ def create_studio(
     stub: bool = False,
     plugins: ModelPlugins | None = None,
     allowed_origins: tuple[str, ...] = (),
+    private_results_dir: Path | None = None,
 ) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page.
     `allowed_origins` are the pages at another address that may post, such as a proxy."""
@@ -604,6 +610,8 @@ def create_studio(
         )
     ):
         require_mlx()
+    if private_results_dir is None and not stub:
+        private_results_dir = Path.home() / ".local" / "share" / "open-imagine" / "private-results"
     return assemble_studio(
         backends,
         rewriters,
@@ -620,6 +628,7 @@ def create_studio(
         visible_voice_ids=config.visible_voice_backends,
         video_rewriters=video_rewriters,
         allowed_origins=allowed_origins,
+        private_results_dir=private_results_dir,
     )
 
 
@@ -641,6 +650,7 @@ def assemble_studio(
     video_rewriter: PromptRewriterGateway | None = None,
     video_rewriters: dict | None = None,
     allowed_origins: tuple[str, ...] = (),
+    private_results_dir: Path | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -733,7 +743,7 @@ def assemble_studio(
             music_catalog,
             SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
         )
-    operations = InMemoryOperationGateway()
+    operations = InMemoryOperationGateway(private_directory=private_results_dir)
     api = JsonApi(
         controller,
         video_controller,
@@ -749,6 +759,7 @@ def assemble_studio(
         video_catalog=video_catalog,
         residency=residency,
         cancel=cancel,
+        operations=operations,
         rewriter=rewriter,
         video_rewriter=video_rewriter,
     )

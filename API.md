@@ -64,6 +64,63 @@ A stale cancellation also returns `409` and cannot stop a newer operation.
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+## Private operations
+
+Send `X-Studio-Private-Key` when another person or program must not see your work.
+Use a random key of 32 to 512 visible ASCII characters, and send the same key on every route.
+
+```sh
+curl -sS http://localhost:8765/api/v1/operations \
+  -H 'Content-Type: application/json' \
+  -H "X-Studio-Private-Key: $STUDIO_PRIVATE_KEY" \
+  -d '{"kind":"image","prompt":"A red teapot on a wooden table.","client_id":"job-1"}'
+```
+
+The studio keeps the SHA-256 of the key, not the key.
+`/api/v1/studio` reports `"private_operations": true` when the server supports this.
+
+| What | A private operation |
+|---|---|
+| Prompt, settings, library | Not in the record. The record shows `""` and `{}`, and `private: true` |
+| Batch item list | Lists each item without its prompt or settings |
+| Status, result, cancel | Answer only the same key. Any other caller gets `404` |
+| `/api/v1/state` | Lists the operation only for the same key. Other callers see `busy: true` |
+| Result | Encrypted on disk. Repeated downloads work until deletion or expiry |
+| Batch item result | Encrypted on disk. Each item supports repeated downloads |
+| Expiry | One hour after completion. Downloads do not extend it |
+| Server restart | Completed private results remain available with the same key |
+| Delete | `DELETE /api/v1/operations/{id}` with the same key removes the operation and every result |
+| The page | Never shows it, because the page has no key |
+
+Private results use authenticated encryption with a separate key derived from the caller's original key.
+The authentication hash cannot decrypt the result. The server keeps the encryption key only while the operation runs.
+The database is `~/.local/share/open-imagine/private-results/private-results.sqlite3`, with owner-only file permissions.
+Use `--private-results-dir <folder>` to select another folder. One server can own each folder.
+Stub servers use isolated storage unless this option selects a folder.
+Its operation records contain redacted metadata and the authentication hash. Result bodies and batch manifests are encrypted.
+After a restart, interrupted operations show `failed`; completed items remain readable until expiry.
+Stored errors use a generic message, so engine errors cannot put private words into disk metadata.
+Every read under `/api/v1/` accepts the key, and `/api/v1/state` uses it.
+A write accepts it on `POST /api/v1/operations`, the cancel route, and the private operation delete route.
+Any other write, and every route outside `/api/v1/`, answers `400` when the header is present.
+A stop from the page still stops a private run, because one GPU serves all callers.
+
+### What a run still holds
+
+The record keeps none of your words, but the run needs them.
+These copies stay on the studio machine. No HTTP answer to another caller contains them.
+
+| Copy | How long it lasts |
+|---|---|
+| Prompt and inputs in the engine's memory | Until the run ends |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them |
+| The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
+| Music reference transcription score and exports in worker memory | Until another reference/task replaces them or the worker unloads |
+| The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |
+
+The key keeps your work from other callers.
+It does not keep your work from a person who can read the memory, disk or process list of this machine.
+
 ## Prompt aids and reference inputs
 
 Send `looks` as a mapping from each offered row name to one option label.
@@ -93,7 +150,10 @@ The API accepts those prepared inputs. Theme and Keep preferences remain in the 
 
 ## Tabs and retained results
 
-Every open tab reads shared server status from startup.
+Every visible tab reads shared server status from startup.
+Visible tabs poll every five seconds while idle and every 350 milliseconds during generation.
+Hidden tabs stop shared polling and refresh immediately when visible.
+The server continues running jobs after a tab becomes hidden.
 Tabs show API operations, matching cancellation, failures, and completed results.
 An API rewrite appears separately until you choose Use prompt, so it does not replace an unfinished draft.
 Model selection also reaches other tabs without replacing their prompt text.
@@ -106,10 +166,13 @@ Each image includes `completed_at`, the Unix time when that image completed.
 Native video responses include the same completion time in `X-Studio-Completed`.
 The browser uses completion times to reject old results whose responses arrive after Clear all.
 
-Results remain in server memory for up to one hour after completion.
+Public results remain in server memory for up to 10 minutes after completion.
 Retention also has limits of 32 operations and 256 MiB, including metadata.
 Older results can expire sooner when either limit fills. Missing results return `404`.
-A server restart clears operation history. The existing Keep setting controls browser storage independently.
+A server restart clears public operation history. Private results remain encrypted on disk for one hour. The existing Keep setting controls browser storage independently.
+The server checks expiry during requests and once per minute in the background.
+Requests reject expired results immediately. Background deletion can follow expiry by about one minute while the server runs.
+Startup removes expired private results.
 
 A browser Image batch submits ordered items to the same prepared batch use case as this API. One reservation covers preparation and every image; completed items appear incrementally and survive reload or cancellation. Per-reference UI edits expand into one-reference items with their own prompts and consecutive seeds. Single-image form requests retain their compatibility transport.
 Prepared UI and asynchronous API batches run entirely on the server, including after their tab closes.
@@ -795,6 +858,11 @@ Instrumentals and score planning require `cot: full` or `melody`. A token-cap fa
 Save this standard-library example as `music_api.py`. It submits one operation, polls its own ID, and saves retained results under `music-api-output`.
 The `cancel` command starts a vocal request and immediately cancels that same ID. It never cancels another client's operation.
 The `batch` command runs two items serially with shared defaults and explicit item overrides.
+Set `STUDIO_PRIVATE_KEY` to a random key for private jobs. The client sends it on submissions, polling, cancellation, and downloads.
+Music audio, scores, metadata, and batch results follow the [private operations](#private-operations) contract.
+Keep the same key for repeated downloads or recovery after restart. Other callers receive `404`, including on metadata routes.
+Server-side private storage is encrypted. This example saves your authorized downloads as plaintext files on the client machine.
+Choose a protected output folder, or keep downloaded bytes in memory if you need no plaintext files.
 
 ```python
 import base64
@@ -814,6 +882,9 @@ STYLE = "Use a pop arrangement with a steady pulse and a clear melodic hook. Fea
 def request(path, payload=None):
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     headers = {} if body is None else {"Content-Type": "application/json"}
+    private_key = os.environ.get("STUDIO_PRIVATE_KEY")
+    if private_key:
+        headers["X-Studio-Private-Key"] = private_key
     with urlopen(Request(BASE + path, data=body, headers=headers), timeout=60) as response:
         return response.read(), response.headers.get_content_type()
 
@@ -940,8 +1011,9 @@ The client downloads partial batch results before reporting a terminal failure.
 
 Invalid requests return `400`; a busy server or stale cancellation returns `409`. Missing Music support returns `503`.
 Engine failures appear in the operation's `error` field. Do not retry a busy request as though it entered a queue.
-Retained results expire after at most one hour. The 32-operation and 256 MiB limits can evict them sooner, including metadata.
-Expired results return `404`, and restarting the server clears history. Save downloads promptly; browser Keep is separate.
+Public results expire after at most ten minutes. The 32-operation and 256 MiB limits can evict them sooner, including metadata.
+Restarting the server clears public history. Private results remain encrypted for one hour after completion and survive restart.
+Expired or deleted results return `404`. Save downloads promptly; browser Keep is separate.
 
 Use `finished_at - started_at` from the operation for total processing time; `seconds` describes output audio duration.
 For batches, those operation timestamps cover the whole batch. Do not report them as each item's generation time.
@@ -955,14 +1027,18 @@ Prefer asynchronous operations for polling, cancellation, retained metadata, and
 
 A successful synchronous response includes its ID in `X-Studio-Operation`.
 Use that ID with `/api/v1/operations/{id}/metadata` to fetch the score and generation details.
-After saving `music_api.py` above, run this header example beside it:
+The synchronous endpoint rejects `X-Studio-Private-Key`; use asynchronous operations for private Music jobs.
+After saving `music_api.py` above, run this public header example beside it with `STUDIO_PRIVATE_KEY` unset:
 
 ```python
 import json
 from pathlib import Path
 from urllib.request import Request, urlopen
 from music_api import BASE, build_payload, read_json
+import os
 
+if os.environ.get("STUDIO_PRIVATE_KEY"):
+    raise SystemExit("Use the asynchronous client for private Music jobs.")
 payload = json.dumps(build_payload("instrumental")).encode("utf-8")
 request = Request(BASE + "/api/v1/music/generate", data=payload,
                   headers={"Content-Type": "application/json"})

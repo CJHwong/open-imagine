@@ -16,6 +16,7 @@ def test_music_metadata_routes_publish_typed_results_and_errors():
     for path in ("/api/v1/operations/{id}/metadata", "/api/v1/operations/{id}/items/{index}/metadata"):
         route = document["paths"][path]["get"]
         assert {"200", "400", "404", "409"} <= route["responses"].keys()
+        assert any(parameter["name"] == "X-Studio-Private-Key" for parameter in route["parameters"])
         schema = route["responses"]["200"]["content"]["application/json"]["schema"]
         assert schema == {"$ref": "#/components/schemas/MusicMetadataResult"}
     parameters = document["paths"]["/api/v1/operations/{id}/items/{index}/metadata"]["get"]["parameters"]

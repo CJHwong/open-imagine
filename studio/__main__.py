@@ -1,10 +1,9 @@
-"""A local web studio for image and video generation. The server logs and saves nothing.
+"""A local web studio for image, video and voice generation.
 
-The server keeps no prompt or result after a request. Image edits and video runs
-use temporary files for references and output, then remove them. The browser
-keeps results until Clear all, unless "Keep in this browser" is off. The server
-binds 127.0.0.1 by default. The page loads htmx and Lit from CDNs. Neither gets
-prompt data.
+Public results remain in memory for ten minutes. Private results remain encrypted
+on disk for one hour. The caller's key permits repeated downloads until deletion
+or expiry. Engine scratch files last for the run that needs them. Browser Keep
+controls local gallery storage. The server binds 127.0.0.1 by default.
 
 USAGE:
     uv run studio                      # http://127.0.0.1:8765, official Qwen Turbo
@@ -16,13 +15,14 @@ USAGE:
 
 import argparse
 import sys
-from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from studio.l1_entities.errors import StudioError
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import cache_line
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
+from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
 from studio.l4_frameworks_and_drivers.main import (
     BACKENDS,
     REWRITERS,
@@ -69,11 +69,16 @@ def allowed_origin(value: str) -> str:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Serve a local multimedia generation studio. The server logs and saves nothing."
+        description="Serve a local multimedia generation studio with temporary public and encrypted private results."
     )
     parser.add_argument("--host", default="127.0.0.1", help="bind address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="settings file (default studio.toml)")
+    parser.add_argument(
+        "--private-results-dir",
+        type=Path,
+        help="folder for encrypted private results; stub storage stays isolated unless this is set",
+    )
     parser.add_argument("--backend", help="open on this backend instead of the configured default")
     parser.add_argument(
         "--all-backends",
@@ -132,16 +137,19 @@ def main():
             stub=args.stub,
             plugins=plugins,
             allowed_origins=tuple(args.allow_origin),
+            private_results_dir=args.private_results_dir,
         )
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
     except EngineUnavailable as error:
         sys.exit(f"Cannot run here: {error}")
+    except StudioError as error:
+        sys.exit(f"Cannot start the studio: {error}")
     # Bind before loading. The weights take a minute, and a busy port found
     # after that minute is a waste. Anything that connects during the load
     # waits in the listen backlog.
     try:
-        server = ThreadingHTTPServer((args.host, args.port), studio.handler)
+        server = StudioHTTPServer((args.host, args.port), studio.handler)
     except OSError as error:
         sys.exit(f"Cannot bind {args.host}:{args.port} ({error}). Pass --port for a free one.")
     rewriters = rewriter_cache_line(config)
@@ -155,6 +163,7 @@ def main():
         flush=True,
     )
     try:
+        server.expire = studio.expire
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")

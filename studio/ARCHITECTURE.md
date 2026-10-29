@@ -268,3 +268,23 @@ Ordered batches run sequentially and retain each completed result. Browser stora
 record per song, so tabs do not replace each other's whole galleries. No speech script splitting
 or mono-reference normalization is applied. The Music workspace and its controls are separate
 from Voice; keyboard submission uses the active workspace.
+
+### Private result storage
+
+`InMemoryOperationGateway` keeps public results in memory for ten minutes after completion.
+It delegates private media to `EncryptedResultGateway`, which stores authenticated ciphertext in a local SQLite database.
+The composition root supplies the private storage folder. An exclusive file lock prevents concurrent recovery or deletion.
+The `--private-results-dir` option selects another folder. Stub servers and tests use isolated storage by default.
+A separate key derives from the original caller key for each operation. The authentication hash cannot decrypt results.
+Only active operations retain derived keys in memory. The server stores no encryption keys on disk.
+Redacted metadata permits operation discovery after restart. Private errors use generic text in the disk record.
+Private downloads remain readable until explicit deletion or one hour after completion.
+The HTTP server checks expiry once per minute during its idle loop, using a monotonic deadline.
+The standard HTTP loop still wakes every half second. Requests check expiry before returning retained data.
+Startup also removes expired private results.
+
+Shared browser polling uses one timer after each completed request.
+Visible idle tabs poll every five seconds. A busy server or local run selects a 350-millisecond delay.
+Changes to local run controls trigger a status refresh before the server reports the new operation.
+Hidden tabs cancel the timer and refresh immediately when visible.
+The worker and model lifecycle keep their existing behavior.

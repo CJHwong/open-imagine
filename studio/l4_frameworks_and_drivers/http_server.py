@@ -2,7 +2,9 @@
 
 import json
 import threading
-from http.server import BaseHTTPRequestHandler
+import time
+from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -25,6 +27,22 @@ WEB = Path(__file__).with_name("web").resolve()
 # design among them, are not served.
 PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 MAX_VIDEO_REQUEST_BYTES = 64 * 1024 * 1024
+# A caller that sends this header owns private operations. The routes below are the
+# only ones that can keep that promise, so any other route refuses the header.
+PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
+PRIVATE_KEY_ELSEWHERE = f"{PRIVATE_KEY_HEADER} works only with POST /api/v1/operations."
+
+
+class StudioHTTPServer(ThreadingHTTPServer):
+    expire: Callable[[], None]
+    _next_expiry_check = 0.0
+
+    def service_actions(self) -> None:
+        now = time.monotonic()
+        if now < self._next_expiry_check:
+            return
+        self._next_expiry_check = now + 60
+        self.expire()
 
 
 def make_handler(
@@ -47,6 +65,8 @@ def make_handler(
             if path.startswith("/api/v1/"):
                 self._api_get(path)
                 return
+            if self._refused_private_key():
+                return
             if path == "/":
                 self._send(presenter.page(controller.page()))
             elif path == "/api/docs":
@@ -64,6 +84,32 @@ def make_handler(
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
+        def do_DELETE(self):
+            if not self._from_this_page():
+                self._send("forbidden", status=403, content_type="text/plain")
+                return
+            path = urlsplit(self.path).path
+            if not path.startswith("/api/v1/"):
+                if not self._refused_private_key():
+                    self._send_json({"error": "Not found"}, status=404)
+                return
+            if api is None:
+                self._send_json({"error": "The JSON API is not configured."}, status=503)
+                return
+            viewer, status = self._api_result(self._viewer)
+            if status != 200:
+                self._send_json(viewer, status=status)
+                return
+            suffix = path.removeprefix("/api/v1/operations/")
+            if path == "/api/v1/operations/" + suffix and suffix and "/" not in suffix:
+                body, status = self._api_result(lambda: api.delete_operation(suffix, viewer))
+                if status == 200:
+                    self._send_bytes(b"", status=204)
+                else:
+                    self._send_json(body, status=status)
+                return
+            self._send_json({"error": PRIVATE_KEY_ELSEWHERE if viewer else "Not found"}, status=400 if viewer else 404)
+
         def do_POST(self):
             if not self._from_this_page():
                 self._send("forbidden", status=403, content_type="text/plain")
@@ -71,6 +117,8 @@ def make_handler(
             path = urlsplit(self.path).path
             if path.startswith("/api/v1/"):
                 self._api_post(path)
+                return
+            if self._refused_private_key():
                 return
             if self.path in ("/voice/operations", "/image/operations", "/music/operations"):
                 self._start_operation(source="ui")
@@ -147,13 +195,17 @@ def make_handler(
             if api is None:
                 self._send_json({"error": "The JSON API is not configured."}, status=503)
                 return
+            viewer, status = self._api_result(self._viewer)
+            if status != 200:
+                self._send_json(viewer, status=status)
+                return
             readers = {
                 "/api/v1/openapi.json": api.openapi,
                 "/api/v1/studio": api.studio,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": api.progress,
-                "/api/v1/state": api.state,
+                "/api/v1/state": lambda: api.state(viewer),
                 "/api/v1/rewrite/state": api.rewrite_state,
             }
             if (
@@ -180,7 +232,7 @@ def make_handler(
                 self._send_json(body, status=status)
                 return
             if path.startswith("/api/v1/operations/"):
-                self._operation_get(path)
+                self._operation_get(path, viewer)
                 return
             reader = readers.get(path)
             if reader is None:
@@ -194,6 +246,14 @@ def make_handler(
             uses, and every failure comes back as JSON with the status that names it."""
             if api is None:
                 self._send_json({"error": "The JSON API is not configured."}, status=503)
+                return
+            viewer, status = self._api_result(self._viewer)
+            if status != 200:
+                self._send_json(viewer, status=status)
+                return
+            cancel = path.startswith("/api/v1/operations/") and path.endswith("/cancel")
+            if viewer and path != "/api/v1/operations" and not cancel:
+                self._send_json({"error": PRIVATE_KEY_ELSEWHERE}, status=400)
                 return
             if path == "/api/v1/audio/trim":
                 result, status = self._api_result(lambda: api.trim_audio(self._read_json()))
@@ -210,11 +270,11 @@ def make_handler(
                 self._run_voice()
                 return
             if path == "/api/v1/operations":
-                self._start_operation()
+                self._start_operation(owner=viewer)
                 return
-            if path.startswith("/api/v1/operations/") and path.endswith("/cancel"):
+            if cancel:
                 operation_id = path.removeprefix("/api/v1/operations/").removesuffix("/cancel")
-                body, status = self._api_result(lambda: api.cancel_operation(operation_id))
+                body, status = self._api_result(lambda: api.cancel_operation(operation_id, viewer))
             elif path in (
                 "/api/v1/images/backend",
                 "/api/v1/videos/backend",
@@ -265,13 +325,13 @@ def make_handler(
             else:
                 self._send_json(body, status=status)
 
-        def _start_operation(self, source="api") -> None:
+        def _start_operation(self, source="api", owner="") -> None:
             assert api is not None
             payload = {}
 
             def reserve():
                 payload.update(self._read_json())
-                return api.reserve(payload, source=source)
+                return api.reserve(payload, source=source, owner=owner)
 
             operation, status = self._api_result(reserve)
             if status != 200:
@@ -289,7 +349,7 @@ def make_handler(
                 # complete() records the failure for polling clients.
                 return
 
-        def _operation_get(self, path: str) -> None:
+        def _operation_get(self, path: str, viewer: str) -> None:
             assert api is not None
             suffix = path.removeprefix("/api/v1/operations/")
             if suffix.endswith("/metadata"):
@@ -297,9 +357,9 @@ def make_handler(
 
                 def read_metadata():
                     result = (
-                        api.item_result(*owner.split("/items/", 1))
+                        api.item_result(*owner.split("/items/", 1), viewer=viewer)
                         if "/items/" in owner
-                        else api.operation_result(owner)
+                        else api.operation_result(owner, viewer)
                     )
                     if not isinstance(result, MusicResult):
                         raise InvalidJob("This operation has no Music metadata.")
@@ -319,9 +379,9 @@ def make_handler(
                 operation_id = suffix.removesuffix("/result")
                 if "/items/" in operation_id:
                     owner, index = operation_id.split("/items/", 1)
-                    result, status = self._api_result(lambda: api.item_result(owner, index))
+                    result, status = self._api_result(lambda: api.item_result(owner, index, viewer))
                 else:
-                    result, status = self._api_result(lambda: api.operation_result(operation_id))
+                    result, status = self._api_result(lambda: api.operation_result(operation_id, viewer))
                 if isinstance(result, VideoResult):
                     self._send_video_result(result)
                 elif isinstance(result, (MusicResult, SpeechResult)):
@@ -329,8 +389,25 @@ def make_handler(
                 else:
                     self._send_json(result, status=status)
                 return
-            body, status = self._api_result(lambda: api.operation(suffix))
+            body, status = self._api_result(lambda: api.operation(suffix, viewer))
             self._send_json(body, status=status)
+
+        def _refused_private_key(self) -> bool:
+            """The page's own routes keep no owner. A key sent to one of them would start
+            shared work, so the route refuses the key and does not drop it."""
+            if self.headers.get(PRIVATE_KEY_HEADER) is None:
+                return False
+            self._send_json({"error": PRIVATE_KEY_ELSEWHERE}, status=400)
+            return True
+
+        def _viewer(self) -> str:
+            """Validate the caller's key. The API stores its digest and uses the key only for encryption."""
+            key = self.headers.get(PRIVATE_KEY_HEADER)
+            if key is None:
+                return ""
+            if not 32 <= len(key) <= 512 or not all("!" <= character <= "~" for character in key):
+                raise InvalidJob(f"{PRIVATE_KEY_HEADER} must be 32 to 512 visible ASCII characters.")
+            return key
 
         def _run_voice(self, kind="voice"):
             assert api is not None

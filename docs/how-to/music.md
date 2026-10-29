@@ -166,8 +166,10 @@ POST it to `/api/v1/operations` and poll the returned `status_url`. The successf
 returns WAV. `/api/v1/operations/{id}/metadata` returns the score, seed, sample rate, duration,
 effective configuration, timings and weight identities. Batches use the common `items` envelope;
 finished songs survive cancellation or later failure. Each item has a WAV result and a metadata
-route at `/api/v1/operations/{id}/items/{index}/metadata`. Download results promptly: retention lasts at most one hour and has limits of 32 operations and 256 MiB.
-Older results can expire sooner, and restarting the server clears history. `/api/v1/music/generate` returns synchronous WAV for Generate/Cover or JSON for Plan/Transcribe.
+route at `/api/v1/operations/{id}/items/{index}/metadata`. Download results promptly: public retention lasts at most ten minutes and has limits of 32 operations and 256 MiB.
+Older public results can expire sooner, and restarting the server clears public history.
+Private jobs use `/api/v1/operations` with `X-Studio-Private-Key` on every request, including metadata and result reads.
+Private results remain encrypted for one hour after completion and survive restart. `/api/v1/music/generate` returns synchronous WAV for Generate/Cover or JSON for Plan/Transcribe.
 
 ## Why it looks like this
 
