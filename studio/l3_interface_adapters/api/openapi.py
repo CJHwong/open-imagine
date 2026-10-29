@@ -64,8 +64,8 @@ Media placeholders are deliberately invalid and must be replaced. Never send exa
 
 The page and API share operation status, cancellation, model choices, and retained results.
 Keep settings and local gallery deletion remain browser preferences.
-Results expire after one hour, 32 operations, or 256 MiB, whichever limit comes first.
-A restart clears all retained server results.
+Public results expire after 10 minutes, 32 operations, or 256 MiB, whichever limit comes first.
+A restart clears public results. Private results remain encrypted on disk for one hour and support repeated downloads.
 """
 
 # A 1 x 1 PNG, so the reference examples in the schemas are real bytes a reader can send.
@@ -679,8 +679,8 @@ PRIVATE_KEY = {
     "required": False,
     "description": "Optional. 32 to 512 visible ASCII characters. An operation started with this key is private: "
     "its record keeps no prompt or settings, only the same key can read it, and each result or batch item "
-    "is handed over once and then forgotten. Other callers see only that the studio is busy. "
-    "A write accepts it only on POST /api/v1/operations and its cancel route. Any other write, and any route "
+    "stays encrypted on disk for one hour and supports repeated downloads. Other callers see only that the studio is busy. "
+    "A write accepts it on POST /api/v1/operations, its cancel route, and DELETE /api/v1/operations/{id}. Any other write, and any route "
     "outside /api/v1/, answers 400 with this header.",
     "schema": {"type": "string", "minLength": 32, "maxLength": 512},
 }
@@ -733,7 +733,7 @@ def operation_paths() -> dict[str, Any]:
             "parameters": [PRIVATE_KEY],
             "tags": ["studio"],
             "summary": "Start work and return immediately",
-            "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Results remain in memory for at most one hour, 32 operations, or 256 MiB, whichever limit comes first. The server retains no results after a restart. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
+            "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
             "requestBody": {
                 "required": True,
                 "content": {
@@ -752,6 +752,18 @@ def operation_paths() -> dict[str, Any]:
                 "409": _error("The studio is busy"),
             },
         }
+    }
+    paths["/api/v1/operations/{id}"]["delete"] = {
+        "operationId": "deletePrivateOperation",
+        "tags": ["studio"],
+        "parameters": [*identifier, PRIVATE_KEY],
+        "summary": "Delete a private operation and all its results",
+        "responses": {
+            "204": {"description": "The private operation and results were deleted"},
+            "400": _error("Public operations do not support deletion"),
+            "404": _error("The operation is missing or belongs to another key"),
+            "409": _error("Cancel the active operation before deleting it"),
+        },
     }
     paths["/api/v1/operations/{id}/cancel"] = {
         "post": {

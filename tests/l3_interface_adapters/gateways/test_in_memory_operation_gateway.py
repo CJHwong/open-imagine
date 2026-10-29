@@ -205,40 +205,71 @@ def test_model_controls_reserve_the_slot_and_release_it_after_errors():
     assert not operations.busy()
 
 
-def test_a_taken_result_is_handed_over_once_and_forgotten():
-    from studio.l1_entities.errors import OperationMissing
+def test_private_results_survive_restart_and_repeated_reads(tmp_path):
+    key = "private key"
+    operations = Operations(private_directory=tmp_path)
+    operation = operations.begin({"kind": "image", "owner": "digest"}, private_key=key)
+    result = {"images": [{"png_base64": "private pixels", "prompt": "private words"}]}
+    operations.finish(operation["id"], result)
+    assert operation["id"] not in operations._results
+    assert operation["id"] not in operations._private_keys
+    operations.close()
 
-    operations = Operations()
-    operation = operations.begin({"kind": "image", "owner": "digest"})
-    operations.finish(operation["id"], {"images": [{"png_base64": "x" * 4096}]})
-    before = operations._sizes[operation["id"]]
-
-    assert operations.take_result(operation["id"]) == {"images": [{"png_base64": "x" * 4096}]}
-
-    assert operations.get(operation["id"])["result_retained"] is False
-    assert operations._sizes[operation["id"]] < before - 4096
-    with pytest.raises(OperationMissing):
-        operations.take_result(operation["id"])
+    restored = Operations(private_directory=tmp_path)
+    assert restored.result(operation["id"], key) == result
+    assert restored.result(operation["id"], key) == result
+    assert restored.get(operation["id"])["result_retained"] is True
+    restored.close()
 
 
-def test_a_taken_batch_manifest_stays_readable_and_each_item_is_taken_once():
-    from studio.l1_entities.errors import OperationMissing
-
-    operations = Operations()
-    operation = operations.begin({"kind": "image", "owner": "digest", "batch_total": 2})
+def test_private_batch_items_survive_restart_and_repeated_reads(tmp_path):
+    operations = Operations(private_directory=tmp_path)
+    operation = operations.begin({"kind": "image", "owner": "digest", "batch_total": 2}, private_key="key")
     operations.retain(operation["id"], {"items": [], "batch_total": 2, "completed": 0})
     operations.batch_completed(operation["id"], {"images": ["one"]}, {"index": 1})
     manifest = operations.batch_completed(operation["id"], {"images": ["two"]}, {"index": 2})
     operations.finish(operation["id"], manifest)
+    operations.close()
+    restored = Operations(private_directory=tmp_path)
+    assert restored.result(operation["id"], "key") == manifest
+    assert restored.item_result(operation["id"], 2, "key") == {"images": ["two"]}
+    assert restored.item_result(operation["id"], 2, "key") == {"images": ["two"]}
+    restored.close()
 
-    assert operations.take_result(operation["id"]) == manifest
-    assert operations.take_result(operation["id"]) == manifest
-    assert operations.take_item_result(operation["id"], 2) == {"images": ["two"]}
+
+def test_private_expiry_is_one_hour_and_public_expiry_is_ten_minutes(tmp_path):
+    from studio.l1_entities.errors import OperationMissing
+
+    now = [0.0]
+    operations = Operations(private_directory=tmp_path, clock=lambda: now[0], max_count=1, max_bytes=4096)
+    private = operations.begin({"kind": "image", "owner": "digest"}, private_key="key")
+    operations.finish(private["id"], {"images": ["secret"]})
+    public = operations.begin({"kind": "image"})
+    operations.finish(public["id"], {"images": []})
+    now[0] = 601
+    operations.expire()
+    assert public["id"] not in operations._records
+    assert operations.result(private["id"], "key") == {"images": ["secret"]}
+    now[0] = 3601
+    operations.expire()
+    assert operations._private_results.records() == []
     with pytest.raises(OperationMissing):
-        operations.take_item_result(operation["id"], 2)
-    with pytest.raises(OperationMissing):
-        operations.item_result(operation["id"], 2)
-    assert operations.item_result(operation["id"], 1) == {"images": ["one"]}
+        operations.result(private["id"], "key")
+    operations.close()
+
+
+def test_restart_marks_interrupted_private_operations_failed(tmp_path):
+    operations = Operations(private_directory=tmp_path)
+    operation = operations.begin({"kind": "image", "owner": "digest"}, private_key="key")
+    with pytest.raises(BackendBusy, match="before deleting"):
+        operations.delete(operation["id"])
+    operations.close()
+    restored = Operations(private_directory=tmp_path)
+    assert restored.get(operation["id"])["status"] == "failed"
+    assert not restored.busy()
+    restored.delete(operation["id"])
+    assert restored._private_results.records() == []
+    restored.close()
 
 
 @pytest.mark.parametrize("owner,prompt", [("", "Hello there"), ("digest", "")])
@@ -246,7 +277,64 @@ def test_a_private_speech_record_keeps_no_spoken_text(owner, prompt):
     from studio.l1_entities.voice_job import SpeechResult
 
     operations = Operations()
-    operation = operations.begin({"kind": "voice", "prompt": "", "owner": owner})
+    operation = operations.begin({"kind": "voice", "prompt": "", "owner": owner}, private_key="key" if owner else "")
     operations.finish(operation["id"], SpeechResult(b"wav", 1.0, 24000, 7, 4, text="Hello there"))
 
     assert operations.get(operation["id"])["prompt"] == prompt
+
+
+def test_default_retention_expires_ten_minutes_after_completion():
+    from studio.l1_entities.errors import OperationMissing
+
+    now = [0.0]
+    operations = Operations(clock=lambda: now[0])
+    operation = operations.begin({"kind": "image"})
+    now[0] = 900.0
+    assert operations.get(operation["id"])["status"] == "running"
+    operations.finish(operation["id"], {"images": []})
+    now[0] = 1499.0
+    assert operations.result(operation["id"]) == {"images": []}
+    now[0] = 1501.0
+    with pytest.raises(OperationMissing):
+        operations.result(operation["id"])
+
+
+def test_a_private_operation_requires_the_original_key():
+    from studio.l1_entities.errors import InvalidJob
+
+    operations = Operations()
+    with pytest.raises(InvalidJob, match="original key"):
+        operations.begin({"kind": "image", "owner": "digest"})
+    assert not operations.busy()
+
+
+def test_a_failed_disk_reservation_leaves_the_studio_free(monkeypatch):
+    operations = Operations()
+
+    def fail_write(record):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(operations._private_results, "save_record", fail_write)
+    with pytest.raises(OSError, match="disk full"):
+        operations.begin({"kind": "image", "owner": "digest"}, private_key="key")
+    assert not operations.busy()
+    assert operations._records == {} and operations._private_keys == {}
+
+
+def test_private_item_zero_cannot_read_the_main_result():
+    from studio.l1_entities.errors import OperationMissing
+
+    operations = Operations()
+    operation = operations.begin({"kind": "image", "owner": "digest"}, private_key="key")
+    operations.finish(operation["id"], {"images": ["private"]})
+    with pytest.raises(OperationMissing):
+        operations.item_result(operation["id"], 0, "key")
+
+
+def test_a_private_batch_can_publish_its_first_item_without_a_manifest():
+    operations = Operations()
+    operation = operations.begin({"kind": "image", "owner": "digest", "batch_total": 1}, private_key="key")
+    manifest = operations.batch_completed(operation["id"], {"images": ["one"]}, {"index": 1})
+    assert manifest["completed"] == 1
+    assert operations.result(operation["id"], "key") == manifest
+    assert operations.item_result(operation["id"], 1, "key") == {"images": ["one"]}

@@ -2,16 +2,17 @@
 
 Working rules for a coding agent in this repo. The layers, the naming rule and the wiring of a backend are in [studio/ARCHITECTURE.md](studio/ARCHITECTURE.md). This file holds the method: what to prove, and how.
 
-## Private operations are never recorded
+## Private operations keep no plaintext on disk
 
 A caller that sends `X-Studio-Private-Key` owns its operations. This is a fixed rule, not a default.
 
-1. Do not store, log or print the prompt, settings, references or results of a private operation.
+1. Do not store plaintext, log or print the prompt, settings, references or results of a private operation.
    A run still makes some copies on this machine: scratch files, the LTX command line and the Qwen
    prompt cache. API.md lists them under "What a run still holds". Do not add a copy. Keep that list
-   true when you change an engine.
+   true when you change an engine. Encrypted results are the permitted storage copy.
 2. Do not show a private operation to a caller without its key: not in `/api/v1/state`, not in a status, result or cancel route, and not on the page. Answer `404`, the same as for a missing operation.
-3. Hand each private result and batch item over once, then delete it.
+3. Encrypt private results on disk with a key derived from the caller's original key.
+   Keep downloads readable until explicit deletion or one hour after completion. Never store the encryption key.
 4. Do not add a route that accepts the key until it keeps rules 1 to 3. Until then, the route refuses the header.
 5. If a task seems to need a private caller's prompt, stop and ask the user.
 

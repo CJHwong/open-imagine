@@ -73,10 +73,12 @@ def served():
     server.server_close()
 
 
-def call(server, path, body=None, **headers):
+def call(server, path, body=None, method=None, **headers):
     """One request, answered as (status, content type, body)."""
     url = f"http://127.0.0.1:{server.server_address[1]}{path}"
-    request = urllib.request.Request(url, data=body, headers=headers, method="POST" if body is not None else "GET")
+    request = urllib.request.Request(
+        url, data=body, headers=headers, method=method or ("POST" if body is not None else "GET")
+    )
     try:
         with urllib.request.urlopen(request, timeout=30) as answer:
             return answer.status, answer.headers["Content-Type"], answer.read().decode()
@@ -709,10 +711,10 @@ def test_every_documented_path_is_a_route_this_server_serves(served):
         backend_id = "fake" if "/images/" in path else "video-fake"
         path = path.replace("{id}", backend_id if "/backends/" in path else operation_id)
         for method in operations:
-            if method == "get":
-                status, _, _ = call(served[1], path)
-            else:
+            if method == "post":
                 status, _, _ = post_json(served[1], path)
+            else:
+                status, _, _ = call(served[1], path, method=method.upper())
             assert status != 404, f"{method.upper()} {path} is documented but not served"
 
 
@@ -1405,7 +1407,7 @@ def post_private(server, path, payload):
     return call(server, path, json.dumps(payload).encode(), **{"Content-Type": "application/json", **PRIVATE})
 
 
-def test_a_private_operation_answers_only_its_key_and_its_result_only_once(served):
+def test_a_private_operation_answers_only_its_key_and_keeps_downloads_readable(served):
     server = served[1]
     status, _, body = post_private(
         server, "/api/v1/operations", {"kind": "image", "prompt": "pear", "seed": 12, "client_id": "rx-1-1"}
@@ -1428,7 +1430,7 @@ def test_a_private_operation_answers_only_its_key_and_its_result_only_once(serve
 
     status, _, body = call(server, finished["result_url"], **PRIVATE)
     assert status == 200 and json.loads(body)["images"][0]["seed"] == 12
-    assert call(server, finished["result_url"], **PRIVATE)[0] == 404
+    assert call(server, finished["result_url"], **PRIVATE)[0] == 200
     assert post_private(server, "/api/v1/operations/" + operation["id"] + "/cancel", {})[0] == 409
 
 
@@ -1474,3 +1476,78 @@ def test_a_private_key_is_refused_on_the_pages_own_routes(served, method, path):
     assert status == 400 and "only with POST /api/v1/operations" in json.loads(answer)["error"]
     assert "pear" not in answer
     assert json.loads(call(server, "/api/v1/state")[2])["operations"] == []
+
+
+def test_only_the_private_owner_can_delete_a_completed_operation(served):
+    server = served[1]
+    _, _, body = post_private(server, "/api/v1/operations", {"kind": "image", "prompt": "pear"})
+    operation = wait_for(server, json.loads(body)["id"], PRIVATE)
+    path = operation["status_url"]
+    assert call(server, path, method="DELETE")[0] == 404
+    assert call(server, path, method="DELETE", **{"X-Studio-Private-Key": "other" * 10})[0] == 404
+    assert call(server, path, method="DELETE", **PRIVATE)[0] == 204
+    assert call(server, operation["result_url"], **PRIVATE)[0] == 404
+
+
+def test_active_private_operations_require_cancellation_before_deletion(served):
+    import hashlib
+
+    studio, server = served[:2]
+    record = studio.operations.begin(
+        {"kind": "image", "owner": hashlib.sha256(PRIVATE["X-Studio-Private-Key"].encode()).hexdigest()},
+        private_key=PRIVATE["X-Studio-Private-Key"],
+    )
+    assert call(server, "/api/v1/operations/" + record["id"], method="DELETE", **PRIVATE)[0] == 409
+    studio.operations.finish(record["id"], {"images": []})
+
+
+def test_public_operation_deletion_is_refused(served):
+    studio, server = served[:2]
+    record = studio.operations.begin({"kind": "image"})
+    studio.operations.finish(record["id"], {"images": []})
+    assert call(server, "/api/v1/operations/" + record["id"], method="DELETE")[0] == 400
+
+
+@pytest.mark.parametrize(
+    "path,headers,status",
+    [
+        ("/missing", {}, 404),
+        ("/missing", PRIVATE, 400),
+        ("/api/v1/missing", {}, 404),
+        ("/api/v1/missing", PRIVATE, 400),
+        ("/api/v1/operations/", {}, 404),
+        ("/api/v1/operations/nested/path", {}, 404),
+        ("/api/v1/operations/missing", {"X-Studio-Private-Key": "short"}, 400),
+        ("/api/v1/operations/missing", {"Origin": "http://evil.example"}, 403),
+    ],
+)
+def test_delete_refuses_invalid_routes_keys_and_origins(served, path, headers, status):
+    assert call(served[1], path, method="DELETE", **headers)[0] == status
+
+
+def test_delete_without_an_api_reports_the_missing_configuration():
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None))
+    answers = []
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            self.path = "/api/v1/operations/missing"
+
+        def _from_this_page(self):
+            return True
+
+        def _send_json(self, payload, status=200):
+            answers.append((payload, status))
+
+    Stub().do_DELETE()
+    assert answers == [({"error": "The JSON API is not configured."}, 503)]
+
+
+def test_the_server_checks_expiry_between_requests():
+    from unittest.mock import Mock
+
+    server = http_server.StudioHTTPServer(("127.0.0.1", 0), cast(Any, None))
+    server.expire = Mock()
+    server.service_actions()
+    server.expire.assert_called_once_with()
+    server.server_close()

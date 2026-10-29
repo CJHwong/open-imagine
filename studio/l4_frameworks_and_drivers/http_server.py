@@ -1,9 +1,9 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
-import hashlib
 import json
 import threading
-from http.server import BaseHTTPRequestHandler
+from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -29,6 +29,13 @@ MAX_VIDEO_REQUEST_BYTES = 64 * 1024 * 1024
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
 PRIVATE_KEY_ELSEWHERE = f"{PRIVATE_KEY_HEADER} works only with POST /api/v1/operations."
+
+
+class StudioHTTPServer(ThreadingHTTPServer):
+    expire: Callable[[], None]
+
+    def service_actions(self) -> None:
+        self.expire()
 
 
 def make_handler(
@@ -69,6 +76,32 @@ def make_handler(
                 self._send_page_asset(self.path.removeprefix("/page/"))
             else:
                 self._send("not found", status=404, content_type="text/plain")
+
+        def do_DELETE(self):
+            if not self._from_this_page():
+                self._send("forbidden", status=403, content_type="text/plain")
+                return
+            path = urlsplit(self.path).path
+            if not path.startswith("/api/v1/"):
+                if not self._refused_private_key():
+                    self._send_json({"error": "Not found"}, status=404)
+                return
+            if api is None:
+                self._send_json({"error": "The JSON API is not configured."}, status=503)
+                return
+            viewer, status = self._api_result(self._viewer)
+            if status != 200:
+                self._send_json(viewer, status=status)
+                return
+            suffix = path.removeprefix("/api/v1/operations/")
+            if path == "/api/v1/operations/" + suffix and suffix and "/" not in suffix:
+                body, status = self._api_result(lambda: api.delete_operation(suffix, viewer))
+                if status == 200:
+                    self._send_bytes(b"", status=204)
+                else:
+                    self._send_json(body, status=status)
+                return
+            self._send_json({"error": PRIVATE_KEY_ELSEWHERE if viewer else "Not found"}, status=400 if viewer else 404)
 
         def do_POST(self):
             if not self._from_this_page():
@@ -304,14 +337,13 @@ def make_handler(
             return True
 
         def _viewer(self) -> str:
-            """The private key as its SHA-256, or "" without one. The key itself is
-            never kept, so a memory dump of the studio cannot read a caller's records."""
+            """Validate the caller's key. The API stores its digest and uses the key only for encryption."""
             key = self.headers.get(PRIVATE_KEY_HEADER)
             if key is None:
                 return ""
             if not 32 <= len(key) <= 512 or not all("!" <= character <= "~" for character in key):
                 raise InvalidJob(f"{PRIVATE_KEY_HEADER} must be 32 to 512 visible ASCII characters.")
-            return hashlib.sha256(key.encode("ascii")).hexdigest()
+            return key
 
         def _run_voice(self):
             assert api is not None

@@ -1115,7 +1115,7 @@ def test_only_the_owner_sees_a_private_operation_and_others_see_a_busy_studio():
     assert api.operation(operation["id"], OWNER)["status"] == "running"
 
 
-def test_a_private_result_is_handed_to_its_owner_once():
+def test_a_private_result_remains_readable_until_its_owner_deletes_it():
     from studio.l1_entities.errors import OperationMissing
 
     api = api_for(FakeController(run=lambda _: response()))
@@ -1124,7 +1124,9 @@ def test_a_private_result_is_handed_to_its_owner_once():
     api.execute_operation(operation, payload)
 
     assert api.operation_result(operation["id"], OWNER)["images"][0]["prompt"] == "a pear"
-    assert api.operation(operation["id"], OWNER)["result_url"] is None
+    assert api.operation(operation["id"], OWNER)["result_url"] is not None
+    assert api.operation_result(operation["id"], OWNER)["images"][0]["prompt"] == "a pear"
+    api.delete_operation(operation["id"], OWNER)
     with pytest.raises(OperationMissing):
         api.operation_result(operation["id"], OWNER)
     assert api.state()["operations"] == [] and api.state()["busy"] is False
@@ -1149,8 +1151,7 @@ def test_the_owner_can_stop_its_private_run():
 
 
 @pytest.mark.parametrize("kind", ["image", "voice"])
-def test_a_private_batch_lists_no_words_and_hands_each_item_over_once(kind):
-    from studio.l1_entities.errors import OperationMissing
+def test_a_private_batch_lists_no_words_and_keeps_each_item_readable(kind):
     from studio.l1_entities.voice_job import SpeechResult
 
     class SpeakingVoice(FakeVoice):
@@ -1167,6 +1168,12 @@ def test_a_private_batch_lists_no_words_and_hands_each_item_over_once(kind):
     assert api.operation_result(operation["id"], OWNER) == manifest
     assert api.operation_result(operation["id"], OWNER) == manifest
     assert api.item_result(operation["id"], "1", OWNER)
-    with pytest.raises(OperationMissing):
-        api.item_result(operation["id"], "1", OWNER)
+    assert api.item_result(operation["id"], "1", OWNER)
     assert api.operation(operation["id"], OWNER)["prompt"] == ""
+
+
+def test_public_operations_do_not_support_private_deletion():
+    api = api_for(FakeController())
+    operation = api.reserve({"kind": "image"})
+    with pytest.raises(InvalidJob, match="Only private"):
+        api.delete_operation(operation["id"])

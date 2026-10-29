@@ -11,10 +11,11 @@ this reads that chain to its end and answers with every image in one document.
 
 A caller that sends a private key owns its operations. The record keeps none of its
 words: it holds no prompt and no settings, and only that key can read it. Its result
-is handed over once and then forgotten. The run itself still needs the words, and
+stays encrypted on disk for one hour and supports repeated downloads. The run itself still needs the words, and
 API.md lists the copies that a run makes.
 """
 
+import hashlib
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -162,8 +163,9 @@ class JsonApi:
                     "settings": {} if owner else settings,
                     "client_id": payload.get("client_id", ""),
                     "library_id": "" if owner else payload.get("library_id", ""),
-                    "owner": owner,
-                }
+                    "owner": owner_digest(owner),
+                },
+                private_key=owner,
             )
         )
 
@@ -231,9 +233,13 @@ class JsonApi:
         return operation
 
     def operation_result(self, operation_id: str, viewer: str = ""):
-        if self._readable(operation_id, viewer).get("owner"):
-            return self._operations.take_result(operation_id)
-        return self._operations.result(operation_id)
+        self._readable(operation_id, viewer)
+        return self._operations.result(operation_id, private_key=viewer)
+
+    def delete_operation(self, operation_id: str, viewer: str = "") -> None:
+        if not self._readable(operation_id, viewer).get("owner"):
+            raise InvalidJob("Only private operations support deletion.")
+        self._operations.delete(operation_id)
 
     def state(self, viewer: str = "") -> dict[str, Any]:
         """`busy` stays true while a private operation that this viewer cannot see runs."""
@@ -313,9 +319,8 @@ class JsonApi:
             if not index.isdecimal():
                 raise InvalidJob("The batch item index must be a positive integer.")
             index = int(index)
-        if self._readable(operation_id, viewer).get("owner"):
-            return self._operations.take_item_result(operation_id, index)
-        return self._operations.item_result(operation_id, index)
+        self._readable(operation_id, viewer)
+        return self._operations.item_result(operation_id, index, private_key=viewer)
 
     def _batch(self, operation, body):
         items = self._batches.execute({**body, "kind": operation["kind"], "backend": operation["backend"]})
@@ -533,4 +538,8 @@ class JsonApi:
 
 
 def visible(record: Mapping[str, Any], viewer: str) -> bool:
-    return record.get("owner", "") in ("", viewer)
+    return record.get("owner", "") in ("", owner_digest(viewer))
+
+
+def owner_digest(private_key: str) -> str:
+    return hashlib.sha256(private_key.encode("ascii")).hexdigest() if private_key else ""
