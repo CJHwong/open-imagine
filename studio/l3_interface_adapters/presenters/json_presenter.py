@@ -112,6 +112,10 @@ def operation_document(record: dict[str, Any]) -> dict[str, Any]:
     """Routes belong to the HTTP view, not the shared operation store."""
     document = dict(record)
     retained = document.pop("result_retained")
+    # The owner is the digest of a caller's key. A document says only that one exists,
+    # and a shared record keeps its old shape.
+    if document.pop("owner", ""):
+        document["private"] = True
     operation_id = document["id"]
     document["status_url"] = f"/api/v1/operations/{operation_id}"
     document["result_url"] = f"/api/v1/operations/{operation_id}/result" if retained else None

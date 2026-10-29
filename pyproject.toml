@@ -20,6 +20,7 @@ dependencies = [
     # this process and needs no child; the import is deferred to the first
     # rewrite, so a studio that never rewrites never pays for it.
     "mlx-vlm>=0.7.3",
+    "cryptography>=46",
 ]
 
 [project.scripts]

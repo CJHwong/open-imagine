@@ -45,9 +45,14 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     """Ctrl-C is the documented way to stop, so it has to return the model and
     close the socket before the process ends."""
     server = Mock()
-    server.serve_forever.side_effect = KeyboardInterrupt
+
+    def serve():
+        server.expire()
+        raise KeyboardInterrupt
+
+    server.serve_forever.side_effect = serve
     server_class = Mock(return_value=server)
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", server_class)
+    monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
     argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8931")
 
     assert entry.main() is None
@@ -66,7 +71,7 @@ def test_an_allowed_origin_reaches_the_handler_in_the_browser_form(tmp_path, mon
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     server_class = Mock(return_value=server)
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", server_class)
+    monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
     proxy = "https://my-mac.example.ts.net"
     argv(
         monkeypatch,
@@ -132,7 +137,7 @@ def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeyp
     the page looks merely busy. The wait has to be visible before the button is pressed."""
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(return_value=server))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
     argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)), "--port", "8932")
 
     assert entry.main() is None
@@ -175,7 +180,7 @@ def test_a_machine_with_no_engine_exits_before_the_port_is_bound(tmp_path, monke
     the port and never makes the user wait for a load that cannot happen."""
     server_class = Mock()
     monkeypatch.setattr(engines, "mlx_available", lambda: False)
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", server_class)
+    monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
     argv(monkeypatch, "--config", str(settings_file(tmp_path)))
 
     with pytest.raises(SystemExit) as exits:
@@ -189,7 +194,7 @@ def test_a_machine_with_no_engine_exits_before_the_port_is_bound(tmp_path, monke
 
 def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkeypatch):
     """A taken port fails before the page starts, and the message names the fix."""
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(side_effect=OSError(48, "Address already in use")))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(side_effect=OSError(48, "Address already in use")))
     argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8765")
 
     with pytest.raises(SystemExit) as exits:
@@ -202,11 +207,11 @@ def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkey
 
 def test_startup_does_not_load_or_prewarm_a_model(tmp_path, monkeypatch, capsys):
     """The server starts without model memory; the first run loads its model."""
-    studio = SimpleNamespace(handler=Mock(), shutdown=Mock())
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock())
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
-    monkeypatch.setattr(entry, "ThreadingHTTPServer", Mock(return_value=server))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
     argv(monkeypatch, "--config", str(settings_file(tmp_path)))
 
     assert entry.main() is None
@@ -330,3 +335,20 @@ def test_a_named_list_of_backends_is_what_the_page_offers(tmp_path):
 
     assert load_config(path).visible_backends == ("qwen21",)
     assert load_config(path, visible=("flux2", "qwen21")).visible_backends == ("flux2", "qwen21")
+
+
+def test_startup_reports_private_storage_ownership_errors(tmp_path, monkeypatch):
+    from studio.l1_entities.errors import StudioError
+
+    monkeypatch.setattr(entry, "create_studio", Mock(side_effect=StudioError("private storage already in use")))
+    argv(
+        monkeypatch,
+        "--stub",
+        "--config",
+        str(settings_file(tmp_path)),
+        "--private-results-dir",
+        str(tmp_path / "private"),
+    )
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
+    assert exit_message(exits) == "Cannot start the studio: private storage already in use"

@@ -129,3 +129,12 @@ limits the simpler `count` path and may be lower (4 on the Qwen backends; confir
 `each_reference`, that path's limit also depends on the reference count. It is not a promise of GPU
 concurrency. Confirm live limits. Batch submission does not guarantee simultaneous execution or a
 particular speedup. Keep dependent hero-to-variation edits in later operations.
+
+## Private results
+
+If the work must stay private, check `private_operations: true` in `/api/v1/studio` before submitting it.
+Use a random `X-Studio-Private-Key` of 32 to 512 visible ASCII characters on the operation request and every follow-up.
+Private results stay encrypted on the studio machine for one hour after completion and survive server restart.
+Downloads support retries until expiry or `DELETE /api/v1/operations/{id}` with the same key.
+The page never imports private results. Public results stay in server memory for ten minutes and disappear on restart.
+Save required media locally before expiry. Do not print the private key or put it in a URL.

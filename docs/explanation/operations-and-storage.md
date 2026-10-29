@@ -27,6 +27,11 @@ and requested again when a busy tab becomes visible. Browser permission, power s
 secure-context requirements can prevent acquisition; generation does not depend on it.
 
 The server retains recent metadata and outputs in memory for API clients and open tabs.
-Results expire after one hour, 32 operations, or 256 MiB, whichever limit comes first.
-A restart clears them. API results exist before the page opens; opening a page is not required to save them in server memory.
+Public results expire after 10 minutes, 32 operations, or 256 MiB, whichever limit comes first.
+A restart clears public results. API results exist before the page opens; opening a page is not required to save them in server memory.
 Download outputs you need to keep beyond these limits.
+
+Private operations store encrypted results in `~/.local/share/open-imagine/private-results/private-results.sqlite3`.
+The original caller key permits repeated downloads until deletion or one hour after completion.
+Completed private results survive restart. Public requests never show private operations.
+The server removes expired results while idle and on startup.
