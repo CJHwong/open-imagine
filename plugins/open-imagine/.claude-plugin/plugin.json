@@ -1,7 +1,7 @@
 {
   "name": "open-imagine",
   "displayName": "Open Imagine",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
   "author": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
   "homepage": "https://github.com/CJHwong/open-imagine",
