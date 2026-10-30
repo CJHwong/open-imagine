@@ -5,6 +5,7 @@ uv run --with playwright python tests/e2e/verify_media_studio.py <port>
 """
 
 import base64
+import contextlib
 import json
 import re
 import shutil
@@ -753,12 +754,19 @@ with sync_playwright() as playwright:
         page.get_attribute("#video-rewrite-toggle", "title"),
     )
     page.click("#video-rewrite-toggle")
-    page.wait_for_timeout(200)
+    # The panel is a poll behind the press, and the label moves from preparing to
+    # rewriting as the rewriter starts. Wait for either, rather than sleep into a gap.
+    page.wait_for_function(
+        "() => !document.getElementById('shared-operation').hidden"
+        " && /^(Preparing prompt rewrite|Rewriting prompt)$/"
+        ".test(document.getElementById('shared-operation-label').textContent)",
+        timeout=5000,
+    )
     check(
         "a press shows one verb and borrows the readout",
         page.inner_text("#video-rewrite-toggle") == "Rewrite"
         and page.locator("#shared-operation").is_visible()
-        and "Preparing" in page.inner_text("#shared-operation-label"),
+        and page.inner_text("#shared-operation-label") in ("Preparing prompt rewrite", "Rewriting prompt"),
         f"{page.inner_text('#video-rewrite-toggle')!r}, {page.inner_text('#shared-operation-label')!r}",
     )
     page.locator("#video-rewrite-toggle .rewrite-cancel").wait_for(state="visible")
@@ -1220,54 +1228,24 @@ with sync_playwright() as playwright:
         ),
         f"restored {resume_time:.2f}s",
     )
-    expected_capture = page.evaluate(
-        """async () => {
-          const studio = document.getElementById('video-studio');
-          const video = document.querySelector('#video-preview');
-          const duration = video.duration;
-          const capturedTime = duration * 0.2;
-          const laterTime = duration * 0.8;
-          video.pause();
-          video.currentTime = capturedTime;
-          await new Promise(resolve => video.addEventListener('seeked', resolve, {once: true}));
-          const originalToBlob = HTMLCanvasElement.prototype.toBlob;
-          HTMLCanvasElement.prototype.toBlob = function (callback, type) {
-            const canvas = this;
-            HTMLCanvasElement.prototype.toBlob = originalToBlob;
-            video.currentTime = laterTime;
-            video.addEventListener('seeked', () => originalToBlob.call(canvas, callback, type), {once: true});
-          };
-          const tenths = Math.floor(capturedTime * 10);
-          const stamp = String(Math.floor(tenths / 600)).padStart(2, '0') + ':'
-            + String(Math.floor(tenths / 10) % 60).padStart(2, '0') + '.' + tenths % 10;
-          return {
-            frame: Math.round(capturedTime / duration * Math.max(0, studio.frameLimit - 1)),
-            name: studio.selectedClip().name + ' frame ' + stamp,
-          };
-        }"""
-    )
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Add this frame as a reference").click()
-    page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
-    captured_frame_index = page.evaluate("() => document.getElementById('video-studio').imageReferences[1].frameIndex")
+    # Every Edit mode declares max_references=0
+    # (studio/l3_interface_adapters/gateways/video/shared/capabilities.py:332), so the
+    # capture is refused and the run's own reference stays the only one. The same frame
+    # still reaches Image through its own action below.
+    refusal = page.get_by_text("This mode takes no image references.", exact=True)
+    with contextlib.suppress(PlaywrightTimeoutError):
+        refusal.wait_for(state="visible", timeout=5000)
     check(
-        "captured pixels and frame metadata use the same source time",
-        captured_frame_index == expected_capture["frame"]
-        and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title")
-        == expected_capture["name"],
-        f"expected {expected_capture}, got frame {captured_frame_index}",
-    )
-    check(
-        "the player action adds a source frame at its output time",
-        captured_frame_index == expected_capture["frame"]
-        and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title")
-        == expected_capture["name"],
-        f"frame {captured_frame_index}",
+        "an Edit mode with no reference slot refuses a captured frame",
+        refusal.count() == 1 and page.locator("#video-source-panel .video-reference").count() == 1,
+        f"{page.locator('#video-source-panel .video-reference').count()} references",
     )
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Use current frame in Image").click()
     page.wait_for_function("() => document.querySelector('#media-image-mode').getAttribute('aria-pressed') === 'true'")
-    page.locator("#thumbs img[alt^='demo.webm frame']").wait_for(state="visible", timeout=10000)
+    page.locator("#thumbs img").first.wait_for(state="visible", timeout=10000)
     check(
         "the player frame action becomes an image reference",
         page.locator("#thumbs img").count() == 1
@@ -1300,7 +1278,7 @@ with sync_playwright() as playwright:
         and page.locator("#media-video-mode").get_attribute("aria-pressed") == "true"
         and page.locator("#video-gallery .video-clip").count() == 0
         and page.locator("#video-source-list .video-source").count() == 0
-        and page.locator("#video-source-panel .video-reference").count() == 3
+        and page.locator("#video-source-panel .video-reference").count() == 2
         and page.evaluate("() => (document.querySelector('#video-modes input:checked') || {}).value") == "generate"
         and "did not load as a video reference" not in page.locator("#toasts").inner_text(),
         f"video mode: {page.locator('#media-video-mode').get_attribute('aria-pressed')}, "
@@ -1488,7 +1466,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(150)
     check(
         "async clipboard and file reads cannot add references after a render starts",
-        page.locator("#video-source-panel .video-reference").count() == 3
+        page.locator("#video-source-panel .video-reference").count() == 2
         and page.locator("#video-source-panel").get_by_text("late-clipboard.png").count() == 0
         and page.locator("#video-source-panel").get_by_text("late-reader.png").count() == 0,
         f"references: {page.locator('#video-source-panel .video-reference').count()}",
@@ -1500,7 +1478,7 @@ with sync_playwright() as playwright:
         "clipboard input cannot change references during a locked render",
         blocked_paste_prevented
         and blocked_shortcut_prevented
-        and page.locator("#video-source-panel .video-reference").count() == 3
+        and page.locator("#video-source-panel .video-reference").count() == 2
         and page.locator("#video-source-panel").get_by_text("late-paste.png").count() == 0
         and page.locator("#video-source-panel").get_by_text("late-shortcut.png").count() == 0,
         f"references: {page.locator('#video-source-panel .video-reference').count()}",
@@ -1528,7 +1506,7 @@ with sync_playwright() as playwright:
         "cancel stops the request, keeps inputs, and removes the pending gallery tile",
         cancel_retained["requested"]
         and cancel_retained["prompt"]
-        and cancel_retained["references"] == 3
+        and cancel_retained["references"] == 2
         and cancel_retained["pending"] == 0
         and cancel_retained["released"]
         and cancel_retained["panelReleased"],
@@ -1576,11 +1554,11 @@ with sync_playwright() as playwright:
         request.get("num_frames") == 241
         and request.get("width") == 384
         and request.get("height") == 640
-        and len(request.get("references", [])) == 3
+        and len(request.get("references", [])) == 2
         and request.get("seed") is None
         and isinstance(request.get("request_id"), str)
         and len(request.get("request_id", "")) >= 16
-        and request["references"][1].get("frame_index") == sent_frame == captured_frame_index
+        and request["references"][1].get("frame_index") == duration_reference["frameIndex"]
         and request["references"][1].get("strength") == sent_strength == 1
         and all(
             0 <= reference.get("frame_index", -1) < request.get("num_frames", 0)
@@ -1638,7 +1616,7 @@ with sync_playwright() as playwright:
         and re.search(r"241 frames", page.locator("#video-output-details").inner_text()) is not None
         and seed_match is not None
         and 0 <= int(seed_match.group(1)) <= 4294967295
-        and "3 image references" in page.locator("#video-output-details").inner_text()
+        and "2 image references" in page.locator("#video-output-details").inner_text()
         and "Request time" in page.locator("#video-output-details").inner_text()
         and page.locator("#video-output-details.stage-bar .prompt-line").count() == 1
         and page.locator("#video-output-details .facts").count() == 1
@@ -1694,12 +1672,21 @@ with sync_playwright() as playwright:
             }
         ),
     )
+    # The sheet is modal, so nothing behind it can be clicked while it is open. Escape is
+    # the way back to the form, and it returns focus to the prompt it came from.
+    page.keyboard.press("Escape")
+    prompt_sheet.wait_for(state="detached")
+    check(
+        "Escape closes the prompt sheet and returns focus to the prompt",
+        page.locator("#video-prompt-sheet").count() == 0
+        and page.evaluate("() => document.activeElement === document.querySelector('.video-output-prompt')"),
+    )
     # The source row lives in Edit now: the switch goes there for this pair, then back to
     # Generate, which the checks below read.
     page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
     page.locator("#video-source-list .video-source").first.click()
     check(
-        "selecting another clip closes the old prompt sheet",
+        "selecting another clip shows its details",
         page.locator("#video-prompt-sheet").count() == 0
         and "demo.webm" in page.locator("#video-output-details").inner_text(),
     )
@@ -1779,12 +1766,14 @@ with sync_playwright() as playwright:
         }""",
         {"videoBytes": list(video_bytes)},
     )
+    # A video clip draws a 16-frame contact sheet in its thumb, not an img
+    # (components/video-gallery-preview.js:render). A still poster can appear first.
     thumbnail_ready = False
     try:
         page.wait_for_function(
-            "() => { const thumbnail = document.querySelector('#video-gallery .video-clip-thumb img');"
-            "return thumbnail && thumbnail.complete && thumbnail.naturalWidth > 0; }",
-            timeout=10000,
+            "() => { const sheet = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');"
+            "return Boolean(sheet && (sheet.getAttribute('href') || '').startsWith('blob:')); }",
+            timeout=15000,
         )
         thumbnail_ready = True
     except PlaywrightTimeoutError:
@@ -1878,11 +1867,13 @@ with sync_playwright() as playwright:
     # image strip already does with its waiting frame. The state is set the way the
     # page's own poll sets it, because the stub render is over before a click can land.
     pending_state = page.evaluate(
-        """() => {
+        """async () => {
           const studio = document.getElementById('video-studio');
           studio.setGenerationProgress(
             {running: true, stage: 'running', step: 3, total: 11, phase: 1, stopping: false}, 12.5,
             {width: 384, height: 384, modelName: 'LTX-2.5'});
+          // The clips live in a Lit child that redraws after the call, so wait for it.
+          await document.querySelector('#video-gallery gallery-window')?.updateComplete;
           return {
             monitor: Boolean(document.querySelector('.video-render-placeholder')),
             tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
@@ -1982,7 +1973,7 @@ with sync_playwright() as playwright:
     check(
         "generated gallery thumbnail and output metadata appear with the clip",
         thumbnail_ready
-        and generated_card.locator(".video-clip-thumb img").count() == 1
+        and generated_card.locator(".video-clip-thumb .video-gallery-sheet").count() == 1
         and "96 \u00d7 64" in generated_details
         and re.search(r"12 frames", generated_details) is not None
         and re.search(r"Seed\s+7", generated_details) is not None
@@ -2030,19 +2021,24 @@ with sync_playwright() as playwright:
             {
                 **output_actions,
                 "thumbnailReady": thumbnail_ready,
-                "thumbnailCount": generated_card.locator(".video-clip-thumb img").count(),
+                "thumbnailCount": generated_card.locator(".video-clip-thumb .video-gallery-sheet").count(),
             }
         ),
     )
-    thumbnail_color = generated_card.locator(".video-clip-thumb img").evaluate(
-        """image => {
+    thumbnail_color = page.evaluate(
+        """async () => {
+          const image = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');
+          const sheet = new Image();
+          sheet.src = image.getAttribute('href');
+          await sheet.decode();
+          const frame = sheet.naturalWidth / 16;
           const canvas = document.createElement('canvas');
-          canvas.width = image.naturalWidth;
-          canvas.height = image.naturalHeight;
+          canvas.width = sheet.naturalWidth;
+          canvas.height = sheet.naturalHeight;
           const context = canvas.getContext('2d');
-          context.drawImage(image, 0, 0);
+          context.drawImage(sheet, 0, 0);
           const pixel = context.getImageData(
-            Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1
+            Math.floor(frame * 12 + frame / 2), Math.floor(canvas.height / 2), 1, 1
           ).data;
           return {red: pixel[0], blue: pixel[2]};
         }"""
@@ -2330,7 +2326,12 @@ with sync_playwright() as playwright:
         restored = page.locator("#video-gallery .video-gallery-item").first
         restored_count = page.locator("#video-gallery .video-clip").count()
         restored_details = page.locator("#video-output-details").inner_text()
-        restored_thumbnail = restored.locator(".video-clip-thumb img").count() == 1
+        page.wait_for_function(
+            "() => { const sheet = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');"
+            "return Boolean(sheet && (sheet.getAttribute('href') || '').startsWith('blob:')); }",
+            timeout=15000,
+        )
+        restored_thumbnail = True
         restored_video = page.wait_for_function(
             """() => {
               const video = document.querySelector('#video-preview');
@@ -2371,6 +2372,8 @@ with sync_playwright() as playwright:
         and any(re.fullmatch(r"video-metadata-\d{8}-\d{9}\.json", name) for name in video_downloads),
         str(video_downloads),
     )
+    # Clear all asks before it removes anything (components/video-studio.js:1490-1497).
+    page.once("dialog", lambda dialog: dialog.accept())
     page.get_by_role("button", name="Clear all").click()
     page.wait_for_function("() => document.querySelector('#video-gallery .video-clip') === null", timeout=10000)
     page.reload()
@@ -2441,6 +2444,8 @@ with sync_playwright() as playwright:
         and edit_form["modes"][1]["pressed"] == "true"
         and edit_form["adapters"]
         == [
+            "custom",
+            "layout-to-render",
             "day-to-night",
             "water-simulation",
             "clean-plate",

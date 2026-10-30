@@ -63,7 +63,10 @@ function render(operation) {
     : operation.model;
   const detail = [model, operation.batch_total ? 'Item ' + (operation.batch_index || 1) + ' of ' + operation.batch_total
     : state.label ? 'Image ' + state.label : ''].filter(Boolean).join(' · ');
-  label.textContent = !stopping && operation.kind === 'rewrite' && state.stage === 'preparing' ? 'Preparing prompt rewrite' : phase;
+  // A rewrite reports its own stages, and the first poll can land before the rewriter
+  // names one, so an idle rewrite still reads as preparing.
+  label.textContent = !stopping && operation.kind === 'rewrite' && ['idle', 'preparing'].includes(state.stage)
+    ? 'Preparing prompt rewrite' : phase;
   document.getElementById('shared-operation-detail').textContent = detail;
   document.getElementById('shared-operation-percent').textContent = percent === null ? '' : percent + '%';
   const seconds = Math.floor(elapsed(operation));

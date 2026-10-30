@@ -2668,16 +2668,19 @@
   // keeps the shown frame's box across its own redraw, so the correction lives
   // where the redraw does. The key is the page's, because full screen shares it.
   document.addEventListener('keydown', function (event) {
-    if (event.defaultPrevented || event.target.closest('gallery-browser, dialog, [role="dialog"]')) return;
+    // A key event dispatched from a script can carry the document itself as its target.
+    // Treat that as the body: the key still acts, and `.closest` cannot throw.
+    const target = event.target instanceof Element ? event.target : document.body;
+    if (event.defaultPrevented || target.closest('gallery-browser, dialog, [role="dialog"]')) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.target.closest('input, textarea, select, [contenteditable]')) return;
+    if (target.closest('input, textarea, select, [contenteditable]')) return;
     if (document.querySelector('.menu:not([hidden])')) return;
     if (mediaMode === 'music') return;
     if (mediaMode === 'voice') {
       if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
         if (voiceStudio.stepTake(event.key === 'ArrowRight' ? 1 : -1)) event.preventDefault();
       }
-      if (event.key === ' ' && (!event.target.closest('button, a, [role="button"]') || event.target.closest('.frame'))) {
+      if (event.key === ' ' && (!target.closest('button, a, [role="button"]') || target.closest('.frame'))) {
         event.preventDefault(); voiceStudio.togglePreviewPlayback();
       }
       return;
@@ -2686,9 +2689,9 @@
       event.preventDefault();
       stage.toggleFullscreen();
     }
-    if (mediaMode === 'video' && event.target.closest('video')) return;
+    if (mediaMode === 'video' && target.closest('video')) return;
     if (mediaMode === 'video' && event.key === ' '
-        && (!event.target.closest('button, a, [role="button"]') || event.target.closest('.frame'))) {
+        && (!target.closest('button, a, [role="button"]') || target.closest('.frame'))) {
       event.preventDefault(); videoStudio.togglePlayback(); return;
     }
     if (event.key === 'ArrowRight') {
