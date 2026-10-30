@@ -489,6 +489,23 @@
     }
   })();
   function sharedBusy() { return Boolean(sharedOperation && sharedOperation.client_id !== CLIENT_ID); }
+  // A scrollbar paints while its pane scrolls, then clears. A scroll event does not
+  // bubble, so the listener sits in the capture phase. The class is what the stylesheet
+  // reads: the pointer alone would leave a key or a finger with no bar to see.
+  let scrollingPane = null;
+  let scrollQuiet = 0;
+  document.addEventListener('scroll', function (event) {
+    const pane = event.target;
+    if (!(pane instanceof Element)) return;
+    if (scrollingPane && scrollingPane !== pane) scrollingPane.classList.remove('is-scrolling');
+    scrollingPane = pane;
+    pane.classList.add('is-scrolling');
+    clearTimeout(scrollQuiet);
+    scrollQuiet = setTimeout(function () {
+      pane.classList.remove('is-scrolling');
+      scrollingPane = null;
+    }, 700);
+  }, true);
   document.body.addEventListener('htmx:configRequest', function (event) {
     event.detail.headers['X-Studio-Client'] = CLIENT_ID;
     event.detail.headers['X-Studio-Library'] = LIBRARY_ID;

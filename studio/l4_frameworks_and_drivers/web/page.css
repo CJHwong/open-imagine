@@ -108,6 +108,25 @@
   .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go { user-select: none; -webkit-user-select: none; }
   .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  /* A scrollbar is a hint, not furniture. It paints while the pane is in use and clears
+     when the pointer leaves, or a moment after a scroll ends. Every scrolling pane is
+     named here once, so a pane left off this list is the only way to get a bar that never
+     goes. The track stays transparent, so the gutter keeps its width and nothing shifts
+     when the thumb comes back. The thumb takes the theme's line colour unless the pane is
+     a film surface with its own. */
+  :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
+    .video-source-list, .video-references, .video-audios, #voice-preview-pane,
+    .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
+    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid) {
+    scrollbar-color: transparent transparent; }
+  :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
+    .video-source-list, .video-references, .video-audios, #voice-preview-pane,
+    .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
+    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid):is(:hover, .is-scrolling) {
+    scrollbar-color: var(--scroll-thumb, var(--line-strong)) transparent; }
+  /* scrollbar-color inherits, so a box inside a pane takes the pane's rule. A writing
+     surface keeps its bar at rest: a prompt that runs past its box must say so. */
+  textarea { scrollbar-color: auto; }
 
   /* The row is capped at the window, so no content can make the page taller
      and push the pinned run button out of view. */
@@ -767,7 +786,7 @@
     padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
   .strip-actions { display: flex; gap: 14px; }
   .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px;
-    scrollbar-width: thin; scrollbar-color: #2e2e2e transparent;
+    scrollbar-width: thin; --scroll-thumb: #2e2e2e;
     --holes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Crect x='2.2' y='.5' width='5.6' height='4' rx='1' fill='%23262626'/%3E%3C/svg%3E");
     background: var(--holes) left 4px / 10px 5px repeat-x local,
       var(--holes) left bottom 3px / 10px 5px repeat-x local; }
@@ -1149,7 +1168,7 @@
   .music-preview-pane { display: grid; align-items: center; justify-items: center; min-height: 0; overflow: auto; padding: 28px; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-gallery .strip-head { gap: 16px; }
-  .music-gallery .strip-head h2 { margin: 0 auto 0 0; font: inherit; }
+  .music-gallery .strip-head h2 { margin: 0; flex: 1; font: inherit; }
   .music-strip:empty { display: none; }
   .music-thumb .music-thumb-art { width: 112px; display: grid; place-items: center; background: linear-gradient(135deg, #443b36, #211c1b); }
   .music-thumb-art img { width: 100%; height: 100%; object-fit: cover; }
@@ -1267,11 +1286,14 @@
     .sheet dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
     .sheet dd { margin-bottom: 10px; }
   }
-  .music-abc-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; scrollbar-color: #9b9185 #eee9e0; }
+  .music-abc-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; --scroll-thumb: #9b9185; }
   .music-abc-notation:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  /* The score is paper in every theme, so it keeps its own thumb. Blink reads these and
+     ignores scrollbar-color, so the thumb clears here too until the pane is in use. */
   .music-abc-notation::-webkit-scrollbar { width: 10px; height: 10px; }
-  .music-abc-notation::-webkit-scrollbar-track { background: #eee9e0; border-radius: 4px; }
-  .music-abc-notation::-webkit-scrollbar-thumb { background: #9b9185; border: 2px solid #eee9e0; border-radius: 6px; }
+  .music-abc-notation::-webkit-scrollbar-track { background: transparent; border-radius: 4px; }
+  .music-abc-notation::-webkit-scrollbar-thumb { background: transparent; border: 2px solid #fcfaf5; border-radius: 6px; }
+  .music-abc-notation:is(:hover, .is-scrolling)::-webkit-scrollbar-thumb { background: #9b9185; }
   .music-abc-scroll-hint[hidden] { display: none; }
   .music-abc-notation svg { display: block; }
   .music-song-actions a { font-size: 12px; }
