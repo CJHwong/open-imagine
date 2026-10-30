@@ -65,12 +65,19 @@ with sync_playwright() as playwright:
         page.locator("#theme-toggle").click()
         expect(page.get_by_role("menuitemradio", name=name, exact=True)).to_have_attribute("aria-checked", "true")
         page.keyboard.press("Escape")
-        for workspace in ("Image", "Video", "Voice"):
+        for workspace in ("Image", "Video", "Voice", "Music"):
             tab = page.locator("#workspace-tabs button").filter(has_text=workspace)
             tab.click()
             expect(tab).to_have_attribute("aria-pressed", "true")
             expect(
-                page.locator({"Image": "#go", "Video": "#video-generate", "Voice": "#voice-generate"}[workspace])
+                page.locator(
+                    {
+                        "Image": "#go",
+                        "Video": "#video-generate",
+                        "Voice": "#voice-generate",
+                        "Music": "#music-generate",
+                    }[workspace]
+                )
             ).to_be_visible()
             for scheme in ("light", "dark"):
                 page.emulate_media(color_scheme=scheme)
@@ -106,7 +113,12 @@ with sync_playwright() as playwright:
                 page.set_viewport_size({"width": width, "height": 900})
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (theme, workspace, width)
                 button = page.locator(
-                    {"Image": "#go", "Video": "#video-generate", "Voice": "#voice-generate"}[workspace]
+                    {
+                        "Image": "#go",
+                        "Video": "#video-generate",
+                        "Voice": "#voice-generate",
+                        "Music": "#music-generate",
+                    }[workspace]
                 )
                 expect(button).to_be_visible()
             page.set_viewport_size({"width": 1440, "height": 1000})

@@ -1505,7 +1505,7 @@ with sync_playwright() as playwright:
     )
     # The caption is a control here, so it names itself with the prompt it holds.
     caption = page.get_by_role("button", name=re.compile("^A ceramic teapot"))
-    sheet = page.get_by_role("region", name="The whole prompt")
+    sheet = page.get_by_role("dialog", name="The whole prompt")
     check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
     # LEFT: the print's own box.
     print_box = page.locator(".pic").bounding_box()

@@ -189,6 +189,12 @@ def test_the_studio_document_names_models_and_capabilities():
     assert document["rewrite_modes"] == ["generate"]
 
 
+def test_workspaces_names_the_optional_workspaces_the_studio_offers():
+    """The page draws its tabs from this before the first state poll."""
+    assert api_for(FakeController()).workspaces() == {"voice": False, "music": False}
+    assert api_for(FakeController(), voice=FakeVoice()).workspaces() == {"voice": True, "music": False}
+
+
 def test_the_studio_document_carries_the_video_model_when_there_is_one():
     view = StudioView(
         active=fake_capabilities(),

@@ -20,7 +20,12 @@ with sync_playwright() as p:
     sheet = page.locator("#guide-sheet")
     for width in (1440, 390):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 844})
-        for workspace, topic in [("image", "Mark a region"), ("video", "Fast mode"), ("voice", "Audio token limit")]:
+        for workspace, topic in [
+            ("image", "Mark a region"),
+            ("video", "Fast mode"),
+            ("voice", "Audio token limit"),
+            ("music", "Edit score"),
+        ]:
             page.locator("#media-" + workspace + "-mode").click()
             page.wait_for_function(
                 '(mode) => document.querySelector("#media-" + mode + "-mode").getAttribute("aria-pressed") === "true"',
@@ -38,12 +43,24 @@ with sync_playwright() as p:
             assert box and box["width"] > 100 and box["height"] > 100
             assert box["x"] >= 0 and box["x"] + box["width"] <= width + 1
             assert sheet.locator("dd").evaluate_all("(els) => els.every(el => el.scrollWidth <= el.clientWidth)")
+            # A step's sentence shares the title's column. A loose grid child drops into
+            # the number's 28 px column and wraps one word a line.
+            assert sheet.locator(".guide-steps p").evaluate_all(
+                """(copies) => copies.length > 0 && copies.every(copy => {
+                    const strong = copy.parentElement.querySelector('strong').getBoundingClientRect();
+                    const box = copy.getBoundingClientRect();
+                    return box.width > 150 && Math.abs(box.left - strong.left) < 1;
+                })"""
+            ), "a step sentence left the text column"
             page.keyboard.press("Escape")
             assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
             assert toggle.evaluate("(el) => el === document.activeElement")
+            # The sheet is modal, so the toggle is behind its backdrop and the
+            # close button is the second way out.
             toggle.click()
-            toggle.click()
-            assert sheet.count() == 0
+            sheet.wait_for(state="visible")
+            sheet.get_by_role("button", name="Close").click()
+            assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
             print(
                 "PASS",
                 width,
@@ -51,14 +68,17 @@ with sync_playwright() as p:
                 "visible guide, correct content, wrapping, docs, toggle and Escape",
                 flush=True,
             )
+    # The guide is a modal sheet, so the workspace tabs and the model picker sit
+    # behind its backdrop and wait for it to close.
     toggle.click()
+    sheet.wait_for(state="visible")
+    sheet.get_by_role("button", name="Close").click()
+    assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
     page.locator("#media-video-mode").click()
     page.wait_for_function('document.querySelector("#media-video-mode").getAttribute("aria-pressed") === "true"')
-    assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
-    print("PASS workspace changes close stale guidance", flush=True)
+    print("PASS the guide is modal and leaves before the workspace switch", flush=True)
     page.locator("#media-voice-mode").click()
     page.wait_for_function('document.querySelector("#media-voice-mode").getAttribute("aria-pressed") === "true"')
-    toggle.click()
     page.locator("#backend-toggle").click()
     page.get_by_role("menuitemradio", name="AuK", exact=True).click()
     page.wait_for_function('document.querySelector("#voice-studio").capabilities.backend_id === "auk_base"')
@@ -67,7 +87,7 @@ with sync_playwright() as p:
     assert "does not require a transcript" in sheet.inner_text()
     assert "Audio token limit" not in sheet.inner_text()
     page.keyboard.press("Escape")
-    print("PASS model changes close stale guidance and AuK gets its own help", flush=True)
+    print("PASS a model change reaches its own help", flush=True)
     catalog = page.request.get(URL + "/api/v1/studio").json()["video"]["backends"]
     if any(model["id"] == "ltx23_mlx" for model in catalog):
         page.locator("#media-video-mode").click()

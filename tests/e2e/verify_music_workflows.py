@@ -65,13 +65,12 @@ def verify_automatic_instrumental(browser, base):
                 "studio => String(studio.songs.find(song => song.id === studio.selectedId).seed)"
             )
             page.locator("#music-lyrics").fill("Words to replace")
-            bar.get_by_role("button", name="Edit score", exact=True).click()
-            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_visible()
+            bar.get_by_role("button", name="More actions", exact=True).click()
+            bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_have_count(0)
             expect(page.locator("#music-instrumental")).to_have_count(0)
             expect(page.locator("#music-lyrics")).to_be_visible()
-            expect(page.locator("#music-lyrics")).to_have_value("")
-            page.locator("#music-abc-close").click()
-            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+            expect(page.locator("#music-lyrics")).to_have_value("Words to replace")
     # Older drafts could keep words while an explicit instrumental switch was on.
     page.evaluate("""async()=>{
       const {saveMusicDraft}=await import('/page/lib/music-store.js');
@@ -264,10 +263,10 @@ def main():
         page.locator("#music-generate").click()
         expect(page.locator(".music-song.is-score")).to_have_count(1)
         expect(page.locator(".music-song audio")).to_have_count(0)
-        expect(page.locator(".music-count")).to_have_text("0 songs, 1 score")
+        expect(page.locator(".music-count")).to_have_text("0 songs, 1 score, kept in this browser.")
         bar = page.locator(".music-output-details:not([hidden])")
-        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_enabled()
         bar.get_by_role("button", name="More actions", exact=True).click()
+        expect(bar.get_by_role("menuitem", name="Use this score", exact=True)).to_be_enabled()
         expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_be_disabled()
         page.keyboard.press("Escape")
         assert submitted[-1]["mode"] == "plan"
@@ -279,12 +278,16 @@ def main():
         expect(page.locator("#music-mode-plan")).to_be_checked()
         expect(page.locator(".music-song.is-score")).to_have_count(1)
         assert not advanced.evaluate("node=>node.open")
-        bar.get_by_role("button", name="Edit score", exact=True).click()
-        assert advanced.evaluate("node=>node.open"), "Edit score did not reveal Advanced"
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+        assert advanced.evaluate("node=>node.open"), "Use this score did not reveal Advanced"
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_have_count(0)
+        expect(page.locator("#music-mode")).to_have_value("plan")
+        expect(page.locator("#music-mode-plan")).to_be_checked()
+        expect(page.locator("#music-abc")).to_have_value(score)
+        page.locator("#music-abc-edit").click()
         editor = page.get_by_role("dialog", name="ABC score", exact=True)
         expect(editor).to_be_visible()
-        expect(page.locator("#music-mode")).to_have_value("generate")
-        expect(page.locator("#music-mode-generate")).to_be_checked()
         expect(page.locator("#music-abc")).to_have_value(score)
         expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
         page.keyboard.press("Escape")
@@ -297,6 +300,9 @@ def main():
         page.locator("#music-abc-close").click()
         expect(editor).to_be_hidden()
         expect(page.locator("#music-instrumental")).to_have_count(0)
+        # The copy leaves the workflow alone, so the run below picks its own.
+        page.locator('label[for="music-mode-generate"]').click()
+        expect(page.locator("#music-mode")).to_have_value("generate")
         page.locator("#music-lyrics").fill("")
         expect(page.locator("#music-lyrics")).to_be_visible()
         advanced.evaluate("node=>node.open=true")
@@ -383,10 +389,10 @@ def main():
         expect(page.locator("#music-reference-choose")).to_be_visible()
         expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.locator("#music-mode")).to_have_value("plan")
-        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
-        details = page.get_by_role("region", name="Music details", exact=True)
+        details = page.get_by_role("dialog", name="Music details", exact=True)
         expect(details).to_be_visible()
         with page.expect_download() as downloaded:
             details.get_by_role("link", name="Download MIDI · Composition", exact=True).click()
@@ -418,9 +424,7 @@ def main():
         expect(page.locator(".music-song")).to_have_count(5)
         assert submitted[-1]["mode"] == "cover" and submitted[-1]["reference_name"] == "reference.wav"
         assert submitted[-1]["abc"] == "" and submitted[-1]["steps"] == 16
-        bar.get_by_role("button", name="More actions", exact=True).click()
-        expect(bar.get_by_role("menuitem", name="Generate artwork", exact=True)).to_be_visible()
-        page.keyboard.press("Escape")
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
         expect(page.locator("#music-reference-choose")).to_be_visible()
         expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.locator("#music-mode")).to_have_value("generate")

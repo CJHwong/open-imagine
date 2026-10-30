@@ -6,12 +6,13 @@ from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
 
 
-def api_for(controller, video=None, voice=None):
+def api_for(controller, video=None, voice=None, music=None):
     operations = InMemoryOperationGateway()
     return JsonApi(
         controller,
         video,
         voice,
+        music=music,
         operations=operations,
         completion=CompleteOperationUseCase(operations),
         batches=PrepareBatchUseCase(),

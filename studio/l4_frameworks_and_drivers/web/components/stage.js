@@ -21,6 +21,7 @@
 // the handle is in place before the first draw asks for a stage.
 
 import {mediaDownloadName} from '../lib/download-name.js';
+import {openSheet, dismissSheet} from '../lib/sheet.js';
 
 // What the stage draws with. The DOM helpers live here because the stage and the
 // region module are the two that build buttons, and the region takes
@@ -362,8 +363,12 @@ const captionWatch = new ResizeObserver(function (entries) {
   entries.forEach(function (entry) { markCaption(entry.target); });
 });
 
+// The open sheet, so the caption can say it is expanded and the close path can
+// find it without querying a tree the sheet no longer lives in.
+let promptSheet = null;
+
 export function markCaption(prompt) {
-  const open = Boolean(page.canvas.querySelector('.sheet'));
+  const open = Boolean(promptSheet?.open);
   if (open || prompt.scrollHeight > prompt.clientHeight + 1) {
     prompt.setAttribute('role', 'button');
     prompt.tabIndex = 0;
@@ -379,12 +384,7 @@ export function markCaption(prompt) {
 // model got them. Focus goes to Close, and back to the label after.
 export function toggleSheet(prompt, entry) {
   if (!prompt.hasAttribute('role')) return;
-  if (page.canvas.querySelector('.sheet')) return closeSheet();
-  const sheet = document.createElement('div');
-  sheet.className = 'sheet';
-  sheet.id = 'prompt-sheet';
-  sheet.setAttribute('role', 'region');
-  sheet.setAttribute('aria-label', 'The whole prompt');
+  if (promptSheet) return closeSheet();
   const list = document.createElement('dl');
   [['Prompt', entry.prompt], ['Look', entry.look ? entry.look.adds : ''], ['Negative', entry.negative]]
     .forEach(function ([term, text]) {
@@ -395,28 +395,24 @@ export function toggleSheet(prompt, entry) {
       value.textContent = text;
       list.append(name, value);
     });
-  const close = iconButton('x', 'Close', closeSheet, 'close');
-  sheet.addEventListener('keydown', function (event) {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    closeSheet();
+  promptSheet = openSheet({
+    id: 'prompt-sheet',
+    title: 'The whole prompt',
+    body: list,
+    onClose: function () {
+      promptSheet = null;
+      const label = page.stageBar.querySelector('.prompt-line');
+      if (!label) return;
+      markCaption(label);
+      label.focus();
+    },
   });
-  sheet.append(list, close);
-  page.canvas.append(sheet);
-  prompt.setAttribute('aria-controls', sheet.id);
+  prompt.setAttribute('aria-controls', 'prompt-sheet');
   markCaption(prompt);
-  close.focus();
 }
 
 export function closeSheet() {
-  const canvas = page.canvas;
-  const sheet = canvas.querySelector('.sheet');
-  if (!sheet) return;
-  sheet.remove();
-  const prompt = page.stageBar.querySelector('.prompt-line');
-  if (!prompt) return;
-  markCaption(prompt);
-  prompt.focus();
+  dismissSheet(promptSheet);
 }
 
 // The studio had no manual, so this is it: short, and about what the page does rather

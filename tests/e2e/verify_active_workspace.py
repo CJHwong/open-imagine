@@ -13,6 +13,17 @@ URL = "http://127.0.0.1:" + sys.argv[1]
 
 with sync_playwright() as tool:
     browser = tool.chromium.launch()
+    # The four tabs come from the page payload, not the first state poll. Hold
+    # that poll with a refused request and the row is still complete.
+    early = browser.new_context(viewport={"width": 1440, "height": 1000})
+    early.route("**/api/v1/state", lambda route: route.abort())
+    first_paint = early.new_page()
+    first_paint.goto(URL)
+    names = first_paint.locator("#workspace-tabs button").all_inner_texts()
+    assert names == ["Image", "Video", "Voice", "Music"], names
+    assert first_paint.locator("#media-music-mode").is_visible()
+    early.close()
+    print("PASS every workspace tab is drawn before the first state poll", flush=True)
     context = browser.new_context(viewport={"width": 1440, "height": 1000})
     snapshot = context.request.get(URL + "/api/v1/state").json()
     snapshot["active"] = None

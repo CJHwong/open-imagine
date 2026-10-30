@@ -1,4 +1,5 @@
 // Workspace help owns its overlay and focus, independently of any media preview.
+import {openSheet, dismissSheet} from '../lib/sheet.js';
 const IMAGE_GUIDE = [
   ['Generate, or Edit', 'Generate writes a picture from a prompt. Edit changes one you already have, and needs an image from the strip: click a frame, then Edit this.'],
   ['A Look', 'A chip adds one sentence after your words. Each model offers only the options its own test kept.'],
@@ -21,6 +22,45 @@ const VIDEO_GUIDE = [
   ['Run and Cancel', 'Progress covers the whole render and reaches completion only when the clip is ready. Cancel stops the active operation.'],
   ['The gallery', 'Select one clip to preview. Its action buttons let you download, copy inputs, edit or remove it.'],
 ];
+
+const MUSIC_GUIDE = [
+  ['A style', 'One sentence with the language, genre, mood, instruments, vocal and tempo. A genre word alone is thin.'],
+  ['The words', 'Section tags name each part. Leave the words blank, with instrumental on, for a tune with no singing.'],
+  ['Planning', 'Melody and chords writes a score first. Direct generation skips it and returns no useful score.'],
+  ['Edit score', 'Opens the score beside a live sheet. Generate then makes a new take from the score you edited.'],
+  ['A recording', 'A recording makes a cover with Generate, or a transcription with Compose.'],
+  ['The songs strip', 'Download all saves every song as a file. Clear all removes them from this browser.'],
+  ['The wait', 'A song takes longer than a picture. The run button counts the time, and Cancel keeps the finished songs.'],
+];
+
+// Three moves per workspace, then the reference rows. The steps are what a
+// first visit needs; the rows answer the second question.
+const STEPS = {
+  image: [
+    ['Say what you want', 'A subject, a setting and a light. Press Generate and read the picture before you change anything.'],
+    ['Add a Look if you want one', 'A chip adds one sentence after your words. It costs nothing to leave empty.'],
+    ['Run, then read the bar', 'The bar under the picture says the model, the seed and the time. Run empties the form it sent; Cancel puts it back.'],
+  ],
+  video: [
+    ['Describe the shot', 'The subject, the action, the camera and the light. A template fills the shape of a shot.'],
+    ['Add a clip only to edit one', 'Generate starts from words. Edit changes a clip you already have and needs an effect.'],
+    ['Generate, then scrub', 'The whole render must finish before the clip plays. Cancel stops it and keeps what finished.'],
+  ],
+  voice: [
+    ['Write the script', 'The words to speak, with cues such as [whispers] inline if the model takes them.'],
+    ['Choose a voice, or add a recording', 'Design describes a voice. Clone copies one from a clean recording of a single speaker.'],
+    ['Generate, then play', 'The preview and the strip keep every take. Download all saves them in one press.'],
+  ],
+  music: [
+    ['Write a style and the words', 'The style sentence carries the genre, the instruments and the tempo. The words carry the song.'],
+    ['Generate one take', 'The first take tests the style. A second seed tells you whether the style or the luck was good.'],
+    ['Listen, then change one thing', 'Edit the score, reuse the style, or cover a recording. One change per take makes the comparison honest.'],
+  ],
+};
+
+function musicGuide(_capabilities) {
+  return MUSIC_GUIDE;
+}
 
 function videoGuide(capabilities) {
   const edit = capabilities.modes?.some(mode => mode.id === 'edit');
@@ -53,31 +93,71 @@ function voiceGuide(capabilities) {
   ];
 }
 
+let guideSheet = null;
+let guideRestoreFocus = true;
+
 export function closeGuide(restoreFocus = true) {
-  const sheet = document.getElementById('guide-sheet');
-  if (!sheet) return;
-  sheet.remove();
-  const toggle = document.getElementById('guide-toggle');
-  toggle.setAttribute('aria-expanded', 'false');
-  if (restoreFocus) toggle.focus();
+  if (!guideSheet) return;
+  guideRestoreFocus = restoreFocus;
+  dismissSheet(guideSheet);
 }
 
 export function syncGuide(workspace, backend) {
-  const sheet = document.getElementById('guide-sheet');
-  if (sheet && (sheet.dataset.workspace !== workspace || sheet.dataset.backend !== backend)) closeGuide(false);
+  if (guideSheet && (guideSheet.dataset.workspace !== workspace || guideSheet.dataset.backend !== backend)) closeGuide(false);
 }
 
-export function openGuide(workspace, backend, capabilities = {}) {
-  if (document.getElementById('guide-sheet')) return closeGuide();
-  const sheet = document.createElement('div');
-  sheet.className = 'sheet';
-  sheet.id = 'guide-sheet';
-  sheet.dataset.workspace = workspace;
-  sheet.dataset.backend = backend;
-  sheet.setAttribute('role', 'region');
-  sheet.setAttribute('aria-label', 'How to use this studio');
+function entriesFor(workspace, capabilities) {
+  if (workspace === 'voice') return voiceGuide(capabilities);
+  if (workspace === 'video') return videoGuide(capabilities);
+  if (workspace === 'music') return musicGuide(capabilities);
+  return IMAGE_GUIDE;
+}
+
+function stepsFor(workspace, capabilities) {
+  const steps = STEPS[workspace] || STEPS.image;
+  if (workspace !== 'video') return steps;
+  const edit = capabilities.modes?.some(mode => mode.id === 'edit');
+  // A model without an edit mode gets no step about editing, and no sentence
+  // that names it: the reference rows drop theirs the same way.
+  if (edit) return steps;
+  return [
+    steps[0],
+    ['Add a still or a track if you want one', 'An image sets the first frame. A track sets the audio.'],
+    steps[2],
+  ];
+}
+
+function stepsSection(workspace, capabilities) {
+  const steps = stepsFor(workspace, capabilities);
+  const section = document.createElement('section');
+  section.className = 'guide-start';
+  const title = document.createElement('h3');
+  title.textContent = 'Start here';
+  const list = document.createElement('ol');
+  list.className = 'guide-steps';
+  steps.forEach(([name, text]) => {
+    const item = document.createElement('li');
+    // The number takes the first grid column, so the name and the sentence share a
+    // wrapper. Loose children would put the sentence back in the number's 28 px column.
+    const body = document.createElement('div');
+    const strong = document.createElement('strong');
+    strong.textContent = name;
+    const copy = document.createElement('p');
+    copy.textContent = text;
+    body.append(strong, copy);
+    item.append(body);
+    list.append(item);
+  });
+  section.append(title, list);
+  return section;
+}
+
+function referenceSection(entries) {
+  const section = document.createElement('section');
+  section.className = 'guide-more';
+  const title = document.createElement('h3');
+  title.textContent = 'The details';
   const list = document.createElement('dl');
-  const entries = workspace === 'voice' ? voiceGuide(capabilities) : workspace === 'video' ? videoGuide(capabilities) : IMAGE_GUIDE;
   entries.forEach(([name, description]) => {
     const term = document.createElement('dt');
     const text = document.createElement('dd');
@@ -85,6 +165,12 @@ export function openGuide(workspace, backend, capabilities = {}) {
     text.textContent = description;
     list.append(term, text);
   });
+  section.append(title, list);
+  return section;
+}
+
+export function openGuide(workspace, backend, capabilities = {}) {
+  if (guideSheet) return closeGuide();
   const api = document.createElement('p');
   api.className = 'guide-api';
   const spec = document.createElement('a');
@@ -93,21 +179,23 @@ export function openGuide(workspace, backend, capabilities = {}) {
   spec.rel = 'noreferrer';
   spec.textContent = 'OpenAPI spec';
   api.append(spec, document.createTextNode(' lists every JSON route. Start at /api/v1/studio.'));
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.className = 'icon-btn close';
-  close.setAttribute('aria-label', 'Close');
-  close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
-  close.addEventListener('click', () => closeGuide());
-  sheet.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    event.stopPropagation();
-    closeGuide();
+  const body = document.createDocumentFragment();
+  body.append(stepsSection(workspace, capabilities), referenceSection(entriesFor(workspace, capabilities)), api);
+  guideSheet = openSheet({
+    id: 'guide-sheet',
+    title: 'How to use this studio',
+    body,
+    closeLabel: 'Close',
+    onClose: function () {
+      guideSheet = null;
+      document.getElementById('guide-toggle').setAttribute('aria-expanded', 'false');
+      if (guideRestoreFocus) document.getElementById('guide-toggle').focus();
+      guideRestoreFocus = true;
+    },
   });
-  sheet.append(list, api, close);
-  document.getElementById('workspace-guide-host').append(sheet);
+  guideSheet.dataset.workspace = workspace;
+  guideSheet.dataset.backend = backend;
   document.getElementById('guide-toggle').setAttribute('aria-expanded', 'true');
-  close.focus();
 }
 
 document.dispatchEvent(new CustomEvent('studio-guide-ready', {

@@ -6,6 +6,7 @@ import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
+import {openSheet, dismissSheet} from '../lib/sheet.js';
 
 let nextClipId = 1;
 
@@ -967,40 +968,36 @@ class VideoStudio extends LitElement {
 
   openOutputPromptSheet() {
     const prompt = this.querySelector('.video-output-prompt');
-    const preview = this.querySelector('#video-preview-root');
-    if (!prompt || !prompt.hasAttribute('role') || !preview || this.querySelector('#video-prompt-sheet')) return;
-    const sheet = document.createElement('div');
-    sheet.id = 'video-prompt-sheet';
-    sheet.className = 'sheet';
-    sheet.setAttribute('role', 'region');
-    sheet.setAttribute('aria-label', 'The whole prompt');
+    if (!prompt || !prompt.hasAttribute('role') || this.promptSheet) return;
     const list = document.createElement('dl');
     const label = document.createElement('dt');
     label.textContent = 'Prompt';
     const fullPrompt = document.createElement('dd');
     fullPrompt.textContent = prompt.textContent;
     list.append(label, fullPrompt);
-    const close = document.createElement('button');
-    close.className = 'icon-btn close';
-    close.type = 'button';
-    close.dataset.action = 'close-output-prompt';
-    close.setAttribute('aria-label', 'Close');
-    close.title = 'Close';
-    close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
-    sheet.append(list, close);
-    preview.append(sheet);
-    prompt.setAttribute('aria-controls', sheet.id);
+    this.promptSheet = openSheet({
+      id: 'video-prompt-sheet',
+      title: 'The whole prompt',
+      body: list,
+      onClose: () => {
+        const quiet = this.promptQuiet;
+        this.promptQuiet = false;
+        this.promptSheet = null;
+        const open = this.querySelector('.video-output-prompt');
+        if (!open) return;
+        open.removeAttribute('aria-controls');
+        this.markOutputPrompt(open);
+        if (!quiet) open.focus();
+      },
+    });
+    prompt.setAttribute('aria-controls', 'video-prompt-sheet');
     this.markOutputPrompt(prompt);
-    close.focus();
   }
 
   closeOutputPromptSheet(restoreFocus = true) {
-    this.querySelector('#video-prompt-sheet')?.remove();
-    const prompt = this.querySelector('.video-output-prompt');
-    if (!prompt) return;
-    prompt.removeAttribute('aria-controls');
-    this.markOutputPrompt(prompt);
-    if (restoreFocus) prompt.focus();
+    if (!this.promptSheet) return;
+    this.promptQuiet = !restoreFocus;
+    dismissSheet(this.promptSheet);
   }
 
   observeOutputPrompt(prompt) {
@@ -1486,6 +1483,10 @@ class VideoStudio extends LitElement {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated'
       && (persist || !this.galleryStore?.videoWasRemoved || this.galleryStore.videoWasRemoved(clip)));
     if (!outputs.length) return;
+    // One press next to Download all must not wipe the session. The image strip
+    // asks the same question before it clears.
+    const noun = outputs.length === 1 ? 'clip' : 'clips';
+    if (persist && !confirm(`Remove ${outputs.length} ${noun} from this browser?`)) return;
     if (persist && this.galleryStore) {
       const cleared = await this.galleryStore.clearVideos(outputs.map(clip => clip.id));
       if (!cleared) return;

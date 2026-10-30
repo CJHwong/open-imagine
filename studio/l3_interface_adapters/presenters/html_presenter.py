@@ -7,6 +7,7 @@ and draws the progress card itself.
 import base64
 import html
 import json
+from collections.abc import Mapping
 from dataclasses import asdict
 
 from studio.l1_entities.errors import Cancelled, InvalidJob, StudioError
@@ -38,10 +39,17 @@ class HtmlPresenter:
     def __init__(self, page_template: str):
         self._page = page_template
 
-    def page(self, view: StudioView) -> str:
+    def page(self, view: StudioView, workspaces: Mapping[str, bool] | None = None) -> str:
+        """`workspaces` says which optional workspaces this studio offers, so the
+        page can draw all four tabs on the first paint. A studio that passes
+        nothing offers neither, and the tabs stay out of the nav."""
         active = view.active
         studio = {
             "batch_limit": BATCH_LIMIT,
+            "workspaces": {
+                "voice": bool((workspaces or {}).get("voice")),
+                "music": bool((workspaces or {}).get("music")),
+            },
             "backend": {
                 "id": active.backend_id,
                 "name": active.name,
