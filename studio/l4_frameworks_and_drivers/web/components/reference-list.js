@@ -17,6 +17,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { get, subscribe } from '../lib/state.js';
+import { t } from '../lib/i18n.js';
 
 // The page's helpers, on `reference-list-ready`.
 let page = null;
@@ -41,10 +42,12 @@ class ReferenceList extends LitElement {
   note() {
     const references = get('references') || [];
     if (!references.length) return '';
-    if (get('mode') !== 'edit') return 'Drop or paste another image to replace it.';
+    if (get('mode') !== 'edit') return t('image.refs.note_replace');
     const last = references[references.length - 1];
-    return references.length + ' of ' + page.limit() + ' images. The result takes the shape of the last one'
-      + (last.width ? ', ' + last.width + ' × ' + last.height + '.' : '.');
+    const values = {count: references.length, limit: page.limit()};
+    return last.width
+      ? t('image.refs.note_size', Object.assign({}, values, {width: last.width, height: last.height}))
+      : t('image.refs.note', values);
   }
 
   render() {
@@ -53,7 +56,7 @@ class ReferenceList extends LitElement {
     const editing = get('mode') === 'edit';
     const limit = page.limit();
     const count = references.length;
-    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0}>${icon('image')}<div><strong id="refs-title">${editing ? 'Add the image to edit' : 'Start from an image'}</strong><span id="refs-sub">${editing ? 'Drop, paste or choose up to ' + limit + '.' : 'Optional. Drop, paste or choose one.'}</span></div></div><div class="thumbs" id="thumbs">${references.map((reference, index) => html`<div class="thumb" title=${reference.name}><img src=${'data:image/png;base64,' + reference.b64} alt=${reference.name}><button type="button" class="remove" aria-label=${'Remove ' + reference.name} @click=${(event) => { event.stopPropagation(); page.remove(index); }}>${icon('x')}</button></div>`)}${editing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div><div class="refs-note" id="refs-note" ?hidden=${count === 0}>${this.note()}</div>`;
+    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0}>${icon('image')}<div><strong id="refs-title">${editing ? t('image.refs.add_title') : t('image.refs.start_title')}</strong><span id="refs-sub">${editing ? t('image.refs.add_sub', {limit}) : t('image.refs.start_sub')}</span></div></div><div class="thumbs" id="thumbs">${references.map((reference, index) => html`<div class="thumb" title=${reference.name}><img src=${'data:image/png;base64,' + reference.b64} alt=${reference.name}><button type="button" class="remove" aria-label=${t('image.refs.remove', {name: reference.name})} @click=${(event) => { event.stopPropagation(); page.remove(index); }}>${icon('x')}</button></div>`)}${editing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div><div class="refs-note" id="refs-note" ?hidden=${count === 0}>${this.note()}</div>`;
   }
 }
 

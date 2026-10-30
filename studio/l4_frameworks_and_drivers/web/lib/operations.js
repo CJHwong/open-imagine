@@ -1,4 +1,5 @@
 import {screenAwake} from './screen-awake.js';
+import {t} from './i18n.js';
 const awake = screenAwake();
 // Every tab reads the same operation. Results outlive the request that made them.
 const page = {};
@@ -51,28 +52,28 @@ function render(operation) {
   if (progressId !== operation.id || operation.kind === 'music') { progressId = operation.id; overallPercent = null; }
   if (state.total > 0) overallPercent = Math.max(overallPercent || 0, Math.min(99, Math.floor(state.step / state.total * 100)));
   const percent = overallPercent;
-  const labels = {rewrite: 'Rewriting prompt', video: 'Generating video', music: 'Generating music', voice: 'Generating voice', image: 'Generating image'};
-  const name = operation.kind === 'image' && operation.mode === 'edit' ? 'Editing image' : labels[operation.kind] || 'Generating media';
+  const labels = {rewrite: t('operation.label.rewrite'), video: t('operation.label.video'), music: t('operation.label.music'), voice: t('operation.label.voice'), image: t('operation.label.image')};
+  const name = operation.kind === 'image' && operation.mode === 'edit' ? t('operation.label.editImage') : labels[operation.kind] || t('operation.label.media');
   const stopping = operation.status === 'stopping';
-  const phase = stopping ? 'Stopping' : state.stage === 'preparing' ? 'Loading model'
-    : state.total && state.step >= state.total ? 'Finishing' : name;
+  const phase = stopping ? t('operation.phase.stopping') : state.stage === 'preparing' ? t('operation.phase.loading')
+    : state.total && state.step >= state.total ? t('operation.phase.finishing') : name;
   // Music already names its model without the quantisation in its own header and stage, so
   // the shared line reads the same name rather than the longer server label beside it.
   const model = operation.kind === 'music'
     ? String(operation.model || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim()
     : operation.model;
-  const detail = [model, operation.batch_total ? 'Item ' + (operation.batch_index || 1) + ' of ' + operation.batch_total
-    : state.label ? 'Image ' + state.label : ''].filter(Boolean).join(' · ');
+  const detail = [model, operation.batch_total ? t('operation.detail.itemOf', {index: operation.batch_index || 1, total: operation.batch_total})
+    : state.label ? t('operation.detail.image', {label: state.label}) : ''].filter(Boolean).join(' · ');
   // A rewrite reports its own stages, and the first poll can land before the rewriter
   // names one, so an idle rewrite still reads as preparing.
   label.textContent = !stopping && operation.kind === 'rewrite' && ['idle', 'preparing'].includes(state.stage)
-    ? 'Preparing prompt rewrite' : phase;
+    ? t('operation.phase.preparingRewrite') : phase;
   document.getElementById('shared-operation-detail').textContent = detail;
   document.getElementById('shared-operation-percent').textContent = percent === null ? '' : percent + '%';
   const seconds = Math.floor(elapsed(operation));
-  document.getElementById('shared-operation-elapsed').textContent = Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0') + ' elapsed';
+  document.getElementById('shared-operation-elapsed').textContent = t('operation.detail.elapsed', {time: Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')});
   cancel.disabled = stopping;
-  cancel.querySelector('span').textContent = stopping ? 'Stopping…' : 'Cancel';
+  cancel.querySelector('span').textContent = stopping ? t('operation.action.stopping') : t('operation.action.cancel');
   panel.dataset.operationId = operation.id;
   panel.dataset.status = operation.status;
 }
@@ -84,7 +85,7 @@ async function cancelActive() {
   document.getElementById('shared-operation-cancel').disabled = true;
   try {
     const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operationId) + '/cancel', {method: 'POST'});
-    if (!answer.ok) throw new Error((await answer.json()).error || 'The operation could not be stopped.');
+    if (!answer.ok) throw new Error((await answer.json()).error || t('operation.error.notStopped'));
     await poll();
   } catch (error) {
     page.notify('error', error.message);
@@ -117,7 +118,7 @@ async function importBatch(operation, answer) {
     if (batchItems.has(identity)) continue;
     const response = await fetch(item.result_url, {cache: 'no-store'});
     if (response.status === 404 || response.status === 410) continue;
-    if (!response.ok) throw new Error('A completed batch item could not be loaded.');
+    if (!response.ok) throw new Error(t('operation.error.batchItem'));
     const record = {...operation, ...item, id: operation.id + ':' + item.index,
       finished_at: item.completed_at || operation.finished_at};
     if (operation.kind === 'video') await importVideo(record, response, record.id);
@@ -137,7 +138,7 @@ async function importResult(operation) {
       && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) return;
   const terminalFailure = operation.status === 'failed' || operation.status === 'cancelled';
   if (terminalFailure && operation.kind === 'music') page.music().restoreAfterFailure?.(operation);
-  const message = operation.error || (operation.status === 'cancelled' ? 'The operation was cancelled.' : 'The operation failed.');
+  const message = operation.error || (operation.status === 'cancelled' ? t('operation.error.cancelled') : t('operation.error.failed'));
   if (terminalFailure && !operation.result_url) {
     remember(operation.id);
     page.notify(operation.status === 'failed' ? 'error' : 'info', message);
@@ -151,7 +152,7 @@ async function importResult(operation) {
     remember(operation.id);
     return;
   }
-  if (!answer.ok) throw new Error('The completed result could not be loaded.');
+  if (!answer.ok) throw new Error(t('operation.error.result'));
   if (operation.kind === 'music') {
     await customElements.whenDefined('music-studio');
     await page.music().importOperation(operation, answer);
@@ -218,7 +219,7 @@ async function poll() {
       awake.set(false);
       return;
     }
-    if (!answer.ok) throw new Error('Shared status is unavailable.');
+    if (!answer.ok) throw new Error(t('operation.error.status'));
     const state = await answer.json();
     active = state.active;
     serverBusy = Boolean(state.busy || active);

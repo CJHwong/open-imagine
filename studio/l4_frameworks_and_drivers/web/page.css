@@ -108,6 +108,10 @@
   .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go { user-select: none; -webkit-user-select: none; }
   .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  /* A translated page is swept once its markup exists, then shown. The animation is the
+     floor: if the sweep never runs, the page still appears rather than staying blank. */
+  html.locale-pending body { visibility: hidden; animation: locale-reveal 0s linear .3s forwards; }
+  @keyframes locale-reveal { to { visibility: visible; } }
   /* A scrollbar is a hint, not furniture. It paints while the pane is in use and clears
      when the pointer leaves, or a moment after a scroll ends. Every scrolling pane is
      named here once, so a pane left off this list is the only way to get a bar that never

@@ -13,6 +13,7 @@
 // modules for the same reason, and every later door is handed on to it.
 
 import './focus-editor.js';
+import {t, plural} from './i18n.js';
 
 const page = {};
 
@@ -82,11 +83,11 @@ function applyParams(preserveValues = false) {
 }
 
 function spell(seconds) {
-  if (seconds < 90) return Math.max(5, Math.round(seconds / 5) * 5) + 's';
+  if (seconds < 90) return t('form.time.seconds', {seconds: Math.max(5, Math.round(seconds / 5) * 5)});
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round((seconds % 60) / 15) * 15;
-  if (rest && rest < 60) return minutes + ' min ' + rest + 's';
-  return (minutes + (rest ? 1 : 0)) + ' min';
+  if (rest && rest < 60) return t('form.time.minutesSeconds', {minutes: minutes, seconds: rest});
+  return t('form.time.minutes', {minutes: minutes + (rest ? 1 : 0)});
 }
 
 // ---- References -----------------------------------------------------------
@@ -145,7 +146,7 @@ function probeSize(entry) {
 function addReference(b64, name, source) {
   if (referenceLimit() === 1) page.setReferences([]);
   if (page.references().length >= referenceLimit()) {
-    page.notify('info', 'Edit takes at most ' + maxReferences() + ' images.');
+    page.notify('info', plural(maxReferences(), t('form.reference.limit')));
     return;
   }
   const entry = {
@@ -276,7 +277,7 @@ function imageCount() {
 function renderEachNote() {
   const note = document.getElementById('each-note');
   if (!chosenEach()) {
-    note.textContent = 'All of them make a single picture.';
+    note.textContent = t('form.each.single');
     return;
   }
   // The same number the run button promises: the count is what each reference gets, so the
@@ -287,9 +288,8 @@ function renderEachNote() {
   // picture. The box's words lead every image and a row joins them, which is how the marked
   // rows are composed too.
   const batched = eachOffered();
-  note.textContent = 'Each image is edited on its own, so one press gives you ' + results
-    + (results === 1 ? ' result.' : ' results.')
-    + (batched ? ' Your words lead every image, a row adds what that one needs, and Rewrite writes a row from its own picture.' : '');
+  note.textContent = plural(results, t('form.each.own'))
+    + (batched ? ' ' + t('form.each.rows') : '');
 }
 
 // ---- One instruction for each image of a batch -------------------------------
@@ -306,7 +306,7 @@ function eachOffered() {
 }
 
 function eachLabel(place) {
-  return 'What image ' + (place + 1) + ' is asked';
+  return t('form.each.rowLabel', {number: place + 1});
 }
 
 function setEachRow(place, text) {
@@ -421,7 +421,7 @@ function clampCount() {
   const value = Math.min(countLimit(), Math.max(1, parseInt(countInput.value, 10) || 1));
   countInput.value = value;
   document.getElementById('count-shown').textContent = '×' + value;
-  page.el.countToggle.setAttribute('aria-label', value + (value === 1 ? ' image' : ' images') + ', change the count');
+  page.el.countToggle.setAttribute('aria-label', plural(value, t('form.count.aria')));
   return value;
 }
 
@@ -433,7 +433,7 @@ function openCount() {
   const current = clampCount();
   countMenu.replaceChildren();
   for (let count = 1; count <= countLimit(); count++) {
-    const option = menus.menuItem('check', count + (count === 1 ? ' image' : ' images'), function () {
+    const option = menus.menuItem('check', plural(count, t('form.count.option')), function () {
       page.el.countInput.value = count;
       clampCount();
       refreshForm();
@@ -455,8 +455,8 @@ function renderStrength() {
   const steps = document.getElementById('steps').value;
   document.getElementById('strength-value').textContent =
     Number(document.getElementById('strength').value).toFixed(2);
-  document.getElementById('strength-hint').textContent = 'Runs ' + stepsToRun() + ' of ' + steps +
-    ' steps. Higher stays closer to the starting image.';
+  document.getElementById('strength-hint').textContent =
+    t('form.strength.hint', {run: stepsToRun(), steps: steps});
 }
 
 function renderClearSeed() {
@@ -543,7 +543,7 @@ function stepSeconds(estimate) {
 
 function estimate() {
   const count = imageCount();
-  const images = count > 1 ? count + ' images' : '';
+  const images = count > 1 ? plural(count, t('form.count.option')) : '';
   const costModel = estimateModel();
   if (!costModel || !paramSpec('steps')) return images;
   // Every run of a one-each batch carries one reference, so the mode's own growth for several
@@ -553,19 +553,33 @@ function estimate() {
     ? stepsToRun() : steps;
   const perStep = stepSeconds(costModel);
   const overhead = costModel.overhead_per_image ? count * costModel.overhead : costModel.overhead;
-  const time = 'about ' + spell(count * measuredSteps * perStep + overhead);
-  return images ? images + ', ' + time : time;
+  const time = t('form.estimate.about', {time: spell(count * measuredSteps * perStep + overhead)});
+  return images ? t('form.estimate.both', {images: images, time: time}) : time;
 }
 
 // What stops a run, said on the button itself rather than as an error after.
+// The mark component names a colour in the model's own words, so the sentence
+// that names an area reads it back from the table the swatches use.
+const AREA_NAMES = {
+  red: 'image.region.colour.red', orange: 'image.region.colour.orange',
+  green: 'image.region.colour.green', blue: 'image.region.colour.blue',
+};
+
+// The rows carry a marked colour as its hex; the sentence names it, so the name comes from
+// the region's own palette and not from a second copy kept here.
+function areaName(colour) {
+  const name = page.region().name(colour) || colour;
+  return AREA_NAMES[name] ? t(AREA_NAMES[name]) : name;
+}
+
 function blocker() {
   const region = page.region();
   // A press writes into this form, and a run frees the rewriter the press is writing with:
   // `run_image_use_case` releases it, because the rewriter does not fit beside an engine. So
   // a run waits for the press. The keyboard shortcut obeys this for free, since it asks the
   // button's own disabled state.
-  if (rewriteStage !== 'idle') return 'Wait for the rewrite to finish';
-  if (editing() && !page.references().length) return 'Add an image to edit';
+  if (rewriteStage !== 'idle') return t('form.reason.rewrite');
+  if (editing() && !page.references().length) return t('form.reason.noReference');
   // With a region marked, the per area rows are the prompt, so the field is not
   // asked for one.
   const regions = region.count();
@@ -581,8 +595,8 @@ function blocker() {
   // and says so, because that image would reach the server with no words at all.
   const carried = eachCarries();
   if (!regions && !carried && !page.el.promptInput.value.trim() && !(editing() && picked)) {
-    if (eachOffered()) return 'Say what each image needs, or write a prompt';
-    return editing() ? 'Describe the change' : 'Write a prompt';
+    if (eachOffered()) return t('form.reason.eachOrPrompt');
+    return editing() ? t('form.reason.describe') : t('form.reason.prompt');
   }
   // The region token is not the user's to fill: the page replaces it with the
   // number of the image carrying the mask. Without a drawn region there is no
@@ -591,10 +605,10 @@ function blocker() {
   // a Retouch option names the area it wants, and it wants one just as much.
   const names = region.mentions(page.el.promptInput.value) || region.mentions(lookText());
   if (names && !regions) {
-    return region.markable() ? 'Draw the region this prompt names' : 'Remove all but one image, to draw a region';
+    return region.markable() ? t('form.reason.drawRegion') : t('form.reason.oneImage');
   }
   const typed = region.withoutMarker(page.el.promptInput.value);
-  if (PLACEHOLDER.test(typed)) return 'Fill in the [brackets]';
+  if (PLACEHOLDER.test(typed)) return t('form.reason.brackets');
   if (regions) {
     // The prompt may name the region itself, from the template, and then a row is a
     // second way to say the same thing rather than the only way. The page writes
@@ -604,7 +618,7 @@ function blocker() {
     const silent = region.colours().filter(function (colour) { return !region.text(colour).trim(); });
     // A pick names the change, so it takes the row's place: the sentence the page writes
     // carries the pick, and the row stays a second way to say the same thing.
-    if (!named && silent.length && !picked) return 'Say what changes in the ' + region.name(silent[0]) + ' area';
+    if (!named && silent.length && !picked) return t('form.reason.region', {area: areaName(silent[0])});
     // The page writes a sentence around the row, so a bare phrase is a fragment:
     // "to green" would read as "to green in the orange area of <image2>". A comma
     // means the row carries its own clause, and an instruction may open with a
@@ -614,8 +628,7 @@ function blocker() {
       return /^(to|for|in|with|as)\b/i.test(typed) && typed.indexOf(',') < 0;
     });
     if (fragment.length) {
-      return 'Write a whole instruction for the ' + region.name(fragment[0])
-        + ' area, for example: change the cloth to green';
+      return t('form.reason.wholeInstruction', {area: areaName(fragment[0])});
     }
   }
   return '';
@@ -625,7 +638,7 @@ function renderRunButton() {
   if (page.busy()) return;
   if (page.sharedBusy()) {
     page.el.go.disabled = true;
-    page.el.goSub.textContent = 'Another operation is active';
+    page.el.goSub.textContent = t('form.busy.shared');
     return;
   }
   const reason = blocker();
@@ -673,8 +686,8 @@ function followNegative() {
   hadNegative = wanted;
   note.hidden = !wanted;
   note.textContent = Number(input.value) > 1
-    ? 'Guidance is ' + input.value + ' for the negative prompt. Each image takes about twice as long.'
-    : 'A negative prompt works only with guidance above 1. Each image then takes about twice as long.';
+    ? t('form.negative.scaled', {guidance: input.value})
+    : t('form.negative.above');
 }
 
 // The field keeps the user's own text, as the prompt field does. What the
@@ -684,7 +697,7 @@ function renderNegativeLook() {
   const line = document.getElementById('negative-look');
   const avoids = lookAvoids();
   line.hidden = !avoids;
-  line.textContent = avoids ? 'Look adds: ' + avoids : '';
+  line.textContent = avoids ? t('form.negative.look', {avoids: avoids}) : '';
 }
 
 function refreshForm() {
@@ -768,7 +781,7 @@ function openTemplates() {
   templatesMenu.replaceChildren();
   const head = document.createElement('div');
   head.className = 'menu-head';
-  head.textContent = editing() ? 'Start an edit from a template' : 'Start from a template';
+  head.textContent = editing() ? t('form.templates.head.edit') : t('form.templates.head.generate');
   templatesMenu.append(head);
   currentMode().templates.forEach(function (template) {
     // A template that names the region token needs the draw tool, so it is not
@@ -784,7 +797,7 @@ function openTemplates() {
   });
   const foot = document.createElement('div');
   foot.className = 'menu-foot';
-  foot.textContent = 'Press Tab to jump to the next [bracket].';
+  foot.textContent = t('form.templates.foot');
   templatesMenu.append(foot);
   menus.toggleMenu(templatesMenu);
 }
@@ -961,7 +974,9 @@ function setupModes() {
     const label = form.querySelector('label[for=' + radio.id + ']');
     radio.disabled = !spec;
     if (spec) label.lastChild.textContent = spec.label;
-    else label.title = page.studio.backend.name + ' has no ' + label.textContent.trim().toLowerCase() + ' mode';
+    else label.title = t('form.mode.missing', {
+      backend: page.studio.backend.name, mode: label.textContent.trim().toLowerCase(),
+    });
   });
   const first = form.querySelector('input[name=mode]:not(:disabled)');
   if (form.querySelector('input[name=mode]:checked').disabled) first.checked = true;
@@ -991,9 +1006,9 @@ function setupModes() {
 // one is about a minute. Only `writing` has something a press can stop, so only
 // `writing` offers Cancel.
 const rewriteStages = {
-  preparing: { title: 'The rewriter is getting its weights ready' },
-  writing: { title: 'Stop the rewrite and keep what is already written' },
-  stopping: { title: 'Stopping the rewrite' },
+  preparing: { key: 'form.rewrite.preparing' },
+  writing: { key: 'form.rewrite.writing' },
+  stopping: { key: 'form.rewrite.stopping' },
 };
 let rewriteStage = 'idle';
 let rewritePoll = null;
@@ -1094,7 +1109,7 @@ function renderRewriteButton() {
     showRewriteVerb(button, rewriteStage);
     button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
       || (rewriteStage === 'idle' && (busy || !items.length));
-    button.title = stage ? stage.title : rewriteTitle(items);
+    button.title = stage ? t(stage.key) : rewriteTitle(items);
   });
 
 }
@@ -1106,23 +1121,23 @@ function renderRewriteButton() {
 function rewriteTitle(items) {
   if (video()) {
     return items.length
-      ? 'Rewrite the prompt into a longer instruction before generating'
-      : 'Write a prompt to rewrite first';
+      ? t('form.rewrite.title.longer')
+      : t('form.rewrite.title.empty');
   }
   if (items.length && items[0].kind === 'image') {
     return items.length === 1
-      ? 'Write out the words for that image, read from that image'
-      : 'Write out one instruction for each image, read from that image';
+      ? t('form.rewrite.title.imageOne')
+      : t('form.rewrite.title.imageEach');
   }
   const hasItems = items.length > 0;
   if (hasItems) {
     return editing()
-      ? 'Rewrite the words you typed, and the words in the marked areas'
-      : 'Rewrite the prompt into a longer instruction before generating';
+      ? t('form.rewrite.title.edit')
+      : t('form.rewrite.title.longer');
   }
   return editing()
-    ? 'Write a prompt, or say what changes in a marked area, to rewrite it first'
-    : 'Write a prompt to rewrite first';
+    ? t('form.rewrite.title.editEmpty')
+    : t('form.rewrite.title.empty');
 }
 
 // What the rewriter reports is the page's only view of the job while the answer
@@ -1166,7 +1181,7 @@ async function startRewrite() {
   rewriteQueue = items;
   rewriteStage = 'preparing';
   rewriteDone = 0;
-  holdPanel('Locked while the prompt is being rewritten.', true);
+  holdPanel(t('form.hold.rewrite'), true);
   renderRewriteButton();
   pollRewriteState();
   for (const item of items) {
@@ -1176,7 +1191,7 @@ async function startRewrite() {
         : item.kind === 'image' ? await rewriteImage(item)
           : await rewriteRow(item);
     } catch (error) {
-      page.notify('error', 'The rewrite failed: ' + error.message);
+      page.notify('error', t('form.rewrite.failed', {message: error.message}));
       break;
     }
     if (result && result.cancelled) break;
@@ -1187,7 +1202,7 @@ async function startRewrite() {
   rewriteStage = 'idle';
   rewriteQueue = [];
   rewriteDone = 0;
-  holdPanel('Locked while the prompt is being rewritten.', false);
+  holdPanel(t('form.hold.rewrite'), false);
   renderRewriteButton();
 }
 
@@ -1632,7 +1647,7 @@ function wire() {
   // Watching the class the page already sets for a run keeps this out of the run's
   // own start and stop paths, which are easy to get wrong.
   new MutationObserver(function () {
-    holdPanel('Locked while the image is being made.', page.busy());
+    holdPanel(t('form.hold.run'), page.busy());
   }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
 }
 

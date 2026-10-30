@@ -19,6 +19,8 @@
 // after the markup, before any interaction. This door closes when the inline
 // script is gone.
 
+import { t } from './i18n.js';
+
 // The fields a stored record carries besides its two pictures. A record is read
 // back into a gallery entry, so the list is the shape both ends agree on.
 const KEPT_FIELDS = ['id', 'number', 'operationId', 'nativeMetadata', 'seed', 'width', 'height', 'steps', 'elapsed', 'position', 'mode', 'prompt',
@@ -163,7 +165,7 @@ function releaseImage(entry) {
 async function hydrate(entry) {
   if (entry.src) return entry;
   if (!entry.loading) entry.loading = entry.loadMedia().then(record => {
-    if (!record || wasRemoved(entry)) throw new Error('This image is no longer saved.');
+    if (!record || wasRemoved(entry)) throw new Error(t('store.error.imageGone'));
     entry.src = URL.createObjectURL(record.png);
     entry.before = record.before && URL.createObjectURL(record.before);
     loadedImages.delete(entry.id); loadedImages.set(entry.id, entry);
@@ -226,8 +228,9 @@ function keep(entry) {
     }
     channel.postMessage({ kind: 'add', id: entry.id });
   }).catch(function (error) {
-    page.notify('error', 'The browser did not keep image ' + page.frameNumber(entry.id) + ': ' + error.message
-      + ' It stays in this tab until a reload. Download it to keep it.');
+    page.notify('error', t('store.error.keepImage', {
+      number: page.frameNumber(entry.id), message: error.message,
+    }));
   });
 }
 
@@ -247,8 +250,7 @@ function keepVideo(clip, mp4, thumbnail) {
     channel.postMessage({kind: 'video-add', id: clip.id});
     return true;
   }).catch(function (error) {
-    page.notify('error', 'The browser did not keep video ' + clip.name + ': ' + error.message
-      + ' It stays in this tab until a reload.');
+    page.notify('error', t('store.error.keepVideo', {name: clip.name, message: error.message}));
     return false;
   });
 }
@@ -266,7 +268,7 @@ function keepVideoThumbnail(id, thumbnail) {
   }).then(function () {
     return true;
   }).catch(function (error) {
-    page.notify('error', 'The browser did not keep the thumbnail for video ' + id + ': ' + error.message);
+    page.notify('error', t('store.error.keepThumbnail', {video: id, message: error.message}));
     return false;
   });
 }
@@ -281,7 +283,7 @@ async function loadVideos() {
       records.push(metadata);
     });
     return records.sort((first, second) => first.createdAt - second.createdAt);
-  } catch (error) { page.notify('error', 'The saved videos did not load: ' + error.message); return []; }
+  } catch (error) { page.notify('error', t('store.error.loadVideos', {message: error.message})); return []; }
 }
 
 function removeVideo(id) {
@@ -292,7 +294,7 @@ function removeVideo(id) {
   return inVideoStore('readwrite', function (clips) { return clips.delete(id); }).then(function () {
     return true;
   }).catch(function (error) {
-    page.notify('error', 'The browser did not remove video ' + id + ': ' + error.message);
+    page.notify('error', t('store.error.removeVideo', {video: id, message: error.message}));
     return false;
   });
 }
@@ -305,7 +307,7 @@ function clearVideos(ids = []) {
   return inVideoStore('readwrite', function (clips) { return clearRemoved(clips, videoWasRemoved); }).then(function () {
     return true;
   }).catch(function (error) {
-    page.notify('error', 'The saved videos were not removed: ' + error.message);
+    page.notify('error', t('store.error.clearVideos', {message: error.message}));
     return false;
   });
 }
@@ -319,7 +321,7 @@ function forget(work, message) {
   inStore('readwrite', message.kind === 'clear' ? images => clearRemoved(images, wasRemoved) : work).then(function () {
     channel.postMessage(message);
   }).catch(function (error) {
-    page.notify('error', 'The browser did not remove the image: ' + error.message);
+    page.notify('error', t('store.error.removeImage', {message: error.message}));
   });
 }
 
@@ -328,7 +330,7 @@ async function load() {
   try {
     await scanRecords(openStore, 'images', record => { if (!wasRemoved(record)) page.admit(liveEntry(record)); });
     page.showNewest();
-  } catch (error) { page.notify('error', 'The kept images did not load: ' + error.message); }
+  } catch (error) { page.notify('error', t('store.error.loadImages', {message: error.message})); }
 }
 
 // Off empties the store at once; the images stay in the open tabs until a
@@ -392,12 +394,12 @@ async function prepareForget() {
     await new Promise(resolve => setTimeout(resolve, 250));
     const deadline = Date.now() + 15000;
     while (Array.from(peers.values()).some(value => value === 'waiting')) {
-      if (Date.now() > deadline) throw new Error('Another Studio tab could not prepare its media. Try again when that tab is responsive.');
+      if (Date.now() > deadline) throw new Error(t('store.error.prepareForget'));
       const live = new Set(await openTabs());
       for (const id of peers.keys()) if (!live.has(id)) peers.delete(id);
       await new Promise(resolve => setTimeout(resolve, 50));
     }
-    if (Array.from(peers.values()).some(value => value !== 'ready')) throw new Error('Another Studio tab could not retain its media. Saved files were left intact.');
+    if (Array.from(peers.values()).some(value => value !== 'ready')) throw new Error(t('store.error.retainMedia'));
   } catch (error) {
     channel.postMessage({kind: 'forget-abort', token}); unpinForget(token); throw error;
   } finally { forgetting.delete(token); }
@@ -410,7 +412,7 @@ function announce(on) {
     inStore('readwrite', function (images) { return images.clear(); }),
     inVideoStore('readwrite', function (clips) { return clips.clear(); }),
   ]).catch(function (error) {
-    page.notify('error', 'The kept media were not removed: ' + error.message);
+    page.notify('error', t('store.error.clearMedia', {message: error.message}));
   });
 }
 
@@ -446,7 +448,7 @@ channel.addEventListener('message', function (event) {
     page.admit(liveEntry(record));
     page.showNewest();
   }).catch(function (error) {
-    page.notify('error', 'An image from another tab did not load: ' + error.message);
+    page.notify('error', t('store.error.otherTabImage', {message: error.message}));
   });
 });
 
