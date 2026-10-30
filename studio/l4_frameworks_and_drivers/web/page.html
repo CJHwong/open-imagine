@@ -713,7 +713,10 @@
   }
 
   function applyMediaMode(next) {
-    if (mediaMode === 'music' && next !== 'music') musicStudio.pausePlayback?.();
+    if (mediaMode === 'music' && next !== 'music') {
+      musicStudio.stopRecording?.();
+      musicStudio.pausePlayback?.();
+    }
     if (mediaMode === 'voice' && next !== 'voice') {
       voiceStudio.stopRecording?.();
       voiceStudio.pausePlayback?.();

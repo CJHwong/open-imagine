@@ -1349,6 +1349,8 @@
 
   /* Music workflows use the same form controls and output bar as the other modes. */
   .music-reference-drop { min-width: 0; }
+  .music-reference-actions { display: flex; align-items: center; gap: 14px; }
+  #music-reference-note { display: block; }
   .music-reference-drop > .refs { width: 100%; }
   .music-reference-drop.dragover > .refs, .music-reference-drop.dragover > .video-audios { background: var(--accent-soft); border-color: var(--accent); }
   .music-reference-preview .video-audio-name { display: block; }

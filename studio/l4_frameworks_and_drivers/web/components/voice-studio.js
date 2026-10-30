@@ -1,6 +1,7 @@
 import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
 import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
+import {startRecording} from '../lib/recorder.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
@@ -49,6 +50,7 @@ class VoiceStudio extends LitElement {
     this.showGeneration = false;
     this.recording = false;
     this.recordingPending = false;
+    this.capture = null;
     this.capabilities = DEFAULT_CAPABILITIES;
     this.seconds = 0;
     this.convert = 'tw2s';
@@ -429,42 +431,53 @@ class VoiceStudio extends LitElement {
     await this.chooseReference(file);
   }
 
-  async toggleRecording() {
+  toggleRecording() {
     if (this.recording) { this.stopRecording(); return; }
     if (this.reference || this.recordingPending || this.locked) return;
-    if (!navigator.mediaDevices?.getUserMedia) { this.fail('Recording needs localhost or HTTPS microphone access.'); return; }
     this.recordingPending = true;
     this.requestUpdate();
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({audio: true});
-      if (this.hidden || this.locked || !this.needsReference) { stream.getTracks().forEach(track => track.stop()); return; }
-      this.recorderStream = stream;
-      this.recorder = new MediaRecorder(stream);
-      const chunks = [];
-      this.recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-      this.recorder.onstop = () => {
-        clearTimeout(this.recordingTimer);
-        const blob = new Blob(chunks, {type: this.recorder.mimeType});
-        stream.getTracks().forEach(track => track.stop());
+    this.capture = startRecording({
+      maxSeconds: this.capabilities.max_seconds || 120,
+      onStart: () => {
+        // The microphone can arrive after the mode or the workspace moved on.
+        if (this.hidden || this.locked || !this.needsReference) {
+          this.capture?.cancel();
+          this.recordingPending = false;
+          this.requestUpdate();
+          return;
+        }
+        this.recording = true;
+        this.recordingPending = false;
+        this.requestUpdate();
+      },
+      onFinish: file => {
         this.recording = false;
-        this.chooseReference(new File([blob], 'recording.webm', {type: blob.type}));
-      };
-      this.recorder.start();
-      this.recording = true;
-      this.recordingTimer = setTimeout(() => this.stopRecording(), (this.capabilities.max_seconds || 120) * 1000);
-    } catch (error) {
-      stream?.getTracks().forEach(track => track.stop());
-      this.fail('The microphone could not be opened: ' + error.message);
-    } finally {
-      this.recordingPending = false;
-      this.requestUpdate();
-    }
+        this.recordingPending = false;
+        this.capture = null;
+        this.requestUpdate();
+        this.chooseReference(file);
+      },
+      onError: message => {
+        this.recording = false;
+        this.recordingPending = false;
+        this.capture = null;
+        this.requestUpdate();
+        this.fail(message);
+      },
+    });
   }
 
+  // Voice keeps the take: a mode or workspace that moves on still leaves the recording in
+  // the form, which is what the Clone reference is for.
   stopRecording() {
-    clearTimeout(this.recordingTimer);
-    if (this.recorder?.state === 'recording') this.recorder.stop();
+    if (this.recordingPending) {
+      this.capture?.cancel();
+      this.capture = null;
+      this.recordingPending = false;
+      this.requestUpdate();
+      return;
+    }
+    this.capture?.stop();
   }
 
   setOperation(operation) {

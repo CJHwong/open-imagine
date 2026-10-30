@@ -2,7 +2,8 @@ import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft,
 import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
-import {blobBase64} from '../lib/voice-audio.js';
+import {blobBase64, normalizeReference} from '../lib/voice-audio.js';
+import {startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
@@ -289,6 +290,9 @@ class MusicStudio extends HTMLElement {
     this.detailsSheet = null;
     this.detailsQuiet = false;
     this.detailsBodies = new Map();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
   }
   connectedCallback() {
     if (this.ready) return;
@@ -336,12 +340,14 @@ class MusicStudio extends HTMLElement {
       </section>
       <section class="music-reference-fields field">
         <div class="field-head"><label for="music-reference">Reference audio</label>
-          <button type="button" class="text-btn" id="music-reference-replace" hidden>Replace</button></div>
+          <span class="music-reference-actions">
+            <button type="button" class="text-btn" id="music-reference-record">Hum&hellip; Mmm&hellip;</button>
+            <button type="button" class="text-btn" id="music-reference-replace" hidden>Replace</button></span></div>
         <input id="music-reference" type="file" hidden accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.aiff,.aif">
         <div class="music-reference-drop" id="music-reference-drop">
           <button type="button" class="refs" id="music-reference-choose" aria-label="Add reference audio">
             <span class="refs-empty"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>
-              <span><strong>Add reference audio</strong>Click to choose, or drop audio.</span></span></button>
+              <span><strong>Add reference audio</strong><span id="music-reference-note"></span></span></span></button>
           <div class="music-reference-preview video-audios" hidden>
             <div class="video-audio"><div class="video-audio-picture">
               <span class="video-audio-badge"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span>
@@ -350,7 +356,6 @@ class MusicStudio extends HTMLElement {
             </div><span class="video-audio-name" id="music-reference-name"></span></div>
           </div>
         </div>
-        <span class="caption" id="music-reference-note"></span>
           <div class="music-reference-scope field"><div class="field-head"><label for="music-transcription-task">Keep from reference</label></div>
             <select id="music-transcription-task"><option value="melody-full">Vocal and instrumental melody</option><option value="melody-vocal">Vocal melody only</option><option value="full">Melody and chords</option></select></div>
       </section>
@@ -476,6 +481,7 @@ class MusicStudio extends HTMLElement {
     for (const id of ['music-reference-choose', 'music-reference-replace']) this.controls.querySelector('#' + id).addEventListener('click', () => referenceInput.click());
     referenceInput.addEventListener('change', () => { if (referenceInput.files[0]) this.setReference(referenceInput.files[0]); });
     this.controls.querySelector('#music-reference-remove').addEventListener('click', () => this.setReference(null));
+    this.controls.querySelector('#music-reference-record').addEventListener('click', () => this.toggleRecording());
     const drop = this.controls.querySelector('#music-reference-drop');
     drop.addEventListener('dragover', event => { if (!this.busy) { event.preventDefault(); drop.classList.add('dragover'); } });
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
@@ -663,6 +669,51 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('#music-reference-replace').hidden = !attached;
     this.controls.querySelector('#music-reference-name').textContent = this.reference?.name || '';
   }
+  // The microphone hands back WebM, which the transcription may not read. The Voice
+  // workspace normalises its takes the same way, so both reach the engine as WAV.
+  async recordReference(file) {
+    try {
+      const normalized = await normalizeReference(file, 44100, 120);
+      await this.setReference(new File([normalized.blob], 'hum-mmm.wav', {type: 'audio/wav'}));
+    } catch (error) {
+      this.options.notify('error', error.message);
+    } finally {
+      this.sync();
+    }
+  }
+  toggleRecording() {
+    if (this.recording) { this.finishRecording(); return; }
+    if (this.recordingPending || this.busy || this.hidden || this.reference) return;
+    this.recordingPending = true;
+    this.sync();
+    this.capture = startRecording({
+      maxSeconds: 120,
+      onStart: () => { this.recording = true; this.recordingPending = false; this.sync(); },
+      onFinish: file => {
+        this.recording = false;
+        this.capture = null;
+        this.recordReference(file);
+      },
+      onError: message => {
+        this.recording = false;
+        this.recordingPending = false;
+        this.capture = null;
+        this.sync();
+        this.options.notify('error', message);
+      },
+    });
+  }
+  // The button ends a take and keeps it. Leaving the workspace drops it, so a half-finished
+  // hum never lands in the form by surprise.
+  finishRecording() { this.capture?.stop(); }
+  stopRecording() {
+    if (!this.capture && !this.recording && !this.recordingPending) return;
+    this.capture?.cancel();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
+    this.sync();
+  }
   useScore(song) {
     if (this.busy || !song.score) return;
     closeMenus(); this.closeScore(false);
@@ -828,13 +879,19 @@ class MusicStudio extends HTMLElement {
     abcEdit.disabled = this.busy || needsReference;
     abcEdit.title = needsReference ? 'A cover or a transcription uses the reference, not a score.'
       : this.busy ? 'The score waits until this run finishes.' : '';
-    // The reference caption says what this mode does with a recording, so one
-    // sentence is never reused for two different jobs.
+    // The door's second line names what this mode does with a recording. It sits inside
+    // the door, one line like the Video form's media door, so the field keeps its shape.
     this.controls.querySelector('#music-reference-note').textContent = transcribe
-      ? 'This recording will be transcribed into a score, not sung.'
-      : coverSong ? 'Generate will make a cover of this recording.'
-        : draft.mode === 'plan' ? 'Optional. Add a recording and Compose transcribes it instead of composing.'
-          : 'Optional. Add a recording and Generate writes a cover of it.';
+      ? 'This recording becomes a score.'
+      : coverSong ? 'This recording becomes a new song.'
+        : draft.mode === 'plan' ? 'Optional. Compose makes a score.'
+          : 'Optional. Generate makes a cover.';
+    const record = this.controls.querySelector('#music-reference-record');
+    record.hidden = Boolean(this.reference);
+    record.textContent = this.recording ? 'Stop' : this.recordingPending ? 'Opening microphone' : 'Hum… Mmm…';
+    record.disabled = this.busy || this.recordingPending;
+    record.title = this.recording ? 'Stop the recording and use it as the reference'
+      : this.busy ? 'The microphone waits until this run finishes.' : 'Record a hum and use it as the reference';
     if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
       this.closeAbcEditor(false);
     }
@@ -851,7 +908,8 @@ class MusicStudio extends HTMLElement {
       transcribe || scoreOnly ? null : 'guidance ' + draft.cfg_scale,
       seed ? 'seed ' + seed : 'random seed',
     ].filter(Boolean).join(', ');
-    const ready = transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference);
+    const ready = !this.recording && !this.recordingPending
+      && (transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference));
     this.controls.disabled = this.busy || this.hidden;
     this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
     this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
@@ -913,7 +971,8 @@ class MusicStudio extends HTMLElement {
     if (labels) { labels.dataset.state = state; labels.dataset.mode = 'generate'; }
     this.generateButton.disabled = stopping || (state === 'idle' && (!this.capabilities || !ready || this.busy));
     if (sub) sub.textContent = starting ? 'Preparing the request'
-      : own ? 'Finished songs remain if you stop' : MODE_CAPTIONS[draft.mode] || '';
+      : own ? 'Finished songs remain if you stop'
+        : this.recording ? 'Stop the recording first' : MODE_CAPTIONS[draft.mode] || '';
   }
   async cancel() {
     const operation = this.ownOperation;
@@ -937,6 +996,7 @@ class MusicStudio extends HTMLElement {
   }
   async generate() {
     if (this.generateButton.disabled || this.busy) return;
+    if (this.recording || this.recordingPending) return this.options.notify('info', 'Stop the recording first.');
     if (!Array.from(this.controls.querySelectorAll('input, textarea, select')).every(input => input.disabled || input.reportValidity())) return;
     const draft = this.draft();
     if (['generate', 'plan'].includes(draft.mode) && draft.abc.trim() && draft.cot === 'off') return this.options.notify('error', 'Choose melody or full planning for a supplied score.');
