@@ -75,7 +75,8 @@ Stub recordings are explicitly labeled silent test previews and cannot be sent t
 The mode picker offers two outputs: **Generate** and **Compose**. Add a recording in
 **Reference audio** and the same choice becomes **Cover** for Generate or **Transcribe**
 for Compose; the caption under the run button names the result. The form then shows only
-the fields that result reads.
+the fields that result reads. Generate empties the form it sent: Style, Lyrics and the
+reference recording. Cancel or a failed run puts them back.
 **Advanced** holds the seed, planning, synthesis quality and variations.
 Planning offers melody-and-chord planning (the default), melody planning, or direct generation.
 An optional ABC score requires melody or full planning. Advanced shows the score read only.

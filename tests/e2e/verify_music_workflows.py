@@ -112,6 +112,46 @@ def verify_cancel_restores_words(browser, base):
     page.close()
 
 
+def verify_failure_restores_inputs(browser, base, audio):
+    """A failed run puts back the words and the reference it emptied."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.evaluate("document.querySelector('music-studio').setKeeping(false)")
+    page.locator("#music-style").fill("Gentle acoustic piano")
+    page.locator("#music-lyrics").fill("[Verse]\nMorning melody")
+    page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    page.locator("#music-count").select_option("16")
+    with page.expect_file_chooser() as chosen:
+        page.locator("#music-reference-choose").click()
+    chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    page.locator("#music-generate").click()
+    expect(page.locator("#music-style")).to_have_value("")
+    expect(page.locator("#music-lyrics")).to_have_value("")
+    expect(page.locator("#music-reference-name")).to_have_text("")
+    page.locator("#music-studio").evaluate(
+        """() => {
+            const studio = document.querySelector('#music-studio');
+            studio.restoreAfterFailure({
+                client_id: studio.options.clientId, kind: 'music', status: 'failed'
+            });
+        }"""
+    )
+    expect(page.locator("#music-style")).to_have_value("Gentle acoustic piano")
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    page.locator("#music-generate").click()
+    page.wait_for_function(
+        "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
+    )
+    assert errors == [], errors
+    page.close()
+
+
 def main():
     base = f"http://127.0.0.1:{int(sys.argv[1])}"
     audio = io.BytesIO()
@@ -321,6 +361,9 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        expect(page.locator("#music-mode")).to_have_value("plan")
         expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
@@ -340,6 +383,10 @@ def main():
 
         # A cover keeps Style and Lyrics and starts from the recording's composition.
         page.locator('label[for="music-mode-generate"]').click()
+        expect(page.locator("#music-mode")).to_have_value("generate")
+        with page.expect_file_chooser() as chosen:
+            page.locator("#music-reference-choose").click()
+        chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
         expect(page.locator("#music-mode")).to_have_value("cover")
         page.locator("#music-style").fill("Warm piano pop")
         page.locator("#music-lyrics").fill("[Verse]\nA different morning song")
@@ -355,7 +402,8 @@ def main():
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Generate artwork", exact=True)).to_be_visible()
         page.keyboard.press("Escape")
-        page.locator("#music-reference-remove").click()
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.locator("#music-mode")).to_have_value("generate")
         expect(page.locator(".music-reference-scope")).to_be_hidden()
         # The cover run emptied the words, so the form asks for them again.
@@ -385,10 +433,11 @@ def main():
         assert errors == [], errors
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
+        verify_failure_restores_inputs(browser, base, audio)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "
-        "variations, reference-driven cover and transcription, exports, drops, validation, and cancel restore."
+        "variations, reference-driven cover and transcription, exports, drops, validation, cancel and failure restore."
     )
 
 

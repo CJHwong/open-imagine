@@ -279,7 +279,7 @@ class MusicStudio extends HTMLElement {
     this.storageQueue = Promise.resolve();
     this.coverImports = new Set();
     this.coverFailures = new Map();
-    this.clearedText = null;
+    this.clearedInputs = null;
     this.restoreOnStop = false;
     this.engraving = false;
     this.engravePending = false;
@@ -575,26 +575,38 @@ class MusicStudio extends HTMLElement {
       .map(key => [key.replaceAll('-', '_'), this.controls.querySelector('#music-' + key).value]));
     return {...values, instrumental: !values.lyrics.trim()};
   }
-  // Run empties the words it sent, as the Image workspace does. A cancelled run puts them
-  // back, because the run never used them.
+  // Run empties what it sent, as the Image workspace does: the words and the reference
+  // recording. A cancelled or failed run puts them back, because the run never used them.
   clearInputs() {
     const style = this.controls.querySelector('#music-style');
     const lyrics = this.controls.querySelector('#music-lyrics');
-    this.clearedText = {style: style.value, lyrics: lyrics.value};
+    this.clearedInputs = {style: style.value, lyrics: lyrics.value, reference: this.reference};
     style.value = '';
     lyrics.value = '';
+    this.reference = null;
+    this.updateReference();
+    this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
   restoreInputs() {
-    const snapshot = this.clearedText;
-    this.clearedText = null;
+    const snapshot = this.clearedInputs;
+    this.clearedInputs = null;
     this.restoreOnStop = false;
     if (!snapshot) return;
     this.controls.querySelector('#music-style').value = snapshot.style;
     this.controls.querySelector('#music-lyrics').value = snapshot.lyrics;
+    this.reference = snapshot.reference || null;
+    this.updateReference();
+    this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
-  prepareCancel() { this.restoreOnStop = Boolean(this.clearedText); }
+  prepareCancel() { this.restoreOnStop = Boolean(this.clearedInputs); }
+  // The shared poll reports a terminal failure from its history, after the active slot
+  // emptied. Only this client's run owns the snapshot.
+  restoreAfterFailure(operation) {
+    if (operation?.client_id !== this.options?.clientId) return;
+    this.restoreInputs();
+  }
   savedDraft() { return {...this.draft(), reference: this.reference || null}; }
   async setReference(file) {
     if (this.busy) return;
