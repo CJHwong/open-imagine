@@ -3,7 +3,7 @@ import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
 import {blobBase64} from '../lib/voice-audio.js';
-import {musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
+import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {pencilLoop, playingMark} from './gallery-marker.js';
@@ -402,6 +402,7 @@ class MusicStudio extends HTMLElement {
           <div class="music-abc-sheet">
             <div class="music-abc-notation" id="music-abc-notation" role="region" aria-label="Score preview" tabindex="0"></div>
             <p class="music-note music-abc-scroll-hint" hidden>Scroll for the full score. Focus the score to use arrow keys.</p>
+            <p class="music-abc-facts" id="music-abc-facts" hidden></p>
             <p class="music-note" id="music-abc-status" aria-live="polite"></p>
           </div>
         </div>
@@ -575,14 +576,29 @@ class MusicStudio extends HTMLElement {
       .map(key => [key.replaceAll('-', '_'), this.controls.querySelector('#music-' + key).value]));
     return {...values, instrumental: !values.lyrics.trim()};
   }
-  // Run empties what it sent, as the Image workspace does: the words and the reference
-  // recording. A cancelled or failed run puts them back, because the run never used them.
+  // Run empties what it sent, as the Image workspace does: the words, the reference
+  // recording and the Advanced settings. A cancelled or failed run puts them back.
   clearInputs() {
-    const style = this.controls.querySelector('#music-style');
-    const lyrics = this.controls.querySelector('#music-lyrics');
-    this.clearedInputs = {style: style.value, lyrics: lyrics.value, reference: this.reference};
-    style.value = '';
-    lyrics.value = '';
+    const field = id => this.controls.querySelector('#music-' + id);
+    const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task'];
+    this.clearedInputs = {
+      style: field('style').value,
+      lyrics: field('lyrics').value,
+      reference: this.reference,
+      advanced: Object.fromEntries(advanced.map(id => [id, field(id).value])),
+    };
+    const defaults = {
+      seed: '',
+      count: '1',
+      steps: String(this.capabilities?.default_steps || 32),
+      'cfg-scale': '1',
+      cot: this.capabilities?.default_planning || 'full',
+      abc: '',
+      'transcription-task': 'melody-full',
+    };
+    field('style').value = '';
+    field('lyrics').value = '';
+    for (const [id, value] of Object.entries(defaults)) field(id).value = value;
     this.reference = null;
     this.updateReference();
     this.syncEngineMode();
@@ -593,8 +609,10 @@ class MusicStudio extends HTMLElement {
     this.clearedInputs = null;
     this.restoreOnStop = false;
     if (!snapshot) return;
-    this.controls.querySelector('#music-style').value = snapshot.style;
-    this.controls.querySelector('#music-lyrics').value = snapshot.lyrics;
+    const field = id => this.controls.querySelector('#music-' + id);
+    field('style').value = snapshot.style;
+    field('lyrics').value = snapshot.lyrics;
+    for (const [id, value] of Object.entries(snapshot.advanced || {})) field(id).value = value;
     this.reference = snapshot.reference || null;
     this.updateReference();
     this.syncEngineMode();
@@ -658,6 +676,7 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('.music-advanced-fields').open = true;
     dialog.showModal();
     this.controls.querySelector('#music-abc').focus();
+    this.setAbcFacts(this.controls.querySelector('#music-abc').value);
     this.scheduleEngraving();
   }
   closeAbcEditor(focus = true) {
@@ -671,6 +690,23 @@ class MusicStudio extends HTMLElement {
   // The sheet must follow the text, so this listens to `input` rather than abcjs's own
   // Editor, which binds onkeyup and onchange as element properties and misses a
   // programmatic value set.
+  // The sheet draws the key and meter as symbols. This line says them in words.
+  setAbcFacts(score) {
+    const facts = this.controls.querySelector('#music-abc-facts');
+    if (!facts) return;
+    const parsed = musicScore(score);
+    const meters = [...new Set((String(score || '').match(/^M:\s*(\S+)/gm) || []).map(line => line.replace(/^M:\s*/, '')))];
+    const tempo = String(parsed.tempo || '').match(/=\s*(\d+(?:\.\d+)?)/)?.[1];
+    const items = [
+      parsed.key ? 'Key ' + parsed.key : '',
+      meters.length ? 'Meter ' + meters.join(', ') : '',
+      tempo ? 'Tempo ' + tempo + ' BPM' : '',
+    ].filter(Boolean);
+    facts.replaceChildren(...items.map(label => {
+      const item = document.createElement('span'); item.textContent = label; return item;
+    }));
+    facts.hidden = !items.length;
+  }
   scheduleEngraving() {
     clearTimeout(this.engraveTimer);
     this.engraveTimer = setTimeout(() => { this.engraveTimer = null; this.engraveAbc(); }, 250);
@@ -686,7 +722,8 @@ class MusicStudio extends HTMLElement {
       do {
         this.engravePending = false;
         const score = this.controls.querySelector('#music-abc').value;
-        if (!score.trim()) { pane.replaceChildren(); status.textContent = ''; break; }
+        if (!score.trim()) { pane.replaceChildren(); this.setAbcFacts(''); status.textContent = ''; break; }
+        this.setAbcFacts(score);
         status.textContent = '';
         try {
           const warnings = await renderNotation(pane, score);
@@ -1407,7 +1444,16 @@ class MusicStudio extends HTMLElement {
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Music actions');
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
       menu.append(cover, send);
-      const reuse = menuItem('text', 'Reuse style and lyrics', () => { if (this.busy) return; for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || ''; if (song.settings?.instrumental) this.controls.querySelector('#music-lyrics').value = ''; this.selectWorkflow('generate'); this.controls.dispatchEvent(new Event('input', {bubbles: true})); this.controls.querySelector('#music-style').focus(); }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
+      const reuse = menuItem('text', 'Reuse style, lyrics and seed', () => {
+        if (this.busy) return;
+        for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
+        if (song.settings?.instrumental) this.controls.querySelector('#music-lyrics').value = '';
+        const seed = Number.isFinite(song.seed) ? song.seed : song.settings?.seed;
+        if (Number.isFinite(seed)) this.controls.querySelector('#music-seed').value = String(seed);
+        this.selectWorkflow('generate');
+        this.controls.dispatchEvent(new Event('input', {bubbles: true}));
+        this.controls.querySelector('#music-style').focus();
+      }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
       if (song.score) actions.append(useScore);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
       actions.append(more, rule, download, remove);

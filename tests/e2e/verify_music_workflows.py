@@ -57,10 +57,13 @@ def verify_automatic_instrumental(browser, base):
             }""")
             bar = page.locator(".music-output-details:not([hidden])")
             bar.get_by_role("button", name="More actions", exact=True).click()
-            bar.get_by_role("menuitem", name="Reuse style and lyrics", exact=True).click()
+            bar.get_by_role("menuitem", name="Reuse style, lyrics and seed", exact=True).click()
             expect(page.locator("#music-instrumental")).to_have_count(0)
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
+            assert page.locator("#music-seed").input_value() == page.locator("#music-studio").evaluate(
+                "studio => String(studio.songs.find(song => song.id === studio.selectedId).seed)"
+            )
             page.locator("#music-lyrics").fill("Words to replace")
             bar.get_by_role("button", name="Edit score", exact=True).click()
             expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_visible()
@@ -100,6 +103,7 @@ def verify_cancel_restores_words(browser, base):
     page.locator("#music-generate").click()
     expect(page.locator("#music-style")).to_have_value("")
     expect(page.locator("#music-lyrics")).to_have_value("")
+    expect(page.locator("#music-count")).to_have_value("1")
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'busy'", timeout=30000
     )
@@ -109,6 +113,7 @@ def verify_cancel_restores_words(browser, base):
     )
     expect(page.locator("#music-style")).to_have_value("Gentle acoustic piano")
     expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
+    expect(page.locator("#music-count")).to_have_value("16")
     page.close()
 
 
@@ -123,6 +128,9 @@ def verify_failure_restores_inputs(browser, base, audio):
     page.locator("#music-style").fill("Gentle acoustic piano")
     page.locator("#music-lyrics").fill("[Verse]\nMorning melody")
     page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    page.locator("#music-seed").fill("99")
+    page.locator("#music-steps").select_option("16")
+    page.locator("#music-cfg-scale").fill("1.4")
     page.locator("#music-count").select_option("16")
     with page.expect_file_chooser() as chosen:
         page.locator("#music-reference-choose").click()
@@ -132,6 +140,12 @@ def verify_failure_restores_inputs(browser, base, audio):
     expect(page.locator("#music-style")).to_have_value("")
     expect(page.locator("#music-lyrics")).to_have_value("")
     expect(page.locator("#music-reference-name")).to_have_text("")
+    expect(page.locator("#music-seed")).to_have_value("")
+    expect(page.locator("#music-count")).to_have_value("1")
+    expect(page.locator("#music-steps")).to_have_value("32")
+    expect(page.locator("#music-cfg-scale")).to_have_value("1")
+    expect(page.locator("#music-cot")).to_have_value("full")
+    expect(page.locator("#music-abc")).to_have_value("")
     page.locator("#music-studio").evaluate(
         """() => {
             const studio = document.querySelector('#music-studio');
@@ -144,6 +158,10 @@ def verify_failure_restores_inputs(browser, base, audio):
     expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
     expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
     expect(page.locator("#music-mode")).to_have_value("cover")
+    expect(page.locator("#music-seed")).to_have_value("99")
+    expect(page.locator("#music-count")).to_have_value("16")
+    expect(page.locator("#music-steps")).to_have_value("16")
+    expect(page.locator("#music-cfg-scale")).to_have_value("1.4")
     page.locator("#music-generate").click()
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
@@ -282,6 +300,7 @@ def main():
         page.locator("#music-lyrics").fill("")
         expect(page.locator("#music-lyrics")).to_be_visible()
         advanced.evaluate("node=>node.open=true")
+        page.locator("#music-seed").fill("42")
         page.locator("#music-steps").select_option("8")
         page.locator("#music-cfg-scale").fill("1.4")
         page.locator("#music-count").select_option("2")
