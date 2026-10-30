@@ -714,20 +714,17 @@ class MusicStudio extends HTMLElement {
     this.recordingPending = false;
     this.sync();
   }
+  // The item's whole job: the song's score becomes the form's score, and the form shows
+  // where it landed. The editor stays behind the form's own Edit score link.
   useScore(song) {
     if (this.busy || !song.score) return;
-    closeMenus(); this.closeScore(false);
-    const settings = song.settings || {};
-    for (const key of ['style', 'lyrics', 'cot']) {
-      if (settings[key] !== undefined) this.controls.querySelector('#music-' + key).value = settings[key];
-    }
-    this.selectWorkflow('generate');
-    if (settings.instrumental) this.controls.querySelector('#music-lyrics').value = '';
-    this.controls.querySelector('#music-cot').value = settings.cot === 'off' ? 'full' : settings.cot || 'full';
+    closeMenus();
+    if (['cover', 'transcribe'].includes(this.draft().mode)) this.selectWorkflow('generate');
     this.controls.querySelector('#music-abc').value = song.score;
     this.controls.querySelector('.music-advanced-fields').open = true;
     this.epoch++; this.sync();
-    this.openAbcEditor();
+    const field = this.controls.querySelector('#music-abc-preview').closest('.field');
+    field?.scrollIntoView({block: 'center', behavior: 'smooth'});
     if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
   }
   openAbcEditor() {
@@ -917,7 +914,7 @@ class MusicStudio extends HTMLElement {
     // and returning in silence.
     this.querySelectorAll('[data-music-score]').forEach(button => {
       button.disabled = this.busy;
-      button.title = this.busy ? 'The score waits until this run finishes.' : 'Open this score in the editor';
+      button.title = this.busy ? 'The score waits until this run finishes.' : 'Copy this score into the form';
     });
     this.querySelectorAll('[data-music-more]').forEach(button => {
       button.disabled = this.busy;
@@ -1374,6 +1371,13 @@ class MusicStudio extends HTMLElement {
         if (!quiet) this.detailsTrigger?.focus();
       },
     });
+    const song = this.songs.find(item => item.id === songId);
+    const pane = detail.body.querySelector('.music-details-notation');
+    if (pane && song?.score) {
+      renderNotation(pane, song.score).catch(() => {
+        pane.textContent = 'This score could not be engraved. The ABC source is below.';
+      });
+    }
   }
   closeScore(focus = true) { this.closeAbcEditor(focus); }
   updateScoreScrollHint(pane) {
@@ -1549,9 +1553,18 @@ class MusicStudio extends HTMLElement {
         const words = document.createElement('p'); words.textContent = lyrics;
         fold.append(lyricsHead, words); details.append(fold);
       }
-      const score = document.createElement('details'); const scoreHeading = document.createElement('summary'); scoreHeading.textContent = 'ABC score';
-      const notation = document.createElement('pre'); notation.textContent = song.score || 'No score was generated.';
-      score.append(scoreHeading, notation); details.append(score);
+      // The sheet the song was written from, then the text it was written in. A score
+      // arrives engraved when the sheet opens, because the engraver needs a laid-out box.
+      if (song.score) {
+        const scoreView = document.createElement('section'); scoreView.className = 'music-details-score';
+        const pane = document.createElement('div'); pane.className = 'music-abc-notation music-details-notation';
+        pane.tabIndex = 0; pane.setAttribute('role', 'region'); pane.setAttribute('aria-label', 'Rendered score');
+        pane.addEventListener('keydown', event => this.scrollScore(event));
+        const source = document.createElement('details'); const sourceHead = document.createElement('summary'); sourceHead.textContent = 'ABC source';
+        const notation = document.createElement('pre'); notation.textContent = song.score;
+        source.append(sourceHead, notation);
+        scoreView.append(pane, source); details.append(scoreView);
+      }
       // The downloads sit in the sheet's own foot, so they stay reachable while
       // the body scrolls through the metadata.
       let downloads = null;
@@ -1570,8 +1583,12 @@ class MusicStudio extends HTMLElement {
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger'; remove.setAttribute('aria-label', 'Delete'); remove.title = 'Delete song';
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>';
       remove.addEventListener('click', () => this.removeSong(song.id));
-      const cover = menuItem('image', song.coverBlob ? 'Regenerate artwork' : 'Generate artwork', () => this.generateCover(song));
-      cover.dataset.musicCover = ''; cover.title = 'Generate a square cover from this song (Alt+C)'; cover.setAttribute('aria-keyshortcuts', 'Alt+C');
+      const artworkButton = document.createElement('button'); artworkButton.type = 'button'; artworkButton.className = 'btn quiet';
+      artworkButton.dataset.musicCover = '';
+      artworkButton.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>Artwork';
+      artworkButton.title = (song.coverBlob ? 'Make a new cover for this song' : 'Generate a square cover from this song') + ' (Alt+C)';
+      artworkButton.setAttribute('aria-keyshortcuts', 'Alt+C');
+      artworkButton.addEventListener('click', () => this.generateCover(song));
       const facts = document.createElement('div'); facts.className = 'facts num'; facts.setAttribute('aria-label', 'Music metadata');
       for (const value of [musicModelName(song.model), hasAudio ? song.seconds.toFixed(1) + ' s' : 'Score only', Number.isFinite(song.generationSeconds) ? 'Generated in ' + song.generationSeconds.toFixed(1) + ' s' : hasAudio ? '48 kHz · stereo' : 'ABC notation', 'Seed ' + song.seed]) { const fact = document.createElement('span'); fact.textContent = value; facts.append(fact); }
       const detailsId = 'music-details-' + this.songs.indexOf(song);
@@ -1583,12 +1600,14 @@ class MusicStudio extends HTMLElement {
       caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(song.id, caption); } });
       about.append(caption, facts);
       const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
-      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.dataset.musicScore = ''; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Edit score'; useScore.addEventListener('click', () => this.useScore(song));
+      // A score moves into the form from here; the modal belongs to the form's own
+      // Edit score link, so this item never opens it.
+      const useScore = menuItem('music', 'Use this score', () => this.useScore(song)); useScore.dataset.musicScore = '';
       const more = document.createElement('div'); more.className = 'menu-anchor';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Music actions');
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
-      menu.append(cover, send);
+      menu.append(...(song.score ? [useScore] : []), send);
       const reuse = menuItem('text', 'Reuse style, lyrics and seed', () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
@@ -1599,9 +1618,8 @@ class MusicStudio extends HTMLElement {
         this.controls.dispatchEvent(new Event('input', {bubbles: true}));
         this.controls.querySelector('#music-style').focus();
       }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
-      if (song.score) actions.append(useScore);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
-      actions.append(more, rule, download, remove);
+      actions.append(artworkButton, more, rule, download, remove);
       const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', 'Music preview details'); bar.append(about, actions); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);

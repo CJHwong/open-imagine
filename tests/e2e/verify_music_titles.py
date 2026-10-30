@@ -97,7 +97,7 @@ def main():
         page.route("**/api/v1/operations", reject_artwork)
         bar = page.locator(".music-output-details:not([hidden])")
         bar.get_by_role("button", name="More actions", exact=True).click()
-        bar.get_by_role("menuitem", name="Generate artwork", exact=True).click()
+        bar.get_by_role("button", name="Artwork", exact=True).click()
         expect(page.locator(".music-error:not(.music-player-error)")).to_have_text("Title artwork request captured")
         assert [request["kind"] for request in artwork_requests] == ["rewrite", "image"]
         brief = artwork_requests[0]["prompt"]

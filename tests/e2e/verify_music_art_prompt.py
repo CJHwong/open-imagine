@@ -117,7 +117,7 @@ def verify_artwork_workflow(browser, base, outcome):
     expect(page.locator(".music-song")).to_have_count(1)
     bar = page.locator(".music-output-details:not([hidden])")
     bar.get_by_role("button", name="More actions", exact=True).click()
-    bar.get_by_role("menuitem", name="Generate artwork", exact=True).click()
+    bar.get_by_role("button", name="Artwork", exact=True).click()
     if outcome == "timeout":
         deadline = time.monotonic() + 10
         while not polls and time.monotonic() < deadline:

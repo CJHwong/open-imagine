@@ -1267,6 +1267,10 @@
   .music-details-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); }
   .music-abc-preview { margin: 0; max-height: 148px; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome-2); font: 11px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   .music-abc-preview.is-empty { color: var(--text-3); font: 12px/1.5 var(--sans); }
+  /* The details sheet shows the engraved score over its ABC source, in the same paper
+     block the editor uses, so the two readings of one song look alike. */
+  .music-details-score { display: grid; gap: 12px; margin-top: 18px; }
+  .music-details-score .music-abc-notation { max-height: 420px; }
   .music-abc-dialog { box-sizing: border-box; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); color: var(--text); box-shadow: 0 16px 80px #0005; }
   .music-abc-dialog::backdrop { background: #0004; }
   .music-abc-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }

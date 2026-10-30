@@ -15,7 +15,10 @@ SCORE = (
 
 
 def open_editor(page):
-    page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Edit score", exact=True).click()
+    bar = page.locator(".music-output-details:not([hidden])")
+    bar.get_by_role("button", name="More actions", exact=True).click()
+    bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+    page.locator("#music-abc-edit").click()
     editor = page.get_by_role("dialog", name="ABC score", exact=True)
     expect(editor).to_be_visible()
     return editor
@@ -122,7 +125,9 @@ def main():
         assert page.locator("#music-studio gallery-browser").evaluate(
             "node=>node.items.every(item=>item.model==='YuE2')"
         )
-        sheet.locator("details summary", has_text="ABC score").click()
+        # The sheet shows the engraved score over the text it was written from.
+        expect(sheet.locator(".music-details-notation svg").first).to_be_visible(timeout=30000)
+        sheet.locator("details summary", has_text="ABC source").click()
         expect(sheet.locator("details pre")).to_have_text(SCORE)
         with page.expect_download() as download:
             sheet.get_by_role("link", name="Download ABC").click()

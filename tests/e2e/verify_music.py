@@ -108,8 +108,15 @@ def main():
         page.locator("#media-music-mode").click()
         expect(page.locator("#music-style")).to_have_value("")
         expect(page.locator(".music-song")).to_have_count(1)
-        # Edit score opens the editor with the saved score; it does not touch the song.
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Edit score", exact=True).click()
+        # Use this score copies the saved score into the form and leaves the editor shut.
+        bar = page.locator(".music-output-details:not([hidden])")
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_have_count(0)
+        expect(page.locator(".music-advanced-fields")).to_have_attribute("open", "")
+        assert page.locator("#music-abc").input_value().startswith("X:")
+        # The editor is the form's own Edit score link, and it opens on that score.
+        page.locator("#music-abc-edit").click()
         editor = page.get_by_role("dialog", name="ABC score", exact=True)
         expect(editor).to_be_visible()
         assert page.locator("#music-abc").input_value().startswith("X:")
