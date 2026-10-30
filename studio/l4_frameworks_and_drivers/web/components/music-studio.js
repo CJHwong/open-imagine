@@ -414,7 +414,7 @@ class MusicStudio extends HTMLElement {
           <textarea id="music-abc" rows="14" spellcheck="false" aria-labelledby="music-abc-dialog-title"></textarea>
           <div class="music-abc-sheet">
             <div class="music-abc-notation" id="music-abc-notation" role="region" aria-label="Score preview" tabindex="0"></div>
-            <p class="music-note music-abc-scroll-hint" hidden>Scroll for the full score. Focus the score to use arrow keys.</p>
+            <p class="music-note music-abc-scroll-hint" hidden>The whole score does not fit. Click the score, then use the arrow keys.</p>
             <p class="music-abc-facts" id="music-abc-facts" hidden></p>
             <p class="music-note" id="music-abc-status" aria-live="polite"></p>
           </div>
@@ -756,18 +756,29 @@ class MusicStudio extends HTMLElement {
     const meters = [...new Set((String(score || '').match(/^M:\s*(\S+)/gm) || []).map(line => line.replace(/^M:\s*/, '')))];
     const tempo = String(parsed.tempo || '').match(/=\s*(\d+(?:\.\d+)?)/)?.[1];
     const items = [
-      parsed.key ? 'Key ' + parsed.key : '',
-      meters.length ? 'Meter ' + meters.join(', ') : '',
-      tempo ? 'Tempo ' + tempo + ' BPM' : '',
-    ].filter(Boolean);
-    facts.replaceChildren(...items.map(label => {
-      const item = document.createElement('span'); item.textContent = label; return item;
+      ['Key', parsed.key],
+      ['Meter', meters.join(', ')],
+      ['Tempo', tempo ? tempo + ' BPM' : ''],
+    ].filter(([, value]) => value);
+    // A label over its value, in columns: three facts read as a table, and each one keeps
+    // its own name instead of running into the next when the line is copied out.
+    facts.replaceChildren(...items.map(([name, value]) => {
+      const pair = document.createElement('div');
+      const label = document.createElement('dt'); label.textContent = name;
+      const data = document.createElement('dd'); data.textContent = value;
+      pair.append(label, data); return pair;
     }));
     facts.hidden = !items.length;
   }
   scheduleEngraving() {
     clearTimeout(this.engraveTimer);
     this.engraveTimer = setTimeout(() => { this.engraveTimer = null; this.engraveAbc(); }, 250);
+  }
+  engraveDetails(pane, score) {
+    if (pane.dataset.engraved === '1') return;
+    renderNotation(pane, score).then(() => { pane.dataset.engraved = '1'; }).catch(() => {
+      pane.textContent = 'This score could not be engraved. The ABC source is below.';
+    });
   }
   async engraveAbc() {
     const dialog = this.controls.querySelector('#music-abc-dialog');
@@ -1371,13 +1382,6 @@ class MusicStudio extends HTMLElement {
         if (!quiet) this.detailsTrigger?.focus();
       },
     });
-    const song = this.songs.find(item => item.id === songId);
-    const pane = detail.body.querySelector('.music-details-notation');
-    if (pane && song?.score) {
-      renderNotation(pane, song.score).catch(() => {
-        pane.textContent = 'This score could not be engraved. The ABC source is below.';
-      });
-    }
   }
   closeScore(focus = true) { this.closeAbcEditor(focus); }
   updateScoreScrollHint(pane) {
@@ -1560,10 +1564,18 @@ class MusicStudio extends HTMLElement {
         const pane = document.createElement('div'); pane.className = 'music-abc-notation music-details-notation';
         pane.tabIndex = 0; pane.setAttribute('role', 'region'); pane.setAttribute('aria-label', 'Rendered score');
         pane.addEventListener('keydown', event => this.scrollScore(event));
+        // Both readings start folded, so the sheet opens on the metadata. The engraver needs
+        // a laid-out box, so it runs on the first open rather than on a hidden element.
+        const sheetFold = document.createElement('details'); sheetFold.className = 'music-details-sheet';
+        const sheetHead = document.createElement('summary'); sheetHead.textContent = 'Score';
+        sheetFold.addEventListener('toggle', () => {
+          if (sheetFold.open) this.engraveDetails(pane, song.score);
+        });
+        sheetFold.append(sheetHead, pane);
         const source = document.createElement('details'); const sourceHead = document.createElement('summary'); sourceHead.textContent = 'ABC source';
         const notation = document.createElement('pre'); notation.textContent = song.score;
         source.append(sourceHead, notation);
-        scoreView.append(pane, source); details.append(scoreView);
+        scoreView.append(sheetFold, source); details.append(scoreView);
       }
       // The downloads sit in the sheet's own foot, so they stay reachable while
       // the body scrolls through the metadata.

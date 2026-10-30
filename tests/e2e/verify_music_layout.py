@@ -64,9 +64,9 @@ def main():
         expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
         facts = page.locator("#music-abc-facts")
         expect(facts).to_be_visible()
-        expect(facts).to_contain_text("Key C")
-        expect(facts).to_contain_text("Meter 4/4")
-        expect(facts).to_contain_text("Tempo 88 BPM")
+        # Three labelled columns: each name keeps its own value when the line is copied.
+        expect(facts.locator("dt")).to_have_text(["Key", "Meter", "Tempo"])
+        expect(facts.locator("dd")).to_have_text(["C", "4/4", "88 BPM"])
         assert page.locator("#music-abc-notation .abcjs-note").count() > 32
         assert "Vocal Melody" in page.locator("#music-abc-notation").inner_text()
         assert "Instrumental" in page.locator("#music-abc-notation").inner_text()
@@ -76,6 +76,12 @@ def main():
         notation.evaluate("node=>node.scrollTop=0")
         notation.hover()
         page.mouse.wheel(0, 240)
+        page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
+        # The hint promises arrow keys once the score is clicked; a click focuses it.
+        notation.click()
+        assert notation.evaluate("node=>node === document.activeElement")
+        notation.evaluate("node=>node.scrollTop=0")
+        page.keyboard.press("ArrowDown")
         page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
         notation.evaluate("node=>node.scrollTop=0")
         notation.focus()
@@ -125,8 +131,11 @@ def main():
         assert page.locator("#music-studio gallery-browser").evaluate(
             "node=>node.items.every(item=>item.model==='YuE2')"
         )
-        # The sheet shows the engraved score over the text it was written from.
-        expect(sheet.locator(".music-details-notation svg").first).to_be_visible(timeout=30000)
+        # Both readings start folded; the sheet engraves when it is opened.
+        score_fold = sheet.locator("details.music-details-sheet")
+        expect(score_fold).not_to_have_attribute("open", "")
+        score_fold.locator("summary").click()
+        expect(score_fold.locator(".music-details-notation svg").first).to_be_visible(timeout=30000)
         sheet.locator("details summary", has_text="ABC source").click()
         expect(sheet.locator("details pre")).to_have_text(SCORE)
         with page.expect_download() as download:
