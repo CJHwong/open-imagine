@@ -56,7 +56,11 @@ def main():
         expect(panel.get_by_role("tab", name="Chords", exact=True)).to_be_visible()
         panel.get_by_role("button", name="Edit and render score", exact=True).click()
         expect(panel).to_be_hidden()
+        editor = page.get_by_role("dialog", name="ABC score", exact=True)
+        expect(editor).to_be_visible()
         expect(page.locator("#music-abc")).to_have_value(SCORE)
+        page.locator("#music-abc-close").click()
+        expect(editor).to_be_hidden()
         page.evaluate("""async () => {
           const studio = document.querySelector('music-studio');
           const manifest = {items:[{index:1, completed_at:150, result_url:'/test-song/result'}]};

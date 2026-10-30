@@ -281,6 +281,10 @@ class MusicStudio extends HTMLElement {
     this.coverFailures = new Map();
     this.clearedText = null;
     this.restoreOnStop = false;
+    this.engraving = false;
+    this.engravePending = false;
+    this.engraveTimer = null;
+    this.abcReturnFocus = true;
   }
   connectedCallback() {
     if (this.ready) return;
@@ -374,8 +378,9 @@ class MusicStudio extends HTMLElement {
           <div class="field music-composition-fields"><div class="field-head"><label for="music-cot">Planning</label></div>
               <select id="music-cot"><option value="full">Melody and chords</option><option value="melody">Melody</option><option value="off">Direct generation</option></select>
               <span class="caption">How much of the song is planned before audio synthesis.</span></div>
-          <div class="field music-composition-fields"><div class="field-head"><label for="music-abc">ABC score (optional)</label></div>
-              <textarea id="music-abc" rows="8"></textarea>
+          <div class="field music-composition-fields"><div class="field-head"><span class="label" id="music-abc-label">ABC score</span>
+              <button type="button" class="text-btn" id="music-abc-edit">Add score</button></div>
+              <pre class="music-abc-preview is-empty" id="music-abc-preview" aria-labelledby="music-abc-label">No score. Generate will compose one.</pre>
               <span class="caption">Paste a composition to render it. Needs melody or full planning.</span></div>
           <div class="field music-synthesis-fields music-sound-fields"><div class="field-head"><label for="music-steps">Synthesis quality</label></div>
               <select id="music-steps"><option value="32">Standard · 32 steps</option><option value="16">Balanced · 16 steps</option><option value="8">Fast · 8 steps</option></select>
@@ -387,7 +392,21 @@ class MusicStudio extends HTMLElement {
               <select id="music-count"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select>
               <span class="caption">Songs made from these settings, each with its own seed.</span></div>
         </div>
-      </details><p class="music-note" id="music-loading-note" hidden></p>`;
+      </details>
+      <dialog class="music-abc-dialog" id="music-abc-dialog" aria-labelledby="music-abc-dialog-title">
+        <div class="music-abc-dialog-head"><h2 id="music-abc-dialog-title">ABC score</h2>
+          <button type="button" class="icon-btn close" id="music-abc-close" aria-label="Close score editor">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+        <div class="music-abc-editor">
+          <textarea id="music-abc" rows="14" spellcheck="false" aria-labelledby="music-abc-dialog-title"></textarea>
+          <div class="music-abc-sheet">
+            <div class="music-abc-notation" id="music-abc-notation" role="region" aria-label="Score preview" tabindex="0"></div>
+            <p class="music-note music-abc-scroll-hint" hidden>Scroll for the full score. Focus the score to use arrow keys.</p>
+            <p class="music-note" id="music-abc-status" aria-live="polite"></p>
+          </div>
+        </div>
+      </dialog>
+      <p class="music-note" id="music-loading-note" hidden></p>`;
     configureLookRows({form: 'music', fields: [], scope: () => this.controls,
       mode: () => this.controls.querySelector('#music-mode').value,
       rows: () => MUSIC_STYLE_ROWS.slice(1), picks: () => this.stylePicks(),
@@ -412,6 +431,25 @@ class MusicStudio extends HTMLElement {
       this.epoch++;
       this.sync();
       if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+    });
+    const abcDialog = this.controls.querySelector('#music-abc-dialog');
+    this.controls.querySelector('#music-abc-edit').addEventListener('click', () => this.openAbcEditor());
+    this.controls.querySelector('#music-abc-close').addEventListener('click', () => this.closeAbcEditor());
+    this.controls.querySelector('#music-abc-notation').addEventListener('keydown', event => this.scrollScore(event));
+    this.controls.querySelector('#music-abc').addEventListener('input', () => {
+      if (abcDialog.open) this.scheduleEngraving();
+    });
+    abcDialog.addEventListener('close', () => {
+      if (!this.abcReturnFocus || this.hidden || this.busy) return;
+      // The browser restores focus to the element that opened the dialog after this event,
+      // so the panel's own Edit button has to wait its turn.
+      setTimeout(() => this.controls.querySelector('#music-abc-edit').focus(), 0);
+    });
+    abcDialog.addEventListener('click', event => {
+      if (event.target !== abcDialog) return;
+      const rect = abcDialog.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right
+        || event.clientY < rect.top || event.clientY > rect.bottom) this.closeAbcEditor();
     });
     this.controls.querySelector('#music-genre-presets').addEventListener('click', event => {
       const button = event.target.closest('[data-music-genre]');
@@ -438,7 +476,7 @@ class MusicStudio extends HTMLElement {
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
     window.addEventListener('pagehide', () => this.pausePlayback());
-    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-notation').forEach(pane => this.updateScoreScrollHint(pane))));
+    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-notation, .music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
     window.addEventListener('keydown', event => {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
@@ -598,8 +636,56 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('#music-abc').value = song.score;
     this.controls.querySelector('.music-advanced-fields').open = true;
     this.epoch++; this.sync();
-    this.controls.querySelector('#music-abc').focus();
+    this.openAbcEditor();
     if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+  }
+  openAbcEditor() {
+    if (this.busy || this.hidden || this.needsReference()) return;
+    const dialog = this.controls.querySelector('#music-abc-dialog');
+    if (!dialog || dialog.open) return;
+    this.controls.querySelector('.music-advanced-fields').open = true;
+    dialog.showModal();
+    this.controls.querySelector('#music-abc').focus();
+    this.scheduleEngraving();
+  }
+  closeAbcEditor(focus = true) {
+    const dialog = this.controls.querySelector('#music-abc-dialog');
+    if (!dialog?.open) return;
+    clearTimeout(this.engraveTimer);
+    this.engraveTimer = null;
+    this.abcReturnFocus = focus;
+    dialog.close();
+  }
+  // The sheet must follow the text, so this listens to `input` rather than abcjs's own
+  // Editor, which binds onkeyup and onchange as element properties and misses a
+  // programmatic value set.
+  scheduleEngraving() {
+    clearTimeout(this.engraveTimer);
+    this.engraveTimer = setTimeout(() => { this.engraveTimer = null; this.engraveAbc(); }, 250);
+  }
+  async engraveAbc() {
+    const dialog = this.controls.querySelector('#music-abc-dialog');
+    const pane = this.controls.querySelector('#music-abc-notation');
+    const status = this.controls.querySelector('#music-abc-status');
+    if (!dialog?.open) return;
+    if (this.engraving) { this.engravePending = true; return; }
+    this.engraving = true;
+    try {
+      do {
+        this.engravePending = false;
+        const score = this.controls.querySelector('#music-abc').value;
+        if (!score.trim()) { pane.replaceChildren(); status.textContent = ''; break; }
+        status.textContent = '';
+        try {
+          const warnings = await renderNotation(pane, score);
+          status.textContent = warnings ? 'Some notation could not be interpreted. Check the ABC text.' : '';
+        } catch (_) {
+          pane.replaceChildren();
+          status.textContent = 'This score could not be engraved. Check the ABC text.';
+        }
+        this.updateScoreScrollHint(pane);
+      } while (this.engravePending);
+    } finally { this.engraving = false; }
   }
   store(action) {
     const pending = this.storageQueue.then(action);
@@ -672,6 +758,14 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('#music-cot option[value="off"]').disabled = scoreOnly || draft.instrumental;
     if ((scoreOnly || draft.instrumental) && draft.cot === 'off') this.controls.querySelector('#music-cot').value = 'full';
     this.controls.querySelector('#music-abc').disabled = needsReference;
+    const abc = this.controls.querySelector('#music-abc').value;
+    const abcPreview = this.controls.querySelector('#music-abc-preview');
+    abcPreview.textContent = abc.trim() ? abc : 'No score. Generate will compose one.';
+    abcPreview.classList.toggle('is-empty', !abc.trim());
+    this.controls.querySelector('#music-abc-edit').textContent = abc.trim() ? 'Edit score' : 'Add score';
+    if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
+      this.closeAbcEditor(false);
+    }
     for (const key of ['steps', 'cfg-scale']) this.controls.querySelector('#music-' + key).disabled = transcribe || scoreOnly;
     this.controls.querySelector('#music-count').disabled = transcribe;
     this.controls.querySelector('#music-seed').disabled = transcribe;
@@ -1153,7 +1247,7 @@ class MusicStudio extends HTMLElement {
     });
   }
   updateScoreScrollHint(pane) {
-    const hint = pane.parentElement.querySelector('.music-score-scroll-hint');
+    const hint = pane.parentElement.querySelector('.music-score-scroll-hint, .music-abc-scroll-hint');
     if (hint) hint.hidden = pane.scrollHeight <= pane.clientHeight + 1 && pane.scrollWidth <= pane.clientWidth + 1;
   }
   scrollScore(event) {

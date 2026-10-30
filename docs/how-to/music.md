@@ -78,7 +78,9 @@ for Compose; the caption under the run button names the result. The form then sh
 the fields that result reads.
 **Advanced** holds the seed, planning, synthesis quality and variations.
 Planning offers melody-and-chord planning (the default), melody planning, or direct generation.
-An optional ABC score requires melody or full planning. Rendering an edited score makes a new
+An optional ABC score requires melody or full planning. Advanced shows the score read only.
+**Edit score** opens the editor: the ABC text beside a sheet that follows it as you type.
+Esc or Close returns to the form and keeps the edits. Rendering an edited score makes a new
 recording; it does not preserve waveform regions. Non-instrumental rendering preserves the supplied ABC text. Instrumental rendering can move vocal melody into instrumental parts.
 Direct generation is not an instrumental switch; instrumentals need melody or full planning.
 
@@ -92,7 +94,8 @@ one for each result. All modes continue to share Studio’s single GPU operation
 Choose **Compose** to write sheet music without producing audio. Inspect
 its complete sheet music and ABC source in the same gallery as recordings. **Score** opens the notation and chords without changing the draft.
 Choose **Render score** for a score-only result, or **Edit and render score** for a song.
-This loads the exact score into Generate so you can edit its notation, style, or lyrics.
+This loads the exact score into Generate and opens the ABC editor, so you can edit its
+notation, style, or lyrics.
 
 Compose score supports instrumental output and serial variations. Score-only items
 have ABC downloads and no audio playback or Send to Video action.

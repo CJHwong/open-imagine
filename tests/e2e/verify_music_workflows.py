@@ -69,6 +69,8 @@ def verify_automatic_instrumental(browser, base):
             expect(page.locator("#music-instrumental")).to_have_count(0)
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
+            page.locator("#music-abc-close").click()
+            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
     # Older drafts could keep words while an explicit instrumental switch was on.
     page.evaluate("""async()=>{
       const {saveMusicDraft}=await import('/page/lib/music-store.js');
@@ -226,10 +228,21 @@ def main():
             "button", name="Render score", exact=True
         ).click()
         assert advanced.evaluate("node=>node.open"), "Render score did not reveal Advanced"
-        expect(page.locator("#music-abc")).to_be_visible()
+        editor = page.get_by_role("dialog", name="ABC score", exact=True)
+        expect(editor).to_be_visible()
         expect(page.locator("#music-mode")).to_have_value("generate")
         expect(page.locator("#music-mode-generate")).to_be_checked()
         expect(page.locator("#music-abc")).to_have_value(score)
+        expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
+        page.keyboard.press("Escape")
+        expect(editor).to_be_hidden()
+        page.wait_for_function("() => document.activeElement?.id === 'music-abc-edit'", timeout=2000)
+        expect(page.locator("#music-abc-preview")).to_have_text(score)
+        expect(page.locator("#music-abc-edit")).to_have_text("Edit score")
+        page.locator("#music-abc-edit").click()
+        expect(editor).to_be_visible()
+        page.locator("#music-abc-close").click()
+        expect(editor).to_be_hidden()
         expect(page.locator("#music-instrumental")).to_have_count(0)
         page.locator("#music-lyrics").fill("")
         expect(page.locator("#music-lyrics")).to_be_visible()
@@ -260,6 +273,11 @@ def main():
         expect(page.locator("#music-reference-remove.video-audio-remove")).to_be_visible()
         expect(page.locator("#music-reference-choose")).to_be_hidden()
         expect(page.locator(".music-reference-scope")).to_be_visible()
+        expect(page.locator(".music-composition-fields").first).to_be_hidden()
+        expect(page.locator("#music-abc-edit")).to_be_hidden()
+        assert not page.locator("#music-abc-dialog").evaluate("node=>node.open"), (
+            "Reference mode opened the score editor"
+        )
         expect(page.locator("#music-style")).to_be_visible()
         expect(page.locator("#music-transcription-task")).to_be_visible()
         expect(page.locator("#music-generate")).to_be_enabled()
