@@ -1,6 +1,6 @@
 ---
 name: studio-music
-description: Create songs, instrumentals, covers and scores with Open Imagine's Music API. Write and adapt lyrics, choose planning and an ABC score, transcribe a recording, edit a score while preserving the melody, and compare takes by listening. Use for song requests, first songs, lyric writing, instrumental cues, covers, reharmonization, score editing and listening comparisons, and when the user does not know where to start and wants to be guided; also for 歌曲生成, 純音樂, 翻唱, 轉譜, 改譜 and 歌詞改寫.
+description: Create songs, instrumentals, covers and scores with Open Imagine's Music API. Write and adapt lyrics, choose planning and an ABC score, transcribe a recording, edit a score while preserving the melody, and compare takes by listening. Use for song requests, first songs, lyric writing, instrumental cues, covers, reharmonization, score editing, shuffled song sets and listening comparisons, and when the user does not know where to start and wants to be guided; also for 歌曲生成, 純音樂, 翻唱, 轉譜, 改譜 and 歌詞改寫.
 ---
 
 # Studio Music
@@ -104,6 +104,13 @@ URL. `reference_name` is only a label.
   source. It does not clone the singer, preserve the waveform or remove an instrument.
 - Inspect a transcription before blaming the renderer. A wrong note or a wrong meter can come
   from the transcription.
+
+## Play a shuffled set
+
+When the user wants a set of songs rather than one, read the [shuffle guide](references/shuffle.md).
+Write a `prompts.jsonl` list, then run `scripts/shuffle.py --prompts ... --out ... --tracks N`.
+The script submits one generation at a time, saves each result, plays it, and starts the next.
+The track count is the stop. A per-track duration is not a request field.
 
 ## Deliver
 
