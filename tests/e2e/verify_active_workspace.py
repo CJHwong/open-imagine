@@ -37,9 +37,14 @@ with sync_playwright() as tool:
         tab.wait_for_function("Boolean(formApi)")
         tab.fill("#prompt", "Keep this image draft")
         tab.locator("#size").select_option("768x512", force=True)
+        # The default image backend pins steps to its schedule
+        # (gateways/image/qwen21_turbo/capabilities.py:84), so the draft keeps the field's
+        # own maximum. Asking for 17 is clamped before the draft is saved.
         tab.locator("#steps").evaluate(
-            "input => { input.value = 17; input.dispatchEvent(new Event('input', {bubbles: true})); }"
+            "input => { input.value = input.max || '8'; input.dispatchEvent(new Event('input', {bubbles: true})); }"
         )
+    steps_draft = tabs[0].input_value("#steps")
+    assert steps_draft, "the steps draft did not survive its own input"
     for kind, mode in (("image", "edit"), ("image", "generate"), ("video", "edit"), ("voice", "clone")):
         tabs[0].evaluate("setMediaMode('voice' === mediaMode ? 'image' : 'voice')")
         operation = {
@@ -105,7 +110,7 @@ with sync_playwright() as tool:
             if tab is tabs[0]:
                 assert tab.input_value("#prompt") == "Keep this image draft"
                 assert tab.input_value("#size") == "768x512"
-                assert tab.input_value("#steps") == "17"
+                assert tab.input_value("#steps") == steps_draft
             assert tab.locator("#strip .frame.pending").count() == 0
             assert not tab.evaluate("Boolean(videoStudio.generationProgress)")
             assert not tab.title().startswith("(")

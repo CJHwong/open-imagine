@@ -512,7 +512,9 @@ class VideoStudio extends LitElement {
       return;
     }
     if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
-      this.setError('This video model accepts at most ' + this.maxReferences + ' image references.');
+      this.setError(this.maxReferences === 0
+        ? 'This mode takes no image references.'
+        : 'This video model accepts at most ' + this.maxReferences + ' image references.');
       return;
     }
     this.clearError();
@@ -1401,11 +1403,17 @@ class VideoStudio extends LitElement {
     if (!next) return false;
     const keepFocus = Boolean(gallery?.contains(document.activeElement));
     this.selectClip(next.id);
-    const selected = this.querySelector('#video-gallery .video-clip.selected');
-    if (selected) {
+    // The strip is a Lit child: its buttons still carry the previous selection until it
+    // redraws. Wait for that frame, then move and focus the one that is selected now.
+    const settle = async () => {
+      const window = this.querySelector('#video-gallery gallery-window');
+      if (window) await window.updateComplete;
+      const selected = this.querySelector('#video-gallery .video-clip.selected');
+      if (!selected) return;
       selected.scrollIntoView({block: 'nearest', inline: 'nearest'});
       if (keepFocus) selected.focus();
-    }
+    };
+    settle();
     return true;
   }
 
