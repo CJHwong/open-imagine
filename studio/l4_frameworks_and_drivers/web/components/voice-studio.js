@@ -1149,8 +1149,13 @@ class VoiceStudio extends LitElement {
     const rendering = this.voiceRunning;
     const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})));
     clips.sort((first, second) => (second.take?.createdAt ?? Infinity) - (first.take?.createdAt ?? Infinity));
+    // The head names what the shelf holds and what happens to it, as the Image strip does.
+    const shelf = `${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}`;
+    const shelfNote = this.options.keeping?.() !== false
+      ? shelf + ', kept in this browser.'
+      : shelf + ' in this tab. Download the ones you want to keep.';
     return html`<section class="strip-wrap voice-gallery" id="voice-gallery" aria-label="Voice gallery" ?hidden=${!clips.length && !rendering}>
-      <div class="strip-head"><span>${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}</span>
+      <div class="strip-head"><span>${shelfNote}</span>
         <gallery-browser workspace="voice" .items=${clips.map(({segment, take}) => ({id: take.id,
           number: this.clipNumber(take), text: segment.text, description: take.voice, model: take.model,
           mode: take.mode, seed: take.seed, at: take.createdAt, duration: take.duration, peaks: take.peaks,

@@ -263,7 +263,7 @@ def main():
         page.locator("#music-generate").click()
         expect(page.locator(".music-song.is-score")).to_have_count(1)
         expect(page.locator(".music-song audio")).to_have_count(0)
-        expect(page.locator(".music-count")).to_have_text("0 songs, 1 score")
+        expect(page.locator(".music-count")).to_have_text("0 songs, 1 score, kept in this browser.")
         bar = page.locator(".music-output-details:not([hidden])")
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Use this score", exact=True)).to_be_enabled()

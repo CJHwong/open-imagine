@@ -317,13 +317,12 @@ class MusicStudio extends HTMLElement {
       </div>
       <div class="music-songs"></div></div><div class="music-output-bars"></div></section>
       <section class="music-gallery strip-wrap" aria-label="Songs" hidden>
-        <div class="strip-head"><h2>Songs</h2><gallery-browser workspace="music"></gallery-browser>
+        <div class="strip-head"><span class="music-count">0 songs</span><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="Pause background audio" hidden>Pause</button>
           <span class="strip-actions">
             <button type="button" class="text-btn" id="music-download-all">Download all</button>
             <button type="button" class="text-btn" id="music-clear-all">Clear all</button>
-          </span>
-          <span class="music-count">0 songs</span></div>
+          </span></div>
         <div class="strip music-strip" role="group" aria-label="Select a song"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
@@ -942,7 +941,13 @@ class MusicStudio extends HTMLElement {
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
     if (previewingGeneration || this.hidden) { this.closeDetails(false); this.closeScore(false); }
     const scores = this.songs.filter(song => !song.blob).length, recordings = this.songs.length - scores;
-    this.querySelector('.music-count').textContent = scores ? `${recordings} song${recordings === 1 ? '' : 's'}, ${scores} score${scores === 1 ? '' : 's'}` : `${recordings} song${recordings === 1 ? '' : 's'}`;
+    // The head names what the shelf holds, and what happens to it, the way the Image strip
+    // does. It is the first child, so the shared head rule sets it at the left edge.
+    const shelf = scores ? `${recordings} song${recordings === 1 ? '' : 's'}, ${scores} score${scores === 1 ? '' : 's'}`
+      : `${recordings} song${recordings === 1 ? '' : 's'}`;
+    this.querySelector('.music-count').textContent = this.keeping
+      ? `${shelf}, kept in this browser.`
+      : `${shelf} in this tab. Download the ones you want to keep.`;
     const progress = this.operation?.progress || {};
     this.querySelector('.music-generation-label').textContent = this.operation?.status === 'stopping' ? 'Stopping music generation'
       : progress.stage === 'preparing' ? 'Loading music model' : progress.stage === 'transcribing' ? 'Transcribing reference audio' : ({plan: 'Composing score', transcribe: 'Transcribing audio', cover: 'Creating cover song'}[this.operation?.mode || draft.mode] || 'Generating music');

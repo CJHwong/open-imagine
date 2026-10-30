@@ -1167,8 +1167,6 @@
   .music-preview-area.stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
   .music-preview-pane { display: grid; align-items: center; justify-items: center; min-height: 0; overflow: auto; padding: 28px; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
-  .music-gallery .strip-head { gap: 16px; }
-  .music-gallery .strip-head h2 { margin: 0; flex: 1; font: inherit; }
   .music-strip:empty { display: none; }
   .music-thumb .music-thumb-art { width: 112px; display: grid; place-items: center; background: linear-gradient(135deg, #443b36, #211c1b); }
   .music-thumb-art img { width: 100%; height: 100%; object-fit: cover; }
@@ -1192,7 +1190,6 @@
   .music-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
   .music-gallery-head h2 { margin: 4px 0 0; font-size: 24px; font-weight: 500; }
   .music-eyebrow { margin: 0; color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: .14em; }
-  .music-count { color: var(--text-2); font-size: 12px; }
   /* The empty pane is the shared one: a monospace mark, a serif line, a sentence and a
      pill, the same as Video and Voice. Only the tint is Music's own. */
   .music-empty.video-empty { justify-content: center; width: min(360px, 100%); margin: auto; color: var(--text); }

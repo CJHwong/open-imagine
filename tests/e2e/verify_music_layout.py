@@ -48,6 +48,13 @@ def main():
         page.locator("#music-generate").click()
         expect(page.locator(".music-song audio")).to_have_count(1)
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        # The shelf label opens the strip head, at the same left edge as Image, Video and
+        # Voice, with Browse and the bulk actions on the right.
+        head = page.locator("#music-studio .strip-head")
+        expect(head).to_be_visible()
+        assert head.evaluate("node => node.firstElementChild.className") == "music-count"
+        assert abs(head.locator(".music-count").bounding_box()["x"] - head.bounding_box()["x"]) <= 3
+        assert head.locator(".music-count").inner_text().endswith("kept in this browser.")
         recording = page.locator(".music-song audio")
         recording.evaluate("audio=>{audio.loop=true;return audio.play();}")
         editor = open_editor(page)

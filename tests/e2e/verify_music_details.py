@@ -35,7 +35,7 @@ def main():
             result_url:'/test-song/result', settings:{style:'piano', lyrics:'hello'}
           }, await fetch('/test-song/result'));
         }""")
-        expect(page.locator(".music-count")).to_have_text("1 song")
+        expect(page.locator(".music-count")).to_have_text("1 song in this tab. Download the ones you want to keep.")
         bar = page.locator(".music-output-details:not([hidden])")
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
         expect(bar.locator(".facts")).to_contain_text("Generated in 12.5 s")
