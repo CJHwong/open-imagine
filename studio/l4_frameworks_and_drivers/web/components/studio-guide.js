@@ -137,11 +137,15 @@ function stepsSection(workspace, capabilities) {
   list.className = 'guide-steps';
   steps.forEach(([name, text]) => {
     const item = document.createElement('li');
+    // The number takes the first grid column, so the name and the sentence share a
+    // wrapper. Loose children would put the sentence back in the number's 28 px column.
+    const body = document.createElement('div');
     const strong = document.createElement('strong');
     strong.textContent = name;
     const copy = document.createElement('p');
     copy.textContent = text;
-    item.append(strong, copy);
+    body.append(strong, copy);
+    item.append(body);
     list.append(item);
   });
   section.append(title, list);

@@ -43,6 +43,15 @@ with sync_playwright() as p:
             assert box and box["width"] > 100 and box["height"] > 100
             assert box["x"] >= 0 and box["x"] + box["width"] <= width + 1
             assert sheet.locator("dd").evaluate_all("(els) => els.every(el => el.scrollWidth <= el.clientWidth)")
+            # A step's sentence shares the title's column. A loose grid child drops into
+            # the number's 28 px column and wraps one word a line.
+            assert sheet.locator(".guide-steps p").evaluate_all(
+                """(copies) => copies.length > 0 && copies.every(copy => {
+                    const strong = copy.parentElement.querySelector('strong').getBoundingClientRect();
+                    const box = copy.getBoundingClientRect();
+                    return box.width > 150 && Math.abs(box.left - strong.left) < 1;
+                })"""
+            ), "a step sentence left the text column"
             page.keyboard.press("Escape")
             assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
             assert toggle.evaluate("(el) => el === document.activeElement")
