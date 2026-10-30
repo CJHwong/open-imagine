@@ -1,12 +1,12 @@
 {
   "name": "open-imagine",
   "displayName": "Open Imagine",
-  "version": "0.2.1",
-  "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
+  "version": "0.3.0",
+  "description": "Create images and songs with your own Open Imagine studio.",
   "author": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
   "homepage": "https://github.com/CJHwong/open-imagine",
   "repository": "https://github.com/CJHwong/open-imagine",
   "license": "MIT",
-  "keywords": ["image-generation", "photography", "illustration", "apple-silicon"],
+  "keywords": ["image-generation", "music-generation", "songwriting", "lyrics", "photography", "illustration", "apple-silicon"],
   "icon": "./assets/icon.png"
 }

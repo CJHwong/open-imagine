@@ -1227,6 +1227,8 @@
   .music-abc-editor textarea { height: 100%; min-height: 360px; max-height: min(60dvh, 640px); resize: vertical; font: 12px/1.6 var(--mono); }
   .music-abc-sheet { display: flex; flex-direction: column; min-width: 0; }
   .music-abc-sheet .music-abc-notation { max-height: min(60dvh, 640px); }
+  .music-abc-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; color: var(--text-2); font-size: 12px; }
+  .music-abc-facts[hidden] { display: none; }
   @media (max-width: 900px) { .music-abc-editor { grid-template-columns: minmax(0, 1fr); } .music-abc-editor textarea { min-height: 220px; } }
   @media (max-width: 600px) { .music-abc-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); padding: 16px; } }
   .music-abc-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; scrollbar-color: #9b9185 #eee9e0; }

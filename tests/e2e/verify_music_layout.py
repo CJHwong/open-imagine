@@ -59,6 +59,11 @@ def main():
         expect(page.locator("#music-abc-preview")).to_have_text(SCORE)
         editor = open_editor(page)
         expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
+        facts = page.locator("#music-abc-facts")
+        expect(facts).to_be_visible()
+        expect(facts).to_contain_text("Key C")
+        expect(facts).to_contain_text("Meter 4/4")
+        expect(facts).to_contain_text("Tempo 88 BPM")
         assert page.locator("#music-abc-notation .abcjs-note").count() > 32
         assert "Vocal Melody" in page.locator("#music-abc-notation").inner_text()
         assert "Instrumental" in page.locator("#music-abc-notation").inner_text()
