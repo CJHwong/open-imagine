@@ -62,10 +62,8 @@ def verify_automatic_instrumental(browser, base):
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
             page.locator("#music-lyrics").fill("Words to replace")
-            bar.get_by_role("button", name="Score", exact=True).click()
-            page.get_by_role("dialog", name="Sheet music and chords").get_by_role(
-                "button", name="Edit and render score", exact=True
-            ).click()
+            bar.get_by_role("button", name="Edit score", exact=True).click()
+            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_visible()
             expect(page.locator("#music-instrumental")).to_have_count(0)
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
@@ -210,7 +208,7 @@ def main():
         expect(page.locator(".music-song audio")).to_have_count(0)
         expect(page.locator(".music-count")).to_have_text("0 songs, 1 score")
         bar = page.locator(".music-output-details:not([hidden])")
-        expect(bar.get_by_role("button", name="Score", exact=True)).to_be_enabled()
+        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_enabled()
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_be_disabled()
         page.keyboard.press("Escape")
@@ -223,11 +221,8 @@ def main():
         expect(page.locator("#music-mode-plan")).to_be_checked()
         expect(page.locator(".music-song.is-score")).to_have_count(1)
         assert not advanced.evaluate("node=>node.open")
-        bar.get_by_role("button", name="Score", exact=True).click()
-        page.get_by_role("dialog", name="Sheet music and chords").get_by_role(
-            "button", name="Render score", exact=True
-        ).click()
-        assert advanced.evaluate("node=>node.open"), "Render score did not reveal Advanced"
+        bar.get_by_role("button", name="Edit score", exact=True).click()
+        assert advanced.evaluate("node=>node.open"), "Edit score did not reveal Advanced"
         editor = page.get_by_role("dialog", name="ABC score", exact=True)
         expect(editor).to_be_visible()
         expect(page.locator("#music-mode")).to_have_value("generate")
@@ -326,15 +321,13 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
-        expect(bar.get_by_role("button", name="Score", exact=True)).to_be_visible()
-        expect(page.locator(".music-score-popover:popover-open")).to_have_count(0)
-        bar.get_by_role("button", name="More actions", exact=True).click()
-        bar.get_by_role("menuitem", name="Sheet music and chords", exact=True).click()
-        expect(page.get_by_role("dialog", name="Sheet music and chords", exact=True)).to_be_visible()
+        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        bar.locator(".prompt-line").click()
+        details = page.get_by_role("region", name="Music details", exact=True)
+        expect(details).to_be_visible()
         with page.expect_download() as downloaded:
-            page.locator(".music-song:not([hidden])").get_by_role(
-                "link", name="Download MIDI · Composition", exact=True
-            ).click()
+            details.get_by_role("link", name="Download MIDI · Composition", exact=True).click()
         assert downloaded.value.path().read_bytes() == midi
         for label in [
             "Download MIDI · Vocal melody",
@@ -342,10 +335,8 @@ def main():
             "Download LAB · Key",
             "Download LAB · Beat",
         ]:
-            expect(
-                page.locator(".music-song:not([hidden])").get_by_role("link", name=label, exact=True)
-            ).to_be_visible()
-        page.get_by_role("button", name="Close sheet music", exact=True).click()
+            expect(details.get_by_role("link", name=label, exact=True)).to_be_visible()
+        page.get_by_role("button", name="Close music details", exact=True).click()
 
         # A cover keeps Style and Lyrics and starts from the recording's composition.
         page.locator('label[for="music-mode-generate"]').click()

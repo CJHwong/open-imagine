@@ -63,7 +63,7 @@ Generation duration follows the composition. Planning and token generation have 
 progress becomes determinate during acoustic synthesis. Finishing includes decoding the audio.
 A model that hits a token cap fails the job instead of publishing an incomplete song as success.
 
-Each song offers playback, WAV download, its score and generation details, and **Send to Video**.
+Each song offers playback, WAV download, **Edit score**, generation details, and **Send to Video**.
 The Music gallery shows the song count and album artwork.
 A record player follows generation and playback: vinyl spins at 33⅓ RPM and the
 tonearm engages while active, then rests on pause. These animations respect the
@@ -91,11 +91,11 @@ one for each result. All modes continue to share Studio’s single GPU operation
 
 ## Compose, inspect and render a score
 
-Choose **Compose** to write sheet music without producing audio. Inspect
-its complete sheet music and ABC source in the same gallery as recordings. **Score** opens the notation and chords without changing the draft.
-Choose **Render score** for a score-only result, or **Edit and render score** for a song.
-This loads the exact score into Generate and opens the ABC editor, so you can edit its
-notation, style, or lyrics.
+Choose **Compose** to write sheet music without producing audio. Inspect its complete
+sheet music and ABC source in the same gallery as recordings. **Edit score** opens the
+editor with that exact score; the details sheet holds the ABC source and its download.
+The editor loads the score into Generate, so you can edit its notation, style, or lyrics,
+then press Generate to render it.
 
 Compose score supports instrumental output and serial variations. Score-only items
 have ABC downloads and no audio playback or Send to Video action.
@@ -237,15 +237,16 @@ Generation time shows processing duration when the operation supplies its timest
 Older songs and batch items omit this value when their individual timing is unavailable.
 
 The player shows artwork, a seek bar, elapsed and remaining time, play/pause, and
-**Back 5 seconds / Forward 5 seconds** controls. Sheet music and chords
-stay hidden until you choose **Score**, which opens a popover. Sheet music renders the complete ABC score, including vocal and instrumental voices.
-Switch to Chords for a simpler chart, or open ABC source to read or download the
-original score. Scroll over the white sheet to read the full score; focus it and use
-arrow keys or Page Up/Page Down, or swipe on a touchscreen. Neither score view follows playback timing. If engraving is unavailable,
-the complete source remains available.
+**Back 5 seconds / Forward 5 seconds** controls.
+**Edit score** opens the ABC editor: the text beside a live sheet. The sheet renders the
+complete score, including vocal and instrumental voices and their chord symbols.
+Scroll over the white sheet to read it; focus it and use arrow keys or Page Up/Page Down,
+or swipe on a touchscreen. The sheet does not follow playback timing. Esc or Close keeps
+the edits. If engraving is unavailable, the text stays editable and the details sheet keeps
+the full ABC source.
 
 The bar immediately above the gallery holds the style and key generation facts on
-the left. On the right, the **Score** action, **More actions**, separator, download and remove controls match the other modes. Artwork, Send to Video and style reuse live in More actions.
+the left. On the right, the **Edit score** action, **More actions**, separator, download and remove controls match the other modes. Artwork, Send to Video and style reuse live in More actions.
 Click the style caption to open the full metadata sheet. Escape
 closes it and returns focus. The action bar stays visible while the preview scrolls.
 

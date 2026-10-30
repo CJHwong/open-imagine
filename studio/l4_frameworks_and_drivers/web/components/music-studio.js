@@ -3,7 +3,7 @@ import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
 import {blobBase64} from '../lib/voice-audio.js';
-import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
+import {musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {pencilLoop, playingMark} from './gallery-marker.js';
@@ -476,7 +476,7 @@ class MusicStudio extends HTMLElement {
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
     window.addEventListener('pagehide', () => this.pausePlayback());
-    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-notation, .music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
+    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
     window.addEventListener('keydown', event => {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
@@ -782,7 +782,7 @@ class MusicStudio extends HTMLElement {
     const ready = transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference);
     this.controls.disabled = this.busy || this.hidden;
     this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
-    this.querySelectorAll('[data-music-use-score], [data-music-reuse]').forEach(button => { button.disabled = this.busy; });
+    this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
     this.querySelectorAll('[data-music-cover]').forEach(button => { button.disabled = this.busy; });
     this.syncRunButton(draft, ready);
     const generating = this.pending || this.operation?.kind === 'music';
@@ -915,7 +915,7 @@ class MusicStudio extends HTMLElement {
     this.renderSongs();
     localStorage.setItem('studio-music-changed', String(Date.now()));
   }
-  pausePlayback() { this.closeScore(false); this.querySelectorAll('audio').forEach(audio => audio.pause()); this.controls?.querySelectorAll('audio').forEach(audio => audio.pause()); }
+  pausePlayback() { this.querySelectorAll('audio').forEach(audio => audio.pause()); this.controls?.querySelectorAll('audio').forEach(audio => audio.pause()); }
   syncBackgroundPlayback() {
     const control = this.querySelector('.music-background-pause');
     const playing = [...this.querySelectorAll('.music-song audio')].find(audio => !audio.paused && !audio.ended);
@@ -985,34 +985,6 @@ class MusicStudio extends HTMLElement {
       if (this.selectedId === id) this.selectedId = this.songs.at(-1)?.id;
       this.renderSongs(); localStorage.setItem('studio-music-changed', String(Date.now())); return true;
     } catch (_) { return false; }
-  }
-  renderChords(song) {
-    const score = musicScore(song.score);
-    const panel = document.createElement('section'); panel.className = 'music-chords'; panel.setAttribute('aria-label', 'Generated chords');
-    const heading = document.createElement('h4'); heading.textContent = 'Chord chart'; panel.append(heading);
-    const facts = document.createElement('p'); facts.className = 'music-score-facts';
-    facts.textContent = [score.key && 'Key ' + score.key, score.meter, score.tempo && 'Tempo ' + score.tempo].filter(Boolean).join(' · '); panel.append(facts);
-    if (!score.sections.length) {
-      const note = document.createElement('p'); note.className = 'music-note';
-      note.textContent = song.settings?.cot === 'off' ? 'Direct generation has no planned chord score.' : 'This score contains no chord symbols. Choose Melody and chords for a chord plan.';
-      panel.append(note); return panel;
-    }
-    let barNumber = 0;
-    for (const section of score.sections) {
-      const label = document.createElement('h5'); label.textContent = section.name; panel.append(label);
-      const bars = document.createElement('div'); bars.className = 'music-chord-bars';
-      for (const symbols of section.bars) {
-        const bar = document.createElement('div'); bar.className = 'music-chord-bar';
-        const number = document.createElement('small'); number.textContent = String(++barNumber);
-        const names = document.createElement('span'); names.textContent = symbols.join('  ·  ') || '—';
-        bar.setAttribute('aria-label', `Bar ${barNumber}: ${symbols.join(', ') || 'no new chord symbol'}`);
-        bar.append(number, names); bars.append(bar);
-      }
-      panel.append(bars);
-    }
-    const note = document.createElement('p'); note.className = 'music-note';
-    note.textContent = (score.truncated ? 'Showing the first 256 bars. ' : '') + 'From the ABC score. — means no new chord symbol. The chart is not synchronized to the recording.';
-    panel.append(note); return panel;
   }
   isCoverOperation(operation) {
     return ['image', 'rewrite'].includes(operation?.kind) && (operation.client_id?.startsWith(this.options?.clientId + ':music-cover:')
@@ -1216,38 +1188,9 @@ class MusicStudio extends HTMLElement {
     trigger.setAttribute('aria-expanded', 'true'); sheet.hidden = false;
     sheet.querySelector('.close').focus();
   }
-  closeScore(focus = true) {
-    for (const popover of this.querySelectorAll('.music-score-popover:popover-open')) {
-      popover.returnFocus = focus;
-      popover.hidePopover();
-    }
-  }
-  openScore(popover, trigger) {
-    this.closeScore(false); this.closeDetails(false);
-    popover.returnFocus = true; popover.scoreTrigger = trigger;
-    popover.showPopover();
-    const paper = popover.querySelector('.music-notation');
-    if (paper) this.updateScoreScrollHint(paper);
-    this.engraveScore(popover.closest('.music-song'));
-    popover.querySelector('.close').focus();
-  }
-  engraveScore(card) {
-    const target = card.querySelector('.music-notation');
-    if (!card.querySelector('.music-score-popover:popover-open') || !target || card.querySelector('[data-score-panel="sheet"]').hidden) return;
-    if (target.dataset.started) { this.updateScoreScrollHint(target); return; }
-    target.dataset.started = 'true';
-    const song = this.songs.find(song => song.id === card.dataset.songId);
-    const status = card.querySelector('.music-notation-status');
-    renderNotation(target, song.score).then(warnings => {
-      if (!target.isConnected) return;
-      this.updateScoreScrollHint(target);
-      status.textContent = warnings ? 'Some notation could not be interpreted. The complete ABC source is available below.' : '';
-    }).catch(() => {
-      status.textContent = 'Sheet music unavailable. The complete ABC source is available below.';
-    });
-  }
+  closeScore(focus = true) { this.closeAbcEditor(focus); }
   updateScoreScrollHint(pane) {
-    const hint = pane.parentElement.querySelector('.music-score-scroll-hint, .music-abc-scroll-hint');
+    const hint = pane.parentElement.querySelector('.music-abc-scroll-hint');
     if (hint) hint.hidden = pane.scrollHeight <= pane.clientHeight + 1 && pane.scrollWidth <= pane.clientWidth + 1;
   }
   scrollScore(event) {
@@ -1275,60 +1218,6 @@ class MusicStudio extends HTMLElement {
       } catch (_) { /* An unavailable export must not hide the composition. */ }
     }
     return links;
-  }
-  renderScore(song) {
-    const section = document.createElement('section'); section.className = 'music-composition music-score-popover';
-    section.setAttribute('popover', 'auto'); section.setAttribute('role', 'dialog');
-    section.setAttribute('aria-label', 'Sheet music and chords');
-    const heading = document.createElement('h4'); heading.textContent = 'Sheet music and chords'; section.append(heading);
-    const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-btn close'; close.setAttribute('aria-label', 'Close sheet music');
-    close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
-    close.addEventListener('click', () => this.closeScore()); section.append(close);
-    section.addEventListener('toggle', event => {
-      if (event.newState === 'closed' && section.returnFocus && !this.hidden
-        && (document.activeElement === document.body || section.contains(document.activeElement))) section.scoreTrigger?.focus();
-    });
-    if (!song.score?.trim()) {
-      const note = document.createElement('p'); note.className = 'music-note';
-      note.textContent = 'No score was returned for this song. Choose Melody or Melody and chords in Composition to generate a score.';
-      section.append(note); return section;
-    }
-    const tabs = document.createElement('div'); tabs.className = 'music-score-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Composition view');
-    const sheet = document.createElement('div'); sheet.dataset.scorePanel = 'sheet'; sheet.setAttribute('role', 'tabpanel');
-    const status = document.createElement('p'); status.className = 'music-note music-notation-status'; status.setAttribute('role', 'status'); status.textContent = 'Preparing sheet music…';
-    const paper = document.createElement('div'); paper.className = 'music-notation'; paper.setAttribute('aria-label', 'Generated sheet music'); paper.setAttribute('role', 'region'); paper.tabIndex = 0; paper.addEventListener('keydown', event => this.scrollScore(event));
-    const hint = document.createElement('p'); hint.className = 'music-note music-score-scroll-hint'; hint.hidden = true;
-    hint.id = 'music-score-scroll-' + this.songs.indexOf(song); hint.textContent = 'Scroll for the full score. Focus the score to use arrow keys.';
-    paper.setAttribute('aria-describedby', hint.id);
-    sheet.append(status, paper, hint);
-    const chords = this.renderChords(song); chords.dataset.scorePanel = 'chords'; chords.setAttribute('role', 'tabpanel'); chords.tabIndex = 0; chords.addEventListener('keydown', event => this.scrollScore(event)); chords.hidden = true;
-    const uid = 'music-score-' + this.songs.indexOf(song);
-    for (const [mode, label, panel] of [['sheet', 'Sheet music', sheet], ['chords', 'Chords', chords]]) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'text-btn';
-      button.id = uid + '-' + mode + '-tab'; panel.id = uid + '-' + mode;
-      button.setAttribute('role', 'tab'); button.setAttribute('aria-controls', panel.id); panel.setAttribute('aria-labelledby', button.id);
-      button.setAttribute('aria-selected', String(mode === 'sheet')); button.tabIndex = mode === 'sheet' ? 0 : -1; button.textContent = label;
-      button.addEventListener('click', () => {
-        for (const tab of tabs.children) { const active = tab === button; tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; }
-        sheet.hidden = mode !== 'sheet'; chords.hidden = mode !== 'chords'; this.engraveScore(section.closest('.music-song'));
-      });
-      tabs.append(button);
-    }
-    tabs.addEventListener('keydown', event => {
-      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-      event.preventDefault(); const buttons = [...tabs.children];
-      const next = event.key === 'Home' ? buttons[0] : event.key === 'End' ? buttons.at(-1) : buttons.find(button => button !== event.target);
-      next?.click(); next?.focus();
-    });
-    const raw = document.createElement('details'); raw.className = 'music-score-source';
-    const summary = document.createElement('summary'); summary.textContent = 'ABC source';
-    const source = document.createElement('pre'); source.textContent = song.score;
-    const download = document.createElement('a'); download.className = 'text-btn'; download.textContent = 'Download ABC'; download.download = `music-${song.seed}.abc`;
-    const url = URL.createObjectURL(new Blob([song.score], {type: 'text/vnd.abc;charset=utf-8'})); this.urls.push(url); download.href = url;
-    const edit = document.createElement('button'); edit.type = 'button'; edit.className = 'text-btn'; edit.textContent = song.blob ? 'Edit and render score' : 'Render score'; edit.dataset.musicUseScore = ''; edit.addEventListener('click', () => this.useScore(song));
-    raw.append(summary, download, source);
-    const note = document.createElement('p'); note.className = 'music-note'; note.textContent = 'The full score returned by YuE2, including its generated voices. Not synchronized to audio playback.';
-    section.append(tabs, edit, this.scoreArtifacts(song), sheet, chords, raw, note); return section;
   }
   renderPlayer(audio, song) {
     const player = document.createElement('div'); player.className = 'music-player';
@@ -1474,6 +1363,12 @@ class MusicStudio extends HTMLElement {
       const score = document.createElement('details'); const scoreHeading = document.createElement('summary'); scoreHeading.textContent = 'ABC score';
       const notation = document.createElement('pre'); notation.textContent = song.score || 'No score was generated.';
       score.append(scoreHeading, notation); details.append(score);
+      if (song.score) {
+        const downloads = this.scoreArtifacts(song);
+        const abc = document.createElement('a'); abc.className = 'text-btn'; abc.textContent = 'Download ABC'; abc.download = `music-${song.seed}.abc`;
+        const abcUrl = URL.createObjectURL(new Blob([song.score], {type: 'text/vnd.abc;charset=utf-8'})); this.urls.push(abcUrl); abc.href = abcUrl;
+        downloads.prepend(abc); details.append(downloads);
+      }
       const send = menuItem('music', 'Send to Video', () => {
         if (this.busy || song.stub || !hasAudio) return;
         this.options.onSendToVideo({blob: song.blob, name: `music-${song.seed}.wav`}).catch(error => this.options.notify('error', error.message));
@@ -1494,13 +1389,11 @@ class MusicStudio extends HTMLElement {
       caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(details, caption); } });
       about.append(caption, facts);
       const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
-      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Score'; useScore.addEventListener('click', () => this.openScore(composition, useScore));
+      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Edit score'; useScore.addEventListener('click', () => this.useScore(song));
       const more = document.createElement('div'); more.className = 'menu-anchor';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Music actions');
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
-      const composition = this.renderScore(song);
-      if (song.score?.trim()) menu.append(menuItem('music', 'Sheet music and chords', () => this.openScore(composition, toggle)));
       menu.append(cover, send);
       const reuse = menuItem('text', 'Reuse style and lyrics', () => { if (this.busy) return; for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || ''; if (song.settings?.instrumental) this.controls.querySelector('#music-lyrics').value = ''; this.selectWorkflow('generate'); this.controls.dispatchEvent(new Event('input', {bubbles: true})); this.controls.querySelector('#music-style').focus(); }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
       if (song.score) actions.append(useScore);
@@ -1512,7 +1405,6 @@ class MusicStudio extends HTMLElement {
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? 'Stub preview · no music generated' : 'Stub score preview · no model used'; body.append(warning); }
       body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : style);
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song), audio);
-      body.append(composition);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
       const thumb = document.createElement('button'); thumb.type = 'button'; thumb.className = 'frame music-thumb'; thumb.dataset.songId = song.id;
