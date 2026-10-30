@@ -133,6 +133,7 @@ async function importResult(operation) {
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
       && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) return;
   const terminalFailure = operation.status === 'failed' || operation.status === 'cancelled';
+  if (terminalFailure && operation.kind === 'music') page.music().restoreAfterFailure?.(operation);
   const message = operation.error || (operation.status === 'cancelled' ? 'The operation was cancelled.' : 'The operation failed.');
   if (terminalFailure && !operation.result_url) {
     remember(operation.id);

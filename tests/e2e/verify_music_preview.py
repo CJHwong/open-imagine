@@ -54,15 +54,13 @@ def main():
         expect(page.locator(".music-song")).to_have_count(1)
         current = page.locator(".music-song:not([hidden])")
         bar = page.locator(".music-output-details:not([hidden])")
-        expect(page.get_by_role("dialog", name="Sheet music and chords")).to_be_hidden()
-        page.get_by_role("button", name="More actions", exact=True).click()
-        page.get_by_role("menuitem", name="Sheet music and chords", exact=True).click()
-        expect(
-            page.get_by_role("dialog", name="Sheet music and chords").locator(".music-notation svg").first
-        ).to_be_visible(timeout=30000)
-        page.get_by_role("tab", name="Chords", exact=True).click()
-        expect(current.locator(".music-chord-bar span")).to_have_text(["F", "Dm7", "Bb  ·  C/E", "Fmaj7"])
-        page.get_by_role("button", name="Close sheet music", exact=True).click()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        bar.get_by_role("button", name="Edit score", exact=True).click()
+        editor = page.get_by_role("dialog", name="ABC score", exact=True)
+        expect(editor).to_be_visible()
+        expect(editor.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
+        page.locator("#music-abc-close").click()
+        expect(editor).to_be_hidden()
         held, artwork_requests = [], []
 
         def hold_image(route):
@@ -101,7 +99,9 @@ def main():
         expect(bar.get_by_role("menuitem", name="Regenerate artwork", exact=True, include_hidden=True)).to_be_enabled()
         page.reload()
         expect(current.locator(".music-artwork > img")).to_be_visible()
-        expect(current.locator(".music-chord-bar")).to_have_count(4)
+        bar.get_by_role("button", name="Edit score", exact=True).click()
+        expect(page.locator("#music-abc")).to_have_value(SCORE)
+        page.locator("#music-abc-close").click()
         # A failed regeneration preserves the previous cover and can be retried.
         page.route("**/api/v1/operations", lambda route: route.fulfill(status=409, json={"error": "Cover test busy"}))
         bar.get_by_role("button", name="More actions", exact=True).focus()
@@ -157,7 +157,7 @@ def main():
         assert errors == [], errors
         browser.close()
     print(
-        "PASS Music preview: chord parser, chart, album layout, cover generation, persistence, errors, conditional storage, gallery navigation and mobile."
+        "PASS Music preview: chord parser, album layout, cover generation, persistence, errors, conditional storage, gallery navigation and mobile."
     )
 
 

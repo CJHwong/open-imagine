@@ -1217,39 +1217,25 @@
   .music-details-sheet dd { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .music-details-sheet details { margin-top: 16px; font-size: 12px; }
   .music-details-sheet pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); }
-  .music-composition { min-width: 0; }
-  .music-score-popover { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); box-sizing: border-box; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; margin: 0; padding: 24px; border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); color: var(--text); box-shadow: 0 16px 80px #0005; }
-  .music-score-popover::backdrop { background: #0004; }
-  .music-score-popover > h4 { padding-right: 32px; }
-  .music-score-popover > .close { position: absolute; top: 12px; right: 12px; }
-  @media (max-width: 600px) { .music-score-popover { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); padding: 16px; } }
-  .music-composition h4 { margin: 0 0 12px; font: 11px var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--text-2); }
-  .music-score-tabs { display: flex; gap: 20px; margin-bottom: 12px; }
-  .music-score-tabs [aria-selected=true] { color: var(--text); border-bottom: 1px solid currentColor; }
-  .music-score-tabs button { padding: 4px 0; }
-  /* ABCJS responsive engraving sets inline overflow:hidden; retain native wheel/touch scrolling. */
-  .music-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; scrollbar-color: #9b9185 #eee9e0; }
-  .music-notation:focus-visible, .music-chords:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  .music-notation::-webkit-scrollbar { width: 10px; height: 10px; }
-  .music-notation::-webkit-scrollbar-track { background: #eee9e0; border-radius: 4px; }
-  .music-notation::-webkit-scrollbar-thumb { background: #9b9185; border: 2px solid #eee9e0; border-radius: 6px; }
-  .music-score-scroll-hint[hidden] { display: none; }
-  .music-notation svg { display: block; }
-  .music-notation-status:empty { display: none; }
-  .music-score-source { margin-top: 12px; color: var(--text-2); font-size: 12px; }
-  .music-score-source summary { cursor: pointer; padding: 6px 0; }
-  .music-score-source a { display: inline-block; margin: 8px 0; }
-  .music-score-source pre { font: 11px/1.7 var(--mono); }
-  .music-composition [role=tabpanel][hidden] { display: none; }
-  .music-composition .music-chords { margin-top: 0; border-top: 0; padding-top: 0; }
-  .music-chords { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 18px; max-height: 280px; overflow: auto; }
-  .music-chords h4 { margin: 0 0 8px; font: 11px var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--text-2); }
-  .music-score-facts { margin: 0; color: var(--text-3); font: 11px var(--mono); }
-  .music-chords h5 { margin: 16px 0 8px; font-size: 11px; text-transform: capitalize; color: var(--text-2); }
-  .music-chord-bars { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
-  .music-chord-bar { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; border-left: 1px solid var(--line-strong); background: #ffffff05; }
-  .music-chord-bar small { color: var(--text-3); font: 9px var(--mono); }
-  .music-chord-bar span { font: 18px/1.4 var(--serif); overflow-wrap: anywhere; }
+  .music-abc-preview { margin: 0; max-height: 148px; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome-2); font: 11px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .music-abc-preview.is-empty { color: var(--text-3); font: 12px/1.5 var(--sans); }
+  .music-abc-dialog { box-sizing: border-box; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); color: var(--text); box-shadow: 0 16px 80px #0005; }
+  .music-abc-dialog::backdrop { background: #0004; }
+  .music-abc-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .music-abc-dialog-head h2 { margin: 0; font: 11px var(--sans); text-transform: uppercase; letter-spacing: .12em; color: var(--text-2); }
+  .music-abc-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: stretch; }
+  .music-abc-editor textarea { height: 100%; min-height: 360px; max-height: min(60dvh, 640px); resize: vertical; font: 12px/1.6 var(--mono); }
+  .music-abc-sheet { display: flex; flex-direction: column; min-width: 0; }
+  .music-abc-sheet .music-abc-notation { max-height: min(60dvh, 640px); }
+  @media (max-width: 900px) { .music-abc-editor { grid-template-columns: minmax(0, 1fr); } .music-abc-editor textarea { min-height: 220px; } }
+  @media (max-width: 600px) { .music-abc-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); padding: 16px; } }
+  .music-abc-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; scrollbar-color: #9b9185 #eee9e0; }
+  .music-abc-notation:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .music-abc-notation::-webkit-scrollbar { width: 10px; height: 10px; }
+  .music-abc-notation::-webkit-scrollbar-track { background: #eee9e0; border-radius: 4px; }
+  .music-abc-notation::-webkit-scrollbar-thumb { background: #9b9185; border: 2px solid #eee9e0; border-radius: 6px; }
+  .music-abc-scroll-hint[hidden] { display: none; }
+  .music-abc-notation svg { display: block; }
   .music-song-actions a { font-size: 12px; }
   .music-generation { display: flex; flex-direction: column; align-items: center; gap: 10px;
     width: min(360px, 100%); padding: 28px 20px; margin-bottom: 24px; border: 1px solid var(--line); border-radius: 12px; text-align: center; }
@@ -1327,10 +1313,8 @@
   .music-tag-guide[open] { padding-bottom: 2px; }
   .music-song.is-score { grid-template-columns: minmax(0, 1fr); width: min(900px, 100%); margin: auto; }
   .music-song.is-score .music-artwork { display: none; }
-  .music-song.is-score .music-notation { max-height: 480px; }
   .music-score-downloads { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 10px 0; font-size: 12px; }
   .music-score-downloads:empty { display: none; }
-  .music-score-source > button { margin: 8px 0 8px 18px; }
   .music-song-actions .menu { min-width: 200px; }
 
   @media (max-width: 900px) { .music-output-details { flex-wrap: wrap; } .music-output-details .actions { max-width: none; } }

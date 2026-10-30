@@ -59,15 +59,7 @@ def main():
         expect(page.locator(".music-waveform")).to_have_count(0)
         expect(page.get_by_role("slider", name="Playback position")).to_be_visible()
         assert not page.locator(".music-song audio").evaluate("audio => audio.controls")
-        expect(page.get_by_role("dialog", name="Sheet music and chords")).to_be_hidden()
-        page.get_by_role("button", name="More actions", exact=True).click()
-        page.get_by_role("menuitem", name="Sheet music and chords", exact=True).click()
-        page.get_by_role("tab", name="Chords", exact=True).click()
-        expect(page.get_by_role("tabpanel", name="Chords", exact=True)).to_be_visible()
-        expect(page.locator(".music-chord-bar span")).to_have_text(["F", "Dm7", "Bb  ·  C/E", "Fmaj7"])
-        expect(page.locator(".music-chords h5")).to_have_text(["verse", "chorus"])
-        expect(page.locator(".music-score-facts")).to_contain_text("Key F")
-        page.get_by_role("button", name="Close sheet music", exact=True).click()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         # The record spins and the tonearm engages only during playback.
         expect(page.locator(".music-song .music-turntable")).to_have_count(1)
         player = page.locator(".music-song audio")
@@ -116,6 +108,14 @@ def main():
         page.locator("#media-music-mode").click()
         expect(page.locator("#music-style")).to_have_value("")
         expect(page.locator(".music-song")).to_have_count(1)
+        # Edit score opens the editor with the saved score; it does not touch the song.
+        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Edit score", exact=True).click()
+        editor = page.get_by_role("dialog", name="ABC score", exact=True)
+        expect(editor).to_be_visible()
+        assert page.locator("#music-abc").input_value().startswith("X:")
+        expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
+        page.locator("#music-abc-close").click()
+        expect(editor).to_be_hidden()
         # A storage failure must keep the card until durable deletion succeeds.
         page.evaluate("""() => {
           window.musicDelete = IDBObjectStore.prototype.delete;
