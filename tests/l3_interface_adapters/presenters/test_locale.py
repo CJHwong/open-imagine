@@ -74,6 +74,21 @@ def test_a_table_that_is_not_flat_stops_the_boot(tmp_path):
         LocaleCatalog(tmp_path)
 
 
+def test_plural_forms_are_a_value_and_nothing_else_is(tmp_path):
+    (tmp_path / "en.json").write_text(json.dumps({"files": {"one": "{count} file", "other": "{count} files"}}))
+    catalog = LocaleCatalog(tmp_path)
+    assert catalog.strings("en")["files"] == {"one": "{count} file", "other": "{count} files"}
+    (tmp_path / "bad.json").write_text(json.dumps({"files": {"few": "{count} files"}}))
+    with pytest.raises(ValueError, match="must map strings to strings"):
+        LocaleCatalog(tmp_path)
+    (tmp_path / "bad.json").write_text(json.dumps({"files": {}}))
+    with pytest.raises(ValueError, match="must map strings to strings"):
+        LocaleCatalog(tmp_path)
+    (tmp_path / "bad.json").write_text(json.dumps({"files": {"other": 3}}))
+    with pytest.raises(ValueError, match="must map strings to strings"):
+        LocaleCatalog(tmp_path)
+
+
 def test_a_table_that_is_not_an_object_stops_the_boot(tmp_path):
     (tmp_path / "en.json").write_text(json.dumps({"ok": "yes"}))
     (tmp_path / "listy.json").write_text(json.dumps(["not", "a", "table"]))
@@ -109,4 +124,7 @@ def test_every_locale_carries_every_key(catalog):
         table = catalog.strings(code)
         missing = sorted(english - set(table))
         assert not missing, f"{code} is missing: {missing}"
-        assert all(table[key].strip() for key in english), f"{code} carries an empty string"
+        for key in english:
+            value = table[key]
+            texts = [value] if isinstance(value, str) else list(value.values())
+            assert all(text.strip() for text in texts), f"{code} carries an empty string at {key}"

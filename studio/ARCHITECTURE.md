@@ -206,6 +206,24 @@ remove it or hide it inside the Image stage. The page supplies the current works
 Voice help distinguishes Drama-3 from AuK. Workspace or model changes close stale guidance.
 The guide retains the existing toggle, sheet, keyboard and focus contracts and links to `/api/docs`.
 
+## Copy and locales
+
+UI copy lives in `web/i18n/<code>.json`, one file per locale. The file name is the locale
+code and `_label` is the language's own name, so adding a language is adding a file. The
+server negotiates the table (a `?lang`, then the `studio-locale` cookie, then
+`Accept-Language`, then English) and inlines the chosen one, so the first paint needs no
+request. Markup carries `data-i18n` keys and is swept before paint; components call `t()`
+from `web/lib/i18n.js`, which re-exports the helpers the page's classic script defines.
+A non-English page also receives the English table, so a key no translator has reached
+yet falls back to real copy.
+
+Server catalogue labels resolve by stable id (`label.mode.<id>`, `label.adapter.<id>`) or,
+for templates and Looks, by the catalogue's English name; the English the server sent is
+the fallback, so a new backend needs no translation to work. Prompt text, model names,
+filenames and routes stay English. `tests/l3_interface_adapters/presenters/test_locale.py`
+holds the key parity and the page-key coverage; `tests/e2e/verify_locale.py` drives the
+picker, the cookie and `?lang`.
+
 ## Tests
 
 - The tree under `tests/` mirrors the tree under `studio/`. The module `studio/a/b/c.py` is tested by `tests/a/b/c/test_c.py`. A shared helper lives in `tests/support/` and mirrors no module. `tests/e2e/` holds the browser checks and mirrors nothing.

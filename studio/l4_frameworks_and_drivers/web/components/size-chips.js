@@ -18,6 +18,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { subscribe } from '../lib/state.js';
+import { t } from '../lib/i18n.js';
 
 // The page's helpers, on `size-chips-ready`.
 let page = null;
@@ -26,7 +27,8 @@ let page = null;
 // in the caption above.
 function megapixels(pixels) {
   const mp = pixels / 1e6;
-  return (mp < 1 ? mp.toFixed(1) : String(Math.round(mp * 10) / 10)) + ' MP';
+  const value = mp < 1 ? mp.toFixed(1) : String(Math.round(mp * 10) / 10);
+  return t('image.size.megapixels', {value});
 }
 
 // A ratio's glyph, drawn as the page always drew it.
@@ -86,7 +88,7 @@ class SizeChips extends Drawn {
     // that decides a size, the shape of a reference.
     const rows = page.ratios.slice();
     rows.splice(1, 0, 'match');
-    return html`${rows.map((one) => html`<button type="button" class="chip" data-ratio=${one} aria-pressed=${String(one === ratio)} @click=${() => pickRatio(one)}>${glyph(one)}<span>${one === 'match' ? 'Match' : one}</span></button>`)}`;
+    return html`${rows.map((one) => html`<button type="button" class="chip" data-ratio=${one} aria-pressed=${String(one === ratio)} @click=${() => pickRatio(one)}>${glyph(one)}<span>${one === 'match' ? t('image.size.match') : one}</span></button>`)}`;
   }
 }
 
@@ -118,7 +120,7 @@ class EditSizes extends Drawn {
     const chosen = page.resolutionSelect.value;
     return html`${page.resolutions.slice()
       .sort(function (a, b) { return (a === 'match' ? 0 : Number(a)) - (b === 'match' ? 0 : Number(b)); })
-      .map((value) => html`<button type="button" class="num" data-value=${value} aria-pressed=${String(value === chosen)} @click=${() => page.setSelect(page.resolutionSelect, value)}>${value === 'match' ? 'Match' : megapixels(Number(value) ** 2)}</button>`)}`;
+      .map((value) => html`<button type="button" class="num" data-value=${value} aria-pressed=${String(value === chosen)} @click=${() => page.setSelect(page.resolutionSelect, value)}>${value === 'match' ? t('image.size.match') : megapixels(Number(value) ** 2)}</button>`)}`;
   }
 }
 
@@ -131,12 +133,12 @@ class SizeCaption extends Drawn {
     let text;
     if (page.followsReference()) {
       text = reference && reference.width
-        ? 'about ' + page.editResolution() + ' px, shape follows the image'
-        : 'shape follows the image';
+        ? t('image.size.about', {pixels: page.editResolution()})
+        : t('image.size.follows');
     } else if (current) {
       text = current.width + ' × ' + current.height;
     } else {
-      text = reference ? 'reference shape, about 1 MP' : '1024 × 1024 until you add an image';
+      text = reference ? t('image.size.reference') : t('image.size.default');
     }
     return html`${text}`;
   }

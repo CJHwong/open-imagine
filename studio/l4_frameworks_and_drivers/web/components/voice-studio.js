@@ -10,8 +10,21 @@ import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
+import {t, plural} from '../lib/i18n.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
+
+const MODE_KEYS = {
+  generate: 'voice.mode.generate',
+  design: 'voice.mode.design',
+  clone: 'voice.mode.clone',
+  edit: 'voice.mode.edit',
+};
+
+function modeLabel(id, fallback = '') {
+  const key = MODE_KEYS[id];
+  return key ? t(key) : fallback || id;
+}
 
 function transcriptText(text) {
   if (String(text).includes('<|phoneme_start|>')) return '';
@@ -19,7 +32,7 @@ function transcriptText(text) {
 }
 
 function durationLabel(seconds) {
-  return Number.isFinite(seconds) ? seconds.toFixed(1) + ' s' : '';
+  return Number.isFinite(seconds) ? t('voice.duration.seconds', {value: seconds.toFixed(1)}) : '';
 }
 
 class VoiceStudio extends LitElement {
@@ -91,7 +104,7 @@ class VoiceStudio extends LitElement {
     this.player.onplay = () => { this.playing = true; };
     this.player.ontimeupdate = () => { this.position = this.player.currentTime; };
     this.player.ondurationchange = () => { this.trackDuration = Number.isFinite(this.player.duration) ? this.player.duration : 0; };
-    this.player.onerror = () => this.fail('The audio could not be played.');
+    this.player.onerror = () => this.fail(t('voice.error.playAudio'));
     this.channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('studio-voice') : null;
     if (this.channel) this.channel.onmessage = event => this.receive(event.data);
     this.pasteHandler = event => {
@@ -188,7 +201,7 @@ class VoiceStudio extends LitElement {
   }
   get referenceLimitReason() {
     const limit = this.capabilities.max_seconds || 120;
-    return this.needsReference && this.reference?.duration > limit ? 'Select a reference of ' + limit + ' seconds or shorter' : '';
+    return this.needsReference && this.reference?.duration > limit ? t('voice.reason.referenceTooLong', {seconds: limit}) : '';
   }
   get referenceClipSeconds() {
     return this.capabilities.backend_id === 'drama3' ? this.capabilities.max_seconds || 15 : Infinity;
@@ -200,32 +213,32 @@ class VoiceStudio extends LitElement {
     }
   }
   get reason() {
-    if (!this.ready) return 'Connecting to Voice studio';
-    if (this.locked) return 'Another operation is active';
-    if (this.recording) return 'Stop recording first';
-    if (this.referenceBusy) return this.recordingPending ? 'Opening microphone' : 'Preparing reference audio';
-    if (this.needsReference && !this.reference) return 'Add a reference recording';
+    if (!this.ready) return t('voice.reason.connecting');
+    if (this.locked) return t('voice.reason.operationActive');
+    if (this.recording) return t('voice.reason.stopRecording');
+    if (this.referenceBusy) return this.recordingPending ? t('voice.status.openingMicrophone') : t('voice.status.preparingReference');
+    if (this.needsReference && !this.reference) return t('voice.reason.addReference');
     if (this.referenceLimitReason) return this.referenceLimitReason;
-    if (this.hasParam('ref_text') && !this.reference?.transcript?.trim()) return 'Transcribe the reference recording';
+    if (this.hasParam('ref_text') && !this.reference?.transcript?.trim()) return t('voice.reason.transcribeReference');
     for (const param of this.currentMode?.params || []) {
       if (param.kind !== 'number') continue;
       const value = this.engineOptions[param.id] ?? param.default;
       if (!Number.isFinite(value) || (param.minimum != null && value < param.minimum)
           || (param.maximum != null && value > param.maximum) || (param.integer && !Number.isInteger(value))) {
-        const label = param.id === 'max_tokens' ? 'Audio token limit' : param.id.replaceAll('_', ' ');
-        return label + ' must be between ' + param.minimum + ' and ' + param.maximum;
+        const label = param.id === 'max_tokens' ? t('voice.advanced.audioTokenLimit') : param.id.replaceAll('_', ' ');
+        return t('voice.reason.paramRange', {label, minimum: param.minimum, maximum: param.maximum});
       }
     }
-    if (!this.templateComplete) return 'Fill the template fields';
+    if (!this.templateComplete) return t('voice.reason.fillTemplate');
     if (this.mode === 'design' && !this.voice.trim()) {
-      return this.script.trim() ? 'Choose a voice template or write your own' : 'Add a script and choose a voice template';
+      return this.script.trim() ? t('voice.reason.chooseVoice') : t('voice.reason.addScriptAndVoice');
     }
     if (this.mode === 'edit') {
       const template = this.templates.find(item => item.name === this.templateName);
-      if (template?.fields.some(field => String(this.fieldValues[field.id] ?? '').trim() === '')) return 'Fill the template fields';
-      return this.instruction ? '' : 'Describe the change';
+      if (template?.fields.some(field => String(this.fieldValues[field.id] ?? '').trim() === '')) return t('voice.reason.fillTemplate');
+      return this.instruction ? '' : t('voice.action.describeChange');
     }
-    if (!this.segments.some(segment => segment.inScript !== false)) return 'Write a script';
+    if (!this.segments.some(segment => segment.inScript !== false)) return t('voice.action.writeScript');
     return '';
   }
 
@@ -240,7 +253,7 @@ class VoiceStudio extends LitElement {
       const stored = await loadVoice();
       if (stored && !this.script && !this.takesCount) this.adopt(stored);
     } catch (error) {
-      this.options.notify?.('error', 'Voice storage could not be opened. Export takes before closing this tab.');
+      this.options.notify?.('error', t('voice.error.storageOpen'));
       console.warn(error);
     } finally {
       this.loading = false;
@@ -300,7 +313,7 @@ class VoiceStudio extends LitElement {
   async ensureTake(take) {
     if (take.blob) return take.blob;
     if (!take.mediaLoading) take.mediaLoading = loadVoiceTake(take.id).then(blob => {
-      if (!blob) throw new Error('This audio clip is no longer saved.');
+      if (!blob) throw new Error(t('voice.error.clipMissing'));
       if (this.segments.some(segment => segment.takes.includes(take))) {
         take.blob = blob; this.trimTakeMedia(); this.requestUpdate();
       }
@@ -332,7 +345,7 @@ class VoiceStudio extends LitElement {
       });
     }).catch(error => {
       console.warn(error);
-      this.options.notify?.('error', 'This browser did not keep the voice project. Export the WAV before closing this tab.');
+      this.options.notify?.('error', t('voice.error.projectNotKept'));
     });
   }
 
@@ -400,7 +413,7 @@ class VoiceStudio extends LitElement {
     const version = ++this.referenceVersion;
     this.referencePending = false;
     if (file.size > (this.capabilities.max_reference_megabytes || 32) * 1024 * 1024) {
-      this.fail('The reference is too large. Choose an audio file smaller than 32 MB.');
+      this.fail(t('voice.error.referenceTooLarge'));
       return;
     }
     this.referencePending = true;
@@ -411,14 +424,14 @@ class VoiceStudio extends LitElement {
         normalized = await normalizeReference(file, this.capabilities.reference_sample_rate || 24000, this.referenceClipSeconds);
         if (version !== this.referenceVersion || this.locked) return;
       } while (backend !== this.capabilities.backend_id);
-      if (normalized.duration > (this.capabilities.max_seconds || 120)) throw new Error('The reference must be ' + (this.capabilities.max_seconds || 120) + ' seconds or shorter.');
-      if (normalized.blob.size > (this.capabilities.max_reference_megabytes || 32) * 1024 * 1024) throw new Error('The normalized recording exceeds the audio size limit.');
+      if (normalized.duration > (this.capabilities.max_seconds || 120)) throw new Error(t('voice.error.referenceTooLong', {seconds: this.capabilities.max_seconds || 120}));
+      if (normalized.blob.size > (this.capabilities.max_reference_megabytes || 32) * 1024 * 1024) throw new Error(t('voice.error.referenceNormalizedTooLarge'));
       this.reference = {...normalized, name: name || file.name || 'recording.wav', transcript: normalized.trimmed ? '' : transcript};
       this.editSegmentId = null;
       this.error = '';
       this.persist(true);
     } catch (error) {
-      if (version === this.referenceVersion) this.fail('This audio file could not be read: ' + error.message);
+      if (version === this.referenceVersion) this.fail(t('voice.error.referenceUnreadable', {message: error.message}));
     } finally {
       if (version === this.referenceVersion) this.referencePending = false;
     }
@@ -426,7 +439,7 @@ class VoiceStudio extends LitElement {
 
   async addReference(file) {
     if (!file || this.locked) return;
-    if (!file.type.startsWith('audio/')) { this.fail('Choose an audio recording as the voice reference.'); return; }
+    if (!file.type.startsWith('audio/')) { this.fail(t('voice.error.referenceNotAudio')); return; }
     if (!this.needsReference) this.selectMode('clone');
     await this.chooseReference(file);
   }
@@ -495,9 +508,9 @@ class VoiceStudio extends LitElement {
   async generate(segment = null) {
     if (!this.ready || this.locked || this.recording || this.referenceBusy || (!segment && this.reason)) return;
     if (segment && this.referenceLimitReason) { this.fail(this.referenceLimitReason); return; }
-    if (segment && this.hasParam('ref_text') && !this.reference?.transcript?.trim()) { this.fail('Transcribe the reference recording'); return; }
-    if (segment && !this.templateComplete) { this.fail('Fill the template fields'); return; }
-    if (segment && this.needsReference && !this.reference) { this.fail('Add a reference recording first.'); return; }
+    if (segment && this.hasParam('ref_text') && !this.reference?.transcript?.trim()) { this.fail(t('voice.reason.transcribeReference')); return; }
+    if (segment && !this.templateComplete) { this.fail(t('voice.reason.fillTemplate')); return; }
+    if (segment && this.needsReference && !this.reference) { this.fail(t('voice.reason.addReferenceFirst')); return; }
     const submittedDraftId = this.draftId;
     this.showGeneration = true;
     this.detailsOpen = false;
@@ -533,7 +546,7 @@ class VoiceStudio extends LitElement {
           'X-Studio-Library': this.options.libraryId}, body: JSON.stringify(payload),
       });
       const operation = await response.json();
-      if (!response.ok) throw new Error(operation.error || 'The voice operation could not start.');
+      if (!response.ok) throw new Error(operation.error || t('voice.error.startFailed'));
       this.ownOperationId = operation.id;
       this.requestUpdate();
       let state;
@@ -541,14 +554,14 @@ class VoiceStudio extends LitElement {
         await new Promise(resolve => setTimeout(resolve, 350));
         const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operation.id), {cache: 'no-store'});
         state = await answer.json();
-        if (!answer.ok) throw new Error(state.error || 'The operation status could not be read.');
+        if (!answer.ok) throw new Error(state.error || t('voice.error.statusFailed'));
         if (state.result_url && state.batch_completed > 0) await this.importOperation(state);
       } while (state.status === 'running' || state.status === 'stopping');
       if (state.result_url) await this.importOperation(state);
       document.dispatchEvent(new CustomEvent('operation-imported', {detail: operation.id}));
-      if (state.status === 'failed') throw new Error(state.error || 'The voice operation failed.');
+      if (state.status === 'failed') throw new Error(state.error || t('voice.error.operationFailed'));
       if (state.status === 'succeeded') this.clearInputs(submittedDraftId);
-      if (state.status === 'cancelled') this.options.notify?.('info', 'The voice operation stopped. Completed takes remain.');
+      if (state.status === 'cancelled') this.options.notify?.('info', t('voice.toast.operationStopped'));
     } catch (error) {
       this.fail(error.message);
     } finally {
@@ -584,7 +597,7 @@ class VoiceStudio extends LitElement {
     this.importing.add(operation.id);
     try {
       const response = answer || await fetch(operation.result_url, {cache: 'no-store'});
-      if (!response.ok) throw new Error('The completed voice result could not be read.');
+      if (!response.ok) throw new Error(t('voice.error.resultUnreadable'));
       if ((response.headers.get('content-type') || '').includes('application/json')) {
         const manifest = await response.json();
         for (const [index, item] of (manifest.items || manifest.results || []).entries()) {
@@ -592,7 +605,7 @@ class VoiceStudio extends LitElement {
           const identity = operation.id + ':' + index;
           if (this.fetchedItems.has(identity)) continue;
           const answer = await fetch(item.result_url);
-          if (!answer.ok) throw new Error('A completed voice segment could not be loaded.');
+          if (!answer.ok) throw new Error(t('voice.error.segmentLoad'));
           await this.addAudio(await answer.blob(), {...operation, ...item,
             id: identity, text: item.text || item.settings?.text || operation.settings?.items?.[index]?.text,
           });
@@ -623,7 +636,7 @@ class VoiceStudio extends LitElement {
       backend: settings.settings?.backend || settings.backend || (settings.model === 'AuK' ? 'auk_base' : 'auk'),
       convert: settings.settings?.convert || settings.convert || 'tw2s',
       elapsed: settings.finished_at && settings.started_at ? settings.finished_at - settings.started_at : null};
-    this.addTake(take, settings.settings?.segment_text || settings.segment_text || settings.text || settings.prompt || 'Imported voice',
+    this.addTake(take, settings.settings?.segment_text || settings.segment_text || settings.text || settings.prompt || t('voice.import.fallbackText'),
       true, settings.settings?.segment_id || settings.segment_id || 'voice-line-' + settings.id);
   }
 
@@ -681,7 +694,7 @@ class VoiceStudio extends LitElement {
         await clearVoice();
       } catch (error) {
         console.warn(error);
-        this.fail('This browser could not clear the saved voice project.');
+        this.fail(t('voice.error.clearProject'));
       }
     }
   }
@@ -741,7 +754,7 @@ class VoiceStudio extends LitElement {
 
   async useSelection(event) {
     if (this.hidden) return;
-    if (this.locked) { this.fail('Another operation is active.'); return; }
+    if (this.locked) { this.fail(t('voice.reason.operationActive')); return; }
     const {action, blob, start, end, name} = event.detail;
     if (action === 'video') {
       try { await this.options.onSendToVideo?.({blob, name}); }
@@ -749,7 +762,7 @@ class VoiceStudio extends LitElement {
       return;
     }
     if (action === 'clone') {
-      if (this.recording || this.referenceBusy) { this.fail('Stop recording and wait for the reference audio first.'); return; }
+      if (this.recording || this.referenceBusy) { this.fail(t('voice.reason.stopAndWait')); return; }
       this.pausePlayback();
       this.editSegmentId = null;
       this.selectMode('clone');
@@ -867,7 +880,7 @@ class VoiceStudio extends LitElement {
     this.stopping = true;
     try {
       const answer = await fetch('/api/v1/operations/' + encodeURIComponent(id) + '/cancel', {method: 'POST'});
-      if (!answer.ok) throw new Error((await answer.json()).error || 'The operation could not be stopped.');
+      if (!answer.ok) throw new Error((await answer.json()).error || t('voice.error.stopFailed'));
     } catch (error) { this.stopping = false; this.fail(error.message); }
   }
 
@@ -887,13 +900,13 @@ class VoiceStudio extends LitElement {
     if (!this.templates.length) return nothing;
     return html`<div class="head-actions"><button type="button" class="pill" id="voice-templates-toggle" aria-expanded="false" aria-controls="voice-templates"
       ?disabled=${this.locked} @click=${() => toggleMenu(document.getElementById('voice-templates'))}>
-      <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>${this.templateName || 'Templates'}</button></div>`;
+      <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>${this.templateName || t('voice.action.templates')}</button></div>`;
   }
 
   templateMenu() {
     if (!this.templates.length) return nothing;
     return html`<div class="menu" id="voice-templates" role="menu" hidden>
-      <button type="button" role="menuitem" ?disabled=${this.locked} @click=${() => this.selectTemplate('')}>${this.mode === 'design' ? 'Write your own' : this.mode === 'edit' ? 'Custom instruction' : 'Write your own script'}</button>
+      <button type="button" role="menuitem" ?disabled=${this.locked} @click=${() => this.selectTemplate('')}>${this.mode === 'design' ? t('voice.template.writeOwn') : this.mode === 'edit' ? t('voice.template.customInstruction') : t('voice.template.writeOwnScript')}</button>
       ${this.templates.map(item => html`<button type="button" role="menuitem" ?disabled=${this.locked}
         @click=${() => this.selectTemplate(item.name)}>${item.name}</button>`)}
     </div>`;
@@ -906,19 +919,19 @@ class VoiceStudio extends LitElement {
       <div class="voice-panel" @dragover=${event => event.preventDefault()}
         @drop=${event => { event.preventDefault(); this.addReference(event.dataTransfer.files[0]); }}
         @keydown=${event => { if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.stopPropagation(); this.generate(); } }}>
-        <div class="modes voice-mode-picker" role="radiogroup" aria-label="Voice mode">
+        <div class="modes voice-mode-picker" role="radiogroup" aria-label=${t('voice.mode.aria')}>
           ${this.capabilities.modes.map(mode => html`<input type="radio" id=${'voice-mode-' + mode.id} name="voice-mode" value=${mode.id}
             .checked=${this.mode === mode.id} ?disabled=${this.locked} @change=${() => this.selectMode(mode.id)}>
-            <label for=${'voice-mode-' + mode.id}><svg class="icon" aria-hidden="true"><use href=${'#i-' + (mode.id === 'edit' ? 'brush' : mode.id === 'clone' ? 'music' : 'sparkle')}/></svg>${mode.label}</label>`)}
+            <label for=${'voice-mode-' + mode.id}><svg class="icon" aria-hidden="true"><use href=${'#i-' + (mode.id === 'edit' ? 'brush' : mode.id === 'clone' ? 'music' : 'sparkle')}/></svg>${modeLabel(mode.id, mode.label)}</label>`)}
         </div>
         <section class="field prompt-field voice-script-group">
           <div class="field-head">
-            <label for="voice-text">${editing ? 'What to change' : 'Script'}</label>
+            <label for="voice-text">${editing ? t('voice.script.labelEdit') : t('voice.script.label')}</label>
             ${!this.hasParam('voice') ? this.templateButton() : nothing}
           </div>
           ${!this.hasParam('voice') ? this.templateMenu() : nothing}
           <textarea id="voice-text" aria-required="true" rows="4" maxlength="20000" .value=${editing ? (template ? this.instruction : this.editText) : this.script} ?disabled=${this.locked}
-            placeholder=${editing ? 'Describe the change to the recording.' : this.currentMode?.text_hint || 'Write the words for one continuous audio clip.'}
+            placeholder=${editing ? t('voice.script.placeholderEdit') : this.currentMode?.text_hint || t('voice.script.placeholder')}
             @input=${event => {
               if (editing) {
                 this.editText = event.target.value;
@@ -931,71 +944,71 @@ class VoiceStudio extends LitElement {
               }
             }}></textarea>
           ${!this.hasParam('voice') ? this.templateFields(template) : nothing}
-          <p class="caption voice-note">${editing ? 'Edit changes the reference recording. Your existing clips stay in the gallery.'
-            : 'Generate creates one continuous clip for the whole script.'}</p>
+          <p class="caption voice-note">${editing ? t('voice.script.noteEdit')
+            : t('voice.script.note')}</p>
         </section>
         ${this.hasParam('voice') ? html`<section class="field prompt-field">
-          <div class="field-head"><label for="voice-description">Voice description</label>${this.templateButton()}</div>
+          <div class="field-head"><label for="voice-description">${t('voice.description.label')}</label>${this.templateButton()}</div>
           ${this.templateMenu()}
           <textarea id="voice-description" rows="3" aria-required="true" .value=${this.voice} ?disabled=${this.locked}
-            placeholder="Choose a template, or describe the voice and delivery."
+            placeholder=${t('voice.description.placeholder')}
             @input=${event => { this.voice = event.target.value; this.templateName = ''; this.fieldValues = {}; this.persist(true); }}></textarea>
           ${this.templateFields(template)}
-          ${!template ? html`<p class="caption voice-note">Describe the speaker, tone and delivery. The script supplies the spoken words.</p>` : nothing}
+          ${!template ? html`<p class="caption voice-note">${t('voice.description.hint')}</p>` : nothing}
         </section>` : this.needsReference ? html`<section class="field voice-reference-group">
-          <div class="field-head"><label for="voice-reference">Reference recording</label>
-            <button type="button" class="text-btn" ?disabled=${this.locked || this.recordingPending || Boolean(this.reference) && !this.recording} @click=${() => this.toggleRecording()}>${this.recording ? 'Stop recording' : this.recordingPending ? 'Opening microphone' : 'Record'}</button></div>
+          <div class="field-head"><label for="voice-reference">${t('voice.reference.label')}</label>
+            <button type="button" class="text-btn" ?disabled=${this.locked || this.recordingPending || Boolean(this.reference) && !this.recording} @click=${() => this.toggleRecording()}>${this.recording ? t('voice.action.stopRecording') : this.recordingPending ? t('voice.status.openingMicrophone') : t('voice.action.record')}</button></div>
           <input id="voice-reference" type="file" accept="audio/*" hidden ?disabled=${this.locked || this.recording}
             @change=${event => { this.chooseReference(event.target.files[0]); event.target.value = ''; }}>
           ${this.reference ? html`<div class="voice-reference-card video-audios">
             <div class="video-audio">
               <div class="video-audio-picture"><span class="video-audio-badge"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span>
-                <button type="button" class="video-audio-remove" aria-label="Clear voice reference" ?disabled=${this.locked}
+                <button type="button" class="video-audio-remove" aria-label=${t('voice.reference.clearAria')} ?disabled=${this.locked}
                   @click=${() => { this.referenceVersion += 1; this.referencePending = false; this.reference = null; this.editSegmentId = null; this.persist(true); }}>
                   <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
               </div>
-              <div><span class="video-audio-name">${this.reference.name}</span><span class="caption">${durationLabel(this.reference.duration)}${this.reference.trimmed ? ' · First 15 s' : ''}</span></div>
+              <div><span class="video-audio-name">${this.reference.name}</span><span class="caption">${this.reference.trimmed ? t('voice.reference.trimmed', {duration: durationLabel(this.reference.duration)}) : durationLabel(this.reference.duration)}</span></div>
             </div>
           </div>` : html`<button type="button" class="refs" id="voice-reference-choose" ?disabled=${this.locked || this.recording}
-            aria-label="Add reference recording" @click=${() => document.getElementById('voice-reference').click()}>
+            aria-label=${t('voice.reference.add')} @click=${() => document.getElementById('voice-reference').click()}>
             <span class="refs-empty"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>
-              <span><strong>Add reference recording</strong>Click to choose, or drop or paste audio.</span></span>
+              <span><strong>${t('voice.reference.add')}</strong>${t('voice.reference.dropHint')}</span></span>
           </button>`}
-          ${this.referencePending ? html`<p class="caption voice-note" role="status">Preparing reference audio</p>` : nothing}
-          <p class="caption voice-note">${editing ? 'Choose the recording to change.' : 'Use a clean recording of one speaker, up to ' + (this.capabilities.max_seconds || 120) + ' s. Only the voice is copied; the script supplies the words.'}${this.referenceClipSeconds < Infinity ? ' Longer recordings use the first 15 s.' : ''}</p>
-          ${this.hasParam('ref_text') ? html`<label class="field" for="voice-reference-text">Reference transcript
+          ${this.referencePending ? html`<p class="caption voice-note" role="status">${t('voice.status.preparingReference')}</p>` : nothing}
+          <p class="caption voice-note">${editing ? t('voice.reference.chooseEdit') : t('voice.reference.useHint', {seconds: this.capabilities.max_seconds || 120})}${this.referenceClipSeconds < Infinity ? ' ' + t('voice.reference.trimHint') : ''}</p>
+          ${this.hasParam('ref_text') ? html`<label class="field" for="voice-reference-text">${t('voice.reference.transcriptLabel')}
             <textarea id="voice-reference-text" rows="3" aria-required="true" .value=${this.reference?.transcript || ''}
-              ?disabled=${this.locked || !this.reference} placeholder="Write exactly what is spoken in the reference."
+              ?disabled=${this.locked || !this.reference} placeholder=${t('voice.reference.transcriptPlaceholder')}
               @input=${event => { this.reference = {...this.reference, transcript: event.target.value}; this.persist(true); }}></textarea>
-            <span class="caption">Drama-3 needs the exact words to separate the speaker’s voice from the reference content. Correct this after trimming.</span></label>` : nothing}
+            <span class="caption">${t('voice.reference.transcriptHint')}</span></label>` : nothing}
         </section>` : nothing}
         <details class="voice-advanced">
-          <summary>Advanced <span class="values num">${this.hasParam('seconds') && this.seconds > 0 ? this.seconds + ' s' : 'Automatic duration'}, ${String(this.seed).trim() ? 'seed ' + this.seed : 'random seed'}</span></summary>
+          <summary>${t('voice.advanced.summary')} <span class="values num">${this.hasParam('seconds') && this.seconds > 0 ? t('voice.duration.seconds', {value: this.seconds}) : t('voice.advanced.automaticDuration')}, ${String(this.seed).trim() ? t('voice.advanced.seedValue', {seed: this.seed}) : t('voice.advanced.randomSeed')}</span></summary>
           <div class="advanced">
             ${this.hasParam('seconds') ? html`<div class="field">
-              <div class="field-head"><label for="voice-seconds">Duration</label><span class="caption">Seconds</span></div>
+              <div class="field-head"><label for="voice-seconds">${t('voice.advanced.duration')}</label><span class="caption">${t('voice.advanced.seconds')}</span></div>
               <input id="voice-seconds" type="number" min="0" max="120" step="0.5" .value=${String(this.seconds)} ?disabled=${this.locked}
                 @input=${event => { this.seconds = event.target.value; this.persist(true); }}>
-              <span class="caption">Use 0 for automatic duration.</span>
+              <span class="caption">${t('voice.advanced.durationHint')}</span>
             </div>` : nothing}
             <div class="field">
-              <div class="field-head"><label for="voice-seed">Seed</label></div>
-              <input id="voice-seed" type="number" min="0" step="1" inputmode="numeric" placeholder="Random" .value=${String(this.seed)} ?disabled=${this.locked}
+              <div class="field-head"><label for="voice-seed">${t('voice.advanced.seed')}</label></div>
+              <input id="voice-seed" type="number" min="0" step="1" inputmode="numeric" placeholder=${t('voice.advanced.seedPlaceholder')} .value=${String(this.seed)} ?disabled=${this.locked}
                 @input=${event => { this.seed = event.target.value; this.persist(true); }}>
-              <span class="caption">Leave blank for a random seed.</span>
+              <span class="caption">${t('voice.advanced.seedHint')}</span>
             </div>
             ${this.hasParam('convert') ? html`<div class="field">
-              <label for="voice-convert">Chinese characters</label><select id="voice-convert" aria-describedby="voice-convert-hint" .value=${this.convert} ?disabled=${this.locked}
+              <label for="voice-convert">${t('voice.advanced.convertLabel')}</label><select id="voice-convert" aria-describedby="voice-convert-hint" .value=${this.convert} ?disabled=${this.locked}
                 @change=${event => { this.convert = event.target.value; this.persist(true); }}>
-                <option value="tw2s" ?selected=${this.convert === 'tw2s'}>Traditional to Simplified for pronunciation</option><option value="off" ?selected=${this.convert === 'off'}>As written</option>
+                <option value="tw2s" ?selected=${this.convert === 'tw2s'}>${t('voice.advanced.convertTw2s')}</option><option value="off" ?selected=${this.convert === 'off'}>${t('voice.advanced.convertOff')}</option>
               </select>
-              <span class="caption" id="voice-convert-hint">AuK can mispronounce Traditional Chinese. Conversion helps pronunciation while keeping your script and Taiwan vocabulary unchanged. Choose As written to disable conversion.</span>
+              <span class="caption" id="voice-convert-hint">${t('voice.advanced.convertHint')}</span>
             </div>` : nothing}
-            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${param.id === 'max_tokens' ? 'Audio token limit' : param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
+            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${param.id === 'max_tokens' ? t('voice.advanced.audioTokenLimit') : param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
               <input id=${'voice-param-' + param.id} type="number" min=${param.minimum ?? nothing} max=${param.maximum ?? nothing}
                 step=${param.step || (param.integer ? 1 : 0.1)} .value=${String(this.engineOptions[param.id] ?? param.default)} ?disabled=${this.locked}
                 @input=${event => { this.engineOptions = {...this.engineOptions, [param.id]: Number(event.target.value)}; this.persist(true); }}>
-              <span class="caption">${param.id === 'max_tokens' ? '64–2048 audio frames per script chunk. Higher values may prolong repetition.' : param.hint}</span></label>`)}
+              <span class="caption">${param.id === 'max_tokens' ? t('voice.advanced.audioTokenHint') : param.hint}</span></label>`)}
             ${this.capabilities.loading?.note ? html`<p class="caption voice-note">${this.capabilities.loading.note}</p>` : nothing}
           </div>
         </details>
@@ -1008,11 +1021,11 @@ class VoiceStudio extends LitElement {
     const stopping = own && (this.stopping || this.activeOperation?.status === 'stopping');
     const starting = this.busy && !this.ownOperationId;
     const state = stopping ? 'stopping' : starting ? 'starting' : own ? 'busy' : 'idle';
-    const caption = this.mode === 'edit' ? 'Creates an edited clip' : 'One continuous clip';
+    const caption = this.mode === 'edit' ? t('voice.footer.editCaption') : t('voice.footer.caption');
     return html`<button id="voice-generate" class="run-button" type="button" data-state=${state} ?disabled=${starting || stopping || (!own && Boolean(this.reason))}
       @click=${() => own ? this.cancel() : this.generate()}>
       <run-button id="voice-run-labels" data-mode=${this.mode === 'edit' ? 'edit' : 'generate'} data-state=${state}></run-button>
-      <span class="sub num" id="voice-go-sub">${starting ? 'Preparing the request' : own ? 'Completed clips remain if you stop' : this.reason || caption}</span>
+      <span class="sub num" id="voice-go-sub">${starting ? t('voice.status.preparingRequest') : own ? t('voice.footer.stopping') : this.reason || caption}</span>
     </button>`;
   }
 
@@ -1037,7 +1050,7 @@ class VoiceStudio extends LitElement {
   }
 
   renderWaveform(take) {
-    return html`<svg class="voice-waveform" viewBox="0 0 320 48" role="img" aria-label="Audio waveform">
+    return html`<svg class="voice-waveform" viewBox="0 0 320 48" role="img" aria-label=${t('voice.preview.waveformAria')}>
       ${(take?.peaks || Array(80).fill(0.06)).map((peak, index) => svg`<line x1=${index * 4 + 1} x2=${index * 4 + 1}
         y1=${24 - Math.max(1, peak * 22)} y2=${24 + Math.max(1, peak * 22)}></line>`)}</svg>`;
   }
@@ -1072,17 +1085,17 @@ class VoiceStudio extends LitElement {
     // Escape is handled here and the state is written by closeDetails. A late
     // `close` event would write the same field after the next open, which is how
     // the second open closed itself.
-    return html`<dialog class="sheet" id="voice-details-sheet" aria-label="Audio details"
+    return html`<dialog class="sheet" id="voice-details-sheet" aria-label=${t('voice.details.aria')}
       @cancel=${event => { event.preventDefault(); this.closeDetails(); }}>
-      <div class="sheet-head"><h2>Audio details</h2>
-        <button type="button" class="icon-btn close" id="voice-details-close" aria-label="Close audio details" title="Close" @click=${() => this.closeDetails()}>
+      <div class="sheet-head"><h2>${t('voice.details.aria')}</h2>
+        <button type="button" class="icon-btn close" id="voice-details-close" aria-label=${t('voice.details.closeAria')} title=${t('voice.details.closeTitle')} @click=${() => this.closeDetails()}>
           <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
-      <div class="sheet-body"><dl><dt>Script</dt><dd>${item.segment.text}</dd>
-        ${item.take?.voice ? html`<dt>Voice description</dt><dd>${item.take.voice}</dd>` : nothing}
-        ${item.take ? html`<dt>Model</dt><dd>${item.take.model || 'AuK Flash'}</dd>
-          <dt>Mode</dt><dd>${item.take.mode || 'design'}</dd>
-          <dt>Duration</dt><dd>${durationLabel(item.take.duration)}</dd>
-          <dt>Seed</dt><dd>${item.take.seed ?? 'Random'}</dd>` : nothing}</dl></div>
+      <div class="sheet-body"><dl><dt>${t('voice.details.script')}</dt><dd>${item.segment.text}</dd>
+        ${item.take?.voice ? html`<dt>${t('voice.details.voiceDescription')}</dt><dd>${item.take.voice}</dd>` : nothing}
+        ${item.take ? html`<dt>${t('voice.details.model')}</dt><dd>${item.take.model || 'AuK Flash'}</dd>
+          <dt>${t('voice.details.mode')}</dt><dd>${modeLabel(item.take.mode || 'design')}</dd>
+          <dt>${t('voice.advanced.duration')}</dt><dd>${durationLabel(item.take.duration)}</dd>
+          <dt>${t('voice.advanced.seed')}</dt><dd>${item.take.seed ?? t('voice.advanced.seedPlaceholder')}</dd>` : nothing}</dl></div>
     </dialog>`;
   }
 
@@ -1091,18 +1104,18 @@ class VoiceStudio extends LitElement {
     const canReuse = !this.locked && !this.recording && !this.referenceBusy;
     const selectionReady = this.previewReady && this.previewSource === item.take.blob && !this.previewBusy;
     return html`<div class="menu-anchor">
-      <button type="button" class="icon-btn" id="voice-track-toggle" aria-label="More actions" title="More actions"
+      <button type="button" class="icon-btn" id="voice-track-toggle" aria-label=${t('voice.menu.moreActions')} title=${t('voice.menu.moreActions')}
         aria-controls="voice-track-menu" aria-expanded="false" @click=${() => toggleMenu(this.querySelector('#voice-track-menu'))}>
         <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg></button>
-      <div id="voice-track-menu" class="voice-track-menu menu up" role="menu" aria-label="Audio actions" hidden>
+      <div id="voice-track-menu" class="voice-track-menu menu up" role="menu" aria-label=${t('voice.menu.aria')} hidden>
         <button type="button" role="menuitem" id="voice-selected-reuse" ?disabled=${!canReuse}
-          @click=${() => this.reuseSettings(item)}>Reuse script and voice</button>
+          @click=${() => this.reuseSettings(item)}>${t('voice.action.reuse')}</button>
         <button type="button" role="menuitem" id="voice-selected-video" ?disabled=${!selectionReady || this.locked}
-          @click=${() => { closeMenus(); this.querySelector('audio-preview')?.action('video'); }}>Send to Video</button>
+          @click=${() => { closeMenus(); this.querySelector('audio-preview')?.action('video'); }}>${t('voice.action.sendVideo')}</button>
         <button type="button" role="menuitem" id="voice-selected-clone" ?disabled=${!selectionReady || !canReuse}
-          @click=${() => { closeMenus(); this.querySelector('audio-preview')?.action('clone'); }}>Send to Clone</button>
-        ${joined ? html`<button type="button" role="menuitem" @click=${() => { closeMenus(); this.playTrack(); }}>${this.playing ? 'Pause joined audio' : 'Play joined audio'}</button>
-          <button type="button" role="menuitem" @click=${() => { closeMenus(); this.exportTrack(); }}>Download joined audio</button>` : nothing}
+          @click=${() => { closeMenus(); this.querySelector('audio-preview')?.action('clone'); }}>${t('voice.action.sendClone')}</button>
+        ${joined ? html`<button type="button" role="menuitem" @click=${() => { closeMenus(); this.playTrack(); }}>${this.playing ? t('voice.action.pauseJoined') : t('voice.action.playJoined')}</button>
+          <button type="button" role="menuitem" @click=${() => { closeMenus(); this.exportTrack(); }}>${t('voice.action.downloadJoined')}</button>` : nothing}
       </div></div>`;
   }
 
@@ -1110,31 +1123,31 @@ class VoiceStudio extends LitElement {
     if (!item) return nothing;
     const {segment, take} = item;
     const selectionReady = this.previewReady && this.previewSource === take?.blob && !this.previewBusy;
-    return html`<section class="stage-bar voice-output-details" id="voice-output-details" aria-label="Voice preview details">
+    return html`<section class="stage-bar voice-output-details" id="voice-output-details" aria-label=${t('voice.preview.detailsAria')}>
       <div class="about">
         <p class="prompt-line voice-output-script" title=${segment.text} role="button" tabindex="0"
           aria-controls="voice-details-sheet" aria-expanded=${String(this.detailsOpen)} @click=${this.openDetails}
           @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}>${segment.text}</p>
         ${take?.voice ? html`<p class="prompt-line voice-output-description" title=${take.voice} role="button" tabindex="0"
           aria-controls="voice-details-sheet" aria-expanded=${String(this.detailsOpen)} @click=${this.openDetails}
-          @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}><span class="caption">Voice description: </span>${take.voice}</p>` : nothing}
-        <div class="facts num" aria-label="Voice metadata">
-          <span>${take ? 'Audio ' + this.clipNumber(take) : 'Script'}</span>
+          @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}><span class="caption">${t('voice.preview.voiceDescriptionLabel')}</span>${take.voice}</p>` : nothing}
+        <div class="facts num" aria-label=${t('voice.preview.metadataAria')}>
+          <span>${take ? t('voice.preview.audio', {number: this.clipNumber(take)}) : t('voice.details.script')}</span>
           ${take ? html`<span>${durationLabel(take.duration)}</span><span>${take.model || 'AuK Flash'}</span>
-            <span>${take.mode || 'design'}</span><span>${Number.isInteger(take.seed) ? 'Seed ' + take.seed : 'Random seed'}</span>
-            ${Number.isFinite(take.elapsed) ? html`<span>Took ${durationLabel(take.elapsed)}</span>` : nothing}` : html`<span>Not generated</span>`}
+            <span>${modeLabel(take.mode || 'design')}</span><span>${Number.isInteger(take.seed) ? t('voice.preview.seed', {seed: take.seed}) : t('voice.preview.randomSeed')}</span>
+            ${Number.isFinite(take.elapsed) ? html`<span>${t('voice.preview.took', {duration: durationLabel(take.elapsed)})}</span>` : nothing}` : html`<span>${t('voice.preview.notGenerated')}</span>`}
         </div>
       </div>
       <div class="actions voice-output-actions">
         ${take && this.capabilities.modes.some(mode => mode.id === 'edit') ? html`          <button type="button" class="btn quiet" id="voice-selected-edit" ?disabled=${!selectionReady || this.locked}
             @click=${() => this.querySelector('audio-preview')?.action('edit')}>
-            <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>Edit</button>` : nothing}
+            <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>${t('voice.action.edit')}</button>` : nothing}
         ${take ? this.renderTrackMenu(item) : nothing}
         ${take ? html`<span class="rule" aria-hidden="true"></span>
-          <button type="button" class="icon-btn" id="voice-selected-download" aria-label="Download audio" title="Download"
+          <button type="button" class="icon-btn" id="voice-selected-download" aria-label=${t('voice.preview.downloadAria')} title=${t('voice.preview.downloadTitle')}
             ?disabled=${!selectionReady} @click=${() => this.querySelector('audio-preview')?.action('download')}>
             <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg></button>
-          <button type="button" class="icon-btn danger" id="voice-selected-remove" aria-label="Remove audio" title="Remove"
+          <button type="button" class="icon-btn danger" id="voice-selected-remove" aria-label=${t('voice.preview.removeAria')} title=${t('voice.preview.removeTitle')}
             @click=${() => this.removeTake(take.id)}><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>` : nothing}
       </div>
     </section>`;
@@ -1150,11 +1163,10 @@ class VoiceStudio extends LitElement {
     const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})));
     clips.sort((first, second) => (second.take?.createdAt ?? Infinity) - (first.take?.createdAt ?? Infinity));
     // The head names what the shelf holds and what happens to it, as the Image strip does.
-    const shelf = `${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}`;
     const shelfNote = this.options.keeping?.() !== false
-      ? shelf + ', kept in this browser.'
-      : shelf + ' in this tab. Download the ones you want to keep.';
-    return html`<section class="strip-wrap voice-gallery" id="voice-gallery" aria-label="Voice gallery" ?hidden=${!clips.length && !rendering}>
+      ? plural(this.takesCount, t('voice.gallery.shelfKept'))
+      : plural(this.takesCount, t('voice.gallery.shelfTab'));
+    return html`<section class="strip-wrap voice-gallery" id="voice-gallery" aria-label=${t('voice.gallery.aria')} ?hidden=${!clips.length && !rendering}>
       <div class="strip-head"><span>${shelfNote}</span>
         <gallery-browser workspace="voice" .items=${clips.map(({segment, take}) => ({id: take.id,
           number: this.clipNumber(take), text: segment.text, description: take.voice, model: take.model,
@@ -1168,21 +1180,21 @@ class VoiceStudio extends LitElement {
           .download=${ids => this.downloadTakes(clips, ids)} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
         <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all"
           ?disabled=${!this.takesCount}
-          @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>Download all</button>
+          @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>${t('voice.action.downloadAll')}</button>
           <button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
-            if (confirm('Remove all completed audio clips from this browser?')) this.clearCompleted();
-          }}>Clear all</button></span></div>
-      <div class="strip voice-clips" role="group" aria-label="Generated audio" @keydown=${event => this.galleryKey(event)}>
+            if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
+          }}>${t('voice.action.clearAll')}</button></span></div>
+      <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
         ${rendering ? html`<button type="button" class=${'frame pending voice-render-pending' + (this.showingGeneration ? ' selected' : '')}
-          aria-label="Show audio generation" aria-pressed=${String(this.showingGeneration)}
+          aria-label=${t('voice.gallery.showGenerationAria')} aria-pressed=${String(this.showingGeneration)}
           @click=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}>
-          <span class="still voice-clip-thumb"><span class="video-pending-indicator" aria-hidden="true"></span><span>Generating</span></span>
+          <span class="still voice-clip-thumb"><span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span></span>
           <span class="no">${String(this.takesCount + 1).padStart(2, '0')}</span>${this.showingGeneration ? pencilLoop() : nothing}
         </button>` : nothing}
         <gallery-window .items=${clips} .selected=${item?.take?.id} .renderItem=${({segment, take}) => html`
           <button type="button" class=${'frame voice-clip' + (item?.take?.id === take.id && !this.showingGeneration ? ' selected' : '')}
             data-take-id=${take.id} data-segment-id=${segment.id} aria-pressed=${String(item?.take?.id === take.id && !this.showingGeneration)}
-            aria-label=${'Select audio ' + this.clipNumber(take)} title=${segment.text}
+            aria-label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
             @click=${() => this.selectTake(segment.id, take.id)}>
             <span class="still voice-clip-thumb">${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span></span>
             <span class="no">${String(this.clipNumber(take)).padStart(2, '0')}</span>${item?.take?.id === take.id && !this.showingGeneration ? pencilLoop(true) : nothing}</button>`}></gallery-window>
@@ -1195,29 +1207,29 @@ class VoiceStudio extends LitElement {
     const progress = operation?.progress || {};
     const percent = progress.total > 0 ? Math.max(0, Math.min(99, Math.round((progress.step || 0) / progress.total * 100))) : null;
     const editing = (operation?.mode || this.mode) === 'edit';
-    let label = editing ? 'Editing audio' : 'Generating audio';
-    if (!progress.step) label = 'Preparing audio';
-    if (progress.total > 0 && progress.step >= progress.total) label = 'Finishing audio';
+    let label = editing ? t('voice.generation.editing') : t('voice.generation.generating');
+    if (!progress.step) label = t('voice.generation.preparing');
+    if (progress.total > 0 && progress.step >= progress.total) label = t('voice.generation.finishing');
     let phase = !progress.step ? 'preparing' : progress.total > 0 && progress.step >= progress.total ? 'finishing' : 'generating';
-    if (this.stopping || operation?.status === 'stopping') { label = 'Stopping audio'; phase = 'stopping'; }
+    if (this.stopping || operation?.status === 'stopping') { label = t('voice.generation.stopping'); phase = 'stopping'; }
     const bars = Array.from({length: 64}, (_, index) => {
       const height = 12 + Math.abs(Math.sin(index * 0.73) * Math.cos(index * 0.19)) * 68;
       return svg`<line x1=${index * 10 + 5} x2=${index * 10 + 5} y1=${50 - height / 2} y2=${50 + height / 2}
         style=${'--bar-delay: ' + (-index * 0.07).toFixed(2) + 's'}></line>`;
     });
     return html`<section class="voice-generation audio-preview" id="voice-generation" data-phase=${phase}
-      aria-label="Audio generation">
+      aria-label=${t('voice.generation.aria')}>
       <div class="audio-preview-heading voice-generation-status"><strong>${label}</strong><span>${operation?.model || this.capabilities.name}</span></div>
-      <div class="audio-preview-wave voice-generation-wave" role="progressbar" aria-label="Audio generation progress"
+      <div class="audio-preview-wave voice-generation-wave" role="progressbar" aria-label=${t('voice.generation.progressAria')}
         aria-valuemin="0" aria-valuemax="100" aria-valuenow=${percent === null ? nothing : percent}
-        aria-valuetext=${percent === null ? label : label + ', ' + percent + '%'}>
+        aria-valuetext=${percent === null ? label : t('voice.generation.progress', {label, percent})}>
         <svg viewBox="0 0 640 100" preserveAspectRatio="none" aria-hidden="true">
           <defs><clipPath id="voice-generation-clip"><rect width=${percent === null ? 0 : percent * 6.4} height="100"></rect></clipPath></defs>
           <g class="voice-generation-bars voice-generation-outline">${bars}</g>
           <g class="voice-generation-bars voice-generation-fill" clip-path="url(#voice-generation-clip)">${bars}</g>
         </svg>
       </div>
-      <p class="voice-generation-note">Illustrative waveform · ${phase === 'finishing' ? 'Saving your audio' : phase === 'stopping' ? 'Waiting for generation to stop' : 'Audio becomes playable when generation completes'}</p>
+      <p class="voice-generation-note">${t('voice.generation.note', {state: phase === 'finishing' ? t('voice.generation.saving') : phase === 'stopping' ? t('voice.generation.waitingStop') : t('voice.generation.playable')})}</p>
     </section>`;
   }
 
@@ -1229,7 +1241,7 @@ class VoiceStudio extends LitElement {
         // A stray drop used to switch to Clone and clear the template and its
         // fields. The mode that takes a recording is the mode that accepts it.
         if (!this.needsReference) {
-          this.options.notify?.('info', 'A dropped recording is used by Clone. Switch to Clone first.');
+          this.options.notify?.('info', t('voice.toast.dropped'));
           return;
         }
         this.addReference(event.dataTransfer.files[0]);
@@ -1238,7 +1250,7 @@ class VoiceStudio extends LitElement {
         <div id="voice-preview-pane">
           ${this.showingGeneration ? this.renderGeneration() : item?.take ? html`<audio-preview id="voice-audio-preview" class=${this.previewReady ? 'voice-result-ready' : ''} .blob=${item.take.blob}
             .downloadText=${item.segment.text} .downloadAt=${item.take.createdAt} .downloadId=${item.take.id} .speed=${this.previewSpeed}
-            .label=${'Audio ' + this.clipNumber(item.take)}
+            .label=${t('voice.preview.audio', {number: this.clipNumber(item.take)})}
             .locked=${this.locked} @audio-preview-play=${() => this.pausePlayback()}
             @audio-preview-action=${event => this.useSelection(event)}
             @audio-preview-state=${event => {
@@ -1247,10 +1259,10 @@ class VoiceStudio extends LitElement {
               this.previewReady = event.detail.ready;
               this.previewBusy = event.detail.busy;
             }}></audio-preview>` : html`
-            <div class="voice-empty video-empty empty"><div class="video-empty-mark">AUDIO</div><strong>Preview audio</strong>
-              <span>${item ? 'This segment has no audio yet.' : this.mode === 'edit' ? 'Add a reference recording and describe the change.' : this.hasParam('voice') ? 'Write a script, choose a voice and generate an audio clip.' : 'Write a script and generate an audio clip.'}</span>
+            <div class="voice-empty video-empty empty"><div class="video-empty-mark">${t('voice.empty.mark')}</div><strong>${t('voice.empty.title')}</strong>
+              <span>${item ? t('voice.empty.segment') : this.mode === 'edit' ? t('voice.empty.edit') : this.hasParam('voice') ? t('voice.empty.designVoice') : t('voice.empty.design')}</span>
               ${!item ? html`<button type="button" class="btn" @click=${() => document.getElementById('voice-text').focus()}>
-                <svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>${this.mode === 'edit' ? 'Describe the change' : 'Write a script'}</button>` : nothing}
+                <svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>${this.mode === 'edit' ? t('voice.action.describeChange') : t('voice.action.writeScript')}</button>` : nothing}
             </div>`}
         </div>
         ${this.showingGeneration ? nothing : this.renderDetails(item)}

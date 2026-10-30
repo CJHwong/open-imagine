@@ -2,7 +2,8 @@
 
 One JSON file per locale under `web/i18n/` is the whole registry: the file name is the
 locale code and `_label` is its name in its own language. Adding a language is adding a
-file.
+file. A value is a string, or an object of plural forms (`one`, `other`) that the page
+picks with Intl.PluralRules.
 """
 
 from __future__ import annotations
@@ -32,9 +33,9 @@ class LocaleCatalog:
         for path in sorted(directory.glob("*.json")):
             table = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(table, dict) or not all(
-                isinstance(key, str) and isinstance(value, str) for key, value in table.items()
+                isinstance(key, str) and _is_string(value) for key, value in table.items()
             ):
-                raise ValueError(f"The locale table {path.name} must map strings to strings.")
+                raise ValueError(f"The locale table {path.name} must map strings to strings or plural forms.")
             code = path.stem
             self._tables[code] = table
             self._locales.append(Locale(code, table.get(LABEL_KEY, code)))
@@ -76,6 +77,18 @@ class LocaleCatalog:
     def _exact(self, value: str | None) -> str | None:
         wanted = (value or "").strip().lower()
         return next((code for code in self.codes() if code.lower() == wanted), None)
+
+
+def _is_string(value: object) -> bool:
+    """A string, or plural forms: one or both of the categories a language counts in."""
+    if isinstance(value, str):
+        return True
+    return (
+        isinstance(value, dict)
+        and bool(value)
+        and set(value) <= {"one", "other"}
+        and all(isinstance(form, str) for form in value.values())
+    )
 
 
 def cookie_value(header: str | None, name: str) -> str | None:

@@ -295,6 +295,8 @@ def test_the_page_carries_the_chosen_locale_and_its_strings(tmp_path):
     assert "工作區" in traditional
     assert "繁體中文" in traditional
     assert not re.search(r"__LOCALE(_SHORT)?__", traditional)
+    assert "STUDIO_FALLBACK" not in english
+    assert "window.STUDIO_FALLBACK" in traditional
 
 
 def test_the_presenter_chooses_a_locale_the_way_the_picker_persists_one(tmp_path):

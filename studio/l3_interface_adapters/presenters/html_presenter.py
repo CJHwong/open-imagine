@@ -109,11 +109,16 @@ class HtmlPresenter:
         available = (
             [{"code": item.code, "label": item.label} for item in self._locales.locales] if self._locales else []
         )
+        # English travels with a translated page, so a key no translator has reached yet
+        # falls back to real copy rather than to the key's own name.
+        english = self._locales.strings(DEFAULT_LOCALE) if self._locales else {}
+        fallback = "" if locale == DEFAULT_LOCALE else ";\n  window.STUDIO_FALLBACK = " + _script_json(english)
         locale_script = (
             "window.STUDIO_STRINGS = "
             + _script_json(strings)
             + ";\n  window.STUDIO_LOCALES = "
             + _script_json(available)
+            + fallback
             + ";"
         )
         tag = f'<html lang="{html.escape(locale)}" data-locale="{html.escape(locale)}"'

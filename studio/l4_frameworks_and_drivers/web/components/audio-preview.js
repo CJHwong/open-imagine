@@ -2,6 +2,7 @@ import {LitElement, html, svg} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, waveBytes} from '../lib/voice-audio.js';
 
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
+import {t} from '../lib/i18n.js';
 
 const MINIMUM_SECONDS = 0.2;
 
@@ -16,7 +17,7 @@ class AudioPreview extends LitElement {
 
   constructor() {
     super();
-    this.label = 'Audio preview';
+    this.label = t('audio.preview.label');
     this.speed = 1;
     this.locked = false;
     this.duration = 0;
@@ -86,14 +87,14 @@ class AudioPreview extends LitElement {
       if (revision !== this._revision) return;
       const duration = decoded.sourceDuration || decoded.duration;
       if (!Number.isFinite(duration) || duration < MINIMUM_SECONDS) {
-        throw new Error('The audio must contain at least 0.2 seconds.');
+        throw new Error(t('audio.error.too_short'));
       }
       this._decoded = decoded;
       this.duration = duration;
       this.end = this.duration;
       this.peaks = audioPeaks(decoded.samples, 160);
     } catch (error) {
-      if (revision === this._revision) this.error = error.message || 'The audio could not be decoded.';
+      if (revision === this._revision) this.error = error.message || t('audio.error.decode');
     } finally {
       if (revision === this._revision) this.loading = false;
     }
@@ -159,7 +160,7 @@ class AudioPreview extends LitElement {
       this._player.currentTime = this.position - this._playStart;
     } catch (error) {
       this.pause();
-      this.error = error.message || 'The selected audio could not seek to this position.';
+      this.error = error.message || t('audio.error.seek');
     }
   }
 
@@ -225,7 +226,7 @@ class AudioPreview extends LitElement {
     player.onerror = () => {
       if (this._player !== player) return;
       this.pause();
-      this.error = 'The selected audio could not be played.';
+      this.error = t('audio.error.play_failed');
     };
     try {
       this.playing = true;
@@ -234,7 +235,7 @@ class AudioPreview extends LitElement {
     } catch (error) {
       if (this._player !== player) return;
       this.pause();
-      this.error = error.message || 'The selected audio could not be played.';
+      this.error = error.message || t('audio.error.play_failed');
     }
   }
 
@@ -249,24 +250,24 @@ class AudioPreview extends LitElement {
       this._encoded = blobBase64(original);
     }
     const encoded = await this._encoded;
-    if (request.signal.aborted) throw new DOMException('The selection changed.', 'AbortError');
+    if (request.signal.aborted) throw new DOMException(t('audio.error.selection_changed'), 'AbortError');
     const response = await fetch('/api/v1/audio/trim', {
       method: 'POST', headers: {'Content-Type': 'application/json'}, signal: request.signal,
       body: JSON.stringify({audio: {name: 'selection.wav', data: encoded}, start_seconds: this.start, end_seconds: this.end}),
     });
     if (!response.ok) {
       const failure = await response.json().catch(() => null);
-      throw new Error((typeof failure?.error === 'string' ? failure.error : failure?.error?.message) || failure?.message || `The audio selection failed (${response.status}).`);
+      throw new Error((typeof failure?.error === 'string' ? failure.error : failure?.error?.message) || failure?.message || t('audio.error.selection_failed', {status: response.status}));
     }
     const blob = await response.blob();
-    if (!blob.size || !blob.type.startsWith('audio/')) throw new Error('The server did not return an audio selection.');
+    if (!blob.size || !blob.type.startsWith('audio/')) throw new Error(t('audio.error.selection_missing'));
     this._trimmed = {key, blob};
     return blob;
   }
 
   async action(action) {
     if (!['video', 'clone', 'edit', 'download'].includes(action)) {
-      this.error = 'Choose Send to Video, Send to Clone, Edit or Download.';
+      this.error = t('audio.error.choose_action');
       return;
     }
     const source = this.blob;
@@ -300,7 +301,7 @@ class AudioPreview extends LitElement {
         bubbles: true, composed: true, detail: {action, blob, start, end, name, duration: this.duration},
       }));
     } catch (error) {
-      if (revision === this._revision && actionRevision === this._actionRevision && error.name !== 'AbortError') this.error = error.message || 'The audio selection failed.';
+      if (revision === this._revision && actionRevision === this._actionRevision && error.name !== 'AbortError') this.error = error.message || t('audio.error.selection');
     } finally {
       if (revision === this._revision && actionRevision === this._actionRevision) this.busy = false;
     }
@@ -313,7 +314,7 @@ class AudioPreview extends LitElement {
     const cursor = this.duration ? this.position / this.duration * 100 : 0;
     return html`<section class="audio-preview" aria-label=${this.label}>
       <div class="audio-preview-heading"><strong>${this.label}</strong>
-        <span>${ready ? `${(this.end - this.start).toFixed(2)} s selected` : this.loading ? 'Loading audio…' : 'No audio selected'}</span></div>
+        <span>${ready ? t('audio.preview.selected', {seconds: (this.end - this.start).toFixed(2)}) : this.loading ? t('audio.preview.loading') : t('audio.preview.none')}</span></div>
       <div class="audio-preview-wave" style=${`--selection-start:${left}%;--selection-end:${right}%;--playback-position:${cursor}%`}
         @pointerdown=${this._pointer} @pointermove=${event => { if (event.currentTarget.hasPointerCapture(event.pointerId)) this._pointer(event); }}>
         <svg viewBox="0 0 640 80" preserveAspectRatio="none" aria-hidden="true">
@@ -328,25 +329,25 @@ class AudioPreview extends LitElement {
         <div class="audio-preview-ruler" aria-hidden="true" ?hidden=${!ready}>
           ${[0, 0.25, 0.5, 0.75, 1].map(fraction => html`<span>${(this.duration * fraction).toFixed(2)} s</span>`)}
         </div>
-        <input class="audio-preview-range audio-preview-range-start" type="range" aria-label="Selection start handle"
+        <input class="audio-preview-range audio-preview-range-start" type="range" aria-label=${t('audio.preview.start_handle')}
           min="0" max=${this.duration} step="0.01" .value=${String(this.start)} ?disabled=${!ready}
-          aria-valuetext=${`${this.start.toFixed(2)} seconds`} @input=${event => this._input('start', event)}>
-        <input class="audio-preview-range audio-preview-range-end" type="range" aria-label="Selection end handle"
+          aria-valuetext=${t('audio.preview.seconds', {seconds: this.start.toFixed(2)})} @input=${event => this._input('start', event)}>
+        <input class="audio-preview-range audio-preview-range-end" type="range" aria-label=${t('audio.preview.end_handle')}
           min="0" max=${this.duration} step="0.01" .value=${String(this.end)} ?disabled=${!ready}
-          aria-valuetext=${`${this.end.toFixed(2)} seconds`} @input=${event => this._input('end', event)}>
+          aria-valuetext=${t('audio.preview.seconds', {seconds: this.end.toFixed(2)})} @input=${event => this._input('end', event)}>
       </div>
       <div class="audio-preview-controls">
-      <div class="audio-preview-player" role="group" aria-label="Audio playback" style=${`--player-progress:${cursor}%`}>
-        <button type="button" class="icon-btn" aria-label=${this.playing ? 'Pause' : 'Play'} title=${this.playing ? 'Pause' : 'Play'}
+      <div class="audio-preview-player" role="group" aria-label=${t('audio.preview.playback')} style=${`--player-progress:${cursor}%`}>
+        <button type="button" class="icon-btn" aria-label=${this.playing ? t('audio.preview.pause') : t('audio.preview.play')} title=${this.playing ? t('audio.preview.pause') : t('audio.preview.play')}
           ?disabled=${!ready} @click=${this.play}>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d=${this.playing ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z'}></path></svg>
         </button>
-        <input type="range" aria-label="Playback position" min="0" max=${this.duration} step="0.01"
-          .value=${String(this.position)} ?disabled=${!ready} aria-valuetext=${`${this.position.toFixed(2)} seconds`}
+        <input type="range" aria-label=${t('audio.preview.position')} min="0" max=${this.duration} step="0.01"
+          .value=${String(this.position)} ?disabled=${!ready} aria-valuetext=${t('audio.preview.seconds', {seconds: this.position.toFixed(2)})}
           @input=${this._positionInput}>
         <output class="audio-preview-position-value">${this.position.toFixed(2)} / ${this.duration.toFixed(2)} s</output>
         <span class=${'audio-preview-speed-control' + (this.speed === 1 ? '' : ' is-adjusted')}>
-          <select class="audio-preview-speed" aria-label="Playback speed" title="Playback speed"
+          <select class="audio-preview-speed" aria-label=${t('audio.preview.speed')} title=${t('audio.preview.speed')}
             .value=${String(this.speed)} @change=${this._setSpeed}>
             ${[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => html`<option value=${String(speed)} ?selected=${speed === this.speed}>${speed}×</option>`)}
           </select>
@@ -354,13 +355,13 @@ class AudioPreview extends LitElement {
         </span>
       </div>
       <div class="audio-preview-times">
-        <label>Start <input type="number" aria-label="Selection start" min="0" max=${Math.max(0, this.end - MINIMUM_SECONDS)} step="0.01"
+        <label>${t('audio.preview.start')} <input type="number" aria-label=${t('audio.preview.selection_start')} min="0" max=${Math.max(0, this.end - MINIMUM_SECONDS)} step="0.01"
           .value=${this.start.toFixed(2)} ?disabled=${!ready} @change=${event => this._input('start', event)}> s</label>
-        <label>End <input type="number" aria-label="Selection end" min=${this.start + MINIMUM_SECONDS} max=${this.duration} step="0.01"
+        <label>${t('audio.preview.end')} <input type="number" aria-label=${t('audio.preview.selection_end')} min=${this.start + MINIMUM_SECONDS} max=${this.duration} step="0.01"
           .value=${this.end.toFixed(2)} ?disabled=${!ready} @change=${event => this._input('end', event)}> s</label>
       </div>
       </div>
-      ${this.busy ? html`<p class="audio-preview-status" role="status">Preparing selection…</p>` : ''}
+      ${this.busy ? html`<p class="audio-preview-status" role="status">${t('audio.preview.preparing')}</p>` : ''}
       ${this.error ? html`<p class="audio-preview-error" role="alert">${this.error}</p>` : ''}
     </section>`;
   }

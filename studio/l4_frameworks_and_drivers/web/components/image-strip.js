@@ -29,6 +29,7 @@ import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
 import {mediaDownloadName} from '../lib/download-name.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
+import {t} from '../lib/i18n.js';
 import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
@@ -162,11 +163,12 @@ class ImageStrip extends LitElement {
 
   frame(row) {
     const entry = row.entry;
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${'Seed ' + entry.seed} aria-label=${entry.mode + ', seed ' + entry.seed} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    const mode = entry.mode === 'edit' ? t('image.frame.mode.edit') : entry.mode === 'generate' ? t('image.frame.mode.generate') : entry.mode;
+    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
   }
 
   waiting(row) {
-    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} aria-label="Show the image in progress" @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
+    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} aria-label=${t('image.frame.pending')} @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
   }
 
   render() {
@@ -198,8 +200,8 @@ function toggle() {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'compare';
-  button.textContent = 'Compare';
-  button.title = comparing ? 'Hide the before and after slider' : 'Show the before and after slider';
+  button.textContent = t('image.compare.toggle');
+  button.title = comparing ? t('image.compare.hide') : t('image.compare.show');
   button.setAttribute('aria-pressed', String(comparing));
   button.addEventListener('click', function () {
     comparing = !comparing;
@@ -225,22 +227,22 @@ function compare(pic, entry) {
   const before = document.createElement('img');
   before.className = 'before';
   before.src = entry.before;
-  before.alt = 'The image before the edit';
+  before.alt = t('image.compare.before_alt');
   const range = document.createElement('input');
   range.type = 'range';
   range.className = 'compare-range';
   range.min = '0';
   range.max = '100';
-  range.setAttribute('aria-label', 'Compare before and after');
+  range.setAttribute('aria-label', t('image.compare.range'));
   const divider = document.createElement('div');
   divider.className = 'divider';
   divider.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-grip"/></svg>';
   const left = document.createElement('span');
   left.className = 'compare-tag left';
-  left.textContent = 'Before';
+  left.textContent = t('image.compare.before');
   const right = document.createElement('span');
   right.className = 'compare-tag right';
-  right.textContent = 'After';
+  right.textContent = t('image.compare.after');
   function split() { pic.style.setProperty('--split', range.value + '%'); }
   range.addEventListener('input', split);
   pic.append(before, range, divider, left, right);
@@ -313,7 +315,7 @@ function download(ids = null) {
     saveFile(url, mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}));
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }).catch(function (error) {
-    page.notify('error', (ids ? 'Download selected stopped: ' : 'Download all stopped: ') + error.message);
+    page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed', {message: error.message}));
   });
 }
 
@@ -349,9 +351,11 @@ function dropAll() {
 
 function clear() {
   const gallery = page.gallery();
+  const count = gallery.length;
+  const single = count === 1;
   const question = page.keeping()
-    ? 'Remove all ' + gallery.length + ' images from this browser? Every open tab clears too.'
-    : 'Remove all ' + gallery.length + ' images from this tab?';
+    ? t(single ? 'image.clear.browser_one' : 'image.clear.browser', {count})
+    : t(single ? 'image.clear.tab_one' : 'image.clear.tab', {count});
   if (!confirm(question)) return;
   const ids = gallery.map(entry => entry.id);
   dropAll();
