@@ -72,7 +72,6 @@ def main():
         assert "Instrumental" in page.locator("#music-abc-notation").inner_text()
         assert "Am" in page.locator("#music-abc-notation").inner_text()
         notation = page.get_by_role("region", name="Score preview", exact=True)
-        expect(page.locator(".music-abc-scroll-hint")).to_be_visible()
         notation.evaluate("node=>node.scrollTop=0")
         notation.hover()
         page.mouse.wheel(0, 240)

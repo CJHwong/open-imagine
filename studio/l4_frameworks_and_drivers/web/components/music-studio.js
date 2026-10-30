@@ -414,7 +414,6 @@ class MusicStudio extends HTMLElement {
           <textarea id="music-abc" rows="14" spellcheck="false" aria-labelledby="music-abc-dialog-title"></textarea>
           <div class="music-abc-sheet">
             <div class="music-abc-notation" id="music-abc-notation" role="region" aria-label="Score preview" tabindex="0"></div>
-            <p class="music-note music-abc-scroll-hint" hidden>The whole score does not fit. Click the score, then use the arrow keys.</p>
             <p class="music-abc-facts" id="music-abc-facts" hidden></p>
             <p class="music-note" id="music-abc-status" aria-live="polite"></p>
           </div>
@@ -493,7 +492,6 @@ class MusicStudio extends HTMLElement {
     this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
     this.querySelector('#music-clear-all').addEventListener('click', () => this.clearAllSongs());
     window.addEventListener('pagehide', () => this.pausePlayback());
-    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
     window.addEventListener('keydown', event => {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
@@ -801,7 +799,6 @@ class MusicStudio extends HTMLElement {
           pane.replaceChildren();
           status.textContent = 'This score could not be engraved. Check the ABC text.';
         }
-        this.updateScoreScrollHint(pane);
       } while (this.engravePending);
     } finally { this.engraving = false; }
   }
@@ -1384,10 +1381,6 @@ class MusicStudio extends HTMLElement {
     });
   }
   closeScore(focus = true) { this.closeAbcEditor(focus); }
-  updateScoreScrollHint(pane) {
-    const hint = pane.parentElement.querySelector('.music-abc-scroll-hint');
-    if (hint) hint.hidden = pane.scrollHeight <= pane.clientHeight + 1 && pane.scrollWidth <= pane.clientWidth + 1;
-  }
   scrollScore(event) {
     if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
     const pane = event.currentTarget;
