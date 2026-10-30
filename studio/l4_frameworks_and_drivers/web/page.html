@@ -17,12 +17,16 @@
 </script>
 <!-- The theme menu, after that first paint. A module is deferred, so it cannot
      hold the early read above without letting the default theme flash. -->
+<!-- The chosen locale's strings travel inline and are written by the server. The sweep at
+     the end of the body reads them, so the first paint is already translated. -->
+<script>__LOCALE__</script>
 <script type="module" src="/page/lib/form.js"></script>
 <script type="module" src="/page/components/popup-menu.js"></script>
 <script type="module" src="/page/components/stage.js"></script>
 <script type="module" src="/page/components/studio-guide.js"></script>
 <script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
+<script type="module" src="/page/lib/locale.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
 <script type="module" src="/page/components/advanced-panel.js"></script>
 <script type="module" src="/page/components/run-button.js"></script>
@@ -82,23 +86,27 @@
           <div class="menu" id="backend-menu" role="menu" hidden></div>
         </div>
       </div>
-      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
-        <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
-        <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
-        <button type="button" id="media-voice-mode" aria-pressed="false" hidden>Voice</button>
-        <button type="button" id="media-music-mode" aria-pressed="false" hidden>Music</button>
+      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace"
+        data-i18n-attr='{"aria-label":"nav.workspace"}'>
+        <button type="button" id="media-image-mode" aria-pressed="true" data-i18n="tab.image">Image</button>
+        <button type="button" id="media-video-mode" aria-pressed="false" data-i18n="tab.video">Video</button>
+        <button type="button" id="media-voice-mode" aria-pressed="false" hidden data-i18n="tab.voice">Voice</button>
+        <button type="button" id="media-music-mode" aria-pressed="false" hidden data-i18n="tab.music">Music</button>
       </nav>
       <div class="readout">
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
-          title="How to use this studio" aria-label="How to use this studio"><svg class="icon"><use href="#i-info"/></svg></button>
+          title="How to use this studio" aria-label="How to use this studio"
+          data-i18n-attr='{"title":"guide.toggle","aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="theme-menu" title="Theme and images" aria-label="Theme and images"><svg class="icon"><use href="#i-aperture"/></svg></button>
+          aria-controls="theme-menu" title="Settings" aria-label="Settings"
+          data-i18n-attr='{"title":"settings.toggle","aria-label":"settings.toggle"}'><svg class="icon"><use href="#i-aperture"/></svg></button>
           <div class="menu" id="theme-menu" role="menu" hidden></div>
         </div>
       </div>
     </header>
-    <section id="shared-operation" class="shared-operation" aria-label="Current operation" hidden>
+    <section id="shared-operation" class="shared-operation" aria-label="Current operation"
+      data-i18n-attr='{"aria-label":"page.operation.current"}' hidden>
       <span class="operation-indicator" aria-hidden="true"></span>
       <div class="operation-copy">
         <span id="shared-operation-label" role="status" aria-live="polite"></span>
@@ -107,12 +115,12 @@
       <div class="operation-metrics" aria-hidden="true">
         <span id="shared-operation-percent"></span><span id="shared-operation-elapsed"></span>
       </div>
-      <button id="shared-operation-cancel" type="button" class="pill"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span>Cancel</span></button>
+      <button id="shared-operation-cancel" type="button" class="pill"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span data-i18n="page.action.cancel">Cancel</span></button>
     </section>
     <section id="shared-rewrite-result" class="shared-operation" hidden>
-      <label for="shared-rewrite-text">Rewritten prompt</label>
+      <label for="shared-rewrite-text" data-i18n="page.rewrite.title">Rewritten prompt</label>
       <textarea id="shared-rewrite-text" readonly rows="3"></textarea>
-      <button id="shared-rewrite-use" type="button" class="pill">Use prompt</button>
+      <button id="shared-rewrite-use" type="button" class="pill" data-i18n="page.rewrite.use">Use prompt</button>
     </section>
 
     <div id="workspace-guide-host"></div>
@@ -131,8 +139,8 @@
         <span id="strip-note"></span>
         <gallery-browser id="image-gallery-browser" workspace="image"></gallery-browser>
         <span class="strip-actions">
-          <button type="button" class="text-btn" id="download-gallery">Download all</button>
-          <button type="button" class="text-btn" id="clear-gallery">Clear all</button>
+          <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll">Download all</button>
+          <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll">Clear all</button>
         </span>
       </div>
       <!-- The frames are components/image-strip.js, which draws them from the
@@ -159,26 +167,28 @@
         <fieldset id="music-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="voice-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="image-controls" class="mode-controls">
-        <div class="modes" role="radiogroup" aria-label="Image mode">
+        <div class="modes" role="radiogroup" aria-label="Image mode"
+          data-i18n-attr='{"aria-label":"page.mode.image"}'>
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
-          <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg>Generate</label>
+          <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg><span data-i18n="page.mode.generate">Generate</span></label>
           <input type="radio" name="mode" id="mode-edit" value="edit">
-          <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg>Edit</label>
+          <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg><span data-i18n="page.mode.edit">Edit</span></label>
         </div>
 
         <div class="field prompt-field">
           <div class="field-head">
-            <label for="prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
+            <label for="prompt"><span class="generate-only" data-i18n="page.prompt.label">Prompt</span><span class="edit-only" data-i18n="page.prompt.change">What to change</span></label>
             <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
-              aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+              aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg><span data-i18n="page.templates.open">Templates</span></button>
             <!-- The button carries the rewrite's three verbs, and `hidden` picks
                  one, never a rule in the cascade: a stylesheet that fails to load
                  must not leave it named "RewriteCancelStopping…". The browser
                  checks reach this button by its id `#rewrite-toggle`, so the id
                  stays on the button and never on a label. -->
             <button type="button" class="pill" id="rewrite-toggle" hidden
-              title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
+              title="Rewrite the prompt into a longer instruction before generating"
+              data-i18n-attr='{"title":"page.rewrite.hint"}'><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
             </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
@@ -190,26 +200,28 @@
              region is drawn these rows are what the prompt is. -->
         <div class="field" id="region-field" hidden>
           <div class="field-head">
-            <span class="label">What changes in each marked area</span>
+            <span class="label" data-i18n="page.region.label">What changes in each marked area</span>
           </div>
           <div class="region-rows" id="region-rows"></div>
           <p class="caption" id="region-preview"></p>
-          <p class="caption" id="region-note">The whole marked area is repainted, so keep the mark close to what changes. The change can still reach past it.</p>
+          <p class="caption" id="region-note" data-i18n="page.region.note">The whole marked area is repainted, so keep the mark close to what changes. The change can still reach past it.</p>
         </div>
 
         <div class="field">
           <div class="field-head">
-            <span class="label"><span class="generate-only">Starting image</span><span class="edit-only">Images to edit</span></span>
-            <button type="button" class="text-btn" id="clear-reference" hidden>Remove all</button>
+            <span class="label"><span class="generate-only" data-i18n="page.reference.starting">Starting image</span><span class="edit-only" data-i18n="page.reference.editing">Images to edit</span></span>
+            <button type="button" class="text-btn" id="clear-reference" hidden data-i18n="page.reference.removeAll">Remove all</button>
           </div>
           <!-- The zone is the page's: it opens the chooser for a click, a key and
                a drop. What it holds is components/reference-list.js, which draws
                the three parts from the store. -->
-          <div class="refs" id="refs" tabindex="0" role="button" aria-label="Add reference images">
+          <div class="refs" id="refs" tabindex="0" role="button" aria-label="Add reference images"
+            data-i18n-attr='{"aria-label":"page.reference.add"}'>
             <reference-list></reference-list>
           </div>
           <input id="reference" type="file" accept="image/*" hidden>
-          <button type="button" class="text-btn share-video" id="share-references-video" hidden>
+          <button type="button" class="text-btn share-video" id="share-references-video" hidden
+            data-i18n="page.reference.shareVideo">
             Share references with Video
           </button>
           <!-- What several images mean. Composed into one picture is what an edit from several
@@ -217,9 +229,9 @@
                may offer the choice, so a form that does not declare it is the form it was. -->
           <div class="seg" id="each-choice" hidden>
             <input type="radio" name="each_reference" id="each-all" value="" checked>
-            <label for="each-all">One picture from all</label>
+            <label for="each-all" data-i18n="page.each.all">One picture from all</label>
             <input type="radio" name="each_reference" id="each-each" value="1">
-            <label for="each-each">One result each</label>
+            <label for="each-each" data-i18n="page.each.each">One result each</label>
           </div>
           <p class="caption" id="each-note" hidden></p>
           <!-- What each image of a batch is asked, one row per image, written by a press
@@ -230,7 +242,7 @@
 
         <div class="field strength-field" data-param="strength">
           <div class="field-head">
-            <label for="strength">Reference strength</label>
+            <label for="strength" data-i18n="page.strength.label">Reference strength</label>
             <span class="caption num" id="strength-value"></span>
           </div>
           <input id="strength" name="strength" type="range">
@@ -239,7 +251,7 @@
 
         <div class="field" id="size-field">
           <div class="field-head">
-            <span class="label">Size</span>
+            <span class="label" data-i18n="page.size.label">Size</span>
             <size-caption class="caption num" id="size-caption"></size-caption>
           </div>
           <div data-param="size">
@@ -252,46 +264,48 @@
         </div>
 
         <details id="look">
-          <summary>Look <look-values class="values" data-form="image" id="look-values"></look-values></summary>
+          <summary><span data-i18n="page.look.open">Look</span> <look-values class="values" data-form="image" id="look-values"></look-values></summary>
           <look-rows class="look" data-form="image" id="look-rows"></look-rows>
-          <p class="look-note"><span class="generate-only">Each pick adds a sentence after your prompt.</span><span class="edit-only">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</p>
+          <p class="look-note"><span class="generate-only" data-i18n="page.look.noteGenerate">Each pick adds a sentence after your prompt.</span><span class="edit-only" data-i18n="page.look.noteEdit">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> <span data-i18n="page.look.noteRewrite">The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</span></p>
         </details>
 
         <details id="advanced">
-          <summary>Advanced <advanced-values class="values num" id="advanced-values"></advanced-values></summary>
+          <summary><span data-i18n="page.advanced.open">Advanced</span> <advanced-values class="values num" id="advanced-values"></advanced-values></summary>
           <div class="advanced">
             <div class="field" data-param="steps">
               <div class="field-head">
-                <label for="steps">Steps</label>
+                <label for="steps" data-i18n="page.advanced.steps">Steps</label>
                 <steps-value class="caption num" id="steps-value"></steps-value>
               </div>
               <input id="steps" name="steps" type="range">
             </div>
             <div class="field" data-param="guidance">
               <div class="field-head">
-                <label for="guidance">Guidance</label>
+                <label for="guidance" data-i18n="page.advanced.guidance">Guidance</label>
                 <guidance-value class="caption num" id="guidance-value"></guidance-value>
               </div>
               <input id="guidance" name="guidance" type="range">
             </div>
             <div class="field" data-param="cfg">
               <div class="field-head">
-                <label for="cfg">Guidance</label>
+                <label for="cfg" data-i18n="page.advanced.guidance">Guidance</label>
                 <cfg-value class="caption num" id="cfg-value"></cfg-value>
               </div>
               <input id="cfg" name="cfg" type="range">
-              <span class="caption">Raise guidance if the edit is ignored.</span>
+              <span class="caption" data-i18n="page.advanced.guidanceHint">Raise guidance if the edit is ignored.</span>
             </div>
             <div class="field">
               <div class="field-head">
-                <label for="seed">Seed</label>
-                <button type="button" class="text-btn" id="clear-seed" hidden>Clear</button>
+                <label for="seed" data-i18n="page.seed.label">Seed</label>
+                <button type="button" class="text-btn" id="clear-seed" hidden data-i18n="page.action.clear">Clear</button>
               </div>
-              <input id="seed" name="seed" type="text" inputmode="numeric" placeholder="Random" class="num">
+              <input id="seed" name="seed" type="text" inputmode="numeric" placeholder="Random" class="num"
+                data-i18n-attr='{"placeholder":"page.seed.random"}'>
             </div>
             <div class="field" data-param="negative">
-              <label for="negative">Negative prompt</label>
-              <input id="negative" name="negative" type="text" placeholder="Optional">
+              <label for="negative" data-i18n="page.seed.negative">Negative prompt</label>
+              <input id="negative" name="negative" type="text" placeholder="Optional"
+                data-i18n-attr='{"placeholder":"page.optional"}'>
               <span class="caption" id="negative-look" hidden></span>
               <span class="caption" id="negative-note" hidden></span>
             </div>
@@ -307,28 +321,31 @@
           <!-- What this form makes: a clip drawn from the prompt, or a clip changed by an
                adapter. The same radio group the image form draws, built from the record and
                hidden for a model that has one way of working. -->
-          <div class="modes" id="video-modes" role="radiogroup" aria-label="Video mode" hidden></div>
+          <div class="modes" id="video-modes" role="radiogroup" aria-label="Video mode"
+            data-i18n-attr='{"aria-label":"page.video.modeAria"}' hidden></div>
           <div class="field prompt-field">
             <div class="field-head">
-              <label for="video-prompt"><span class="generate-only">Prompt</span><span class="edit-only">What to change</span></label>
+              <label for="video-prompt"><span class="generate-only" data-i18n="page.prompt.label">Prompt</span><span class="edit-only" data-i18n="page.prompt.change">What to change</span></label>
               <div class="head-actions">
                 <!-- The effect an edit runs. The id says adapter because that is the file: an
                      IC-LoRA. The word on screen is effect, which is what happens to the clip. It sits here, beside the other prompt aids, so
                      its menu hangs from the prompt field the way Templates does: a menu
                      anchors to the nearest positioned ancestor, and this field is the one. -->
                 <button type="button" class="pill" id="video-adapters-toggle" aria-expanded="false"
-                  aria-controls="video-adapters" hidden><span id="video-adapter-name">Effect</span>
+                  aria-controls="video-adapters" hidden><span id="video-adapter-name" data-i18n="page.effect.label">Effect</span>
                   <svg class="icon" aria-hidden="true"><use href="#i-caret"/></svg></button>
                 <button type="button" class="pill" id="video-templates-toggle" aria-expanded="false"
-                  aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg>Templates</button>
+                  aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg><span data-i18n="page.templates.open">Templates</span></button>
                 <!-- Video uses LTX's native enhancer, independently of the Image model. -->
                 <button type="button" class="pill" id="video-rewrite-toggle" hidden
-                  title="Rewrite the prompt into a longer instruction before generating"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle">Rewrite</span><span class="rewrite-cancel" hidden>Cancel</span><span class="rewrite-stopping" hidden>Stopping&hellip;</span></button>
+                  title="Rewrite the prompt into a longer instruction before generating"
+                  data-i18n-attr='{"title":"page.rewrite.hint"}'><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
               </div>
             </div>
             <div class="menu" id="video-templates" role="menu" hidden></div>
             <div class="menu" id="video-adapters" role="menu" hidden></div>
-            <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."></textarea>
+            <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."
+              data-i18n-attr='{"placeholder":"page.video.promptPlaceholder"}'></textarea>
           </div>
           <!-- The sentence a Look pick adds to this prompt, under the box the way the image
                form draws its own. -->
@@ -339,12 +356,13 @@
           <div class="field" id="video-adapters-field" hidden>
             <p class="caption" id="video-adapter-hint"></p>
           </div>
-          <section id="video-source-panel" class="video-source-panel" aria-label="Video media">
+          <section id="video-source-panel" class="video-source-panel" aria-label="Video media"
+            data-i18n-attr='{"aria-label":"page.video.mediaPanel"}'>
             <div class="video-source-panel-head">
-              <strong>Media</strong>
+              <strong data-i18n="page.video.media">Media</strong>
               <div class="video-source-actions">
                 <button class="pill" type="button" data-action="add-media"
-                  aria-label="Add media"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add media</button>
+                  aria-label="Add media" data-i18n-attr='{"aria-label":"page.video.addMedia"}'><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="page.video.addMedia">Add media</span></button>
               </div>
             </div>
             <!-- One door for both kinds. A drop, a paste and the chooser all hand their files to
@@ -352,31 +370,35 @@
                  kind is coming. The zone takes the click and the key the way the image form's
                  zone does; the panel around it takes the drop. -->
             <div class="video-media-empty" id="video-media-empty" data-action="add-media"
-              tabindex="0" role="button" aria-label="Add image references or source clips">
+              tabindex="0" role="button" aria-label="Add image references or source clips"
+              data-i18n-attr='{"aria-label":"page.video.addMediaZone"}'>
               <svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>
               <div>
-                <strong>Add an image reference or a source clip</strong>
-                <span>Optional. Drop, paste or choose one.</span>
+                <strong data-i18n="page.video.addMediaTitle">Add an image reference or a source clip</strong>
+                <span data-i18n="page.video.addMediaHint">Optional. Drop, paste or choose one.</span>
               </div>
             </div>
-            <section class="video-source-group" id="video-source-group" aria-label="Source clips" hidden>
+            <section class="video-source-group" id="video-source-group" aria-label="Source clips"
+              data-i18n-attr='{"aria-label":"page.video.sourceClips"}' hidden>
               <div class="video-source-group-head">
-                <strong>Source clips</strong><span id="video-source-count"></span>
+                <strong data-i18n="page.video.sourceClips">Source clips</strong><span id="video-source-count"></span>
               </div>
               <div class="video-source-list" id="video-source-list"></div>
             </section>
             <!-- A track a generate run follows. One at a time: a second track is a second
                  timing, and the pipeline takes one. The run is as long as the duration
                  above, and the pipeline trims the track to it. -->
-            <section class="video-audio-tray" id="video-audio-tray" aria-label="Audio" hidden>
+            <section class="video-audio-tray" id="video-audio-tray" aria-label="Audio"
+              data-i18n-attr='{"aria-label":"page.video.audio"}' hidden>
               <div class="video-audio-head">
-                <div><strong>Audio</strong><span>Sound comes from the track. Trimmed to the set duration</span></div>
+                <div><strong data-i18n="page.video.audio">Audio</strong><span data-i18n="page.video.audioHint">Sound comes from the track. Trimmed to the set duration</span></div>
               </div>
               <div class="video-audios" id="video-audios"></div>
             </section>
-            <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references" hidden>
+            <section class="video-reference-tray" id="video-reference-tray" aria-label="Image references"
+              data-i18n-attr='{"aria-label":"page.video.imageReferences"}' hidden>
               <div class="video-reference-head">
-                <div><strong>Image references</strong><span id="video-reference-count">0 images</span></div>
+                <div><strong data-i18n="page.video.imageReferences">Image references</strong><span id="video-reference-count">0 images</span></div>
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
@@ -388,19 +410,22 @@
                  and frame count, the way an image edit matches the picture it is given. -->
             <div class="field generate-only">
               <div class="field-head">
-                <label for="video-duration">Duration</label>
+                <label for="video-duration" data-i18n="page.video.duration">Duration</label>
                 <output class="caption num" id="video-duration-value"></output>
               </div>
-              <input id="video-duration" type="range" aria-label="Video duration">
-              <div class="video-duration-presets" role="group" aria-label="Duration presets">
+              <input id="video-duration" type="range" aria-label="Video duration"
+                data-i18n-attr='{"aria-label":"page.video.durationControl"}'>
+              <div class="video-duration-presets" role="group" aria-label="Duration presets"
+                data-i18n-attr='{"aria-label":"page.video.durationPresets"}'>
               </div>
             </div>
             <div class="field generate-only">
               <div class="field-head">
-                <span class="label">Frame shape</span>
+                <span class="label" data-i18n="page.video.frameShape">Frame shape</span>
                 <span class="caption num" id="video-frame-count"></span>
               </div>
-              <div class="video-ratios" role="group" aria-label="Video frame shape">
+              <div class="video-ratios" role="group" aria-label="Video frame shape"
+                data-i18n-attr='{"aria-label":"page.video.frameShapeControl"}'>
               </div>
             </div>
             <!-- The sizes of the shape in front, lowest first. A prompt is worth testing
@@ -409,8 +434,9 @@
             <!-- An edit runs at the clip's own size, so this row is Generate's. It
                  was offered in Edit and the run ignored it. -->
             <div class="field generate-only">
-              <span class="label">Resolution</span>
-              <div class="seg" id="video-resolutions" role="group" aria-label="Video resolution">
+              <span class="label" data-i18n="page.video.resolution">Resolution</span>
+              <div class="seg" id="video-resolutions" role="group" aria-label="Video resolution"
+                data-i18n-attr='{"aria-label":"page.video.resolutionControl"}'>
               </div>
             </div>
           </div>
@@ -418,21 +444,22 @@
                Generate carries them; an edit's words are the effect's trigger, so the
                section has no rows there and the page hides it. -->
           <details id="video-look">
-            <summary>Look <look-values class="values" data-form="video" id="video-look-values"></look-values></summary>
+            <summary><span data-i18n="page.look.open">Look</span> <look-values class="values" data-form="video" id="video-look-values"></look-values></summary>
             <look-rows class="look" data-form="video" id="video-look-rows"></look-rows>
-            <p class="look-note">Each pick adds a sentence after your prompt.</p>
+            <p class="look-note" data-i18n="page.look.noteGenerate">Each pick adds a sentence after your prompt.</p>
           </details>
           <details id="video-advanced">
-            <summary>Advanced <span class="values num" id="video-seed-summary">Random seed</span></summary>
+            <summary><span data-i18n="page.advanced.open">Advanced</span> <span class="values num" id="video-seed-summary">Random seed</span></summary>
             <div class="advanced">
               <div class="field" id="video-fast-field" hidden>
-                <div class="field-head"><span>Rendering</span><button type="button" class="pill" id="video-fast-mode" aria-pressed="false" aria-describedby="video-fast-note">Fast mode</button></div>
-                <span class="caption" id="video-fast-note">Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.</span>
+                <div class="field-head"><span data-i18n="page.video.rendering">Rendering</span><button type="button" class="pill" id="video-fast-mode" aria-pressed="false" aria-describedby="video-fast-note" data-i18n="page.video.fastMode">Fast mode</button></div>
+                <span class="caption" id="video-fast-note" data-i18n="page.video.fastModeNote">Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.</span>
               </div>
               <div class="field">
-                <div class="field-head"><label for="video-seed">Seed</label></div>
-                <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random">
-                <span class="caption">Leave blank for a random seed.</span>
+                <div class="field-head"><label for="video-seed" data-i18n="page.seed.label">Seed</label></div>
+                <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random"
+                  data-i18n-attr='{"placeholder":"page.seed.random"}'>
+                <span class="caption" data-i18n="page.seed.hint">Leave blank for a random seed.</span>
               </div>
               <lora-picks class="loras" data-form="video" id="video-lora-picks"></lora-picks>
             </div>
@@ -447,7 +474,8 @@
           <span class="sub num" id="go-sub"></span>
         </button>
         <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu"
-                title="Images to make. Each one uses the next seed.">
+                title="Images to make. Each one uses the next seed."
+                data-i18n-attr='{"title":"page.count.title"}'>
           <span class="num" id="count-shown">&times;1</span><svg class="icon"><use href="#i-caret"/></svg>
         </button>
         <div class="menu up" id="count-menu" role="menu" hidden></div>
@@ -468,9 +496,132 @@
 </div>
 
 <script>
+  // Static copy carries its English text and a key. The server inlines the chosen table, so
+  // this runs before the first paint and never fetches a bundle. The helpers live here, in a
+  // classic script, because the page's own inline script needs them at parse time; the module
+  // in lib/i18n.js hands the same functions to the components.
+  window.studioI18n = (function () {
+    const strings = window.STUDIO_STRINGS || {};
+    const fallback = window.STUDIO_FALLBACK || strings;
+    const warned = new Set();
+    function locale() { return document.documentElement.dataset.locale || 'en'; }
+    function t(key, values) {
+      const text = strings[key] ?? fallback[key];
+      if (text === undefined) {
+        if (!warned.has(key)) { warned.add(key); console.warn('No string for ' + key); }
+        return key;
+      }
+      if (!values) return text;
+      return text.replace(/\{(\w+)\}/g, function (whole, name) {
+        return Object.hasOwn(values, name) ? String(values[name]) : whole;
+      });
+    }
+    // `forms` is one string, {one, other} for a language that counts, or {other} for one that
+    // does not. Intl.PluralRules knows which category a count falls in.
+    function plural(count, forms) {
+      if (typeof forms === 'string') return forms.replace('{count}', String(count));
+      const category = new Intl.PluralRules(locale()).select(count);
+      return (forms[category] ?? forms.other ?? '').replace('{count}', String(count));
+    }
+    function number(value, options) { return new Intl.NumberFormat(locale(), options).format(value); }
+    function date(value, options) { return new Intl.DateTimeFormat(locale(), options).format(value); }
+    // A label the server sends carries a stable id. The table speaks first, the server's
+    // own English is the fallback, so a new backend needs no translation to work.
+    function label(kind, id, english) {
+      const text = strings['label.' + kind + '.' + id] ?? fallback['label.' + kind + '.' + id];
+      return text === undefined ? english : text;
+    }
+    document.querySelectorAll('[data-i18n]').forEach(function (node) {
+      const text = t(node.dataset.i18n);
+      if (text !== node.dataset.i18n) node.textContent = text;
+    });
+    document.querySelectorAll('[data-i18n-attr]').forEach(function (node) {
+      let pairs;
+      try { pairs = JSON.parse(node.dataset.i18nAttr); } catch (error) { return; }
+      Object.keys(pairs).forEach(function (attribute) {
+        const text = t(pairs[attribute]);
+        if (text !== pairs[attribute]) node.setAttribute(attribute, text);
+      });
+    });
+    document.documentElement.classList.remove('locale-pending');
+    return {t: t, plural: plural, number: number, date: date, locale: locale, label: label};
+  })();
+</script>
+
+<script>
+  // The copy helpers, taken from the classic script above: `t` fills a key's values, and
+  // `plural` picks the form a count takes in the chosen language.
+  const {t, plural} = window.studioI18n;
+
   // What the backend offers. The page reads every mode, param, limit, Look,
   // template and estimate from here, and hides or disables what is missing.
   const STUDIO = __STUDIO__;
+  // The server sends its labels in English, each with the id or the name the string
+  // table keys on. Rewrite them in place before anything reads them, and again when a
+  // poll replaces a capabilities record. A key the table lacks leaves English as it is.
+  function translateServerLabels(studio) {
+    const label = window.studioI18n.label;
+    function translateTemplate(template) {
+      if (!template || typeof template.name !== 'string') return;
+      const name = template.name;
+      if (typeof template.hint === 'string') template.hint = label('template', name + '.hint', template.hint);
+      template.name = label('template', name, name);
+    }
+    function translateLook(row) {
+      if (!row || typeof row.name !== 'string') return;
+      row.name = label('look', row.name, row.name);
+      (row.options || []).forEach(function (option) {
+        if (Array.isArray(option) && typeof option[0] === 'string') option[0] = label('lookoption', option[0], option[0]);
+      });
+      (row.avoids || []).forEach(function (avoid) {
+        if (Array.isArray(avoid) && typeof avoid[0] === 'string') avoid[0] = label('lookoption', avoid[0], avoid[0]);
+      });
+    }
+    function translateMode(mode, backend) {
+      if (!mode || typeof mode.id !== 'string') return;
+      if (typeof mode.label === 'string') mode.label = label('mode', mode.id, mode.label);
+      if (typeof mode.prompt_label === 'string') mode.prompt_label = label('mode', mode.id + '.prompt', mode.prompt_label);
+      if (typeof mode.placeholder === 'string') mode.placeholder = label('mode', mode.id + '.placeholder', mode.placeholder);
+      if (typeof mode.run_label === 'string') mode.run_label = label('mode', mode.id + '.run', mode.run_label);
+      // A hint belongs to the mode and the model that wrote it: two backends can offer
+      // the same mode with different words, so the backend id joins the key.
+      if (typeof mode.prompt_hint === 'string' && backend) {
+        mode.prompt_hint = label('mode', mode.id + '.hint.' + backend, mode.prompt_hint);
+      }
+      (mode.templates || []).forEach(translateTemplate);
+      (mode.looks || []).forEach(translateLook);
+    }
+    function translateCapabilities(capabilities) {
+      if (!capabilities) return;
+      const backend = capabilities.backend_id;
+      (capabilities.modes || []).forEach(function (mode) { translateMode(mode, backend); });
+      (capabilities.templates || []).forEach(translateTemplate);
+      (capabilities.adapters || []).forEach(function (adapter) {
+        if (!adapter || typeof adapter.id !== 'string') return;
+        if (typeof adapter.label === 'string') adapter.label = label('adapter', adapter.id, adapter.label);
+        if (typeof adapter.hint === 'string') adapter.hint = label('adapter', adapter.id + '.hint', adapter.hint);
+      });
+      if (typeof capabilities.description === 'string' && typeof backend === 'string') {
+        capabilities.description = label('backend', backend, capabilities.description);
+      }
+    }
+    function translateBackends(list) {
+      (list || []).forEach(function (entry) {
+        if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[2] === 'string') {
+          entry[2] = label('backend', entry[0], entry[2]);
+        }
+      });
+    }
+    (studio.modes || []).forEach(function (mode) { translateMode(mode, studio.backend && studio.backend.id); });
+    translateCapabilities(studio.video && studio.video.capabilities);
+    translateCapabilities(studio.voice && studio.voice.capabilities);
+    translateCapabilities(studio.music && studio.music.capabilities);
+    translateBackends(studio.backends);
+    translateBackends(studio.video && studio.video.backends);
+    translateBackends(studio.voice && studio.voice.backends);
+    translateBackends(studio.music && studio.music.backends);
+  }
+  translateServerLabels(STUDIO);
   let sharedOperation = null;
   let drafts = null;
   let observedVideo = false;
@@ -622,16 +773,16 @@
   function videoRunReason() {
     const prompt = document.getElementById('video-prompt').value.trim();
     const mode = videoModeInForce();
-    if (mode.needs_clip && !(videoClip.id && !videoClip.stub)) return 'Add a clip to edit';
+    if (mode.needs_clip && !(videoClip.id && !videoClip.stub)) return t('page.video.reason.clip');
     // An edit is run by an adapter: the pipeline is the IC-LoRA one, and the controller
     // refuses an edit without one. The button said nothing about it and the run came back
     // as a server error, so the gate asks here and the second line says what it wants.
-    if (mode.needs_clip && !videoAdapterInForce()) return 'Pick an effect';
-    if (mode.min_references && (videoStudio.imageReferences || []).length < mode.min_references) return 'Add a look image from the first frame';
-    if (mode.max_references && (videoStudio.imageReferences || []).length > mode.max_references) return 'Keep one look image';
-    if (mode.reference_frame_index != null && videoStudio.imageReferences?.[0]?.frameIndex !== mode.reference_frame_index) return 'Set the look image to frame 0';
-    if (!prompt) return mode.needs_clip ? 'Describe the change' : 'Write a prompt';
-    if (/\[[^\]\n]+\]/.test(prompt)) return 'Fill in the [brackets]';
+    if (mode.needs_clip && !videoAdapterInForce()) return t('page.video.reason.effect');
+    if (mode.min_references && (videoStudio.imageReferences || []).length < mode.min_references) return t('page.video.reason.lookImage');
+    if (mode.max_references && (videoStudio.imageReferences || []).length > mode.max_references) return t('page.video.reason.oneLookImage');
+    if (mode.reference_frame_index != null && videoStudio.imageReferences?.[0]?.frameIndex !== mode.reference_frame_index) return t('page.video.reason.frameZero');
+    if (!prompt) return mode.needs_clip ? t('page.video.reason.describeChange') : t('page.video.reason.writePrompt');
+    if (/\[[^\]\n]+\]/.test(prompt)) return t('page.video.reason.brackets');
     return '';
   }
 
@@ -657,7 +808,7 @@
     button.disabled = sharedBusy() || waiting || rewriting || (videoRunState === 'idle' && !ready);
     document.getElementById('video-go-sub').textContent =
       videoRunState !== 'idle' ? ''
-        : rewriting ? 'Wait for the rewrite to finish'
+        : rewriting ? t('page.video.waitRewrite')
           : videoRunReason();
   }
 
@@ -669,7 +820,7 @@
     document.body.classList.toggle('video-busy', active);
     document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
-    if (formApi) formApi.holdPanel('Locked while the video is being made.', active);
+    if (formApi) formApi.holdPanel(t('page.lock.video'), active);
     /* The button carries the video run's verbs: it starts the run, and while one
        goes it is the way out of it. It says Cancel and not Cancel render, because
        the button already sits in the video workspace's own footer and the word
@@ -700,12 +851,13 @@
   // another tab.
   function musicDisplayName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
   function workspaceTitle() {
-    if (mediaMode === 'music') return 'Music - ' + (STUDIO.music?.backend?.name || 'YuE2');
-    if (mediaMode === 'voice') return 'Voice - ' + (STUDIO.voice?.backend?.name || 'AuK Flash');
+    if (mediaMode === 'music') return t('page.title.withModel', {workspace: t('tab.music'), name: STUDIO.music?.backend?.name || 'YuE2'});
+    if (mediaMode === 'voice') return t('page.title.withModel', {workspace: t('tab.voice'), name: STUDIO.voice?.backend?.name || 'AuK Flash'});
     const video = mediaMode === 'video';
     const family = video ? STUDIO.video : STUDIO;
     const model = family && family.backend ? family.backend.name : '';
-    return (video ? 'Video' : 'Image') + (model ? ' - ' + model : '');
+    const workspace = video ? t('tab.video') : t('tab.image');
+    return model ? t('page.title.withModel', {workspace: workspace, name: model}) : workspace;
   }
 
   function setTitle(prefix) {
@@ -778,7 +930,7 @@
       const text = await answer.text();
       if (!answer.ok || text.trim()) {
         const message = new DOMParser().parseFromString(text, 'text/html').body.textContent;
-        throw new Error(message || 'Model is busy.');
+        throw new Error(message || t('page.error.modelBusy'));
       }
       applyMediaMode(next);
       if (keeping && !sharedOperation) localStorage.setItem('studio-draft-workspace', next);
@@ -793,15 +945,15 @@
 
   async function sendVoiceToVideo(selection) {
     if (sharedOperation || musicStudio.busy || voiceStudio.busy || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
-      throw new Error('Another operation is active.');
+      throw new Error(t('page.error.operationActive'));
     }
-    if (!STUDIO.video) throw new Error('Video studio is not available.');
-    if (videoStudio.audio) throw new Error('Remove the current Video audio track first.');
+    if (!STUDIO.video) throw new Error(t('page.error.videoUnavailable'));
+    if (videoStudio.audio) throw new Error(t('page.error.removeVideoAudio'));
     const epoch = videoStudio.captureInputEpoch();
-    if (!videoStudio.canCommitInput(epoch)) throw new Error('Video studio is busy.');
+    if (!videoStudio.canCommitInput(epoch)) throw new Error(t('page.error.videoBusy'));
     chooseVideoMode('generate');
     if (!videoStudio.addAudioFile(new File([selection.blob], selection.name, {type: 'audio/wav'}), epoch)) {
-      throw new Error('The audio could not be added to Video.');
+      throw new Error(t('page.error.audioNotAdded'));
     }
     voiceStudio.pausePlayback();
     musicStudio.pausePlayback();
@@ -814,7 +966,7 @@
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();
         reader.onload = function () { resolve(reader.result); };
-        reader.onerror = function () { reject(reader.error || new Error('The image could not be read.')); };
+        reader.onerror = function () { reject(reader.error || new Error(t('page.error.imageRead'))); };
         reader.readAsDataURL(blob);
       });
     });
@@ -862,9 +1014,15 @@
     return (capabilities && capabilities.modes) || [];
   }
 
+  // The two modes the form can draw are named here, the way the image form names its own.
+  // Any other mode keeps the label its record carries, which is the model's own word.
+  function videoModeLabel(mode) {
+    return mode.id === 'generate' || mode.id === 'edit' ? t('page.mode.' + mode.id) : mode.label;
+  }
+
   function videoModeInForce() {
     const list = videoModeList();
-    if (!list.length) return {id: 'generate', label: 'Generate', hint: '', needs_clip: false};
+    if (!list.length) return {id: 'generate', label: t('page.mode.generate'), hint: '', needs_clip: false};
     const mode = list.find(function (mode) { return mode.id === videoMode; }) || list[0];
     const adapter = (videoCapabilities()?.adapters || []).find(one => one.id === videoAdapter && one.mode === mode.id);
     return adapter ? {...mode, min_references: adapter.min_references || 0, max_references: adapter.max_references || 0, reference_frame_index: adapter.reference_frame_index} : mode;
@@ -923,7 +1081,7 @@
       use.setAttribute('href', one.id === 'edit' ? '#i-brush' : '#i-sparkle');
       glyph.append(use);
       label.append(glyph);
-      label.append(document.createTextNode(one.label));
+      label.append(document.createTextNode(videoModeLabel(one)));
       box.append(input, label);
     });
     // The box says what this mode wants, in the box: the switch is the image form's, and an
@@ -934,7 +1092,7 @@
     // Edit offers video files only, one per pick, and the component refuses an image that
     // arrives anyway. Generate keeps both kinds.
     document.getElementById('video-reference-tray').hidden = mode.max_references === 0;
-    document.querySelector('#video-reference-tray strong').textContent = mode.min_references ? 'Look image' : 'Image references';
+    document.querySelector('#video-reference-tray strong').textContent = mode.min_references ? t('page.video.lookImage') : t('page.video.imageReferences');
     // The Look rows are the mode's: Generate carries them, and an edit's prompt is the
     // effect's own words, so the section has no rows there and stays away.
     document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
@@ -959,13 +1117,13 @@
     // takes the click, and no "Optional" on the one input the mode cannot run without. The
     // panel's own Add button goes, because the zone is the door.
     const mediaZone = document.getElementById('video-media-empty');
-    mediaZone.setAttribute('aria-label', mode.min_references ? 'Add a layout clip and look image' : mode.needs_clip ? 'Add the clip to edit' : 'Add image references or audio');
-    mediaZone.querySelector('strong').textContent = mode.min_references ? 'Add a layout clip and look image' : mode.needs_clip
-      ? 'Add the clip to edit' : 'Add an image reference or audio';
+    mediaZone.setAttribute('aria-label', mode.min_references ? t('page.video.addLayoutClip') : mode.needs_clip ? t('page.video.addClip') : t('page.video.addRefsOrAudio'));
+    mediaZone.querySelector('strong').textContent = mode.min_references ? t('page.video.addLayoutClip') : mode.needs_clip
+      ? t('page.video.addClip') : t('page.video.addRefOrAudio');
     mediaZone.querySelector('span').textContent = mode.needs_clip
-      ? 'Drop, paste or choose one.' : 'Optional. Drop, paste or choose one.';
+      ? t('page.video.dropPasteClip') : t('page.video.addMediaHint');
     const panelHead = document.getElementById('video-source-panel').querySelector('.video-source-panel-head strong');
-    panelHead.textContent = mode.needs_clip ? 'Clip to edit' : 'Media';
+    panelHead.textContent = mode.needs_clip ? t('page.video.clipToEdit') : t('page.video.media');
     document.querySelector('#video-source-panel [data-action="add-media"]').hidden = mode.needs_clip && !mode.max_references;
     // One clip needs no group heading: the panel's own label already says what it is.
     const groupHead = document.querySelector('#video-source-group .video-source-group-head');
@@ -982,7 +1140,7 @@
     const chosen = videoAdapterInForce();
     videoAdaptersToggle.hidden = !adapters.length;
     document.getElementById('video-adapters-field').hidden = !chosen;
-    document.getElementById('video-adapter-name').textContent = chosen ? chosen.label : 'Effect';
+    document.getElementById('video-adapter-name').textContent = chosen ? chosen.label : t('page.effect.label');
     videoAdaptersToggle.setAttribute('aria-expanded', String(videoAdaptersMenu.hidden === false));
     document.getElementById('video-adapter-hint').textContent = chosen ? chosen.hint : '';
     // The page owns Video's mode. Its Look components must redraw when the
@@ -1026,7 +1184,7 @@
     videoAdaptersMenu.replaceChildren();
     const head = document.createElement('div');
     head.className = 'menu-head';
-    head.textContent = 'Change the clip with';
+    head.textContent = t('page.video.changeClipWith');
     videoAdaptersMenu.append(head);
     videoAdapters().forEach(function (adapter) {
       const option = menus.menuItem('', adapter.label, function () { chooseVideoAdapter(adapter.id); });
@@ -1044,7 +1202,7 @@
     videoTemplatesMenu.replaceChildren();
     const head = document.createElement('div');
     head.className = 'menu-head';
-    head.textContent = 'Start from a template';
+    head.textContent = t('page.video.startFromTemplate');
     videoTemplatesMenu.append(head);
     (capabilities ? capabilities.templates : []).forEach(function (template) {
       if (!videoTemplateOffered(template)) return;
@@ -1057,7 +1215,7 @@
     });
     const foot = document.createElement('div');
     foot.className = 'menu-foot';
-    foot.textContent = 'Press Tab to jump to the next [bracket].';
+    foot.textContent = t('page.video.tabHint');
     videoTemplatesMenu.append(foot);
     menus.toggleMenu(videoTemplatesMenu);
   }
@@ -1101,13 +1259,13 @@
       chooseVideoMode('generate');
       videoStudio.addImageReference({
         id: 'image-' + entry.id,
-        name: 'Image ' + entry.seed,
+        name: t('page.seed.imageName', {seed: entry.seed}),
         src: src,
         base64: base64FromDataUrl(src),
       });
       setMediaMode('video');
     }).catch(function (error) {
-      showToast('error', 'The image did not load as a video reference: ' + error.message);
+      showToast('error', t('page.error.imageAsVideoRef', {message: error.message}));
     });
   }
 
@@ -1143,7 +1301,7 @@
     };
     reader.onerror = function () {
       if (!videoStudio.canCommitInput(event.detail.epoch)) return;
-      showToast('error', 'The video frame could not be read as an image reference.');
+      showToast('error', t('page.error.videoFrameRead'));
     };
     reader.readAsDataURL(event.detail.blob);
   });
@@ -1222,7 +1380,7 @@
       button.dataset.width = String(shape.width);
       button.dataset.height = String(shape.height);
       button.setAttribute('aria-pressed', String(rung === videoResolutionRung));
-      button.setAttribute('aria-label', 'Render at ' + shape.width + ' by ' + shape.height);
+      button.setAttribute('aria-label', t('page.video.renderAt', {width: shape.width, height: shape.height}));
       // The tier buttons the image form draws, so the rungs read as one shape's ladder and not
       // as a second row of shapes. Named by the short side, which is what separates one rung
       // from the next and what a vertical clip is named by too. 360p and 480p are not
@@ -1251,7 +1409,7 @@
     const capabilities = videoCapabilities();
     if (!capabilities || capabilities.loras_with_audio) return '';
     if (videoModeInForce().needs_clip || !videoStudio.audio) return '';
-    return 'Remove the audio track to use add-ons. This model cannot use them on a clip that follows audio.';
+    return t('page.video.loraHeld');
   }
 
   function useVideoLoras(door) {
@@ -1342,9 +1500,9 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.durationFrames = String(frames);
-      button.setAttribute('aria-label', 'Set duration to ' + seconds + ' seconds');
+      button.setAttribute('aria-label', t('page.video.setDuration', {seconds: seconds}));
       button.setAttribute('aria-pressed', String(frames === capabilities.default_frames));
-      button.textContent = seconds + ' s';
+      button.textContent = t('page.video.secondsShort', {seconds: seconds});
       presets.append(button);
     });
     syncVideoSeedSummary();
@@ -1360,21 +1518,20 @@
     const duration = frameCount / capabilities.frame_rate;
     const [width, height] = selectedVideoShape();
     const durationLabel = duration.toFixed(1);
-    document.getElementById('video-duration-value').textContent = durationLabel + ' sec';
-    document.getElementById('video-duration').setAttribute('aria-valuetext', durationLabel + ' seconds');
+    document.getElementById('video-duration-value').textContent = t('page.video.durationValue', {value: durationLabel});
+    document.getElementById('video-duration').setAttribute('aria-valuetext', t('page.video.durationAria', {value: durationLabel}));
     document.querySelectorAll('[data-duration-frames]').forEach(function (button) {
       button.setAttribute('aria-pressed', String(Number(button.dataset.durationFrames) === frameCount));
     });
     // The frame the run will use, beside the shape it belongs to, the way the image form
     // prints its own size. The seconds are not repeated here: the Duration row carries them.
     document.getElementById('video-frame-count').textContent =
-      width + ' × ' + height + ', ' + frameCount + ' frames';
+      width + ' × ' + height + ', ' + plural(frameCount, t('page.video.frames'));
     if (typeof videoStudio.setFrameLimit === 'function') {
       const movedReferences = videoStudio.setFrameLimit(frameCount);
       if (movedReferences) {
-        const noun = movedReferences === 1 ? 'image reference moved' : 'image references moved';
-        showToast('info', movedReferences + ' ' + noun + ' to frame ' + frameCount
-          + ' to fit the selected duration.');
+        showToast('info', plural(movedReferences, t('page.video.movedReferences'))
+          .replace('{frame}', String(frameCount)));
       }
     }
   }
@@ -1383,13 +1540,13 @@
     const value = document.getElementById('video-seed').value.trim();
     const capabilities = videoCapabilities();
     if (capabilities.min_seed === null || capabilities.max_seed === null) {
-      if (value) throw new Error('This video model does not support a seed.');
+      if (value) throw new Error(t('page.seed.unsupported'));
       return null;
     }
     if (!value) return null;
     const seed = Number(value);
     if (!Number.isInteger(seed) || seed < capabilities.min_seed || seed > capabilities.max_seed) {
-      throw new Error('Seed must be a whole number from ' + capabilities.min_seed + ' to ' + capabilities.max_seed + '.');
+      throw new Error(t('page.seed.range', {min: capabilities.min_seed, max: capabilities.max_seed}));
     }
     return seed;
   }
@@ -1398,12 +1555,12 @@
     const seed = document.getElementById('video-seed').value.trim();
     const capabilities = videoCapabilities();
     if (capabilities.min_seed === null || capabilities.max_seed === null) {
-      document.getElementById('video-seed-summary').textContent = 'Not supported';
+      document.getElementById('video-seed-summary').textContent = t('page.seed.notSupported');
       return;
     }
     const addOns = videoLoraPicks().length ? videoLoraDoor.summary('video') : '';
-    document.getElementById('video-seed-summary').textContent = (seed ? 'Seed ' + seed : 'Random seed')
-      + (document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true' ? ' · Fast mode' : '')
+    document.getElementById('video-seed-summary').textContent = (seed ? t('page.seed.value', {seed: seed}) : t('page.seed.randomSeed'))
+      + (document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true' ? t('page.video.fastModeSummary') : '')
       + (addOns ? ', ' + addOns : '');
   }
 
@@ -1487,7 +1644,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_id: videoRunRequestId }),
       });
-      if (!response.ok) throw new Error('The cancel request failed.');
+      if (!response.ok) throw new Error(t('page.error.cancelFailed'));
     } catch (error) {
       videoStudio.setCancelRequested(false);
       setVideoRunState('running');
@@ -1525,9 +1682,9 @@
   // The clip an edit changes, as the bytes the runner writes down. The tab holds it as an
   // object URL, so it is fetched rather than copied, and a stub has no bytes to fetch.
   async function selectedClipPayload() {
-    if (!videoClip.id) throw new Error('Add a clip or use Edit this clip.');
+    if (!videoClip.id) throw new Error(t('page.error.addClipFirst'));
     const clip = videoStudio.clips.find(function (one) { return one.id === videoClip.id; });
-    if (!clip || !clip.url) throw new Error('That clip is not in this tab any more.');
+    if (!clip || !clip.url) throw new Error(t('page.error.clipGone'));
     const blob = await (await fetch(clip.url)).blob();
     const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = '';
@@ -1577,8 +1734,8 @@
     const width = best.width * scale;
     const height = best.height * scale;
     if (width > capabilities.max_dimension || height > capabilities.max_dimension) {
-      throw new Error('This clip is too large to upscale: its doubled shape is ' + width + ' × '
-        + height + ', past the model\'s ' + capabilities.max_dimension + ' pixel limit. Use a smaller clip.');
+      throw new Error(t('page.error.clipTooLarge', {
+        width: width, height: height, limit: capabilities.max_dimension}));
     }
     return {width: width, height: height, numFrames: frames};
   }
@@ -1663,11 +1820,11 @@
         return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
       });
       if (invalidReference) {
-        throw new Error('Image reference frames must be between 0 and ' + (numFrames - 1) + '.');
+        throw new Error(t('page.error.referenceFrames', {max: numFrames - 1}));
       }
     } catch (error) {
       videoStudio.setError(error.message);
-      status.textContent = 'Video generation failed.';
+      status.textContent = t('page.error.videoFailed');
       return;
     }
     videoStudio.clearError();
@@ -1745,7 +1902,7 @@
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
         const failure = await response.json();
-        throw new Error(failure.error || 'The video request failed.');
+        throw new Error(failure.error || t('page.error.videoRequestFailed'));
       }
       if (contentType.indexOf('video/mp4') !== -1) {
         const video = await response.blob();
@@ -1754,26 +1911,26 @@
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         await videoStudio.addGeneratedClip(video, settings);
         document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
-        status.textContent = 'Video added to the gallery.';
+        status.textContent = t('page.video.statusAdded');
       } else {
         const output = await response.json();
         if (output.cancelled) {
-          status.textContent = 'Video generation cancelled.';
+          status.textContent = t('page.video.statusCancelled');
           videoStudio.clearError();
           return;
         }
-        if (!output.stub) throw new Error('The video server returned an unknown response.');
+        if (!output.stub) throw new Error(t('page.error.videoUnknown'));
         settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
         videoStudio.addStubClip(output, settings);
         document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
-        status.textContent = 'Stub response added. No video file was generated.';
+        status.textContent = t('page.video.statusStub');
       }
       setVideoPrompt('');
       videoStudio.clearImageReferences();
       videoStudio.clearAudio();
     } catch (error) {
       videoStudio.setError(error.message);
-      status.textContent = 'Video generation failed.';
+      status.textContent = t('page.error.videoFailed');
     } finally {
       if (progressTimer !== null) window.clearInterval(progressTimer);
       videoStudio.setGenerationProgress(null, 0);
@@ -1970,11 +2127,11 @@
     const wrap = document.getElementById('strip-wrap');
     wrap.hidden = mediaMode !== 'image' || (!gallery.length && !busy());
     const count = gallery.length;
-    const images = count + (count === 1 ? ' image' : ' images');
+    const images = plural(count, t('page.strip.images'));
     document.getElementById('strip-note').innerHTML = keeping
-      ? (count ? images + ', kept in this browser.' : 'Images are kept in this browser.')
-      : (count ? images + ' in this tab.<span class="wide-only"> Download the ones you want to keep.</span>'
-        : 'Images stay in this tab only.');
+      ? (count ? t('page.strip.kept', {images: images}) : t('page.strip.keptEmpty'))
+      : (count ? t('page.strip.tab', {images: images}) + '<span class="wide-only">' + t('page.strip.tabHint') + '</span>'
+        : t('page.strip.tabOnly'));
     document.getElementById('clear-gallery').hidden = !count;
     document.getElementById('download-gallery').hidden = !count;
     // The arrival is handed over here, before the stage clears it: the strip
@@ -2073,7 +2230,7 @@
     const entry = gallery.find(item => item.id === view);
     if (entry && !entry.src && entry.loadMedia) {
       if (!entry.loading) {
-        const loading = document.createElement('div'); loading.className = 'empty'; loading.setAttribute('role', 'status'); loading.textContent = 'Loading image…';
+        const loading = document.createElement('div'); loading.className = 'empty'; loading.setAttribute('role', 'status'); loading.textContent = t('page.stage.loading');
         canvas.replaceChildren(loading); stageBar.hidden = true;
       }
       try { await kept.hydrate(entry); }
@@ -2123,9 +2280,9 @@
       });
     });
     ready.then(function (b64) {
-      formApi.addReference(b64, 'Seed ' + entry.seed, entry.id);
+      formApi.addReference(b64, t('page.seed.value', {seed: entry.seed}), entry.id);
     }).catch(function (error) {
-      showToast('error', 'The image did not load as a reference: ' + error.message);
+      showToast('error', t('page.error.imageAsReference', {message: error.message}));
     });
   }
 
@@ -2209,7 +2366,7 @@
       return clip.kind === 'generated' && !clip.stub;
     });
     if (!on && (gallery.length || hasVideoResults || voiceStudio.takesCount || musicStudio.takesCount)
-      && !confirm('Stop keeping media? Saved images and videos leave this browser. Open tabs show them until a reload.')) {
+      && !confirm(t('page.keep.confirm'))) {
       return;
     }
     if (!on) {
@@ -2220,7 +2377,7 @@
     try {
       localStorage.setItem(KEEP_KEY, on ? 'on' : 'off');
     } catch (error) {
-      showToast('error', 'The keep setting applies to this tab only: ' + error.message);
+      showToast('error', t('page.error.keepTabOnly', {message: error.message}));
     }
     if (drafts) drafts.keep(on);
     if (!on) localStorage.removeItem('studio-draft-workspace');
@@ -2417,8 +2574,8 @@
         form.inert = sharedBusy();
         form.setAttribute('aria-disabled', String(sharedBusy()));
         if (formApi) {
-          formApi.holdPanel('Locked while another client runs an operation.', sharedBusy());
-          formApi.holdPanel('Locked while the image is being made.', busy());
+          formApi.holdPanel(t('page.lock.shared'), sharedBusy());
+          formApi.holdPanel(t('page.lock.image'), busy());
         }
         if (operation && operation.kind === 'video' && sharedBusy()) observedVideo = true;
         if (observedVideo && (!operation || operation.kind !== 'video')) {
@@ -2477,6 +2634,7 @@
             badge: capabilities.badge, max_batch: capabilities.max_batch};
           STUDIO.modes = capabilities.modes;
           STUDIO.backends = image.backends.map(function (one) { return [one.id, one.name, one.description]; });
+          translateServerLabels(STUDIO);
           Object.keys(MODES).forEach(function (key) { delete MODES[key]; });
           capabilities.modes.forEach(function (mode) { MODES[mode.id] = mode; });
           form.querySelector('[name="backend"]').value = image.active;
@@ -2492,6 +2650,7 @@
           STUDIO.video = {backend: {id: video.active, name: video.capabilities.name, badge: video.capabilities.badge},
             backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
             capabilities: video.capabilities, rewrite_modes: video.rewrite_modes || []};
+          translateServerLabels(STUDIO);
           syncVideoFastMode();
           syncVideoMode();
           if (drafts) drafts.restore('video');
@@ -2739,12 +2898,12 @@
     const backends = family.backends || [];
     toggle.querySelector('.name').textContent = backend.name;
     toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle';
-    toggle.title = backends.length > 1 ? 'Switch the model' : backend.name;
+    toggle.title = backends.length > 1 ? t('page.backend.switch') : backend.name;
     menu.replaceChildren();
     if (backends.length < 2 || !menus) return;
     const head = document.createElement('div');
     head.className = 'menu-head';
-    head.textContent = 'Model';
+    head.textContent = t('page.backend.model');
     menu.append(head);
     backends.forEach(function ([id, name, description]) {
       const workspace = mediaMode;
@@ -2780,9 +2939,9 @@
     if (id === family.backend.id) return;
     const endpoint = workspace === 'music' ? '/music/backend' : workspace === 'voice' ? '/voice/backend' : workspace === 'video' ? '/video/backend' : '/backend';
     const toggle = document.getElementById('backend-toggle');
-    if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', 'Wait for the run to finish, then switch.');
+    if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', t('page.backend.wait'));
     toggle.disabled = true;
-    showToast('info', 'Selecting ' + name + '. It will load when you generate.');
+    showToast('info', t('page.backend.selecting', {name: name}));
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
       .then(function (answer) { return answer.text(); })
       .then(function (text) {
@@ -2797,7 +2956,7 @@
       })
       .catch(function (error) {
         toggle.disabled = false;
-        showToast('error', 'The switch failed: ' + error.message);
+        showToast('error', t('page.backend.switchFailed', {message: error.message}));
       });
   }
 
@@ -2807,8 +2966,8 @@
     const menu = document.getElementById('theme-menu');
     const head = document.createElement('div');
     head.className = 'menu-head';
-    head.textContent = 'Images';
-    const keep = menus.menuItem('check', 'Keep in this browser', function () { setKeep(!keeping); });
+    head.textContent = t('page.keep.images');
+    const keep = menus.menuItem('check', t('page.keep.label'), function () { setKeep(!keeping); });
     keep.setAttribute('role', 'menuitemcheckbox');
     keep.id = 'keep-toggle';
     menu.append(head, keep);
@@ -2817,8 +2976,8 @@
     // belongs in the menu a reader opens to look something up.
     const apiHead = document.createElement('div');
     apiHead.className = 'menu-head';
-    apiHead.textContent = 'API';
-    const spec = menus.menuItem('', 'OpenAPI spec', function () {
+    apiHead.textContent = t('page.api.label');
+    const spec = menus.menuItem('', t('page.api.spec'), function () {
       window.open('/api/docs', '_blank', 'noreferrer');
     });
     spec.id = 'api-spec';

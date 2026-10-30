@@ -73,8 +73,11 @@ with sync_playwright() as playwright:
       if (component.isConnected) throw new Error('Gallery component cannot detach normally');
     }""")
     page.locator("#advanced summary").click()
-    page.locator("#steps").fill("4")
-    page.locator("#steps").dispatch_event("input")
+    # The default image backend pins steps to its schedule (qwen21_turbo), so the field's own
+    # maximum is the only accepted value under the all-backends stub.
+    page.locator("#steps").evaluate(
+        "input => { input.value = input.max || '4'; input.dispatchEvent(new Event('input', {bubbles: true})); }"
+    )
     page.locator("#advanced summary").click()
     page.locator("#prompt").fill("A blue paper kite above a quiet field")
     page.locator("#count-toggle").click()

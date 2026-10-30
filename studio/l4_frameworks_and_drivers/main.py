@@ -103,6 +103,7 @@ from studio.l3_interface_adapters.gateways.video.ltx_runtime.runner import MlxVi
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx_pack_capabilities
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
+from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
@@ -724,7 +725,7 @@ def assemble_studio(
         release_model=ReleaseModelUseCase(engine_lock, residency),
         plan=PlanImageUseCase(catalog),
     )
-    presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"))
+    presenter = HtmlPresenter(PAGE.read_text(encoding="utf-8"), LocaleCatalog(PAGE.parent / "i18n"))
     # The JSON API rides on the same controllers: one route map, two transports.
     voice_controller = None
     if voice_catalog is not None:

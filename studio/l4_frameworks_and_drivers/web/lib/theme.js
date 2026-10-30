@@ -14,10 +14,12 @@
 
 import { get, set, subscribe } from './state.js';
 import { menuItem, toggleMenu } from '../components/popup-menu.js';
+import { t } from './i18n.js';
 
-const THEMES = [['', 'Darkroom'], ['leica', 'Leica M'], ['kodak', 'Kodak Instamatic'],
-  ['polaroid', 'Polaroid SX-70'], ['blueprint', 'Blueprint'], ['cel', 'Cel Studio'],
-  ['broadcast', 'Broadcast'], ['risograph', 'Risograph']];
+const THEMES = [['', 'theme.name.darkroom'], ['leica', 'theme.name.leica'],
+  ['kodak', 'theme.name.kodak'], ['polaroid', 'theme.name.polaroid'],
+  ['blueprint', 'theme.name.blueprint'], ['cel', 'theme.name.cel'],
+  ['broadcast', 'theme.name.broadcast'], ['risograph', 'theme.name.risograph']];
 
 function savedTheme() {
   return document.documentElement.dataset.theme || '';
@@ -31,7 +33,7 @@ function paintTheme(id) {
   try {
     localStorage.setItem('studio-theme', id);
   } catch (error) {
-    showToast('info', 'The theme applies to this tab only: ' + error.message);
+    showToast('info', t('theme.toast.localOnly', {message: error.message}));
   }
 }
 
@@ -48,10 +50,10 @@ function mountMenu() {
   const section = document.createDocumentFragment();
   const head = document.createElement('div');
   head.className = 'menu-head';
-  head.textContent = 'Theme';
+  head.textContent = t('theme.menu.head');
   section.append(head);
-  THEMES.forEach(function ([id, name]) {
-    const item = menuItem('check', name, function () { set('theme', id); });
+  THEMES.forEach(function ([id, nameKey]) {
+    const item = menuItem('check', t(nameKey), function () { set('theme', id); });
     item.setAttribute('role', 'menuitemradio');
     item.dataset.theme = id;
     section.append(item);

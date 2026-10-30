@@ -45,7 +45,8 @@ with sync_playwright() as playwright:
     page = context.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(URL)
-    expect(page.locator("#theme-menu [role=menuitemradio]")).to_have_count(8)
+    # The settings menu also carries the language entries; the themes carry data-theme.
+    expect(page.locator("#theme-menu [role=menuitemradio][data-theme]")).to_have_count(8)
     # Populate real components through the stub, so media styles are checked too.
     page.locator("#prompt").fill("A red pear on a wooden table.")
     page.locator("#go").click()

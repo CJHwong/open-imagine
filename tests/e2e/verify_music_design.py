@@ -83,9 +83,8 @@ with sync_playwright() as tool:
     )
     check("the reference field is offered in Generate", page.locator(".music-reference-fields").is_visible())
     check(
-        "the reference field explains both outputs",
-        page.locator(".music-reference-fields > .caption").inner_text()
-        == "Optional. With Generate it makes a cover; with Compose it makes a transcription.",
+        "the reference field names what Generate does with a recording",
+        page.locator("#music-reference-note").inner_text() == "Optional. Generate makes a cover.",
     )
     check(
         "the reference zone reads its lines from the left",

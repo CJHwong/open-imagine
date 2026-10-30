@@ -17,6 +17,8 @@
 // The canvas belongs to the print, which the stage draws, so the module asks the
 // page to draw the stage again when arming the brush changes what is on it.
 
+import {t} from '../lib/i18n.js';
+
 // The page's helpers, on `region-mark-ready`.
 let page = null;
 
@@ -37,6 +39,26 @@ const MARK_COLOURS = [
 const MARK_WIDTHS = [
   { divisor: 60, label: 'thin' }, { divisor: 20, label: 'medium' }, { divisor: 8, label: 'broad' },
 ];
+// The brush widths and the colours a person reads. The prompt keeps the English colour
+// names, because `markName` writes them into the sentence the model gets.
+const WIDTH_KEYS = {
+  thin: 'image.region.width.thin', medium: 'image.region.width.medium', broad: 'image.region.width.broad',
+};
+const COLOUR_KEYS = {
+  orange: 'image.region.colour.orange', red: 'image.region.colour.red',
+  green: 'image.region.colour.green', blue: 'image.region.colour.blue',
+};
+
+function widthLabel(label) {
+  return t(WIDTH_KEYS[label] || label);
+}
+
+// The rows and swatches carry the mark's colour as its hex; the words a person reads come
+// from the palette's own name for it. Either form finds its label.
+function colourLabel(colour) {
+  const name = (MARK_COLOURS.find(function (pair) { return pair[0] === colour; }) || [])[1] || colour;
+  return t(COLOUR_KEYS[name] || name);
+}
 // What the user types for each marked colour. Each row becomes a clause the page
 // writes, so the examples below show the shape of an instruction, nothing else.
 const REGION_EXAMPLES = [
@@ -176,10 +198,9 @@ function syncMarkToggle() {
   clear.disabled = empty;
   const size = document.getElementById('mark-size');
   if (size) {
-    const label = MARK_WIDTHS[markWidth].label;
-    size.setAttribute('aria-label', 'Brush width: ' + label);
-    size.title = 'Brush width: ' + label + ', about ' + brushWidth() + ' px. '
-      + 'The whole marked area is repainted, so a thin brush marks less of the picture.';
+    const label = widthLabel(MARK_WIDTHS[markWidth].label);
+    size.setAttribute('aria-label', t('image.region.width_label', {width: label}));
+    size.title = t('image.region.width_title', {width: label, pixels: brushWidth()});
   }
 }
 
@@ -188,7 +209,7 @@ function syncMarkToggle() {
 function regionTools(host) {
   const bar = document.createElement('div');
   bar.className = 'region-tools';
-  const undo = page.iconButton('undo', 'Take back the last mark', function () {
+  const undo = page.iconButton('undo', t('image.region.undo'), function () {
     if (!marks) return;
     marks.strokes.pop();
     paintMarks();
@@ -196,13 +217,13 @@ function regionTools(host) {
     page.refresh();
   });
   undo.id = 'mark-undo';
-  undo.title = 'Take back the last mark.';
-  const clear = page.iconButton('trash', 'Clear every mark', clearMarks);
+  undo.title = t('image.region.undo_title');
+  const clear = page.iconButton('trash', t('image.region.clear'), clearMarks);
   clear.id = 'mark-clear';
-  clear.title = 'Remove every mark.';
+  clear.title = t('image.region.clear_title');
   // One button cycling the three widths, so the bar keeps its shape. The next stroke
   // takes the new width and the strokes already drawn keep theirs.
-  const size = page.iconButton('brush', 'Brush width', function () {
+  const size = page.iconButton('brush', t('image.region.width'), function () {
     markWidth = (markWidth + 1) % MARK_WIDTHS.length;
     syncMarkToggle();
     page.refresh();
@@ -214,9 +235,9 @@ function regionTools(host) {
     swatch.type = 'button';
     swatch.className = 'swatch';
     swatch.style.background = pair[0] || 'var(--marker)';
-    swatch.setAttribute('aria-label', 'Mark in ' + pair[1]);
+    swatch.setAttribute('aria-label', t('image.region.swatch', {colour: colourLabel(pair[1])}));
     swatch.setAttribute('aria-pressed', String(markColour === pair[0]));
-    swatch.title = 'Mark in ' + pair[1] + '. A region per colour: the prompt names the ' + pair[1] + ' area.';
+    swatch.title = t('image.region.swatch_title', {colour: colourLabel(pair[1])});
     swatch.addEventListener('click', function () {
       markColour = pair[0];
       page.refresh();
@@ -257,8 +278,8 @@ function regionRow(colour) {
   // A whole instruction, because the page writes a sentence around the row, and
   // a generic one drawn at random, so the example never describes the picture the
   // person is working on.
-  input.placeholder = 'For example: ' + REGION_EXAMPLES[Math.floor(Math.random() * REGION_EXAMPLES.length)];
-  input.setAttribute('aria-label', 'What changes in the ' + markName(colour) + ' area?');
+  input.placeholder = t('image.region.example', {example: REGION_EXAMPLES[Math.floor(Math.random() * REGION_EXAMPLES.length)]});
+  input.setAttribute('aria-label', t('image.region.question', {colour: colourLabel(colour)}));
   input.addEventListener('input', function () {
     regionText[colour] = input.value;
     growRow(input);
@@ -271,7 +292,8 @@ function regionRow(colour) {
 // The field a colour's row shows, when it is on screen. The rows are drawn only while the
 // brush is armed, so a colour with no row has nothing to write into.
 function rowInput(colour) {
-  return document.querySelector('#region-rows [aria-label="What changes in the ' + markName(colour) + ' area?"]');
+  const label = t('image.region.question', {colour: colourLabel(colour)});
+  return document.querySelector('#region-rows [aria-label="' + label + '"]');
 }
 
 function renderRegionRows() {
@@ -296,7 +318,7 @@ function mountMarkCanvas(pic, reference) {
   canvas.className = 'region-mark';
   canvas.width = reference.width || 1024;
   canvas.height = reference.height || 1024;
-  canvas.setAttribute('aria-label', 'Mark the area to change');
+  canvas.setAttribute('aria-label', t('image.region.canvas'));
   canvas.addEventListener('pointerdown', markDown);
   canvas.addEventListener('pointermove', markMove);
   canvas.addEventListener('pointerup', markUp);

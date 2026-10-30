@@ -7,6 +7,7 @@ import './gallery-media.js';
 import './gallery-window.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
+import {t, plural} from '../lib/i18n.js';
 
 let nextClipId = 1;
 
@@ -22,7 +23,7 @@ function readDataUrl(file) {
   return new Promise(function (resolve, reject) {
     const reader = new FileReader();
     reader.onload = function () { resolve(reader.result); };
-    reader.onerror = function () { reject(reader.error || new Error('The image could not be read.')); };
+    reader.onerror = function () { reject(reader.error || new Error(t('video.error.imageRead'))); };
     reader.readAsDataURL(file);
   });
 }
@@ -54,7 +55,7 @@ function videoMetadata(settings, result = {}) {
   return {
     operationId: settings.operationId || '',
     backend: settings.backend || '',
-    modelName: settings.modelName || 'Video',
+    modelName: settings.modelName || t('video.monitor.video'),
     precision: settings.precision || '',
     fastMode: Boolean(settings.fastMode ?? settings.fast_mode),
     mode: settings.mode || 'generate',
@@ -87,7 +88,7 @@ async function createVideoThumbnail(sourceUrl) {
   const frameReady = new Promise(function (resolve, reject) {
     video.addEventListener('loadeddata', resolve, { once: true });
     video.addEventListener('error', function () {
-      reject(new Error('The video could not be decoded for its thumbnail.'));
+      reject(new Error(t('video.error.videoDecode')));
     }, { once: true });
   });
   let timeoutId;
@@ -96,12 +97,12 @@ async function createVideoThumbnail(sourceUrl) {
   try {
     const timeout = new Promise(function (resolve, reject) {
       timeoutId = window.setTimeout(function () {
-        reject(new Error('The video thumbnail took too long to load.'));
+        reject(new Error(t('video.error.thumbnailTimeout')));
       }, 10000);
     });
     await Promise.race([frameReady, timeout]);
     if (!video.videoWidth || !video.videoHeight) {
-      throw new Error('The video has no frame for its thumbnail.');
+      throw new Error(t('video.error.thumbnailNoFrame'));
     }
     await seekThumbnailFrame(video);
     const scale = Math.min(1, 240 / video.videoWidth, 320 / video.videoHeight);
@@ -109,12 +110,12 @@ async function createVideoThumbnail(sourceUrl) {
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('The video thumbnail canvas is unavailable.');
+    if (!context) throw new Error(t('video.error.thumbnailCanvas'));
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const thumbnail = await new Promise(function (resolve, reject) {
       canvas.toBlob(function (blob) {
         if (blob) resolve(blob);
-        else reject(new Error('The video thumbnail could not be saved.'));
+        else reject(new Error(t('video.error.thumbnailSave')));
       }, 'image/jpeg', 0.78);
     });
     return thumbnail;
@@ -236,7 +237,7 @@ class VideoStudio extends LitElement {
   outputWidth = 16;
   outputHeight = 9;
   outputFrameRate = 24;
-  outputModelName = 'Video';
+  outputModelName = t('video.monitor.video');
   previewResizeObserver = null;
   outputPromptResizeObserver = new ResizeObserver((observations) => {
     observations.forEach((observation) => this.markOutputPrompt(observation.target));
@@ -508,13 +509,13 @@ class VideoStudio extends LitElement {
     // The same frame twice adds nothing, and a capture names its frame by clip and time, so a
     // repeated name is the same frame.
     if (this.imageReferences.some(function (saved) { return saved.name === reference.name; })) {
-      this.setError('That frame is already a reference.');
+      this.setError(t('video.reference.duplicate'));
       return;
     }
     if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
       this.setError(this.maxReferences === 0
-        ? 'This mode takes no image references.'
-        : 'This video model accepts at most ' + this.maxReferences + ' image references.');
+        ? t('video.reference.none')
+        : plural(this.maxReferences, t('video.reference.max')));
       return;
     }
     this.clearError();
@@ -551,18 +552,18 @@ class VideoStudio extends LitElement {
     if (!this.canCommitInput(epoch)) return false;
     // The track is a generate input: an edit's whole input is the clip it was handed.
     if (this.needsClip) {
-      this.setError('An edit changes a clip. Audio is a Generate input.');
+      this.setError(t('video.audio.editInput'));
       return false;
     }
     // The same track twice is the same refusal, named by the file's own identity: a name
     // alone would refuse two different tracks that happen to share one.
     if (this.audio && this.audio.name === file.name && this.audio.size === file.size) {
-      this.setError('That track is already here.');
+      this.setError(t('video.audio.duplicate'));
       return false;
     }
     // One track is one timing, and a second would have to fight the first for it.
     if (this.audio) {
-      this.setError('One audio track at a time. Remove the current track first.');
+      this.setError(t('video.audio.oneAtATimeRemove'));
       return false;
     }
     this.audio = { name: file.name, size: file.size, file: file };
@@ -606,7 +607,7 @@ class VideoStudio extends LitElement {
     remove.type = 'button';
     remove.className = 'video-audio-remove';
     remove.dataset.action = 'remove-audio';
-    remove.setAttribute('aria-label', 'Remove audio ' + this.audio.name);
+    remove.setAttribute('aria-label', t('video.audio.remove', {name: this.audio.name}));
     remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
     picture.append(badge, remove);
     const name = document.createElement('span');
@@ -670,8 +671,7 @@ class VideoStudio extends LitElement {
     const list = document.getElementById('video-references');
     const count = document.getElementById('video-reference-count');
     if (!list || !count) return;
-    count.textContent = this.imageReferences.length
-      + (this.imageReferences.length === 1 ? ' image' : ' images');
+    count.textContent = plural(this.imageReferences.length, t('video.reference.count'));
     list.replaceChildren();
     if (!this.imageReferences.length) {
       this.renderMediaEmptyState();
@@ -690,7 +690,7 @@ class VideoStudio extends LitElement {
       select.className = 'video-reference-select';
       select.dataset.action = 'select-reference';
       select.dataset.referenceId = reference.id;
-      select.setAttribute('aria-label', 'Select reference ' + reference.name);
+      select.setAttribute('aria-label', t('video.reference.select', {name: reference.name}));
       select.setAttribute('aria-pressed', String(reference.id === this.selectedReferenceId));
       select.append(image);
       const remove = document.createElement('button');
@@ -698,7 +698,7 @@ class VideoStudio extends LitElement {
       remove.type = 'button';
       remove.dataset.action = 'remove-reference';
       remove.dataset.referenceId = reference.id;
-      remove.setAttribute('aria-label', 'Remove video reference ' + reference.name);
+      remove.setAttribute('aria-label', t('video.reference.remove', {name: reference.name}));
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
       // The print and its remove travel together, so the circle sits on the picture's own
       // corner however the row is padded.
@@ -722,7 +722,7 @@ class VideoStudio extends LitElement {
     if (!list || !count) return;
     // An explicit edit target can be an upload or a generated clip from the gallery.
     const sources = this.shownClips();
-    count.textContent = sources.length + (sources.length === 1 ? ' clip' : ' clips');
+    count.textContent = plural(sources.length, t('video.source.count'));
     list.replaceChildren();
     if (!sources.length) {
       this.renderMediaEmptyState();
@@ -739,7 +739,7 @@ class VideoStudio extends LitElement {
       select.className = 'video-source';
       select.dataset.action = 'select-clip';
       select.dataset.clipId = clip.id;
-      select.setAttribute('aria-label', 'Select source video ' + clip.name);
+      select.setAttribute('aria-label', t('video.source.select', {name: clip.name}));
       select.setAttribute('aria-pressed', String(clip.id === this.selectedClipId));
       const thumbnail = document.createElement('span');
       thumbnail.className = 'video-source-thumb';
@@ -749,14 +749,14 @@ class VideoStudio extends LitElement {
         picture.alt = '';
         thumbnail.append(picture);
       } else {
-        thumbnail.textContent = 'VIDEO';
+        thumbnail.textContent = t('video.mark.video');
       }
       const name = document.createElement('span');
       name.className = 'video-source-name';
       name.textContent = clip.name;
       const duration = document.createElement('span');
       duration.className = 'video-source-duration';
-      duration.textContent = clip.duration ? formatTime(clip.duration) : 'Loading';
+      duration.textContent = clip.duration ? formatTime(clip.duration) : t('video.source.loading');
       const picture = document.createElement('span');
       picture.className = 'video-source-picture';
       picture.append(thumbnail);
@@ -766,7 +766,7 @@ class VideoStudio extends LitElement {
       remove.className = 'video-source-remove';
       remove.dataset.action = 'clear-edit-target';
       remove.dataset.clipId = clip.id;
-      remove.setAttribute('aria-label', 'Remove source video ' + clip.name);
+      remove.setAttribute('aria-label', t('video.source.remove', {name: clip.name}));
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
       item.append(select, remove);
       list.append(item);
@@ -973,13 +973,13 @@ class VideoStudio extends LitElement {
     if (!prompt || !prompt.hasAttribute('role') || this.promptSheet) return;
     const list = document.createElement('dl');
     const label = document.createElement('dt');
-    label.textContent = 'Prompt';
+    label.textContent = t('video.sheet.prompt');
     const fullPrompt = document.createElement('dd');
     fullPrompt.textContent = prompt.textContent;
     list.append(label, fullPrompt);
     this.promptSheet = openSheet({
       id: 'video-prompt-sheet',
-      title: 'The whole prompt',
+      title: t('video.sheet.title'),
       body: list,
       onClose: () => {
         const quiet = this.promptQuiet;
@@ -1035,7 +1035,7 @@ class VideoStudio extends LitElement {
       if (document.fullscreenElement === this) await document.exitFullscreen();
       else await this.requestFullscreen();
     } catch (error) {
-      this.setError('Full screen failed: ' + error.message);
+      this.setError(t('video.error.fullscreen', {error: error.message}));
     }
   }
 
@@ -1083,7 +1083,7 @@ class VideoStudio extends LitElement {
     // An edit changes one clip. A second one would sit in a list the mode does not use as a
     // list, so it is refused with the way out named: the row's own remove button.
     if (!this.needsClip) {
-      this.setError('Generate takes images and audio. Add a clip in Edit to change one.');
+      this.setError(t('video.media.generateImages'));
       return false;
     }
     const chosen = Array.from(files).filter(isVideoFile);
@@ -1092,25 +1092,25 @@ class VideoStudio extends LitElement {
     const duplicate = chosen.find((file) => this.clips.some((clip) =>
       clip.kind === 'source' && clip.name === file.name && clip.size === file.size));
     if (duplicate) {
-      this.setError('That clip is already here.');
+      this.setError(t('video.media.clipDuplicate'));
       return false;
     }
     // An edit changes one clip. Generate may hold several, because a source clip is also how a
     // frame is picked there.
     if (this.needsClip) {
       if (this.editTargetId) {
-        this.setError('An edit uses one clip. Remove the current clip first.');
+        this.setError(t('video.media.editOneRemove'));
         return false;
       }
       if (chosen.length > 1) {
-        this.setError('An edit uses one clip. Choose one video.');
+        this.setError(t('video.media.editOneChoose'));
         return false;
       }
     }
     const videos = chosen;
     const hasUnsupported = videos.length !== files.length;
     if (!videos.length) {
-      this.setError('Choose a video file.');
+      this.setError(t('video.media.chooseVideo'));
       return;
     }
     videos.forEach((file, index) => {
@@ -1129,7 +1129,7 @@ class VideoStudio extends LitElement {
       this.clips = this.clips.concat(clip);
       if (index === 0) this.selectedClipId = clip.id;
     });
-    if (hasUnsupported) this.setError('Choose a video file.');
+    if (hasUnsupported) this.setError(t('video.media.chooseVideo'));
     else this.clearError();
     // An upload is a choice, so it becomes the edit's target too. Without this the form
     // stayed dead until the row was clicked, which read as a clip that had not landed.
@@ -1145,7 +1145,7 @@ class VideoStudio extends LitElement {
     for (const file of files) {
       if (!this.canCommitInput(epoch)) return;
       if (!isImageFile(file)) {
-        this.setError('Choose an image file.');
+        this.setError(t('video.media.chooseImage'));
         continue;
       }
       try {
@@ -1159,7 +1159,7 @@ class VideoStudio extends LitElement {
         });
       } catch (error) {
         if (!this.canCommitInput(epoch)) return;
-        this.setError('The image could not be added: ' + error.message);
+        this.setError(t('video.error.imageAdd', {error: error.message}));
       }
     }
   }
@@ -1170,7 +1170,7 @@ class VideoStudio extends LitElement {
     // a drop and a paste: an image is not an edit input, and taking none of the batch is the
     // honest answer when one arrives beside a clip.
     if (this.needsClip && Array.from(files).some((file) => (isImageFile(file) && !this.maxReferences) || isAudioFile(file))) {
-      this.setError('An edit changes a clip. Choose a video file.');
+      this.setError(t('video.media.editChooseVideo'));
       return;
     }
     const images = Array.from(files).filter(isImageFile);
@@ -1183,11 +1183,11 @@ class VideoStudio extends LitElement {
     // A refused intake keeps its own message: clearing it here made the refusal silent.
     if (videos.length && !this.addVideoFiles(videos, epoch)) return;
     if (audios.length > 1) {
-      this.setError('One audio track at a time.');
+      this.setError(t('video.audio.oneAtATime'));
       return;
     }
     if (audios.length && !this.addAudioFile(audios[0], epoch)) return;
-    if (unsupported.length) this.setError('Choose an image, a video or an audio file.');
+    if (unsupported.length) this.setError(t('video.media.chooseAny'));
     else if (images.length || videos.length || audios.length) this.clearError();
   }
 
@@ -1222,7 +1222,7 @@ class VideoStudio extends LitElement {
     const epoch = this.captureInputEpoch();
     if (!this.canCommitInput(epoch)) return;
     if (!navigator.clipboard || typeof navigator.clipboard.read !== 'function') {
-      this.setError('Clipboard file access is unavailable. Use Paste or choose a file.');
+      this.setError(t('video.media.clipboardUnavailable'));
       return;
     }
     try {
@@ -1239,13 +1239,13 @@ class VideoStudio extends LitElement {
         files.push(new File([blob], name, {type: mediaType}));
       }
       if (!files.length) {
-        this.setError('The clipboard has no image or video file. Copy media, then paste again.');
+        this.setError(t('video.media.clipboardEmpty'));
         return;
       }
       await this.addMediaFiles(files, epoch);
     } catch (error) {
       if (!this.canCommitInput(epoch)) return;
-      this.setError('The clipboard media could not be read: ' + error.message);
+      this.setError(t('video.error.clipboardRead', {error: error.message}));
     }
   }
 
@@ -1288,8 +1288,9 @@ class VideoStudio extends LitElement {
     return html`
       <div class="video-tv-frame" data-media-ratio=${mediaRatio}>
         <div class="video-tv-screen">${content}</div>
-        <div class="video-tv-edge" role="group" aria-label=${modelName + ', video ' + serial
-          + (elapsed ? ', ' + elapsed : '')}>
+        <div class="video-tv-edge" role="group" aria-label=${elapsed
+          ? t('video.monitor.labelWithTime', {model: modelName, serial, elapsed})
+          : t('video.monitor.label', {model: modelName, serial})}>
           <span class="video-tv-model">${modelName}</span>
           <span class="video-tv-readout">
             ${elapsed ? html`<span class="video-tv-elapsed">${elapsed}</span>` : nothing}
@@ -1344,7 +1345,7 @@ class VideoStudio extends LitElement {
     if (!clip || clip.stub || clip.url) return clip;
     if (!clip.mediaLoading) clip.mediaLoading = (async () => {
       const record = await clip.loadMedia?.();
-      if (!record?.mp4) throw new Error('This video is no longer saved.');
+      if (!record?.mp4) throw new Error(t('video.error.videoGone'));
       if (!this.clips.includes(clip)) return clip;
       clip.mp4Blob = record.mp4; clip.url = URL.createObjectURL(record.mp4); clip.objectUrl = true;
       clip.mediaUsed = performance.now(); this.trimClipMedia();
@@ -1429,7 +1430,7 @@ class VideoStudio extends LitElement {
       try { await video.play(); }
       catch (error) {
         if (error.name !== 'AbortError' && video.isConnected && video === this.querySelector('#video-preview-root video')) {
-          this.setError('Playback failed: ' + error.message);
+          this.setError(t('video.error.playback', {error: error.message}));
         }
       }
     }
@@ -1483,7 +1484,8 @@ class VideoStudio extends LitElement {
       saveFile(metadataUrl, mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}));
       setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000);
     } catch (error) {
-      this.setError((ids ? 'Download selected stopped: ' : 'Download all stopped: ') + error.message);
+      this.setError(t(ids ? 'video.gallery.downloadSelectedStopped' : 'video.gallery.downloadAllStopped',
+        {error: error.message}));
     }
   }
 
@@ -1493,8 +1495,7 @@ class VideoStudio extends LitElement {
     if (!outputs.length) return;
     // One press next to Download all must not wipe the session. The image strip
     // asks the same question before it clears.
-    const noun = outputs.length === 1 ? 'clip' : 'clips';
-    if (persist && !confirm(`Remove ${outputs.length} ${noun} from this browser?`)) return;
+    if (persist && !confirm(plural(outputs.length, t('video.gallery.clearConfirm')))) return;
     if (persist && this.galleryStore) {
       const cleared = await this.galleryStore.clearVideos(outputs.map(clip => clip.id));
       if (!cleared) return;
@@ -1558,7 +1559,7 @@ class VideoStudio extends LitElement {
     const video = this.querySelector('#video-preview');
     const clip = this.selectedClip();
     if (!video || !clip || video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-      this.setError('Wait for the video frame to load, then try again.');
+      this.setError(t('video.error.waitForFrame'));
       return;
     }
     try {
@@ -1570,7 +1571,7 @@ class VideoStudio extends LitElement {
       const blob = await new Promise(function (resolve, reject) {
         canvas.toBlob(function (image) {
           if (image) resolve(image);
-          else reject(new Error('The frame could not be captured.'));
+          else reject(new Error(t('video.error.frameCapturePlain')));
         }, 'image/png');
       });
       if (!this.canCommitInput(epoch)) return;
@@ -1590,7 +1591,7 @@ class VideoStudio extends LitElement {
       this.clearError();
     } catch (error) {
       if (!this.canCommitInput(epoch)) return;
-      this.setError('The frame could not be captured: ' + error.message);
+      this.setError(t('video.error.frameCapture', {error: error.message}));
     }
   }
 
@@ -1625,41 +1626,41 @@ class VideoStudio extends LitElement {
       ? metadata.numFrames / metadata.frameRate : Number(clip?.duration) || 0;
     const seed = Number.isInteger(metadata?.seed) ? metadata.seed : null;
     const timeLabel = pending ? ''
-      : clip.stub ? 'Request time ' + formatTime(metadata.elapsedSeconds)
-        : metadata ? 'Took ' + formatTime(metadata.elapsedSeconds) : '';
+      : clip.stub ? t('video.output.requestTime', {time: formatTime(metadata.elapsedSeconds)})
+        : metadata ? t('video.output.took', {time: formatTime(metadata.elapsedSeconds)}) : '';
     const preview = this.querySelector('#video-preview');
     const facts = [];
     if (metadata) {
-      if (duration) facts.push(duration.toFixed(1) + ' sec');
+      if (duration) facts.push(t('video.output.seconds', {seconds: duration.toFixed(1)}));
       if (metadata.width && metadata.height) facts.push(metadata.width + ' × ' + metadata.height);
-      if (metadata.numFrames) facts.push(metadata.numFrames + ' frames');
-      if (metadata.fastMode) facts.push('Fast mode');
-      if (metadata.loras) facts.push('Add-ons ' + metadata.loras);
-      facts.push(seed === null ? 'Random seed' : 'Seed ' + seed);
+      if (metadata.numFrames) facts.push(plural(metadata.numFrames, t('video.output.frames')));
+      if (metadata.fastMode) facts.push(t('video.output.fastMode'));
+      if (metadata.loras) facts.push(t('video.output.addons', {loras: metadata.loras}));
+      facts.push(seed === null ? t('video.output.randomSeed') : t('video.output.seed', {seed}));
       if (timeLabel) facts.push(timeLabel);
       if (references.length) {
-        facts.push(references.length + (references.length === 1 ? ' image reference' : ' image references'));
+        facts.push(plural(references.length, t('video.output.imageReferences')));
       }
     } else {
-      facts.push('Source clip');
-      if (duration) facts.push('Duration ' + formatTime(duration));
+      facts.push(t('video.output.sourceClip'));
+      if (duration) facts.push(t('video.output.duration', {time: formatTime(duration)}));
       if (preview?.videoWidth && preview?.videoHeight) {
         facts.push(preview.videoWidth + ' × ' + preview.videoHeight);
       }
     }
-    const prompt = metadata?.prompt || clip?.name || 'Rendering video';
+    const prompt = metadata?.prompt || clip?.name || t('video.output.rendering');
     const canCapture = Boolean(!pending && clip && !clip.stub);
     const canDownload = Boolean(!pending && generated && clip && !clip.stub && clip.url);
     const canRemove = Boolean(!pending && clip);
     const canShowMore = Boolean(!pending && (generated || canCapture));
-    const renderLabel = isSource ? 'Source clip' : '';
+    const renderLabel = isSource ? t('video.output.sourceClip') : '';
     const fullscreen = document.fullscreenElement === this;
     renderTemplate(html`
       <section class="stage-bar video-stage-bar video-output-details" id="video-output-details"
-        aria-label="Video preview details">
+        aria-label=${t('video.output.previewDetails')}>
         <div class="about">
           <p class="prompt-line video-output-prompt" title=${prompt}>${prompt}</p>
-          <div class="facts num video-output-facts" aria-label="Video metadata">
+          <div class="facts num video-output-facts" aria-label=${t('video.output.metadata')}>
             ${renderLabel ? html`<span class="made">${renderLabel}</span>` : nothing}
             ${facts.map((fact) => html`<span>${fact}</span>`)}
           </div>
@@ -1667,16 +1668,16 @@ class VideoStudio extends LitElement {
         <div class="actions video-output-actions">
           ${canCapture && !this.needsClip ? html`
             <button class="btn quiet" type="button" data-action="capture-video-frame"
-              aria-label="Add reference" title="Add this frame as an image reference">
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>Add reference</button>` : nothing}
+              aria-label=${t('video.reference.add')} title=${t('video.reference.addTitle')}>
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>${t('video.reference.add')}</button>` : nothing}
           ${canCapture && this.needsClip ? html`
             <button class="btn quiet" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
-              aria-label="Edit this clip" title="Change this clip in Edit">
-              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>Edit this clip</button>` : nothing}
+              aria-label=${t('video.output.editClip')} title=${t('video.output.editClipTitle')}>
+              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>${t('video.output.editClip')}</button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
-                aria-label="More actions" aria-controls="video-output-menu" aria-expanded="false" title="More actions">
+                aria-label=${t('video.output.more')} aria-controls="video-output-menu" aria-expanded="false" title=${t('video.output.more')}>
                 <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>
               </button>
               <div class="menu up" id="video-output-menu" role="menu" hidden></div>
@@ -1684,18 +1685,18 @@ class VideoStudio extends LitElement {
           ${canShowMore ? html`<span class="rule" aria-hidden="true"></span>` : nothing}
           ${canDownload ? html`
             <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
-              aria-label="Download video" title="Download">
+              aria-label=${t('video.output.download')} title=${t('video.output.downloadTitle')}>
               <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
             </a>` : nothing}
           ${canRemove ? html`
             <button class="icon-btn danger" type="button" data-action="remove-clip" data-clip-id=${clip.id}
-              aria-label=${'Remove video ' + clip.name} title="Remove">
+              aria-label=${t('video.output.remove', {name: clip.name})} title=${t('video.output.removeTitle')}>
               <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>
             </button>` : nothing}
           ${document.fullscreenEnabled ? html`
             <button class="icon-btn" type="button" data-action="toggle-video-fullscreen"
-              aria-label=${fullscreen ? 'Exit full screen' : 'Full screen'}
-              title=${fullscreen ? 'Exit full screen' : 'Full screen'}>
+              aria-label=${fullscreen ? t('video.output.exitFullscreen') : t('video.output.fullscreen')}
+              title=${fullscreen ? t('video.output.exitFullscreen') : t('video.output.fullscreen')}>
               <svg class="icon" aria-hidden="true"><use href=${fullscreen ? '#i-shrink' : '#i-expand'}></use></svg>
             </button>` : nothing}
         </div>
@@ -1710,18 +1711,18 @@ class VideoStudio extends LitElement {
     if (canCapture) {
       // The clip lives in Edit now, so the actions that read its frame live there too. Edit's
       // bar carries Edit this clip, so the frame capture sits in this menu.
-      menu.append(menuItem('image-in', 'Use current frame in Image', () => this.captureFrameForImage()));
+      menu.append(menuItem('image-in', t('video.output.useFrameInImage'), () => this.captureFrameForImage()));
       if (this.needsClip) {
-        menu.append(menuItem('image-in', 'Add this frame as a reference', () => this.captureFrameForVideo()));
+        menu.append(menuItem('image-in', t('video.reference.addFrame'), () => this.captureFrameForVideo()));
       } else {
-        menu.append(menuItem('brush', 'Edit this clip', () => this.editThisClip(clip.id)));
+        menu.append(menuItem('brush', t('video.output.editClip'), () => this.editThisClip(clip.id)));
       }
     }
     if (this.supportsSeed && seed !== null) {
-      menu.append(menuItem('hash', 'Reuse seed ' + seed, () => this.reuseOutput({seed})));
+      menu.append(menuItem('hash', t('video.output.reuseSeed', {seed}), () => this.reuseOutput({seed})));
     }
     if (metadata?.prompt) {
-      menu.append(menuItem('text', 'Reuse prompt', () => this.reuseOutput({prompt: metadata.prompt})));
+      menu.append(menuItem('text', t('video.output.reusePrompt'), () => this.reuseOutput({prompt: metadata.prompt})));
     }
   }
 
@@ -1786,21 +1787,23 @@ class VideoStudio extends LitElement {
     const percent = total > 0 ? Math.max(0, Math.min(99, Math.round(step / total * 100))) : null;
     // The progress bar keeps one name for the whole render: a name that changes under a
     // screen reader is read twice. The headline under it names the moment instead.
-    const name = progress.stopping ? 'Stopping video' : 'Generating video';
+    const name = progress.stopping ? t('video.progress.stopping') : t('video.progress.generating');
     return {
       name,
       label: this.progressHeadline(progress, step, total),
-      elapsed: elapsed + ' elapsed',
+      elapsed: t('video.progress.elapsed', {elapsed}),
       percent,
-      readout: percent === null ? elapsed + ' elapsed' : percent + '%, ' + elapsed + ' elapsed',
+      readout: percent === null ? t('video.progress.elapsed', {elapsed})
+        : t('video.progress.readout', {percent, elapsed}),
     };
   }
 
   progressHeadline(progress, step, total) {
-    if (progress.stopping) return 'Stopping video';
-    if (!step) return 'Preparing the clip';
-    if (total > 0 && step >= total) return 'Finishing the clip';
-    return total > 0 ? 'Denoising, step ' + step + ' of ' + total : 'Denoising, step ' + step;
+    if (progress.stopping) return t('video.progress.stopping');
+    if (!step) return t('video.progress.preparing');
+    if (total > 0 && step >= total) return t('video.progress.finishing');
+    return total > 0 ? t('video.progress.denoisingOf', {step, total})
+      : t('video.progress.denoising', {step});
   }
 
   renderProgressPlaceholder(progress) {
@@ -1849,16 +1852,15 @@ class VideoStudio extends LitElement {
     const newestFirst = outputs.slice().reverse();
     const downloadable = outputs.filter((clip) => !clip.stub && (clip.url || clip.loadMedia));
     const kept = outputs.filter((clip) => clip.keptInBrowser).length;
-    const videoCount = outputs.length + (outputs.length === 1 ? ' video' : ' videos');
     const note = !outputs.length
-      ? this.keepEnabled ? 'Videos are kept in this browser.' : 'Videos stay in this tab only.'
+      ? this.keepEnabled ? t('video.gallery.keptHint') : t('video.gallery.tabOnly')
       : kept === outputs.length
-        ? videoCount + ', kept in this browser.'
-          + (this.storagePersisted === false ? ' The browser may clear them when space is low.' : '')
-        : downloadable.length ? videoCount + ' in this tab. Download the ones you want to keep.'
-          : (outputs.length === 1 ? 'A stub result' : outputs.length + ' stub results') + ' in this tab.';
+        ? plural(outputs.length, t('video.gallery.keptAll'))
+          + (this.storagePersisted === false ? ' ' + t('video.gallery.mayClear') : '')
+        : downloadable.length ? plural(outputs.length, t('video.gallery.someDownloadable'))
+          : plural(outputs.length, t('video.gallery.stubResults'));
     return html`
-      <section class="video-gallery strip-wrap" id="video-gallery" aria-label="Video gallery"
+      <section class="video-gallery strip-wrap" id="video-gallery" aria-label=${t('video.gallery.label')}
         ?hidden=${!outputs.length && !this.pendingRender}>
         <div class="strip-head video-gallery-head">
           <span id="video-gallery-note">${note}</span>
@@ -1876,19 +1878,19 @@ class VideoStudio extends LitElement {
             .download=${ids => this.downloadAllVideos(ids)} .playback=${() => this.togglePlayback()}></gallery-browser>
           <span class="strip-actions">
             <button class="text-btn" type="button" id="video-gallery-download"
-              data-action="download-all-videos" ?hidden=${!downloadable.length}>Download all</button>
+              data-action="download-all-videos" ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
             <button class="text-btn" type="button" id="video-gallery-clear"
-              data-action="clear-video-gallery" ?hidden=${!outputs.length}>Clear all</button>
+              data-action="clear-video-gallery" ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
           </span>
         </div>
-        <div class="strip video-clips" role="group" aria-label="Generated videos">
+        <div class="strip video-clips" role="group" aria-label=${t('video.gallery.generated')}>
           ${this.pendingRender ? html`
             <button class="video-gallery-item video-gallery-pending frame pending${renderOnScreen ? ' selected' : ''}"
-              type="button" aria-label="Show the render in progress" aria-pressed=${renderOnScreen}
+              type="button" aria-label=${t('video.gallery.showRender')} aria-pressed=${renderOnScreen}
               data-action="show-render">
               <span class="still video-clip-thumb pending-thumb">
                 <span class="video-pending-indicator" aria-hidden="true"></span>
-                <span>Rendering</span>
+                <span>${t('video.gallery.rendering')}</span>
               </span>
               <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
               ${renderOnScreen ? pencilLoop() : nothing}
@@ -1896,13 +1898,13 @@ class VideoStudio extends LitElement {
           <gallery-window .items=${newestFirst} .selected=${this.selectedClipId} .renderItem=${(clip, position) => html`
             <div class="video-gallery-item">
               <button class="frame video-clip${clip.id === this.selectedClipId && !renderOnScreen ? ' selected' : ''}"
-                type="button" aria-label=${'Select video ' + clip.name}
+                type="button" aria-label=${t('video.gallery.select', {name: clip.name})}
                 aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
                 data-action="select-clip" data-clip-id=${clip.id}>
                 <span class="still video-clip-thumb">
                   ${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
                     .blocked=${Boolean(this.pendingRender)} .load=${async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob})}></gallery-media>`
-                    : html`<span class="video-clip-placeholder">STUB</span>`}
+                    : html`<span class="video-clip-placeholder">${t('video.mark.stub')}</span>`}
                   <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
                 </span>
                 <span class="no">${String(outputs.length - position).padStart(2, '0')}</span>
@@ -1914,27 +1916,28 @@ class VideoStudio extends LitElement {
   }
 
   renderClip(clip) {
-    if (clip && !clip.stub && !clip.url) return html`<div class="video-empty" role="status">Loading video…<video id="video-preview" hidden preload="none"></video></div>`;
+    if (clip && !clip.stub && !clip.url) return html`<div class="video-empty" role="status">${t('video.empty.loading')}<video id="video-preview" hidden preload="none"></video></div>`;
     if (!clip) {
       return html`<div class="video-empty empty">
-        <div class="video-empty-mark">VIDEO</div>
-        <strong>Preview a video</strong>
-        <span>Select a source video or generated clip.</span>
+        <div class="video-empty-mark">${t('video.mark.video')}</div>
+        <strong>${t('video.empty.preview')}</strong>
+        <span>${t('video.empty.select')}</span>
         ${this.templateShortcut ? html`<button type="button" class="btn" data-action="browse-video-templates">
-          <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>Browse templates</button>` : ''}
+          <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>${t('video.empty.browseTemplates')}</button>` : ''}
       </div>`;
     }
     const preview = html`<div class="video-preview-pane">
       <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls playsinline preload="metadata"></video>
       <div class="video-preview-stub" ?hidden=${!clip.stub}>
-        <div class="video-empty-mark">STUB</div>
-        <strong>Request flow verified</strong>
-        <span>The stub returns metadata only. It does not create a video file.</span>
+        <div class="video-empty-mark">${t('video.mark.stub')}</div>
+        <strong>${t('video.empty.stubTitle')}</strong>
+        <span>${t('video.empty.stubBody')}</span>
       </div>
     </div>`;
     const width = Number(clip.metadata?.width || clip.width) || 16;
     const height = Number(clip.metadata?.height || clip.height) || 9;
-    const modelName = clip.kind === 'generated' ? clip.metadata?.modelName || 'Video' : 'SOURCE VIDEO';
+    const modelName = clip.kind === 'generated' ? clip.metadata?.modelName || t('video.monitor.video')
+      : t('video.monitor.sourceVideo');
     return this.renderMonitor(preview, modelName, this.videoSerial(clip), width / height);
   }
 

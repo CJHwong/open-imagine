@@ -18,6 +18,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { get, subscribe } from '../lib/state.js';
+import { t } from '../lib/i18n.js';
 
 // The page's helpers, on `advanced-panel-ready`.
 let page = null;
@@ -46,11 +47,17 @@ class AdvancedValues extends Drawn {
   render() {
     const steps = get('steps');
     const scaleId = page.scaleParam();
-    const scale = scaleId ? ', guidance ' + get(scaleId) : '';
+    const scale = scaleId ? t('image.advanced.guidance', {value: get(scaleId)}) : '';
     const seed = (get('seed') || '').trim();
-    const negative = get('negative') ? ', negative prompt' : '';
+    const negative = get('negative') ? t('image.advanced.negative') : '';
     const addOns = page.addOns ? page.addOns() : '';
-    return html`${steps + ' steps' + scale + ', ' + (seed ? 'seed ' + seed : 'random seed') + negative + (addOns ? ', ' + addOns : '')}`;
+    return html`${t('image.advanced.summary', {
+      steps,
+      scale,
+      seed: seed ? t('image.advanced.seed', {seed}) : t('image.advanced.random_seed'),
+      negative,
+      addons: addOns ? t('image.advanced.addons', {addons: addOns}) : '',
+    })}`;
   }
 }
 

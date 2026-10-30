@@ -70,7 +70,18 @@ def make_handler(
             if path == "/":
                 # A handler without the API offers no optional workspace, and
                 # the presenter draws no tab for one it was not told about.
-                self._send(presenter.page(controller.page(), api.workspaces() if api else None))
+                query = parse_qs(urlsplit(self.path).query)
+                self._send(
+                    presenter.page(
+                        controller.page(),
+                        api.workspaces() if api else None,
+                        presenter.locale_for(
+                            requested=(query.get("lang") or [None])[0],
+                            cookie=self.headers.get("Cookie"),
+                            accept_language=self.headers.get("Accept-Language"),
+                        ),
+                    )
+                )
             elif path == "/api/docs":
                 self._send((WEB / "api-docs.html").read_text())
             elif self.path == "/progress":

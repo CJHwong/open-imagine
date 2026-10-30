@@ -22,6 +22,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { subscribe } from '../lib/state.js';
+import { t } from '../lib/i18n.js';
 
 // One handle per form, registered by the page that owns that form's state.
 const boards = new Map();
@@ -144,7 +145,7 @@ class LookRows extends Drawn {
       const picks = page.picks()[row.name] || [];
       const picked = picks[0];
       const shown = open === row.name;
-      return html`<div class="look-row"><button type="button" class="look-row-toggle" data-row=${row.name} aria-expanded=${String(shown)} @click=${() => this.toggleRow(row.name)}><span class="label">${row.name}</span><span class="look-pick${picked ? ' picked' : ''}">${picked || 'none'}</span></button><div class="look-chips" ?hidden=${!shown}>${row.options.map(([label]) => html`<button type="button" class="chip" aria-pressed=${String(picks.includes(label))} @click=${() => this.pickInPlace(row, label)}>${label}</button>`)}</div></div>`;
+      return html`<div class="look-row"><button type="button" class="look-row-toggle" data-row=${row.name} aria-expanded=${String(shown)} @click=${() => this.toggleRow(row.name)}><span class="label">${row.name}</span><span class="look-pick${picked ? ' picked' : ''}">${picked || t('image.look.none')}</span></button><div class="look-chips" ?hidden=${!shown}>${row.options.map(([label]) => html`<button type="button" class="chip" aria-pressed=${String(picks.includes(label))} @click=${() => this.pickInPlace(row, label)}>${label}</button>`)}</div></div>`;
     })}`;
   }
 }
@@ -155,7 +156,7 @@ class LookValues extends Drawn {
     const page = boardOf(this);
     if (!page) return html``;
     const labels = page.labels();
-    return html`${labels.length ? labels.join(', ') : 'none'}`;
+    return html`${labels.length ? labels.join(', ') : t('image.look.none')}`;
   }
 }
 
@@ -182,7 +183,7 @@ class LookAdds extends Drawn {
     const picks = page.picks();
     const avoids = page.avoids();
     const form = formOf(this);
-    return html`${page.rows().flatMap((row) => (picks[row.name] || []).map((label) => html`<button type="button" class="chip" aria-label=${'Remove ' + label} @click=${() => unpick(form, row, label)}>${label} ×</button>`))}<span class="caption">The run adds this after your words:</span><q>${added}</q>${avoids ? html`<p class="look-avoids">${'Negative prompt adds: ' + avoids + '. Each image takes about twice as long.'}</p>` : ''}`;
+    return html`${page.rows().flatMap((row) => (picks[row.name] || []).map((label) => html`<button type="button" class="chip" aria-label=${t('image.look.remove', {label})} @click=${() => unpick(form, row, label)}>${label} ×</button>`))}<span class="caption">${t('image.look.caption')}</span><q>${added}</q>${avoids ? html`<p class="look-avoids">${t('image.look.avoids', {avoids})}</p>` : ''}`;
   }
 }
 

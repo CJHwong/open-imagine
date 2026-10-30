@@ -21,6 +21,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
+import { t } from '../lib/i18n.js';
 
 // How long a message that is not a failure stays. A failure waits for a person.
 const LIFETIME = 4000;
@@ -95,7 +96,7 @@ class ToastHost extends LitElement {
 
   message(one) {
     const failure = one.kind === 'error';
-    return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title="Dismiss" aria-label="Dismiss" @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;
+    return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title=${t('toast.dismiss')} aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;
   }
 
   render() {

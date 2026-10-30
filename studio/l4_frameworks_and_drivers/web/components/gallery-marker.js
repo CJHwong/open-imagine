@@ -1,4 +1,5 @@
 import {html} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {t} from '../lib/i18n.js';
 
 // The pencil loop, one hand-drawn stroke that overlaps where it closes. It is
 // drawn once, on the redraw that picks a frame, and not on every redraw.
@@ -7,5 +8,5 @@ export function pencilLoop(draw = false) {
 }
 
 export function playingMark() {
-  return html`<span class="music-playing-mark" role="status" aria-label="Now playing"><span class="music-playing-bars" aria-hidden="true"><i></i><i></i><i></i></span><span>Playing</span></span>`;
+  return html`<span class="music-playing-mark" role="status" aria-label=${t('gallery.playing.aria')}><span class="music-playing-bars" aria-hidden="true"><i></i><i></i><i></i></span><span>${t('gallery.playing.text')}</span></span>`;
 }

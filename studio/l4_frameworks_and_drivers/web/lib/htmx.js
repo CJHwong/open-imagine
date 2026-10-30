@@ -14,6 +14,8 @@
 // while the module is evaluated: after the markup, before any interaction, so
 // the handle is in place before the first run.
 
+import {t} from './i18n.js';
+
 const page = {};
 
 // The poller clocks itself off its own response, and stops when the server
@@ -190,7 +192,7 @@ function revokeUnclaimed() {
 function stopWork() {
   nativeRunning = false;
   if (!page.busy()) return;
-  document.title = (document.hidden ? '(Done) ' : '') + page.workspaceTitle();
+  document.title = (document.hidden ? t('form.title.done') : '') + page.workspaceTitle();
   document.body.classList.remove('busy', 'stopping');
   page.syncRunState();
   page.el.progressSlot.innerHTML = '';
@@ -236,7 +238,7 @@ function batchPayload(parameters) {
   const each = batchSources.length > 0 && body.mask !== '1';
   const count = Number(body.count);
   const rawSeed = String(body.seed || '').trim();
-  if (rawSeed && !/^\d+$/.test(rawSeed)) throw new Error('seed must be a whole number');
+  if (rawSeed && !/^\d+$/.test(rawSeed)) throw new Error(t('form.error.seed'));
   const seed = rawSeed ? BigInt(rawSeed)
     : BigInt(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000001);
   delete body.count;
@@ -256,7 +258,7 @@ async function submitBatch(parameters, headers) {
     const answer = await fetch('/image/operations', {method: 'POST',
       headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(batchPayload(parameters))});
     const operation = await answer.json();
-    if (!answer.ok) throw new Error(operation.error || 'The batch could not be started.');
+    if (!answer.ok) throw new Error(operation.error || t('form.error.batchStart'));
     nativeOperationId = operation.id;
   } catch (error) {
     armCancelRestore();
@@ -657,7 +659,7 @@ function listen() {
   document.body.addEventListener('htmx:responseError', stopWork);
   document.body.addEventListener('htmx:sendError', function () {
     stopWork();
-    page.notify('error', 'The server did not answer. Check that the studio server is still running.');
+    page.notify('error', t('form.error.serverSilent'));
   });
 
   // A run, or images kept only in this tab, would be lost to a reload or a close.

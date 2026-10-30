@@ -17,6 +17,7 @@
 
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { get, subscribe } from '../lib/state.js';
+import { t } from '../lib/i18n.js';
 
 class RunLabels extends LitElement {
   // `data-mode` is for a form whose mode is not the image store's: the video workspace has its
@@ -40,7 +41,7 @@ class RunLabels extends LitElement {
     const stopping = this.state === 'stopping';
     const running = this.state === 'busy' || stopping || starting;
     const editing = (this.mode || get('mode')) === 'edit';
-    return html`<span class="main"><span class="idle-label" ?hidden=${running}><span class="generate-only" ?hidden=${editing}>Generate</span><span class="edit-only" ?hidden=${!editing}>Edit</span></span><span class="busy-label" ?hidden=${!running || stopping || starting}>Cancel</span><span class="starting-label" ?hidden=${!starting}>Starting&hellip;</span><span class="stopping-label" ?hidden=${!stopping}>Stopping&hellip;</span></span>`;
+    return html`<span class="main"><span class="idle-label" ?hidden=${running}><span class="generate-only" ?hidden=${editing}>${t('page.run.generate')}</span><span class="edit-only" ?hidden=${!editing}>${t('page.run.edit')}</span></span><span class="busy-label" ?hidden=${!running || stopping || starting}>${t('page.run.cancel')}</span><span class="starting-label" ?hidden=${!starting}>${t('page.run.starting')}</span><span class="stopping-label" ?hidden=${!stopping}>${t('page.run.stopping')}</span></span>`;
   }
 }
 

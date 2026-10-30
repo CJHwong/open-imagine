@@ -4,8 +4,14 @@ import './gallery-media.js';
 import './gallery-window.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
+import {t} from '../lib/i18n.js';
 
 const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-' + name}></use></svg>`;
+const WORKSPACE_KEYS = {
+  image: 'gallery.workspace.image', video: 'gallery.workspace.video',
+  voice: 'gallery.workspace.voice', music: 'gallery.workspace.music',
+};
+const workspaceName = workspace => WORKSPACE_KEYS[workspace] ? t(WORKSPACE_KEYS[workspace]) : workspace;
 
 // Each media owner supplies existing records and actions. This component owns browsing,
 // never media storage, input selection, or generation state.
@@ -148,8 +154,9 @@ class GalleryBrowser extends LitElement {
   async act(action) {
     const selected = this.items.filter(item => this.checked.has(item.id));
     if (!selected.length || this.working) return;
-    if (action === 'remove' && !confirm('Remove ' + selected.length + ' selected '
-      + this.workspace + ' results from ' + (this.keeping ? 'this browser? Other tabs update too.' : 'this tab?'))) return;
+    if (action === 'remove' && !confirm(t(
+      this.keeping ? 'gallery.confirm.remove.browser' : 'gallery.confirm.remove.tab',
+      {count: selected.length, workspace: workspaceName(this.workspace)}))) return;
     this.working = true; this.error = '';
     try {
       if (action === 'download') await this.download?.(selected.filter(item => item.downloadable !== false).map(item => item.id));
@@ -157,9 +164,9 @@ class GalleryBrowser extends LitElement {
         let failed = 0;
         for (const item of selected) if (await this.removeItem?.(item.id) === false) failed++;
         this.checked = new Set();
-        if (failed) this.error = failed + ' results could not be removed. Try again.';
+        if (failed) this.error = t('gallery.error.remove', {count: failed});
       }
-    } catch (error) { this.error = error.message || 'The gallery action failed. Try again.'; }
+    } catch (error) { this.error = error.message || t('gallery.error.action'); }
     finally { this.working = false; }
   }
   async key(event) {
@@ -210,7 +217,7 @@ class GalleryBrowser extends LitElement {
     if (item.peaks?.length) return svg`<svg class="gallery-wave" viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
       ${item.peaks.map((peak, index) => svg`<line x1=${(index + 0.5) * 160 / item.peaks.length}
         x2=${(index + 0.5) * 160 / item.peaks.length} y1=${30 - Math.max(1, peak / maximum * 25)} y2=${30 + Math.max(1, peak / maximum * 25)} />`)}</svg>`;
-    return html`<span class="gallery-no-preview">${this.workspace === 'music' ? '♫' : this.workspace === 'voice' ? 'Audio' : 'No preview'}</span>`;
+    return html`<span class="gallery-no-preview">${this.workspace === 'music' ? '♫' : this.workspace === 'voice' ? t('gallery.audio') : t('gallery.noPreview')}</span>`;
   }
   card(row) {
     const item = row.item;
@@ -221,22 +228,24 @@ class GalleryBrowser extends LitElement {
       <button type="button" class=${'frame gallery-card-pick' + (selected && !row.batch ? ' selected' : '')}
         data-row-id=${row.batch ? 'batch-' + item.id : item.id}
         data-item-id=${row.batch ? nothing : item.id} ?disabled=${this.working}
-        aria-label=${row.batch ? 'Open batch of ' + row.batch.length + ' results' : 'View ' + this.workspace + ' ' + item.number}
+        aria-label=${row.batch
+          ? t('gallery.batch.open', {count: row.batch.length})
+          : t('gallery.view', {workspace: workspaceName(this.workspace), number: item.number})}
         aria-pressed=${row.batch ? nothing : String(selected)}
         @click=${() => row.batch ? this.change('group', item.batch) : this.pick(item)}>
         <span class="still">${this.thumbnail(item)}
           ${playing ? playingMark() : nothing}
           ${item.duration ? html`<span class="gallery-duration">${item.duration.toFixed(1)} s</span>` : nothing}
-          ${row.batch ? html`<span class="gallery-batch-count">${row.batch.length} results</span>` : nothing}
+          ${row.batch ? html`<span class="gallery-batch-count">${t('gallery.batch.count', {count: row.batch.length})}</span>` : nothing}
         </span>
-        <span class="no">${row.batch ? 'Batch' : String(item.number).padStart(2, '0')}</span>
+        <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
         ${selected && !row.batch ? pencilLoop(false) : nothing}
       </button>
-      ${this.selecting && !row.batch ? html`<label class="gallery-check" title="Select result">
-        <input type="checkbox" aria-label=${'Select ' + this.workspace + ' ' + item.number}
+      ${this.selecting && !row.batch ? html`<label class="gallery-check" title=${t('gallery.selectResult')}>
+        <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
           .checked=${this.checked.has(item.id)} ?disabled=${this.working} @change=${() => this.check(item.id)}></label>` : nothing}
-      <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || 'Untitled'}</p>
-      <p class="gallery-card-facts">${item.model || this.workspace}${item.mode ? ' · ' + item.mode : ''}</p>
+      <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
+      <p class="gallery-card-facts">${item.model || workspaceName(this.workspace)}${item.mode ? t('gallery.facts.mode', {mode: item.mode}) : ''}</p>
     </article>`;
   }
   render() {
@@ -249,54 +258,54 @@ class GalleryBrowser extends LitElement {
     return html`<button type="button" class="text-btn gallery-browse-toggle" aria-expanded=${String(this.expanded)}
       aria-controls=${this.workspace + '-gallery-browser-panel'} ?disabled=${this.working}
       @keydown=${event => this.key(event)}
-      @click=${() => this.toggle()}>${icon(this.expanded ? 'shrink' : 'layout')}${this.expanded ? 'Compact' : 'Browse'}</button>
+      @click=${() => this.toggle()}>${icon(this.expanded ? 'shrink' : 'layout')}${t(this.expanded ? 'gallery.compact' : 'gallery.browse')}</button>
       ${this.expanded ? html`<section class="gallery-browser-panel" id=${this.workspace + '-gallery-browser-panel'}
-        aria-label=${this.workspace + ' gallery browser'} @keydown=${event => this.key(event)}>
+        aria-label=${t('gallery.panel', {workspace: workspaceName(this.workspace)})} @keydown=${event => this.key(event)}>
         <div class="gallery-browser-tools">
-          <input type="search" aria-label="Search gallery" placeholder="Search prompts, scripts, models or seeds"
+          <input type="search" aria-label=${t('gallery.search')} placeholder=${t('gallery.searchPlaceholder')}
             .value=${this.query} @input=${event => this.change('query', event.target.value)}>
-          <select aria-label="Gallery order" @change=${event => this.change('order', event.target.value)}>
-            <option value="newest" .selected=${this.order === 'newest'}>Newest first</option>
-            <option value="oldest" .selected=${this.order === 'oldest'}>Oldest first</option></select>
-          ${modes.length > 1 ? html`<select aria-label="Filter by mode"
-            @change=${event => this.change('mode', event.target.value)}><option value="" .selected=${!this.mode}>All modes</option>
+          <select aria-label=${t('gallery.order')} @change=${event => this.change('order', event.target.value)}>
+            <option value="newest" .selected=${this.order === 'newest'}>${t('gallery.orderNewest')}</option>
+            <option value="oldest" .selected=${this.order === 'oldest'}>${t('gallery.orderOldest')}</option></select>
+          ${modes.length > 1 ? html`<select aria-label=${t('gallery.filterMode')}
+            @change=${event => this.change('mode', event.target.value)}><option value="" .selected=${!this.mode}>${t('gallery.allModes')}</option>
             ${modes.map(mode => html`<option value=${mode} .selected=${this.mode === mode}>${mode}</option>`)}</select>` : nothing}
-          ${models.length > 1 ? html`<select aria-label="Filter by model"
-            @change=${event => this.change('model', event.target.value)}><option value="" .selected=${!this.model}>All models</option>
+          ${models.length > 1 ? html`<select aria-label=${t('gallery.filterModel')}
+            @change=${event => this.change('model', event.target.value)}><option value="" .selected=${!this.model}>${t('gallery.allModels')}</option>
             ${models.map(model => html`<option value=${model} .selected=${this.model === model}>${model}</option>`)}</select>` : nothing}
           ${hasBatch ? html`<label class="gallery-group-toggle"><input type="checkbox" .checked=${this.grouped}
-            @change=${event => this.change('grouped', event.target.checked)}>Group batches</label>` : nothing}
+            @change=${event => this.change('grouped', event.target.checked)}>${t('gallery.groupBatches')}</label>` : nothing}
           <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}
-            @click=${() => { this.selecting = !this.selecting; this.checked = new Set(); }}>${icon('check')}${this.selecting ? 'Done' : 'Select'}</button>
+            @click=${() => { this.selecting = !this.selecting; this.checked = new Set(); }}>${icon('check')}${t(this.selecting ? 'gallery.done' : 'gallery.selectMode')}</button>
         </div>
         <div class="gallery-browser-summary">
-          ${this.group ? html`<button type="button" class="text-btn" @click=${() => this.change('group', '')}>${icon('undo')}All results</button>` : nothing}
-          <span role="status" aria-live="polite">${items.length} of ${this.items.length} results${checked.length ? ' · ' + checked.length + ' selected' : ''}</span>
+          ${this.group ? html`<button type="button" class="text-btn" @click=${() => this.change('group', '')}>${icon('undo')}${t('gallery.allResults')}</button>` : nothing}
+          <span role="status" aria-live="polite">${t('gallery.summary', {shown: items.length, total: this.items.length})}${checked.length ? t('gallery.selected', {count: checked.length}) : ''}</span>
           ${this.selecting ? html`<button type="button" class="text-btn" ?disabled=${this.working || !items.length}
-            @click=${() => { this.checked = new Set(items.map(item => item.id)); }}>Select all ${items.length}</button>
+            @click=${() => { this.checked = new Set(items.map(item => item.id)); }}>${t('gallery.selectAll', {count: items.length})}</button>
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.length}
-              @click=${() => { this.checked = new Set(); }}>Deselect</button>
+              @click=${() => { this.checked = new Set(); }}>${t('gallery.deselect')}</button>
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.some(item => item.downloadable !== false)}
-              @click=${() => this.act('download')}>${icon('download')}Download selected</button>
+              @click=${() => this.act('download')}>${icon('download')}${t('gallery.downloadSelected')}</button>
             <button type="button" class="text-btn gallery-remove" ?disabled=${this.working || !checked.length}
-              @click=${() => this.act('remove')}>${icon('trash')}Remove selected</button>` : nothing}
+              @click=${() => this.act('remove')}>${icon('trash')}${t('gallery.removeSelected')}</button>` : nothing}
         </div>
         ${this.error ? html`<p class="gallery-browser-error" role="alert">${this.error}</p>` : nothing}
-        <div class="gallery-browser-grid" role="group" aria-label="Gallery results" @scroll=${event => {
+        <div class="gallery-browser-grid" role="group" aria-label=${t('gallery.results')} @scroll=${event => {
           if (this.restoreScroll) return;
           this.gridScroll = event.target.scrollTop; this.remember();
         }}>
           ${this.pending ? html`<button type="button" class=${'frame gallery-card-pick gallery-pending' + (this.pendingSelected ? ' selected' : '')}
             aria-pressed=${String(Boolean(this.pendingSelected))}
-            aria-label="Show generation in progress" @click=${() => this.showPending?.()}>
-            <span class="still"><span class="video-pending-indicator"></span><span>Generating</span></span>
+            aria-label=${t('gallery.pending.show')} @click=${() => this.showPending?.()}>
+            <span class="still"><span class="video-pending-indicator"></span><span>${t('gallery.pending.generating')}</span></span>
             ${this.pendingSelected ? pencilLoop(false) : nothing}
           </button>` : nothing}
           <gallery-window axis="vertical" .items=${this.rows(items)} .selected=${this.selectedId} .renderItem=${row => this.card(row)}></gallery-window>
-          ${!items.length ? html`<div class="gallery-no-results"><strong>${this.items.length ? 'No matching results' : 'No completed results yet'}</strong>
+          ${!items.length ? html`<div class="gallery-no-results"><strong>${this.items.length ? t('gallery.noMatches') : t('gallery.noResults')}</strong>
             ${this.items.length ? html`<button type="button" class="text-btn" @click=${() => {
               this.query = ''; this.mode = ''; this.model = ''; this.change('group', '');
-            }}>Clear filters</button>` : nothing}</div>` : nothing}
+            }}>${t('gallery.clearFilters')}</button>` : nothing}</div>` : nothing}
         </div>
       </section>` : nothing}`;
   }

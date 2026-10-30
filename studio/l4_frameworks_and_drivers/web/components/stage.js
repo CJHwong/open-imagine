@@ -22,6 +22,7 @@
 
 import {mediaDownloadName} from '../lib/download-name.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
+import {t} from '../lib/i18n.js';
 
 // What the stage draws with. The DOM helpers live here because the stage and the
 // region module are the two that build buttons, and the region takes
@@ -95,7 +96,7 @@ export function selected() {
 function madeBadge(entry) {
   const badge = document.createElement('span');
   badge.className = 'made';
-  badge.append(entry.mode === 'edit' ? 'Edited' : 'Generated');
+  badge.append(entry.mode === 'edit' ? t('stage.badge.edited') : t('stage.badge.generated'));
   const sources = entry.sources || [];
   if (!sources.length) return badge;
   const frameIds = [...new Set(sources.filter(Boolean))];
@@ -105,14 +106,16 @@ function madeBadge(entry) {
     const link = document.createElement('button');
     link.type = 'button';
     link.textContent = frameNumber(id);
-    link.setAttribute('aria-label', 'Show frame ' + frameNumber(id));
+    link.setAttribute('aria-label', t('stage.badge.showFrame', {frame: frameNumber(id)}));
     link.addEventListener('click', function () { page.show(id); });
     return link;
   });
-  if (uploads) parts.push(uploads === 1 ? 'your image' : uploads + ' of your images');
-  badge.append(' from ');
+  if (uploads) {
+    parts.push(uploads === 1 ? t('stage.badge.upload.one') : t('stage.badge.upload.many', {count: uploads}));
+  }
+  badge.append(t('stage.badge.from'));
   parts.forEach(function (part, index) {
-    if (index) badge.append(index === parts.length - 1 ? ' and ' : ', ');
+    if (index) badge.append(index === parts.length - 1 ? t('stage.badge.and') : t('stage.badge.separator'));
     badge.append(part);
   });
   return badge;
@@ -125,7 +128,7 @@ function renderEmpty() {
   empty.className = 'empty video-empty';
   const mark = document.createElement('div');
   mark.className = 'video-empty-mark';
-  mark.textContent = 'IMAGE';
+  mark.textContent = t('stage.empty.mark');
   const title = document.createElement('strong');
   const line = document.createElement('span');
   const start = document.createElement('button');
@@ -134,25 +137,25 @@ function renderEmpty() {
   const references = page.references();
   empty.append(mark, title, line);
   if (page.editing() && references.length) {
-    title.textContent = 'Ready to edit';
-    line.textContent = 'Say what to change, then press Edit.';
+    title.textContent = t('stage.empty.readyEdit');
+    line.textContent = t('stage.empty.readyEditLine');
     page.canvas.append(empty);
     return;
   }
   if (page.editing()) {
-    title.textContent = 'Edit an image';
-    line.textContent = 'Add the image, then say what to change.';
-    start.innerHTML = icon('image-in') + 'Choose an image';
+    title.textContent = t('stage.empty.editTitle');
+    line.textContent = t('stage.empty.editLine');
+    start.innerHTML = icon('image-in') + t('stage.empty.choose');
     start.addEventListener('click', function () { page.referenceInput.click(); });
   } else if (!page.currentMode().templates.length) {
-    title.textContent = 'Preview an image';
-    line.textContent = 'Write a prompt and press Generate.';
+    title.textContent = t('stage.empty.preview');
+    line.textContent = t('stage.empty.previewGenerate');
     page.canvas.append(empty);
     return;
   } else {
-    title.textContent = 'Preview an image';
-    line.textContent = 'Write a prompt, or start from a template.';
-    start.innerHTML = icon('layout') + 'Browse templates';
+    title.textContent = t('stage.empty.preview');
+    line.textContent = t('stage.empty.previewTemplate');
+    start.innerHTML = icon('layout') + t('stage.empty.templates');
     start.addEventListener('click', function (event) {
       event.stopPropagation();  // the click would reach the document and close the menu
       page.openTemplates();
@@ -176,8 +179,10 @@ function renderStageBar(entry) {
   facts.append(madeBadge(entry));
   if (entry.before) facts.append(strip.toggle());
   // Two groups: which image, then how it was made. A phone puts each on its own line.
-  [[entry.position === '1 image' ? '' : 'Image ' + entry.position, 'Seed ' + entry.seed],
-   [entry.width + ' × ' + entry.height, entry.steps + ' steps', 'Took ' + entry.elapsed + ' s']
+  [[entry.position === '1 image' ? '' : t('stage.fact.position', {position: entry.position}),
+    t('stage.fact.seed', {seed: entry.seed})],
+   [entry.width + ' × ' + entry.height, t('stage.fact.steps', {count: entry.steps}),
+    t('stage.fact.took', {seconds: entry.elapsed})]
   ].forEach(function (group, index) {
     if (index) {
       const lineBreak = document.createElement('span');
@@ -227,11 +232,11 @@ function renderStageBar(entry) {
   // actions are rarer, so they wait behind More to keep the row short.
   const more = document.createElement('div');
   more.className = 'menu-anchor';
-  const moreToggle = iconButton('more', 'More actions', function () { menus.toggleMenu(moreMenu); });
+  const moreToggle = iconButton('more', t('stage.action.more'), function () { menus.toggleMenu(moreMenu); });
   // Every item behind this menu writes the form, and one of them writes the box a press is
   // filling, so the whole menu waits for the press with Edit this.
   moreToggle.disabled = page.rewriting();
-  if (moreToggle.disabled) moreToggle.title = 'Locked while the prompt is being rewritten.';
+  if (moreToggle.disabled) moreToggle.title = t('stage.action.locked');
   moreToggle.setAttribute('aria-controls', 'more-menu');
   moreToggle.setAttribute('aria-expanded', 'false');
   const moreMenu = document.createElement('div');
@@ -240,18 +245,18 @@ function renderStageBar(entry) {
   moreMenu.setAttribute('role', 'menu');
   moreMenu.hidden = true;
   moreMenu.append(
-    menus.menuItem('image-in', 'Use as reference', function () {
+    menus.menuItem('image-in', t('stage.menu.reference'), function () {
       page.referFrom(entry);
     }),
-    menus.menuItem('image-in', 'Use in Video', function () {
+    menus.menuItem('image-in', t('stage.menu.video'), function () {
       page.useInVideo(entry);
     }),
-    menus.menuItem('hash', 'Reuse seed ' + entry.seed, function () {
+    menus.menuItem('hash', t('stage.menu.reuseSeed', {seed: entry.seed}), function () {
       document.getElementById('seed').value = entry.seed;
       document.getElementById('advanced').open = true;
       page.refreshForm();
     }),
-    menus.menuItem('text', 'Reuse prompt', function () {
+    menus.menuItem('text', t('stage.menu.reusePrompt'), function () {
       // A Look this mode cannot show comes back as text, so the prompt still says what
       // the model got. Otherwise the user's own words come back, which a region run may
       // have none of: its instruction is the rows, and handing back the composed
@@ -273,23 +278,23 @@ function renderStageBar(entry) {
   download.className = 'icon-btn';
   download.href = entry.src;
   download.download = fileName(entry);
-  download.title = 'Download';
-  download.setAttribute('aria-label', 'Download');
+  download.title = t('stage.action.download');
+  download.setAttribute('aria-label', t('stage.action.download'));
   download.innerHTML = icon('download');
   const rule = document.createElement('span');
   rule.className = 'rule';
   // A rewrite writes into the form, and Edit this empties it: the mode switch clears the
   // prompt and the Look. So it is locked while one is writing, and says why.
-  const edit = textButton('brush', 'Edit this', function () { page.editThis(entry); });
+  const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); });
   edit.disabled = page.rewriting();
-  if (edit.disabled) edit.title = 'Locked while the prompt is being rewritten.';
+  if (edit.disabled) edit.title = t('stage.action.locked');
   actions.append(edit, more,
     rule, download,
-    iconButton('trash', 'Remove', function () { page.strip().remove(entry.id); }, 'danger'));
+    iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger'));
   if (document.fullscreenEnabled) {
     actions.append(document.fullscreenElement
-      ? iconButton('shrink', 'Exit full screen (F)', toggleFullscreen)
-      : iconButton('expand', 'Full screen (F)', toggleFullscreen));
+      ? iconButton('shrink', t('stage.action.exitFullscreen'), toggleFullscreen)
+      : iconButton('expand', t('stage.action.fullscreen'), toggleFullscreen));
   }
   if (page.region().onPrint()) page.region().tools(stageBar);
   stageBar.append(about, actions);
@@ -303,7 +308,7 @@ export function renderStage() {
   // reference, or a mode that does not take a region drops it. A run moves the
   // stage to its progress card and takes the mark with it, which is the one case
   // that is not the user's doing, so that one is dropped without a word.
-  region.dropStale(page.busy() || page.view() === 'progress' ? '' : 'The mark went with its picture.');
+  region.dropStale(page.busy() || page.view() === 'progress' ? '' : t('stage.mark.dropped'));
   page.canvas.innerHTML = '';
   const stageBar = page.stageBar;
   stageBar.hidden = true;
@@ -386,18 +391,19 @@ export function toggleSheet(prompt, entry) {
   if (!prompt.hasAttribute('role')) return;
   if (promptSheet) return closeSheet();
   const list = document.createElement('dl');
-  [['Prompt', entry.prompt], ['Look', entry.look ? entry.look.adds : ''], ['Negative', entry.negative]]
-    .forEach(function ([term, text]) {
+  [['stage.sheet.prompt', entry.prompt], ['stage.sheet.look', entry.look ? entry.look.adds : ''],
+    ['stage.sheet.negative', entry.negative]]
+    .forEach(function ([termKey, text]) {
       if (!text) return;
       const name = document.createElement('dt');
       const value = document.createElement('dd');
-      name.textContent = term;
+      name.textContent = t(termKey);
       value.textContent = text;
       list.append(name, value);
     });
   promptSheet = openSheet({
     id: 'prompt-sheet',
-    title: 'The whole prompt',
+    title: t('stage.sheet.title'),
     body: list,
     onClose: function () {
       promptSheet = null;
@@ -423,7 +429,7 @@ export function closeSheet() {
 // the browser's own rule. The arrow keys walk the strip, which is the page's.
 export function toggleFullscreen() {
   const change = document.fullscreenElement ? document.exitFullscreen() : page.work.requestFullscreen();
-  change.catch(function (error) { page.notify('error', 'Full screen failed: ' + error.message); });
+  change.catch(function (error) { page.notify('error', t('stage.error.fullscreen', {message: error.message})); });
 }
 
 function fileName(entry) {
