@@ -62,13 +62,13 @@ def verify_automatic_instrumental(browser, base):
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
             page.locator("#music-lyrics").fill("Words to replace")
-            bar.get_by_role("button", name="Score", exact=True).click()
-            page.get_by_role("dialog", name="Sheet music and chords").get_by_role(
-                "button", name="Edit and render score", exact=True
-            ).click()
+            bar.get_by_role("button", name="Edit score", exact=True).click()
+            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_visible()
             expect(page.locator("#music-instrumental")).to_have_count(0)
             expect(page.locator("#music-lyrics")).to_be_visible()
             expect(page.locator("#music-lyrics")).to_have_value("")
+            page.locator("#music-abc-close").click()
+            expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
     # Older drafts could keep words while an explicit instrumental switch was on.
     page.evaluate("""async()=>{
       const {saveMusicDraft}=await import('/page/lib/music-store.js');
@@ -109,6 +109,46 @@ def verify_cancel_restores_words(browser, base):
     )
     expect(page.locator("#music-style")).to_have_value("Gentle acoustic piano")
     expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
+    page.close()
+
+
+def verify_failure_restores_inputs(browser, base, audio):
+    """A failed run puts back the words and the reference it emptied."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.evaluate("document.querySelector('music-studio').setKeeping(false)")
+    page.locator("#music-style").fill("Gentle acoustic piano")
+    page.locator("#music-lyrics").fill("[Verse]\nMorning melody")
+    page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    page.locator("#music-count").select_option("16")
+    with page.expect_file_chooser() as chosen:
+        page.locator("#music-reference-choose").click()
+    chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    page.locator("#music-generate").click()
+    expect(page.locator("#music-style")).to_have_value("")
+    expect(page.locator("#music-lyrics")).to_have_value("")
+    expect(page.locator("#music-reference-name")).to_have_text("")
+    page.locator("#music-studio").evaluate(
+        """() => {
+            const studio = document.querySelector('#music-studio');
+            studio.restoreAfterFailure({
+                client_id: studio.options.clientId, kind: 'music', status: 'failed'
+            });
+        }"""
+    )
+    expect(page.locator("#music-style")).to_have_value("Gentle acoustic piano")
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nMorning melody")
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    page.locator("#music-generate").click()
+    page.wait_for_function(
+        "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
+    )
+    assert errors == [], errors
     page.close()
 
 
@@ -208,7 +248,7 @@ def main():
         expect(page.locator(".music-song audio")).to_have_count(0)
         expect(page.locator(".music-count")).to_have_text("0 songs, 1 score")
         bar = page.locator(".music-output-details:not([hidden])")
-        expect(bar.get_by_role("button", name="Score", exact=True)).to_be_enabled()
+        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_enabled()
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_be_disabled()
         page.keyboard.press("Escape")
@@ -221,15 +261,23 @@ def main():
         expect(page.locator("#music-mode-plan")).to_be_checked()
         expect(page.locator(".music-song.is-score")).to_have_count(1)
         assert not advanced.evaluate("node=>node.open")
-        bar.get_by_role("button", name="Score", exact=True).click()
-        page.get_by_role("dialog", name="Sheet music and chords").get_by_role(
-            "button", name="Render score", exact=True
-        ).click()
-        assert advanced.evaluate("node=>node.open"), "Render score did not reveal Advanced"
-        expect(page.locator("#music-abc")).to_be_visible()
+        bar.get_by_role("button", name="Edit score", exact=True).click()
+        assert advanced.evaluate("node=>node.open"), "Edit score did not reveal Advanced"
+        editor = page.get_by_role("dialog", name="ABC score", exact=True)
+        expect(editor).to_be_visible()
         expect(page.locator("#music-mode")).to_have_value("generate")
         expect(page.locator("#music-mode-generate")).to_be_checked()
         expect(page.locator("#music-abc")).to_have_value(score)
+        expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
+        page.keyboard.press("Escape")
+        expect(editor).to_be_hidden()
+        page.wait_for_function("() => document.activeElement?.id === 'music-abc-edit'", timeout=2000)
+        expect(page.locator("#music-abc-preview")).to_have_text(score)
+        expect(page.locator("#music-abc-edit")).to_have_text("Edit score")
+        page.locator("#music-abc-edit").click()
+        expect(editor).to_be_visible()
+        page.locator("#music-abc-close").click()
+        expect(editor).to_be_hidden()
         expect(page.locator("#music-instrumental")).to_have_count(0)
         page.locator("#music-lyrics").fill("")
         expect(page.locator("#music-lyrics")).to_be_visible()
@@ -260,6 +308,11 @@ def main():
         expect(page.locator("#music-reference-remove.video-audio-remove")).to_be_visible()
         expect(page.locator("#music-reference-choose")).to_be_hidden()
         expect(page.locator(".music-reference-scope")).to_be_visible()
+        expect(page.locator(".music-composition-fields").first).to_be_hidden()
+        expect(page.locator("#music-abc-edit")).to_be_hidden()
+        assert not page.locator("#music-abc-dialog").evaluate("node=>node.open"), (
+            "Reference mode opened the score editor"
+        )
         expect(page.locator("#music-style")).to_be_visible()
         expect(page.locator("#music-transcription-task")).to_be_visible()
         expect(page.locator("#music-generate")).to_be_enabled()
@@ -308,15 +361,16 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
-        expect(bar.get_by_role("button", name="Score", exact=True)).to_be_visible()
-        expect(page.locator(".music-score-popover:popover-open")).to_have_count(0)
-        bar.get_by_role("button", name="More actions", exact=True).click()
-        bar.get_by_role("menuitem", name="Sheet music and chords", exact=True).click()
-        expect(page.get_by_role("dialog", name="Sheet music and chords", exact=True)).to_be_visible()
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        expect(page.locator("#music-mode")).to_have_value("plan")
+        expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        bar.locator(".prompt-line").click()
+        details = page.get_by_role("region", name="Music details", exact=True)
+        expect(details).to_be_visible()
         with page.expect_download() as downloaded:
-            page.locator(".music-song:not([hidden])").get_by_role(
-                "link", name="Download MIDI · Composition", exact=True
-            ).click()
+            details.get_by_role("link", name="Download MIDI · Composition", exact=True).click()
         assert downloaded.value.path().read_bytes() == midi
         for label in [
             "Download MIDI · Vocal melody",
@@ -324,13 +378,15 @@ def main():
             "Download LAB · Key",
             "Download LAB · Beat",
         ]:
-            expect(
-                page.locator(".music-song:not([hidden])").get_by_role("link", name=label, exact=True)
-            ).to_be_visible()
-        page.get_by_role("button", name="Close sheet music", exact=True).click()
+            expect(details.get_by_role("link", name=label, exact=True)).to_be_visible()
+        page.get_by_role("button", name="Close music details", exact=True).click()
 
         # A cover keeps Style and Lyrics and starts from the recording's composition.
         page.locator('label[for="music-mode-generate"]').click()
+        expect(page.locator("#music-mode")).to_have_value("generate")
+        with page.expect_file_chooser() as chosen:
+            page.locator("#music-reference-choose").click()
+        chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
         expect(page.locator("#music-mode")).to_have_value("cover")
         page.locator("#music-style").fill("Warm piano pop")
         page.locator("#music-lyrics").fill("[Verse]\nA different morning song")
@@ -346,7 +402,8 @@ def main():
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Generate artwork", exact=True)).to_be_visible()
         page.keyboard.press("Escape")
-        page.locator("#music-reference-remove").click()
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.locator("#music-mode")).to_have_value("generate")
         expect(page.locator(".music-reference-scope")).to_be_hidden()
         # The cover run emptied the words, so the form asks for them again.
@@ -376,10 +433,11 @@ def main():
         assert errors == [], errors
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
+        verify_failure_restores_inputs(browser, base, audio)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "
-        "variations, reference-driven cover and transcription, exports, drops, validation, and cancel restore."
+        "variations, reference-driven cover and transcription, exports, drops, validation, cancel and failure restore."
     )
 
 
