@@ -17,10 +17,17 @@ from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.prepare_batch_use_case import BATCH_LIMIT
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
+from studio.l3_interface_adapters.presenters.locale import DEFAULT_LOCALE, LocaleCatalog
 
 ITEM = """<div class="item" data-seed="{seed}" data-width="{width}" data-height="{height}"
   data-steps="{steps}" data-elapsed="{elapsed:.0f}" data-position="{position}"
   data-mode="{mode}" data-prompt="{prompt}" data-reference="{reference}"><img src="data:image/png;base64,{b64}" alt=""></div>"""
+
+
+def _script_json(value: object) -> str:
+    """JSON that cannot close the script tag it travels in."""
+    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
 
 CHAIN = (
     '<div class="chain" data-index="{index}" data-progress="{progress}" hx-post="/generate"'
@@ -36,13 +43,33 @@ POLLER = '<div hx-get="/progress" hx-trigger="load delay:800ms" hx-target="#prog
 
 
 class HtmlPresenter:
-    def __init__(self, page_template: str):
+    def __init__(self, page_template: str, locales: LocaleCatalog | None = None):
         self._page = page_template
+        self._locales = locales
 
-    def page(self, view: StudioView, workspaces: Mapping[str, bool] | None = None) -> str:
+    def locale_for(
+        self,
+        requested: str | None = None,
+        cookie: str | None = None,
+        accept_language: str | None = None,
+    ) -> str:
+        """The locale a request asks for, chosen the same way the picker persists one."""
+        if self._locales is None:
+            return DEFAULT_LOCALE
+        return self._locales.negotiate(requested, cookie, accept_language)
+
+    def page(
+        self,
+        view: StudioView,
+        workspaces: Mapping[str, bool] | None = None,
+        locale: str = DEFAULT_LOCALE,
+    ) -> str:
         """`workspaces` says which optional workspaces this studio offers, so the
         page can draw all four tabs on the first paint. A studio that passes
-        nothing offers neither, and the tabs stay out of the nav."""
+        nothing offers neither, and the tabs stay out of the nav.
+
+        `locale` picks the string table, which travels inline so the first paint
+        needs no request and no bundle of a language nobody reads."""
         active = view.active
         studio = {
             "batch_limit": BATCH_LIMIT,
@@ -78,10 +105,26 @@ class HtmlPresenter:
         }
         # The JSON sits in a script tag, where "</" would end the tag early.
         data = json.dumps(studio, ensure_ascii=False).replace("</", "<\\/")
+        strings = self._locales.strings(locale) if self._locales else {}
+        available = (
+            [{"code": item.code, "label": item.label} for item in self._locales.locales] if self._locales else []
+        )
+        locale_script = (
+            "window.STUDIO_STRINGS = "
+            + _script_json(strings)
+            + ";\n  window.STUDIO_LOCALES = "
+            + _script_json(available)
+            + ";"
+        )
+        tag = f'<html lang="{html.escape(locale)}" data-locale="{html.escape(locale)}"'
+        if locale != DEFAULT_LOCALE:
+            tag += ' class="locale-pending"'
         return (
-            self._page.replace("__NAME__", html.escape(active.name))
+            self._page.replace('<html lang="en">', tag + ">")
+            .replace("__NAME__", html.escape(active.name))
             .replace("__BACKEND__", html.escape(active.backend_id))
             .replace("__STUDIO__", data)
+            .replace("__LOCALE__", locale_script)
         )
 
     def run(self, response: RunImageResponse) -> str:

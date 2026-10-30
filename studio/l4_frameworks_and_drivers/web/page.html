@@ -17,12 +17,16 @@
 </script>
 <!-- The theme menu, after that first paint. A module is deferred, so it cannot
      hold the early read above without letting the default theme flash. -->
+<!-- The chosen locale's strings travel inline and are written by the server. The sweep at
+     the end of the body reads them, so the first paint is already translated. -->
+<script>__LOCALE__</script>
 <script type="module" src="/page/lib/form.js"></script>
 <script type="module" src="/page/components/popup-menu.js"></script>
 <script type="module" src="/page/components/stage.js"></script>
 <script type="module" src="/page/components/studio-guide.js"></script>
 <script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
+<script type="module" src="/page/lib/locale.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
 <script type="module" src="/page/components/advanced-panel.js"></script>
 <script type="module" src="/page/components/run-button.js"></script>
@@ -82,18 +86,21 @@
           <div class="menu" id="backend-menu" role="menu" hidden></div>
         </div>
       </div>
-      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace">
-        <button type="button" id="media-image-mode" aria-pressed="true">Image</button>
-        <button type="button" id="media-video-mode" aria-pressed="false">Video</button>
-        <button type="button" id="media-voice-mode" aria-pressed="false" hidden>Voice</button>
-        <button type="button" id="media-music-mode" aria-pressed="false" hidden>Music</button>
+      <nav class="workspace-tabs" id="workspace-tabs" role="group" aria-label="Workspace"
+        data-i18n-attr='{"aria-label":"nav.workspace"}'>
+        <button type="button" id="media-image-mode" aria-pressed="true" data-i18n="tab.image">Image</button>
+        <button type="button" id="media-video-mode" aria-pressed="false" data-i18n="tab.video">Video</button>
+        <button type="button" id="media-voice-mode" aria-pressed="false" hidden data-i18n="tab.voice">Voice</button>
+        <button type="button" id="media-music-mode" aria-pressed="false" hidden data-i18n="tab.music">Music</button>
       </nav>
       <div class="readout">
         <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
-          title="How to use this studio" aria-label="How to use this studio"><svg class="icon"><use href="#i-info"/></svg></button>
+          title="How to use this studio" aria-label="How to use this studio"
+          data-i18n-attr='{"title":"guide.toggle","aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="theme-menu" title="Theme and images" aria-label="Theme and images"><svg class="icon"><use href="#i-aperture"/></svg></button>
+          aria-controls="theme-menu" title="Settings" aria-label="Settings"
+          data-i18n-attr='{"title":"settings.toggle","aria-label":"settings.toggle"}'><svg class="icon"><use href="#i-aperture"/></svg></button>
           <div class="menu" id="theme-menu" role="menu" hidden></div>
         </div>
       </div>
@@ -466,6 +473,27 @@
     </form>
   </aside>
 </div>
+
+<script>
+  // Static copy carries its English text and a key. The server inlines the chosen table, so
+  // this runs before the first paint and never fetches a bundle.
+  (function () {
+    const strings = window.STUDIO_STRINGS || {};
+    document.querySelectorAll('[data-i18n]').forEach(function (node) {
+      const text = strings[node.dataset.i18n];
+      if (text) node.textContent = text;
+    });
+    document.querySelectorAll('[data-i18n-attr]').forEach(function (node) {
+      let pairs;
+      try { pairs = JSON.parse(node.dataset.i18nAttr); } catch (error) { return; }
+      Object.keys(pairs).forEach(function (attribute) {
+        const text = strings[pairs[attribute]];
+        if (text) node.setAttribute(attribute, text);
+      });
+    });
+    document.documentElement.classList.remove('locale-pending');
+  })();
+</script>
 
 <script>
   // What the backend offers. The page reads every mode, param, limit, Look,

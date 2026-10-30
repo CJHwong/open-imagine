@@ -19,6 +19,7 @@ from studio.l2_use_cases.describe_studio_use_case import StudioView
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
+from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
 
 PAGE = "<title>__NAME__</title><input value=__BACKEND__><script>const STUDIO = __STUDIO__;</script>"
@@ -273,3 +274,35 @@ def test_the_chain_carries_which_image_is_the_mask():
         mask=True,
     )
     assert chain_values(presenter().run(response(nxt)))["mask"] == "1"
+
+
+def test_the_page_carries_the_chosen_locale_and_its_strings(tmp_path):
+    (tmp_path / "en.json").write_text(json.dumps({"_label": "English", "_short": "EN"}))
+    (tmp_path / "zh-TW.json").write_text(
+        json.dumps({"_label": "繁體中文", "nav.workspace": "工作區"}, ensure_ascii=False)
+    )
+    presenter_with_locales = HtmlPresenter(
+        '<html lang="en"><head><script>__LOCALE__</script></head></html>',
+        LocaleCatalog(tmp_path),
+    )
+    view = StudioView(active=fake_capabilities(), backends=())
+    english = presenter_with_locales.page(view)
+    assert '<html lang="en" data-locale="en">' in english
+    assert "locale-pending" not in english
+    assert "window.STUDIO_STRINGS" in english
+    traditional = presenter_with_locales.page(view, locale="zh-TW")
+    assert '<html lang="zh-TW" data-locale="zh-TW" class="locale-pending">' in traditional
+    assert "工作區" in traditional
+    assert "繁體中文" in traditional
+    assert not re.search(r"__LOCALE(_SHORT)?__", traditional)
+
+
+def test_the_presenter_chooses_a_locale_the_way_the_picker_persists_one(tmp_path):
+    (tmp_path / "en.json").write_text(json.dumps({"ok": "yes"}))
+    (tmp_path / "zh-TW.json").write_text(json.dumps({"ok": "好"}))
+    chosen = HtmlPresenter('<html lang="en"></html>', LocaleCatalog(tmp_path))
+    assert chosen.locale_for("zh-TW", "studio-locale=en", "en-US") == "zh-TW"
+    assert chosen.locale_for(None, "studio-locale=zh-TW", "en-US") == "zh-TW"
+    assert chosen.locale_for(None, None, "zh-TW") == "zh-TW"
+    assert chosen.locale_for(None, None, None) == "en"
+    assert HtmlPresenter('<html lang="en"></html>').locale_for("zh-TW", None, None) == "en"
