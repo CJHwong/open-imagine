@@ -1,17 +1,17 @@
 {
   "name": "open-imagine",
-  "version": "0.2.1",
-  "description": "Direct, generate, edit and review still images with your own Open Imagine studio.",
+  "version": "0.3.0",
+  "description": "Create images and songs with your own Open Imagine studio.",
   "author": { "name": "CJHwong", "url": "https://github.com/CJHwong" },
   "homepage": "https://github.com/CJHwong/open-imagine",
   "repository": "https://github.com/CJHwong/open-imagine",
   "license": "MIT",
-  "keywords": ["image-generation", "photography", "illustration", "apple-silicon"],
+  "keywords": ["image-generation", "music-generation", "songwriting", "lyrics", "photography", "illustration", "apple-silicon"],
   "skills": "./skills",
   "interface": {
     "displayName": "Open Imagine",
-    "shortDescription": "Make photos, design, illustration and edits",
-    "longDescription": "Turns a brief into still images on your own Open Imagine studio, a local image, video and voice studio for Apple Silicon. It plans the shot, writes the prompt from a library of tested styles, generates, inspects the results and refines them with edits.",
+    "shortDescription": "Make images and songs",
+    "longDescription": "Turns a brief into still images or a song on your own Open Imagine studio, a local image, video, voice and music studio for Apple Silicon. It plans the shot or the arrangement, writes the prompt or the sectioned lyrics, generates, inspects the result and refines it with edits.",
     "developerName": "CJHwong",
     "category": "Creativity",
     "capabilities": [],
@@ -19,7 +19,8 @@
     "defaultPrompt": [
       "make a phone wallpaper of my cat",
       "shoot a product photo set for this mug",
-      "restore this old family photo"
+      "restore this old family photo",
+      "make a warm piano pop song about leaving home"
     ],
     "composerIcon": "./assets/icon.png",
     "logo": "./assets/icon.png"
