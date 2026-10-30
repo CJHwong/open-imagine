@@ -83,7 +83,7 @@ def main():
         assert current.locator(".music-track-text").evaluate("pane => pane.scrollTop > 0")
         # Style remains available in metadata while lyrics occupy the main player.
         page.locator(".music-output-details:not([hidden]) .prompt-line").click()
-        expect(page.get_by_role("region", name="Music details").locator("dl")).to_contain_text("clear hammer attacks")
+        expect(page.get_by_role("dialog", name="Music details").locator("dl")).to_contain_text("clear hammer attacks")
         browser.close()
     print("PASS cover-aligned title and transport, scrollable inline lyrics, mobile stack and full Style metadata")
 

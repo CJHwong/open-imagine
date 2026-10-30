@@ -109,9 +109,14 @@ def main():
         expect(bar.get_by_role("link", name="Download WAV")).to_be_visible()
         assert bar.locator(".actions").bounding_box()["y"] < page.locator(".music-gallery").bounding_box()["y"]
         bar.locator(".prompt-line").click()
-        sheet = page.get_by_role("region", name="Music details", exact=True)
+        sheet = page.get_by_role("dialog", name="Music details", exact=True)
         expect(sheet).to_be_visible()
-        expect(sheet.locator("dd")).to_contain_text(["YuE2", "48 kHz", "Warm piano", "A melody"])
+        expect(sheet.locator("dd")).to_contain_text(["YuE2", "48 kHz", "Warm piano"])
+        # The words start folded, so the sheet stays short until someone asks.
+        lyrics = sheet.locator("details.music-details-lyrics")
+        expect(lyrics).not_to_have_attribute("open", "")
+        lyrics.locator("summary").click()
+        expect(lyrics.locator("p")).to_have_text("[Verse]\nA melody for the morning")
         expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2")
         expect(bar.locator(".facts span").first).to_have_text("YuE2")
         assert page.locator("#music-studio gallery-browser").evaluate(

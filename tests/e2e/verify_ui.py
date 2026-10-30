@@ -1584,7 +1584,7 @@ with sync_playwright() as playwright:
         f"{caption.count()} prompt controls",
     )
     caption.click()
-    sheet = page.get_by_role("region", name="The whole prompt")
+    sheet = page.get_by_role("dialog", name="The whole prompt")
     sheet.wait_for(state="visible", timeout=10000)
     check(
         "the sheet shows the whole of the prompt behind the caption",
@@ -1595,7 +1595,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     check(
         "closing the sheet gives the caption back",
-        page.get_by_role("region", name="The whole prompt").count() == 0
+        page.get_by_role("dialog", name="The whole prompt").count() == 0
         and caption.get_attribute("aria-expanded") == "false",
     )
     # The caption is a control for the keyboard too, and Escape closes the sheet
@@ -1606,7 +1606,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     check(
         "the caption opens the sheet from the keyboard and Escape closes it",
-        page.get_by_role("region", name="The whole prompt").count() == 0
+        page.get_by_role("dialog", name="The whole prompt").count() == 0
         and caption.get_attribute("aria-expanded") == "false",
     )
 

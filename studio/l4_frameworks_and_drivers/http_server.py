@@ -68,7 +68,9 @@ def make_handler(
             if self._refused_private_key():
                 return
             if path == "/":
-                self._send(presenter.page(controller.page()))
+                # A handler without the API offers no optional workspace, and
+                # the presenter draws no tab for one it was not told about.
+                self._send(presenter.page(controller.page(), api.workspaces() if api else None))
             elif path == "/api/docs":
                 self._send((WEB / "api-docs.html").read_text())
             elif self.path == "/progress":

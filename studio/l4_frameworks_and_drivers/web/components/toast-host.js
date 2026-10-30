@@ -25,6 +25,21 @@ import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat
 // How long a message that is not a failure stays. A failure waits for a person.
 const LIFETIME = 4000;
 
+// Where the stack starts. It clears the shared operation bar when that bar is
+// up, because the bar owns the strip under the top bar while a run is visible.
+// Horizontally it stays over the work column, as it was before the popover: a
+// stack centred on the window leaned over the sidebar's own menus.
+function toastPlacement() {
+  const bar = document.getElementById('shared-operation');
+  const bottom = bar && !bar.hidden && bar.getClientRects().length ? bar.getBoundingClientRect().bottom : 0;
+  const work = document.querySelector('.work');
+  const middle = work ? work.getBoundingClientRect() : null;
+  return {
+    top: Math.max(68, Math.round(bottom) + 12) + 'px',
+    left: middle ? Math.round(middle.left + middle.width / 2) + 'px' : '50%',
+  };
+}
+
 // The page draws its own controls from the same sprite, and the two must agree
 // on the three lines, so this draws a glyph exactly as `popup-menu.js` does.
 function glyph(name) {
@@ -45,6 +60,7 @@ class ToastHost extends LitElement {
     this.messages = this.messages.concat([{ id: id, kind: kind, text: text }]);
     this.requestUpdate();
     if (kind !== 'error') setTimeout(() => this.dismiss(id), LIFETIME);
+    this.updateComplete.then(() => this.present());
   }
 
   dismiss(id) {
@@ -52,12 +68,29 @@ class ToastHost extends LitElement {
     if (left.length === this.messages.length) return;
     this.messages = left;
     this.requestUpdate();
+    this.updateComplete.then(() => this.present());
   }
 
   clear() {
     if (!this.messages.length) return;
     this.messages = [];
     this.requestUpdate();
+    this.updateComplete.then(() => this.present());
+  }
+
+  // The host is a popover, so the top layer paints it over the sticky shared bar
+  // and over any modal sheet. A closed popover is display:none, so the host shows
+  // itself only while it has a message, and its top clears the shared bar rather
+  // than the fixed 68 pixels that the bar used to cover.
+  present() {
+    if (!this.messages.length) {
+      if (this.hidePopover && this.matches(':popover-open')) this.hidePopover();
+      return;
+    }
+    const place = toastPlacement();
+    this.style.setProperty('--toast-top', place.top);
+    this.style.setProperty('--toast-left', place.left);
+    if (this.showPopover && !this.matches(':popover-open')) this.showPopover();
   }
 
   message(one) {

@@ -40,7 +40,7 @@ def main():
         expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
         expect(bar.locator(".facts")).to_contain_text("Generated in 12.5 s")
         bar.locator(".prompt-line").click()
-        details = page.get_by_role("region", name="Music details", exact=True)
+        details = page.get_by_role("dialog", name="Music details", exact=True)
         expect(details.get_by_text("Generation time", exact=True)).to_be_visible()
         expect(details.get_by_text("12.5 seconds", exact=True)).to_be_visible()
         expect(details.get_by_text("Raw metadata", exact=True)).to_have_count(0)

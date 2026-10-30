@@ -386,7 +386,7 @@ def main():
         expect(bar.get_by_role("button", name="Edit score", exact=True)).to_be_visible()
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
-        details = page.get_by_role("region", name="Music details", exact=True)
+        details = page.get_by_role("dialog", name="Music details", exact=True)
         expect(details).to_be_visible()
         with page.expect_download() as downloaded:
             details.get_by_role("link", name="Download MIDI · Composition", exact=True).click()

@@ -5,6 +5,7 @@ import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
 import {blobBase64} from '../lib/voice-audio.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
+import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
@@ -285,6 +286,9 @@ class MusicStudio extends HTMLElement {
     this.engravePending = false;
     this.engraveTimer = null;
     this.abcReturnFocus = true;
+    this.detailsSheet = null;
+    this.detailsQuiet = false;
+    this.detailsBodies = new Map();
   }
   connectedCallback() {
     if (this.ready) return;
@@ -307,10 +311,14 @@ class MusicStudio extends HTMLElement {
         <button type="button" class="btn" id="music-write">
           <svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span>Write a style</span></button>
       </div>
-      <div class="music-songs"></div></div><div class="music-output-bars"></div><div class="music-detail-sheets"></div></section>
+      <div class="music-songs"></div></div><div class="music-output-bars"></div></section>
       <section class="music-gallery strip-wrap" aria-label="Songs" hidden>
         <div class="strip-head"><h2>Songs</h2><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="Pause background audio" hidden>Pause</button>
+          <span class="strip-actions">
+            <button type="button" class="text-btn" id="music-download-all">Download all</button>
+            <button type="button" class="text-btn" id="music-clear-all">Clear all</button>
+          </span>
           <span class="music-count">0 songs</span></div>
         <div class="strip music-strip" role="group" aria-label="Select a song"></div>
       </section></div>`;
@@ -342,7 +350,7 @@ class MusicStudio extends HTMLElement {
             </div><span class="video-audio-name" id="music-reference-name"></span></div>
           </div>
         </div>
-        <span class="caption">Optional. With Generate it makes a cover; with Compose it makes a transcription.</span>
+        <span class="caption" id="music-reference-note"></span>
           <div class="music-reference-scope field"><div class="field-head"><label for="music-transcription-task">Keep from reference</label></div>
             <select id="music-transcription-task"><option value="melody-full">Vocal and instrumental melody</option><option value="melody-vocal">Vocal melody only</option><option value="full">Melody and chords</option></select></div>
       </section>
@@ -476,6 +484,8 @@ class MusicStudio extends HTMLElement {
       if (!this.busy && event.dataTransfer.files[0]) this.setReference(event.dataTransfer.files[0]);
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
+    this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
+    this.querySelector('#music-clear-all').addEventListener('click', () => this.clearAllSongs());
     window.addEventListener('pagehide', () => this.pausePlayback());
     window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
     window.addEventListener('keydown', event => {
@@ -811,7 +821,20 @@ class MusicStudio extends HTMLElement {
     const abcPreview = this.controls.querySelector('#music-abc-preview');
     abcPreview.textContent = abc.trim() ? abc : 'No score. Generate will compose one.';
     abcPreview.classList.toggle('is-empty', !abc.trim());
-    this.controls.querySelector('#music-abc-edit').textContent = abc.trim() ? 'Edit score' : 'Add score';
+    // A cover or a transcription carries no score, so the door says why it is off
+    // instead of returning silently when it is pressed.
+    const abcEdit = this.controls.querySelector('#music-abc-edit');
+    abcEdit.textContent = abc.trim() ? 'Edit score' : 'Add score';
+    abcEdit.disabled = this.busy || needsReference;
+    abcEdit.title = needsReference ? 'A cover or a transcription uses the reference, not a score.'
+      : this.busy ? 'The score waits until this run finishes.' : '';
+    // The reference caption says what this mode does with a recording, so one
+    // sentence is never reused for two different jobs.
+    this.controls.querySelector('#music-reference-note').textContent = transcribe
+      ? 'This recording will be transcribed into a score, not sung.'
+      : coverSong ? 'Generate will make a cover of this recording.'
+        : draft.mode === 'plan' ? 'Optional. Add a recording and Compose transcribes it instead of composing.'
+          : 'Optional. Add a recording and Generate writes a cover of it.';
     if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
       this.closeAbcEditor(false);
     }
@@ -832,6 +855,21 @@ class MusicStudio extends HTMLElement {
     this.controls.disabled = this.busy || this.hidden;
     this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
     this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
+    // A control that cannot act is off and says why, rather than taking the press
+    // and returning in silence.
+    this.querySelectorAll('[data-music-score]').forEach(button => {
+      button.disabled = this.busy;
+      button.title = this.busy ? 'The score waits until this run finishes.' : 'Open this score in the editor';
+    });
+    this.querySelectorAll('[data-music-more]').forEach(button => {
+      button.disabled = this.busy;
+      button.setAttribute('aria-disabled', String(this.busy));
+      button.title = this.busy ? 'The song actions wait until this run finishes.' : 'More actions';
+    });
+    const downloadAll = this.querySelector('#music-download-all');
+    const clearAll = this.querySelector('#music-clear-all');
+    if (downloadAll) downloadAll.disabled = !this.songs.length;
+    if (clearAll) clearAll.disabled = !this.songs.length || this.busy;
     this.querySelectorAll('[data-music-cover]').forEach(button => { button.disabled = this.busy; });
     this.syncRunButton(draft, ready);
     const generating = this.pending || this.operation?.kind === 'music';
@@ -1007,13 +1045,7 @@ class MusicStudio extends HTMLElement {
     else if (pending) { pending.classList.toggle('selected', gallery.pendingSelected); pending.setAttribute('aria-pressed', String(Boolean(gallery.pendingSelected))); }
     gallery.choose = id => this.selectSong(id);
     gallery.removeItem = id => this.removeSong(id);
-    gallery.download = async ids => {
-      for (const song of this.songs.filter(song => ids.includes(song.id))) {
-        const link = document.createElement('a'); const url = URL.createObjectURL(song.blob || new Blob([song.score], {type: 'text/vnd.abc'}));
-        link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
-    };
+    gallery.download = async ids => this.downloadSongs(ids);
     gallery.playback = () => {
       const audio = this.querySelector('.music-song:not([hidden]) audio');
       if (audio) { if (audio.paused) audio.play().catch(error => this.options.notify('error', error.message)); else audio.pause(); }
@@ -1025,6 +1057,32 @@ class MusicStudio extends HTMLElement {
       if (!selected && marker) marker.remove();
       if (selected && !marker) { marker = document.createElement('span'); marker.className = 'music-selection-mark'; render(pencilLoop(true), marker); button.append(marker); }
     });
+  }
+  // One path for every download, so the strip and the browser panel cannot
+  // disagree about a file's name or its type.
+  downloadSongs(ids) {
+    for (const song of this.songs.filter(song => ids.includes(song.id))) {
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(song.blob || new Blob([song.score || ''], {type: 'text/vnd.abc'}));
+      link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  }
+  async clearAllSongs() {
+    if (this.busy || !this.songs.length) return;
+    const count = this.songs.length;
+    const noun = count === 1 ? 'song' : 'songs';
+    if (!confirm(`Remove ${count} ${noun} from this browser?`)) return;
+    try {
+      if (this.keeping) await this.store(clearMusic);
+      this.songs = []; this.selectedId = null;
+      this.renderSongs();
+      localStorage.setItem('studio-music-changed', String(Date.now()));
+      this.options.notify('info', `Removed ${count} ${noun}.`);
+    } catch (error) {
+      this.options.notify('error', error.message || 'The songs were not removed.');
+    }
   }
   async removeSong(id) {
     try {
@@ -1228,14 +1286,34 @@ class MusicStudio extends HTMLElement {
     card.querySelector('.music-lyrics-toggle').title = lyrics ? 'Show style' : 'Show lyrics';
   }
   closeDetails(focus = true) {
-    this.querySelectorAll('.music-details-sheet').forEach(sheet => { sheet.hidden = true; });
     this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
-    if (focus) this.detailsTrigger?.focus();
+    if (!this.detailsSheet) {
+      if (focus) this.detailsTrigger?.focus();
+      return;
+    }
+    this.detailsQuiet = !focus;
+    dismissSheet(this.detailsSheet);
   }
-  openDetails(sheet, trigger) {
+  openDetails(songId, trigger) {
+    const detail = this.detailsBodies.get(songId);
+    if (!detail) return;
     this.closeScore(false); this.closeDetails(false); this.detailsTrigger = trigger;
-    trigger.setAttribute('aria-expanded', 'true'); sheet.hidden = false;
-    sheet.querySelector('.close').focus();
+    trigger.setAttribute('aria-expanded', 'true');
+    this.detailsSheet = openSheet({
+      id: detail.id,
+      title: detail.title,
+      label: 'Music details',
+      closeLabel: 'Close music details',
+      body: detail.body,
+      footer: detail.footer,
+      onClose: () => {
+        const quiet = this.detailsQuiet;
+        this.detailsQuiet = false;
+        this.detailsSheet = null;
+        this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
+        if (!quiet) this.detailsTrigger?.focus();
+      },
+    });
   }
   closeScore(focus = true) { this.closeAbcEditor(focus); }
   updateScoreScrollHint(pane) {
@@ -1332,6 +1410,7 @@ class MusicStudio extends HTMLElement {
     this.lyricsShown?.forEach(id => { if (!this.songs.some(song => song.id === id)) this.lyricsShown.delete(id); });
     this.closeDetails(false);
     this.closeScore(false);
+    this.detailsBodies = new Map();
     const players = new Map();
     for (const card of this.querySelectorAll('.music-song')) {
       const audio = card.querySelector('audio');
@@ -1349,7 +1428,6 @@ class MusicStudio extends HTMLElement {
     const list = this.querySelector('.music-songs');
     list.replaceChildren();
     const bars = this.querySelector('.music-output-bars'); bars.replaceChildren();
-    const sheets = this.querySelector('.music-detail-sheets'); sheets.replaceChildren();
     const strip = this.querySelector('.music-strip'); strip.replaceChildren();
     for (const song of this.songs.slice().reverse()) {
       const card = document.createElement('article');
@@ -1392,31 +1470,36 @@ class MusicStudio extends HTMLElement {
       const style = document.createElement('p'); style.className = 'music-song-style'; style.textContent = song.settings?.style || 'Song';
       const download = document.createElement('a'); download.className = 'icon-btn';
       download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? 'Download WAV' : 'Download ABC'); download.title = hasAudio ? 'Download WAV' : 'Download ABC'; download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
-      const details = document.createElement('section');
-      details.hidden = true; details.id = 'music-details-' + this.songs.indexOf(song);
-      details.setAttribute('role', 'region'); details.setAttribute('aria-label', 'Music details');
-      const summary = document.createElement('h3'); summary.textContent = hasAudio ? 'Song details' : 'Score details';
-      details.append(summary);
+      const details = document.createElement('div');
+      details.className = 'music-details-body';
       const metadata = document.createElement('dl');
       for (const [name, value] of [['Model', musicModelName(song.model)], ['Seed', song.seed], ['Length', hasAudio ? song.seconds.toFixed(1) + ' seconds' : null], ['Generation time', Number.isFinite(song.generationSeconds) ? song.generationSeconds.toFixed(1) + ' seconds' : null],
-        ['Audio', hasAudio ? '48 kHz · stereo · WAV' : 'Score only · ABC'], ['Workflow', ({generate: 'Create song', plan: 'Compose score', transcribe: 'Transcribe audio', cover: 'Cover song'})[song.settings?.mode || 'generate']], ['Reference', song.settings?.reference_name], ['Instrumental', song.settings?.instrumental ? 'Yes' : null], ['Synthesis steps', hasAudio ? song.settings?.steps || 32 : null], ['Guidance', hasAudio ? song.settings?.cfg_scale ?? 1 : null], ['Style', song.settings?.style], ['Lyrics', song.settings?.lyrics], ['Planning', ({full: 'Melody and chords', melody: 'Melody', off: 'Direct generation'})[song.metadata?.config?.cot || song.settings?.cot]], ['Cover model', song.coverModel], ['Cover seed', song.coverSeed]]) {
+        ['Audio', hasAudio ? '48 kHz · stereo · WAV' : 'Score only · ABC'], ['Workflow', ({generate: 'Create song', plan: 'Compose score', transcribe: 'Transcribe audio', cover: 'Cover song'})[song.settings?.mode || 'generate']], ['Reference', song.settings?.reference_name], ['Instrumental', song.settings?.instrumental ? 'Yes' : null], ['Synthesis steps', hasAudio ? song.settings?.steps || 32 : null], ['Guidance', hasAudio ? song.settings?.cfg_scale ?? 1 : null], ['Style', song.settings?.style], ['Planning', ({full: 'Melody and chords', melody: 'Melody', off: 'Direct generation'})[song.metadata?.config?.cot || song.settings?.cot]], ['Cover model', song.coverModel], ['Cover seed', song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;
         const data = document.createElement('dd'); data.textContent = String(value); metadata.append(label, data);
       }
       details.append(metadata);
-      details.className = 'sheet music-details-sheet';
-      const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-btn close'; close.setAttribute('aria-label', 'Close music details'); close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
-      close.addEventListener('click', () => this.closeDetails()); details.append(close);
-      details.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeDetails(); } });
+      // The words are the longest thing in the sheet and the least often read,
+      // so they start folded. A song with no words has nothing to fold.
+      const lyrics = String(song.settings?.lyrics || '').trim();
+      if (lyrics) {
+        const fold = document.createElement('details'); fold.className = 'music-details-lyrics';
+        const lyricsHead = document.createElement('summary'); lyricsHead.textContent = 'Lyrics';
+        const words = document.createElement('p'); words.textContent = lyrics;
+        fold.append(lyricsHead, words); details.append(fold);
+      }
       const score = document.createElement('details'); const scoreHeading = document.createElement('summary'); scoreHeading.textContent = 'ABC score';
       const notation = document.createElement('pre'); notation.textContent = song.score || 'No score was generated.';
       score.append(scoreHeading, notation); details.append(score);
+      // The downloads sit in the sheet's own foot, so they stay reachable while
+      // the body scrolls through the metadata.
+      let downloads = null;
       if (song.score) {
-        const downloads = this.scoreArtifacts(song);
+        downloads = this.scoreArtifacts(song);
         const abc = document.createElement('a'); abc.className = 'text-btn'; abc.textContent = 'Download ABC'; abc.download = `music-${song.seed}.abc`;
         const abcUrl = URL.createObjectURL(new Blob([song.score], {type: 'text/vnd.abc;charset=utf-8'})); this.urls.push(abcUrl); abc.href = abcUrl;
-        downloads.prepend(abc); details.append(downloads);
+        downloads.prepend(abc);
       }
       const send = menuItem('music', 'Send to Video', () => {
         if (this.busy || song.stub || !hasAudio) return;
@@ -1431,16 +1514,18 @@ class MusicStudio extends HTMLElement {
       cover.dataset.musicCover = ''; cover.title = 'Generate a square cover from this song (Alt+C)'; cover.setAttribute('aria-keyshortcuts', 'Alt+C');
       const facts = document.createElement('div'); facts.className = 'facts num'; facts.setAttribute('aria-label', 'Music metadata');
       for (const value of [musicModelName(song.model), hasAudio ? song.seconds.toFixed(1) + ' s' : 'Score only', Number.isFinite(song.generationSeconds) ? 'Generated in ' + song.generationSeconds.toFixed(1) + ' s' : hasAudio ? '48 kHz · stereo' : 'ABC notation', 'Seed ' + song.seed]) { const fact = document.createElement('span'); fact.textContent = value; facts.append(fact); }
+      const detailsId = 'music-details-' + this.songs.indexOf(song);
+      this.detailsBodies.set(song.id, {id: detailsId, title: hasAudio ? 'Song details' : 'Score details', body: details, footer: downloads});
       const about = document.createElement('div'); about.className = 'about';
       const caption = document.createElement('p'); caption.className = 'prompt-line'; caption.textContent = song.settings?.style || song.settings?.reference_name || (hasAudio ? 'Song' : 'Music score'); caption.title = caption.textContent;
-      caption.setAttribute('role', 'button'); caption.tabIndex = 0; caption.dataset.musicDetails = ''; caption.setAttribute('aria-controls', details.id); caption.setAttribute('aria-expanded', 'false');
-      caption.addEventListener('click', () => this.openDetails(details, caption));
-      caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(details, caption); } });
+      caption.setAttribute('role', 'button'); caption.tabIndex = 0; caption.dataset.musicDetails = ''; caption.setAttribute('aria-controls', detailsId); caption.setAttribute('aria-expanded', 'false');
+      caption.addEventListener('click', () => this.openDetails(song.id, caption));
+      caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(song.id, caption); } });
       about.append(caption, facts);
       const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
-      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Edit score'; useScore.addEventListener('click', () => this.useScore(song));
+      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.dataset.musicScore = ''; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Edit score'; useScore.addEventListener('click', () => this.useScore(song));
       const more = document.createElement('div'); more.className = 'menu-anchor';
-      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Music actions');
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
       menu.append(cover, send);
@@ -1457,7 +1542,7 @@ class MusicStudio extends HTMLElement {
       if (song.score) actions.append(useScore);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
       actions.append(more, rule, download, remove);
-      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', 'Music preview details'); bar.append(about, actions); bars.append(bar); sheets.append(details);
+      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', 'Music preview details'); bar.append(about, actions); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? 'Stub preview · no music generated' : 'Stub score preview · no model used'; body.append(warning); }

@@ -55,6 +55,14 @@ def response(next_run=None, reference=-1):
     )
 
 
+def test_the_page_carries_which_workspaces_the_studio_offers():
+    """The tabs are drawn from this, so they are all in the row on the first paint."""
+    view = StudioView(active=fake_capabilities(), backends=())
+    assert studio_data(presenter().page(view))["workspaces"] == {"voice": False, "music": False}
+    offered = presenter().page(view, {"voice": True, "music": True})
+    assert studio_data(offered)["workspaces"] == {"voice": True, "music": True}
+
+
 def test_the_page_carries_the_capabilities():
     caps = fake_capabilities(name="Fake </script> engine")
     body = presenter().page(StudioView(active=caps, backends=(("fake", "Fake", "What it is."),)))

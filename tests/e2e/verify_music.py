@@ -92,10 +92,10 @@ def main():
         metadata = page.request.get(base + operation["status_url"] + "/metadata").json()
         assert metadata["seed"] == 42 and metadata["stub"]
         page.locator(".music-output-details:not([hidden]) .prompt-line").click()
-        expect(page.get_by_role("region", name="Music details").get_by_text("Raw metadata", exact=True)).to_have_count(
+        expect(page.get_by_role("dialog", name="Music details").get_by_text("Raw metadata", exact=True)).to_have_count(
             0
         )
-        expect(page.get_by_role("region", name="Music details").locator("dl")).to_contain_text("piano pop")
+        expect(page.get_by_role("dialog", name="Music details").locator("dl")).to_contain_text("piano pop")
         page.get_by_role("button", name="Close music details").click()
         assert page.locator("audio").get_attribute("src").startswith("blob:")
         page.locator("#media-voice-mode").click()

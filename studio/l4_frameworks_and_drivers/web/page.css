@@ -169,10 +169,13 @@
     padding: 0 16px 0 22px; background-color: var(--chrome); border-bottom: 1px solid var(--line); }
   .workspace-tabs { display: flex; justify-self: center; align-items: center; gap: 2px; padding: 3px;
     border: 1px solid var(--line); border-radius: 8px; background: var(--chrome-2); }
-  .workspace-tabs button { min-width: 76px; height: 30px; padding: 0 12px; border: 0; border-radius: 5px;
+  .workspace-tabs button { min-width: 76px; height: 30px; padding: 0 12px; border: 0; border-radius: 4px;
     background: none; color: var(--text-3); cursor: pointer; font-size: 12px; }
   .workspace-tabs button[aria-pressed=true] { background: var(--chrome); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
   .workspace-tabs button:focus-visible { outline: 1.5px solid var(--accent); }
+  .workspace-tabs button:disabled { cursor: progress; }
+  .workspace-tabs button[aria-busy=true] { color: var(--text-2); }
+  .workspace-tabs button[aria-busy=true]::after { content: "…"; margin-left: 4px; }
   .dial { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
   .dial .menu-anchor, .dial h1 { min-width: 0; }
   #backend-toggle .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -405,16 +408,38 @@
   .prompt-line[role=button]:hover { text-decoration: underline; text-decoration-color: var(--line-strong);
     text-underline-offset: 3px; }
   .prompt-line[role=button]:focus-visible { outline: 1.5px solid var(--text-2); outline-offset: 3px; }
-  /* A cut label opens the whole prompt as a sheet over the stage, as wide as
-     the stage, so a long prompt fits without a scroll and nothing moves. */
-  .sheet { position: absolute; left: 28px; right: 28px; bottom: 16px; z-index: 3; max-height: calc(100% - 32px);
-    overflow-y: auto; padding: 22px 60px 24px 24px; border-radius: 6px; background: var(--chrome);
-    color: var(--text); box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .6); animation: sheet .18s ease-out; }
+  /* A sheet reads text over the stage. It is a <dialog> in the top layer, so no
+     ancestor's overflow or sticky bar can cut it, and its head sits outside the
+     scrolling body: the close button never scrolls away from the reader. */
+  .sheet { position: fixed; inset: 0; margin: auto; width: min(720px, calc(100vw - 32px));
+    max-height: min(86dvh, 780px); padding: 0; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--chrome); color: var(--text); box-shadow: 0 18px 50px -12px rgba(0, 0, 0, .6);
+    display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden;
+    animation: sheet .18s ease-out; }
+  .sheet:not([open]) { display: none; }
+  .sheet::backdrop { background: rgba(0, 0, 0, .42); }
   @keyframes sheet { from { transform: translateY(10px); opacity: 0; } }
+  .sheet-head { display: flex; align-items: center; gap: 12px; padding: 12px 10px 12px 22px;
+    border-bottom: 1px solid var(--line); }
+  .sheet-head h2 { flex: 1; min-width: 0; margin: 0; font: 18px/1.35 var(--serif); }
+  .sheet-body { overflow-y: auto; overscroll-behavior: contain; padding: 18px 22px 22px; }
+  .sheet-foot { display: flex; gap: 10px; justify-content: flex-end; padding: 12px 22px;
+    border-top: 1px solid var(--line); }
   .sheet dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 14px 22px; }
   .sheet dt { padding-top: 4px; color: var(--text-3); font-size: 12px; }
   .sheet dd { margin: 0; font: 16px/1.55 var(--serif); }
-  .sheet .close { position: absolute; top: 12px; right: 12px; }
+  /* The manual opens with three moves, then the reference rows. A first visit
+     reads the steps; the second question finds its answer in the list. */
+  .guide-start h3, .guide-more h3 { margin: 0 0 12px; font: 11px var(--mono);
+    text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); }
+  .guide-steps { margin: 0; padding: 0; list-style: none; counter-reset: step; display: grid; gap: 16px; }
+  .guide-steps li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .guide-steps li::before { counter-increment: step; content: counter(step); display: grid; place-items: center;
+    width: 26px; height: 26px; border-radius: 50%; background: var(--chrome-3); color: var(--text);
+    font: 12px var(--mono); }
+  .guide-steps strong { display: block; margin-bottom: 3px; font-size: 15px; }
+  .guide-steps p { margin: 0; color: var(--text-2); font: 15px/1.55 var(--serif); }
+  .guide-more { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
   /* The manual ends with the door a program uses, because the page and the API run
      the same use cases and a reader of one should be able to find the other. */
   .sheet .guide-api { margin: 16px 0 0; color: var(--text-3); font-size: 12px; }
@@ -486,7 +511,7 @@
   #templates, #video-templates, #video-adapters, #voice-templates { top: 30px; width: min(310px, 100%);
     max-height: calc(100dvh - 140px); overflow-y: auto; overscroll-behavior: contain; }
   .menu button { display: flex; align-items: flex-start; gap: 9px; width: 100%; padding: 7px 10px;
-    border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left;
+    border: 0; border-radius: 5px; background: none; color: var(--text); text-align: left;
     cursor: pointer; font-size: 13px; }
   .menu button .icon { margin-top: 1px; color: var(--text-2); }
   .menu button:hover, .menu button:focus-visible { background: var(--chrome-3); outline: none; }
@@ -499,9 +524,15 @@
     text-underline-offset: 3px; }
   .text-btn:hover { color: var(--text); text-decoration-color: currentColor; }
 
-  /* Below the 52 px topbar, so a failure never covers the workspace switch. */
-  .toasts { position: absolute; top: 68px; left: 50%; transform: translateX(-50%); z-index: 4;
-    width: min(480px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; }
+  /* Below the 52 px topbar, so a failure never covers the workspace switch, and
+     below the shared operation bar while one runs. The host is a popover, so the
+     top layer paints it over the bar and over an open sheet; a closed popover is
+     hidden, and the author display rule would otherwise beat the UA's. */
+  .toasts { position: fixed; top: var(--toast-top, 68px); left: var(--toast-left, 50%); right: auto; bottom: auto;
+    margin: 0; transform: translateX(-50%);
+    width: min(480px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 8px;
+    padding: 0; border: 0; background: none; overflow: visible; }
+  .toasts:not(:popover-open) { display: none; }
   .toast { display: flex; gap: 10px; align-items: center; padding: 9px 8px 9px 12px;
     background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow); animation: arrive .18s ease-out; }
   .toast .icon { color: var(--text-2); }
@@ -511,7 +542,7 @@
 
   /* The contact sheet: a strip of film in both themes. The sprocket holes are
      35 mm proportions and scroll with the frames. */
-  .strip-wrap { background: var(--film); padding: 8px 18px 6px; --text-2: #a3a3a3; --text-3: #7a7a7a;
+  .strip-wrap { background: var(--film); padding: 8px 18px 6px; --text: #f4f4ef; --text-2: #a3a3a3; --text-3: #7a7a7a;
     --line-strong: #3a3a3a; --accent: #ededed; }
   .strip-wrap[hidden] { display: none; }
   .video-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto;
@@ -532,7 +563,7 @@
     background: linear-gradient(145deg, #282522, #121110); box-shadow: 0 18px 42px rgba(0, 0, 0, .48); }
   .video-tv-screen { display: grid; place-items: center; min-width: 0; min-height: 0; overflow: hidden;
     border: 1px solid rgba(255, 255, 255, .09); border-radius: 3px; background: #050505;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .8); }
+    color-scheme: dark; }
   .video-tv-screen > .video-preview-pane { width: 100%; height: 100%; }
   .video-tv-screen > .video-render-placeholder { width: 100%; height: 100%; max-width: none; max-height: none;
     aspect-ratio: auto; padding: 18px; border: 0; border-radius: 0; box-shadow: none; }
@@ -542,8 +573,8 @@
   .video-tv-readout { display: flex; align-items: center; gap: 14px; flex: none; }
   .video-tv-elapsed { color: #a9a39c; font-variant-numeric: tabular-nums; letter-spacing: .06em; }
   .video-tv-serial { flex: none; color: #e7e1da; font-variant-numeric: tabular-nums; }
-  #video-studio:fullscreen { display: block; width: 100vw; height: 100vh; }
-  #video-studio:fullscreen .video-studio-shell { grid-template-rows: minmax(0, 1fr) auto; height: 100vh; }
+  #video-studio:fullscreen { display: block; width: 100vw; height: 100dvh; }
+  #video-studio:fullscreen .video-studio-shell { grid-template-rows: minmax(0, 1fr) auto; height: 100dvh; }
   #video-studio:fullscreen .video-editing-area { display: none; }
   .video-render-placeholder { position: relative; display: grid; place-items: center;
     align-self: center; justify-self: center; align-items: center; width: min(100%, 1200px);
@@ -551,8 +582,6 @@
     padding: 24px; overflow: hidden; border: 1px solid rgba(244, 238, 232, .18); border-radius: 8px;
     background: linear-gradient(145deg, rgba(53, 47, 42, .98), rgba(24, 22, 20, .98));
     box-shadow: 0 16px 36px rgba(0, 0, 0, .42); color: #f4eee8; text-align: left; }
-  .video-render-placeholder::before { position: absolute; inset: 10px; border: 1px solid rgba(244, 238, 232, .08);
-    content: ""; pointer-events: none; }
   .video-render-placeholder::after { position: absolute; inset: 0; background: var(--specks); opacity: .15;
     content: ""; pointer-events: none; }
   .video-render-content { position: relative; z-index: 1; display: grid; justify-items: center;
@@ -582,7 +611,7 @@
   .video-preview-pane video[hidden], .video-preview-stub[hidden] { display: none; }
   .video-source-label { max-width: 100%; color: #d8d0c8; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .video-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 360px;
-    color: #f1ece7; text-align: center; }
+    color: var(--text-2); text-align: center; }
   .video-empty > span { color: #b7aaa0; }
   .video-empty-mark { display: grid; place-items: center; width: 112px; height: 72px; border: 1px solid var(--text-3);
     border-radius: 8px; color: var(--text-3); font: 11px var(--mono); letter-spacing: .12em; }
@@ -622,7 +651,7 @@
   .video-clip-placeholder { color: #d8d0c8; font: 10px var(--mono); }
   .video-clip-duration { position: absolute; right: 5px; bottom: 5px; padding: 2px 4px;
     border-radius: 3px; background: rgba(0, 0, 0, .76); color: #fff; font: 10px var(--mono); }
-  .video-clip .no { color: #6e6e6e; }
+  .video-clip .no { color: #a8b0b3; }
   .video-clip.selected .no { color: #d4d4d4; }
   /* The tile carries `frame pending` so it inherits the film noise a run in
      flight gets on the strip. That inheritance also brings `.frame.pending
@@ -633,7 +662,7 @@
      the ring is blockified into its 16px box. */
   .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
     justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
-  .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--accent-fill);
+  .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--marker);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
   .video-clip-state { padding: 0 4px; color: var(--text-3); font-size: 9px; }
   @keyframes video-pending-spin { to { transform: rotate(360deg); } }
@@ -731,7 +760,7 @@
   .video-reference-options .caption { display: block; margin-top: 2px; font-size: 10px; }
   .video-duration-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 3px; padding: 2px;
     border: 1px solid var(--line); border-radius: 7px; background: var(--chrome-2); }
-  .video-duration-presets button { min-height: 34px; border: 0; border-radius: 5px; background: none;
+  .video-duration-presets button { min-height: 34px; border: 0; border-radius: 4px; background: none;
     color: var(--text-3); cursor: pointer; font-size: 11px; }
   .video-duration-presets button[aria-pressed=true] { background: var(--chrome-3); color: var(--text); }
   .strip-head { display: flex; justify-content: space-between; align-items: center;
@@ -748,7 +777,7 @@
     opacity: .7; transition: opacity .2s; }
   .frame img { height: 100%; width: auto; display: block; }
   .frame:hover .still, .frame.selected .still { opacity: 1; }
-  .frame .no { font: 9px/11px var(--mono); letter-spacing: .14em; color: #6e6e6e; }
+  .frame .no { font: 9px/11px var(--mono); letter-spacing: .14em; color: #a8b0b3; }
   .frame.selected .no { color: #d4d4d4; }
   .frame:focus-visible { outline: none; }
   /* The marker already shows the selected frame, so the focus ring shows
@@ -822,7 +851,7 @@
     background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
   .modes input { position: absolute; opacity: 0; pointer-events: none; }
   .modes label { display: flex; align-items: center; justify-content: center; gap: 7px; height: 32px;
-    border-radius: 6px; cursor: pointer; color: var(--text-3); font-size: 13px;
+    border-radius: 5px; cursor: pointer; color: var(--text-3); font-size: 13px;
     transition: background-color .15s, color .15s; }
   .modes label:hover { color: var(--text); }
   .modes input:checked + label { background: var(--chrome-3); color: var(--text); }
@@ -898,7 +927,7 @@
   .glyph i.dashed { border-style: dashed; }
   .seg { display: flex; padding: 2px; gap: 2px; background: var(--chrome-2);
     border: 1px solid var(--line); border-radius: 7px; }
-  .seg button { flex: 1; height: 28px; border: 0; border-radius: 5px; background: none;
+  .seg button { flex: 1; height: 28px; border: 0; border-radius: 4px; background: none;
     color: var(--text-3); cursor: pointer; font-size: 12px; font-variant-numeric: tabular-nums;
     transition: background-color .12s, color .12s; }
   .seg button:hover { color: var(--text); }
@@ -909,7 +938,7 @@
   #each-choice { margin-top: 8px; }
   #each-choice input { position: absolute; width: 1px; height: 1px; opacity: 0; }
   #each-choice label { flex: 1; display: flex; align-items: center; justify-content: center;
-    height: 28px; border-radius: 5px; color: var(--text-3); cursor: pointer; font-size: 12px;
+    height: 28px; border-radius: 4px; color: var(--text-3); cursor: pointer; font-size: 12px;
     transition: background-color .12s, color .12s; }
   #each-choice label:hover { color: var(--text); }
   #each-choice input:checked + label { background: var(--chrome-3); color: var(--text); }
@@ -1033,9 +1062,9 @@
     .readout { grid-column: 2; grid-row: 1; }
     .workspace-tabs { grid-column: 1 / -1; grid-row: 2; justify-self: center; }
     .app { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
-    .work { grid-template-rows: auto auto 62vh auto; }
-    #video-studio { grid-row: 3 / span 2; min-height: 960px; }
-    .video-studio-shell { min-height: 960px; grid-template-rows: minmax(320px, 1fr) auto; }
+    .work { grid-template-rows: auto auto 62dvh auto; }
+    #video-studio { grid-row: 3 / span 2; min-height: min(960px, 100dvh); }
+    .video-studio-shell { min-height: min(960px, 100dvh); grid-template-rows: minmax(320px, 1fr) auto; }
     #video-studio.has-video-gallery .video-studio-shell { grid-template-rows: minmax(320px, 1fr) minmax(126px, auto); }
     .video-render-placeholder { padding: 16px; }
     .video-editing-area { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto; overflow-y: auto; }
@@ -1051,7 +1080,8 @@
     aside { border-left: 0; border-top: 1px solid var(--line); }
     form { height: auto; }
     .controls { overflow: visible; padding-bottom: 104px; }
-    .footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; }
+    .footer { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+      padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -1103,7 +1133,6 @@
 
   /* The guide survives preview redraws and belongs to the active workspace. */
   #workspace-guide-host { grid-column: 1; grid-row: 3; position: relative; min-width: 0; min-height: 0; z-index: 4; pointer-events: none; }
-  #workspace-guide-host .sheet { pointer-events: auto; }
   #guide-sheet dd { min-width: 0; overflow-wrap: anywhere; }
   @media (max-width: 600px) {
     #guide-sheet { left: 12px; right: 12px; padding: 20px 44px 20px 18px; }
@@ -1212,11 +1241,11 @@
   .music-output-details { position: relative; flex-wrap: nowrap; padding-top: 12px; background: transparent; border: 0; }
   .music-output-details .about { min-width: 0; }
   .music-output-details .actions { flex-wrap: wrap; justify-content: flex-end; max-width: 60%; margin-left: auto; }
-  .music-details-sheet[hidden] { display: none; }
-  .music-details-sheet h3 { margin: 0 0 20px; font: 22px var(--serif); }
-  .music-details-sheet dd { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .music-details-sheet details { margin-top: 16px; font-size: 12px; }
-  .music-details-sheet pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); }
+  .music-details-body dd { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .music-details-body details { margin-top: 16px; font-size: 12px; }
+  .music-details-body summary { cursor: pointer; color: var(--text-2); }
+  .music-details-body details p { margin: 10px 0 0; font: 15px/1.55 var(--serif); white-space: pre-wrap; }
+  .music-details-body pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 var(--mono); }
   .music-abc-preview { margin: 0; max-height: 148px; overflow: auto; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--chrome-2); font: 11px/1.7 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
   .music-abc-preview.is-empty { color: var(--text-3); font: 12px/1.5 var(--sans); }
   .music-abc-dialog { box-sizing: border-box; width: min(1000px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow: auto; margin: auto; padding: 24px; border: 1px solid var(--line); border-radius: 8px; background: var(--chrome); color: var(--text); box-shadow: 0 16px 80px #0005; }
@@ -1230,7 +1259,14 @@
   .music-abc-facts { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; color: var(--text-2); font-size: 12px; }
   .music-abc-facts[hidden] { display: none; }
   @media (max-width: 900px) { .music-abc-editor { grid-template-columns: minmax(0, 1fr); } .music-abc-editor textarea { min-height: 220px; } }
-  @media (max-width: 600px) { .music-abc-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); padding: 16px; } }
+  @media (max-width: 600px) {
+    .music-abc-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); padding: 16px; }
+    .sheet { width: calc(100vw - 16px); max-height: calc(100dvh - 24px); }
+    .sheet-head { padding: 10px 8px 10px 16px; }
+    .sheet-body { padding: 14px 16px 18px; }
+    .sheet dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+    .sheet dd { margin-bottom: 10px; }
+  }
   .music-abc-notation { color: #24211e; background: #fcfaf5; border-radius: 4px; max-height: 330px; overflow: auto !important; scrollbar-gutter: stable; scrollbar-color: #9b9185 #eee9e0; }
   .music-abc-notation:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .music-abc-notation::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -1280,9 +1316,6 @@
     .music-output-details { padding: 12px 18px 16px; gap: 12px; }
     .music-output-details .about { flex-basis: 100%; }
     .music-output-details .actions { max-width: none; }
-    .music-details-sheet { left: 12px; right: 12px; padding: 20px 44px 20px 18px; }
-    .music-details-sheet dl { grid-template-columns: minmax(0, 1fr); gap: 6px; }
-    .music-details-sheet dd { margin-bottom: 10px; }
   }
   @media (max-width: 760px) and (max-height: 780px) { .music-artwork:not(.has-cover) .music-turntable { transform: scale(.65); } }
   .music-song pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; }
@@ -1299,6 +1332,12 @@
   .music-reference-preview .video-audio-name { display: block; }
   .music-reference-scope[hidden], .music-reference-preview[hidden], .music-reference-fields[hidden], .music-generation-fields[hidden],
   .music-lyrics-fields[hidden], .music-composition-fields[hidden], .music-synthesis-fields[hidden], .music-sound-fields[hidden] { display: none; }
+  /* Lyrics are written a song at a time, so the box stays tall once it holds
+     words. Without the second rule it drops back to six rows the moment the
+     field loses focus, which is the size the reading eye had to leave. */
+  .music-lyrics-fields textarea { min-height: 148px; }
+  .music-lyrics-fields textarea:focus,
+  .music-lyrics-fields textarea:not(:placeholder-shown) { min-height: clamp(220px, 42dvh, 440px); }
   .music-lyrics-tags { margin: 6px 0 0; padding-left: 16px; display: grid; gap: 2px; line-height: 1.45; }
   .music-lyrics-tags .music-section-tag { padding: 1px 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--text-2); font: 500 11px var(--mono); }
   .music-section-tag:disabled { opacity: .45; cursor: default; }
@@ -1339,3 +1378,11 @@
   .music-transport .music-lyrics-toggle[aria-pressed=true] { background: var(--text); color: var(--chrome); }
   .music-transport .music-lyrics-toggle:disabled { color: #888; opacity: .45; cursor: default; background: none; }
   .music-transport .music-lyrics-toggle .icon { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* A finger is not a cursor: the small controls keep their look and take a
+     target a thumb can land on. */
+  @media (pointer: coarse) {
+    .icon-btn { width: 40px; height: 40px; }
+    .text-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
+    .chip, .pill, .seg button, .workspace-tabs button, .modes label { min-height: 44px; }
+  }

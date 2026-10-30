@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>__NAME__</title>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"> <rect x="18" y="8" width="92" height="112" rx="12" fill="%234d3e3b"/> <rect x="23" y="13" width="82" height="102" rx="8" fill="%23d2cbc4"/> <rect x="30" y="20" width="68" height="88" fill="%23f7e7d7"/> <rect x="35" y="25" width="58" height="42" fill="%23c80600"/> <rect x="35" y="67" width="58" height="20" fill="%236b0100"/> <circle cx="64" cy="44" r="8" fill="%23fd3800"/> </svg>'>
 <script>
@@ -149,7 +149,7 @@
          host stays `#toasts`, with the role a query reaches it by. It sits in the work area and
          not in the image stage: that stage is hidden in the Video workspace, which hid every
          message raised there. -->
-    <toast-host class="toasts" id="toasts" role="status" aria-live="polite"></toast-host>
+    <toast-host class="toasts" id="toasts" role="status" aria-live="polite" popover="manual"></toast-host>
   </div>
 
   <aside>
@@ -406,7 +406,9 @@
             <!-- The sizes of the shape in front, lowest first. A prompt is worth testing
                  before it is worth four minutes, so the low rungs are the point of this row.
                  A model that offers one size for a shape carries no row at all. -->
-            <div class="field">
+            <!-- An edit runs at the clip's own size, so this row is Generate's. It
+                 was offered in Edit and the run ignored it. -->
+            <div class="field generate-only">
               <span class="label">Resolution</span>
               <div class="seg" id="video-resolutions" role="group" aria-label="Video resolution">
               </div>
@@ -559,8 +561,21 @@
   const voiceStudio = document.getElementById('voice-studio');
   const musicStudio = document.getElementById('music-studio');
   const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
+  // The payload says which workspaces this studio offers, so all four tabs are
+  // drawn before the first paint. A tab that waited for the first state poll
+  // appeared late and moved the row under the pointer. A workspace the payload
+  // does not offer keeps its tab out of the nav rather than opening an empty form.
+  const WORKSPACES = {
+    image: true,
+    video: Boolean(STUDIO.video?.capabilities),
+    voice: Boolean(STUDIO.workspaces?.voice),
+    music: Boolean(STUDIO.workspaces?.music),
+  };
+  for (const name of ['video', 'voice', 'music']) {
+    document.getElementById('media-' + name + '-mode').hidden = !WORKSPACES[name];
+  }
   let guide;
-  let mediaMode = ['video', 'voice', 'music'].includes(requestedWorkspace) ? requestedWorkspace : 'image';
+  let mediaMode = WORKSPACES[requestedWorkspace] ? requestedWorkspace : 'image';
   let workspaceSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
@@ -730,6 +745,10 @@
     }
     if (workspaceSwitchPending || sharedOperation || busy() || videoRunState !== 'idle' || voiceStudio.busy || musicStudio.busy) return;
     workspaceSwitchPending = true;
+    // The switch frees the model that is loaded, which takes seconds on a busy
+    // machine. The pressed tab says so, instead of taking the press in silence.
+    const tab = document.getElementById('media-' + next + '-mode');
+    tab.setAttribute('aria-busy', 'true');
     setWorkspaceControlsDisabled();
     try {
       const answer = await fetch('/workspace', {
@@ -746,6 +765,7 @@
     } catch (error) {
       showToast('info', error.message);
     } finally {
+      tab.removeAttribute('aria-busy');
       workspaceSwitchPending = false;
       setWorkspaceControlsDisabled();
     }
