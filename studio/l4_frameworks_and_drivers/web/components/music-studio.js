@@ -2,9 +2,11 @@ import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft,
 import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
-import {blobBase64} from '../lib/voice-audio.js';
+import {blobBase64, normalizeReference} from '../lib/voice-audio.js';
+import {startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
+import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
@@ -285,6 +287,12 @@ class MusicStudio extends HTMLElement {
     this.engravePending = false;
     this.engraveTimer = null;
     this.abcReturnFocus = true;
+    this.detailsSheet = null;
+    this.detailsQuiet = false;
+    this.detailsBodies = new Map();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
   }
   connectedCallback() {
     if (this.ready) return;
@@ -307,11 +315,14 @@ class MusicStudio extends HTMLElement {
         <button type="button" class="btn" id="music-write">
           <svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span>Write a style</span></button>
       </div>
-      <div class="music-songs"></div></div><div class="music-output-bars"></div><div class="music-detail-sheets"></div></section>
+      <div class="music-songs"></div></div><div class="music-output-bars"></div></section>
       <section class="music-gallery strip-wrap" aria-label="Songs" hidden>
-        <div class="strip-head"><h2>Songs</h2><gallery-browser workspace="music"></gallery-browser>
+        <div class="strip-head"><span class="music-count">0 songs</span><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="Pause background audio" hidden>Pause</button>
-          <span class="music-count">0 songs</span></div>
+          <span class="strip-actions">
+            <button type="button" class="text-btn" id="music-download-all">Download all</button>
+            <button type="button" class="text-btn" id="music-clear-all">Clear all</button>
+          </span></div>
         <div class="strip music-strip" role="group" aria-label="Select a song"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
@@ -328,12 +339,14 @@ class MusicStudio extends HTMLElement {
       </section>
       <section class="music-reference-fields field">
         <div class="field-head"><label for="music-reference">Reference audio</label>
-          <button type="button" class="text-btn" id="music-reference-replace" hidden>Replace</button></div>
+          <span class="music-reference-actions">
+            <button type="button" class="text-btn" id="music-reference-record">Hum&hellip; Mmm&hellip;</button>
+            <button type="button" class="text-btn" id="music-reference-replace" hidden>Replace</button></span></div>
         <input id="music-reference" type="file" hidden accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.aiff,.aif">
         <div class="music-reference-drop" id="music-reference-drop">
           <button type="button" class="refs" id="music-reference-choose" aria-label="Add reference audio">
             <span class="refs-empty"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>
-              <span><strong>Add reference audio</strong>Click to choose, or drop audio.</span></span></button>
+              <span><strong>Add reference audio</strong><span id="music-reference-note"></span></span></span></button>
           <div class="music-reference-preview video-audios" hidden>
             <div class="video-audio"><div class="video-audio-picture">
               <span class="video-audio-badge"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span>
@@ -342,7 +355,6 @@ class MusicStudio extends HTMLElement {
             </div><span class="video-audio-name" id="music-reference-name"></span></div>
           </div>
         </div>
-        <span class="caption">Optional. With Generate it makes a cover; with Compose it makes a transcription.</span>
           <div class="music-reference-scope field"><div class="field-head"><label for="music-transcription-task">Keep from reference</label></div>
             <select id="music-transcription-task"><option value="melody-full">Vocal and instrumental melody</option><option value="melody-vocal">Vocal melody only</option><option value="full">Melody and chords</option></select></div>
       </section>
@@ -401,7 +413,6 @@ class MusicStudio extends HTMLElement {
           <textarea id="music-abc" rows="14" spellcheck="false" aria-labelledby="music-abc-dialog-title"></textarea>
           <div class="music-abc-sheet">
             <div class="music-abc-notation" id="music-abc-notation" role="region" aria-label="Score preview" tabindex="0"></div>
-            <p class="music-note music-abc-scroll-hint" hidden>Scroll for the full score. Focus the score to use arrow keys.</p>
             <p class="music-abc-facts" id="music-abc-facts" hidden></p>
             <p class="music-note" id="music-abc-status" aria-live="polite"></p>
           </div>
@@ -468,6 +479,7 @@ class MusicStudio extends HTMLElement {
     for (const id of ['music-reference-choose', 'music-reference-replace']) this.controls.querySelector('#' + id).addEventListener('click', () => referenceInput.click());
     referenceInput.addEventListener('change', () => { if (referenceInput.files[0]) this.setReference(referenceInput.files[0]); });
     this.controls.querySelector('#music-reference-remove').addEventListener('click', () => this.setReference(null));
+    this.controls.querySelector('#music-reference-record').addEventListener('click', () => this.toggleRecording());
     const drop = this.controls.querySelector('#music-reference-drop');
     drop.addEventListener('dragover', event => { if (!this.busy) { event.preventDefault(); drop.classList.add('dragover'); } });
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
@@ -476,8 +488,9 @@ class MusicStudio extends HTMLElement {
       if (!this.busy && event.dataTransfer.files[0]) this.setReference(event.dataTransfer.files[0]);
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
+    this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
+    this.querySelector('#music-clear-all').addEventListener('click', () => this.clearAllSongs());
     window.addEventListener('pagehide', () => this.pausePlayback());
-    window.addEventListener('resize', () => requestAnimationFrame(() => this.querySelectorAll('.music-abc-notation').forEach(pane => this.updateScoreScrollHint(pane))));
     window.addEventListener('keydown', event => {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
@@ -653,20 +666,62 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('#music-reference-replace').hidden = !attached;
     this.controls.querySelector('#music-reference-name').textContent = this.reference?.name || '';
   }
+  // The microphone hands back WebM, which the transcription may not read. The Voice
+  // workspace normalises its takes the same way, so both reach the engine as WAV.
+  async recordReference(file) {
+    try {
+      const normalized = await normalizeReference(file, 44100, 120);
+      await this.setReference(new File([normalized.blob], 'hum-mmm.wav', {type: 'audio/wav'}));
+    } catch (error) {
+      this.options.notify('error', error.message);
+    } finally {
+      this.sync();
+    }
+  }
+  toggleRecording() {
+    if (this.recording) { this.finishRecording(); return; }
+    if (this.recordingPending || this.busy || this.hidden || this.reference) return;
+    this.recordingPending = true;
+    this.sync();
+    this.capture = startRecording({
+      maxSeconds: 120,
+      onStart: () => { this.recording = true; this.recordingPending = false; this.sync(); },
+      onFinish: file => {
+        this.recording = false;
+        this.capture = null;
+        this.recordReference(file);
+      },
+      onError: message => {
+        this.recording = false;
+        this.recordingPending = false;
+        this.capture = null;
+        this.sync();
+        this.options.notify('error', message);
+      },
+    });
+  }
+  // The button ends a take and keeps it. Leaving the workspace drops it, so a half-finished
+  // hum never lands in the form by surprise.
+  finishRecording() { this.capture?.stop(); }
+  stopRecording() {
+    if (!this.capture && !this.recording && !this.recordingPending) return;
+    this.capture?.cancel();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
+    this.sync();
+  }
+  // The item's whole job: the song's score becomes the form's score, and the form shows
+  // where it landed. The editor stays behind the form's own Edit score link.
   useScore(song) {
     if (this.busy || !song.score) return;
-    closeMenus(); this.closeScore(false);
-    const settings = song.settings || {};
-    for (const key of ['style', 'lyrics', 'cot']) {
-      if (settings[key] !== undefined) this.controls.querySelector('#music-' + key).value = settings[key];
-    }
-    this.selectWorkflow('generate');
-    if (settings.instrumental) this.controls.querySelector('#music-lyrics').value = '';
-    this.controls.querySelector('#music-cot').value = settings.cot === 'off' ? 'full' : settings.cot || 'full';
+    closeMenus();
+    if (['cover', 'transcribe'].includes(this.draft().mode)) this.selectWorkflow('generate');
     this.controls.querySelector('#music-abc').value = song.score;
     this.controls.querySelector('.music-advanced-fields').open = true;
     this.epoch++; this.sync();
-    this.openAbcEditor();
+    const field = this.controls.querySelector('#music-abc-preview').closest('.field');
+    field?.scrollIntoView({block: 'center', behavior: 'smooth'});
     if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
   }
   openAbcEditor() {
@@ -698,18 +753,29 @@ class MusicStudio extends HTMLElement {
     const meters = [...new Set((String(score || '').match(/^M:\s*(\S+)/gm) || []).map(line => line.replace(/^M:\s*/, '')))];
     const tempo = String(parsed.tempo || '').match(/=\s*(\d+(?:\.\d+)?)/)?.[1];
     const items = [
-      parsed.key ? 'Key ' + parsed.key : '',
-      meters.length ? 'Meter ' + meters.join(', ') : '',
-      tempo ? 'Tempo ' + tempo + ' BPM' : '',
-    ].filter(Boolean);
-    facts.replaceChildren(...items.map(label => {
-      const item = document.createElement('span'); item.textContent = label; return item;
+      ['Key', parsed.key],
+      ['Meter', meters.join(', ')],
+      ['Tempo', tempo ? tempo + ' BPM' : ''],
+    ].filter(([, value]) => value);
+    // A label over its value, in columns: three facts read as a table, and each one keeps
+    // its own name instead of running into the next when the line is copied out.
+    facts.replaceChildren(...items.map(([name, value]) => {
+      const pair = document.createElement('div');
+      const label = document.createElement('dt'); label.textContent = name;
+      const data = document.createElement('dd'); data.textContent = value;
+      pair.append(label, data); return pair;
     }));
     facts.hidden = !items.length;
   }
   scheduleEngraving() {
     clearTimeout(this.engraveTimer);
     this.engraveTimer = setTimeout(() => { this.engraveTimer = null; this.engraveAbc(); }, 250);
+  }
+  engraveDetails(pane, score) {
+    if (pane.dataset.engraved === '1') return;
+    renderNotation(pane, score).then(() => { pane.dataset.engraved = '1'; }).catch(() => {
+      pane.textContent = 'This score could not be engraved. The ABC source is below.';
+    });
   }
   async engraveAbc() {
     const dialog = this.controls.querySelector('#music-abc-dialog');
@@ -732,7 +798,6 @@ class MusicStudio extends HTMLElement {
           pane.replaceChildren();
           status.textContent = 'This score could not be engraved. Check the ABC text.';
         }
-        this.updateScoreScrollHint(pane);
       } while (this.engravePending);
     } finally { this.engraving = false; }
   }
@@ -811,7 +876,26 @@ class MusicStudio extends HTMLElement {
     const abcPreview = this.controls.querySelector('#music-abc-preview');
     abcPreview.textContent = abc.trim() ? abc : 'No score. Generate will compose one.';
     abcPreview.classList.toggle('is-empty', !abc.trim());
-    this.controls.querySelector('#music-abc-edit').textContent = abc.trim() ? 'Edit score' : 'Add score';
+    // A cover or a transcription carries no score, so the door says why it is off
+    // instead of returning silently when it is pressed.
+    const abcEdit = this.controls.querySelector('#music-abc-edit');
+    abcEdit.textContent = abc.trim() ? 'Edit score' : 'Add score';
+    abcEdit.disabled = this.busy || needsReference;
+    abcEdit.title = needsReference ? 'A cover or a transcription uses the reference, not a score.'
+      : this.busy ? 'The score waits until this run finishes.' : '';
+    // The door's second line names what this mode does with a recording. It sits inside
+    // the door, one line like the Video form's media door, so the field keeps its shape.
+    this.controls.querySelector('#music-reference-note').textContent = transcribe
+      ? 'This recording becomes a score.'
+      : coverSong ? 'This recording becomes a new song.'
+        : draft.mode === 'plan' ? 'Optional. Compose makes a score.'
+          : 'Optional. Generate makes a cover.';
+    const record = this.controls.querySelector('#music-reference-record');
+    record.hidden = Boolean(this.reference);
+    record.textContent = this.recording ? 'Stop' : this.recordingPending ? 'Opening microphone' : 'Hum… Mmm…';
+    record.disabled = this.busy || this.recordingPending;
+    record.title = this.recording ? 'Stop the recording and use it as the reference'
+      : this.busy ? 'The microphone waits until this run finishes.' : 'Record a hum and use it as the reference';
     if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
       this.closeAbcEditor(false);
     }
@@ -828,10 +912,26 @@ class MusicStudio extends HTMLElement {
       transcribe || scoreOnly ? null : 'guidance ' + draft.cfg_scale,
       seed ? 'seed ' + seed : 'random seed',
     ].filter(Boolean).join(', ');
-    const ready = transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference);
+    const ready = !this.recording && !this.recordingPending
+      && (transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference));
     this.controls.disabled = this.busy || this.hidden;
     this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
     this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
+    // A control that cannot act is off and says why, rather than taking the press
+    // and returning in silence.
+    this.querySelectorAll('[data-music-score]').forEach(button => {
+      button.disabled = this.busy;
+      button.title = this.busy ? 'The score waits until this run finishes.' : 'Copy this score into the form';
+    });
+    this.querySelectorAll('[data-music-more]').forEach(button => {
+      button.disabled = this.busy;
+      button.setAttribute('aria-disabled', String(this.busy));
+      button.title = this.busy ? 'The song actions wait until this run finishes.' : 'More actions';
+    });
+    const downloadAll = this.querySelector('#music-download-all');
+    const clearAll = this.querySelector('#music-clear-all');
+    if (downloadAll) downloadAll.disabled = !this.songs.length;
+    if (clearAll) clearAll.disabled = !this.songs.length || this.busy;
     this.querySelectorAll('[data-music-cover]').forEach(button => { button.disabled = this.busy; });
     this.syncRunButton(draft, ready);
     const generating = this.pending || this.operation?.kind === 'music';
@@ -841,7 +941,13 @@ class MusicStudio extends HTMLElement {
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
     if (previewingGeneration || this.hidden) { this.closeDetails(false); this.closeScore(false); }
     const scores = this.songs.filter(song => !song.blob).length, recordings = this.songs.length - scores;
-    this.querySelector('.music-count').textContent = scores ? `${recordings} song${recordings === 1 ? '' : 's'}, ${scores} score${scores === 1 ? '' : 's'}` : `${recordings} song${recordings === 1 ? '' : 's'}`;
+    // The head names what the shelf holds, and what happens to it, the way the Image strip
+    // does. It is the first child, so the shared head rule sets it at the left edge.
+    const shelf = scores ? `${recordings} song${recordings === 1 ? '' : 's'}, ${scores} score${scores === 1 ? '' : 's'}`
+      : `${recordings} song${recordings === 1 ? '' : 's'}`;
+    this.querySelector('.music-count').textContent = this.keeping
+      ? `${shelf}, kept in this browser.`
+      : `${shelf} in this tab. Download the ones you want to keep.`;
     const progress = this.operation?.progress || {};
     this.querySelector('.music-generation-label').textContent = this.operation?.status === 'stopping' ? 'Stopping music generation'
       : progress.stage === 'preparing' ? 'Loading music model' : progress.stage === 'transcribing' ? 'Transcribing reference audio' : ({plan: 'Composing score', transcribe: 'Transcribing audio', cover: 'Creating cover song'}[this.operation?.mode || draft.mode] || 'Generating music');
@@ -875,7 +981,8 @@ class MusicStudio extends HTMLElement {
     if (labels) { labels.dataset.state = state; labels.dataset.mode = 'generate'; }
     this.generateButton.disabled = stopping || (state === 'idle' && (!this.capabilities || !ready || this.busy));
     if (sub) sub.textContent = starting ? 'Preparing the request'
-      : own ? 'Finished songs remain if you stop' : MODE_CAPTIONS[draft.mode] || '';
+      : own ? 'Finished songs remain if you stop'
+        : this.recording ? 'Stop the recording first' : MODE_CAPTIONS[draft.mode] || '';
   }
   async cancel() {
     const operation = this.ownOperation;
@@ -899,6 +1006,7 @@ class MusicStudio extends HTMLElement {
   }
   async generate() {
     if (this.generateButton.disabled || this.busy) return;
+    if (this.recording || this.recordingPending) return this.options.notify('info', 'Stop the recording first.');
     if (!Array.from(this.controls.querySelectorAll('input, textarea, select')).every(input => input.disabled || input.reportValidity())) return;
     const draft = this.draft();
     if (['generate', 'plan'].includes(draft.mode) && draft.abc.trim() && draft.cot === 'off') return this.options.notify('error', 'Choose melody or full planning for a supplied score.');
@@ -1007,13 +1115,7 @@ class MusicStudio extends HTMLElement {
     else if (pending) { pending.classList.toggle('selected', gallery.pendingSelected); pending.setAttribute('aria-pressed', String(Boolean(gallery.pendingSelected))); }
     gallery.choose = id => this.selectSong(id);
     gallery.removeItem = id => this.removeSong(id);
-    gallery.download = async ids => {
-      for (const song of this.songs.filter(song => ids.includes(song.id))) {
-        const link = document.createElement('a'); const url = URL.createObjectURL(song.blob || new Blob([song.score], {type: 'text/vnd.abc'}));
-        link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
-    };
+    gallery.download = async ids => this.downloadSongs(ids);
     gallery.playback = () => {
       const audio = this.querySelector('.music-song:not([hidden]) audio');
       if (audio) { if (audio.paused) audio.play().catch(error => this.options.notify('error', error.message)); else audio.pause(); }
@@ -1025,6 +1127,32 @@ class MusicStudio extends HTMLElement {
       if (!selected && marker) marker.remove();
       if (selected && !marker) { marker = document.createElement('span'); marker.className = 'music-selection-mark'; render(pencilLoop(true), marker); button.append(marker); }
     });
+  }
+  // One path for every download, so the strip and the browser panel cannot
+  // disagree about a file's name or its type.
+  downloadSongs(ids) {
+    for (const song of this.songs.filter(song => ids.includes(song.id))) {
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(song.blob || new Blob([song.score || ''], {type: 'text/vnd.abc'}));
+      link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  }
+  async clearAllSongs() {
+    if (this.busy || !this.songs.length) return;
+    const count = this.songs.length;
+    const noun = count === 1 ? 'song' : 'songs';
+    if (!confirm(`Remove ${count} ${noun} from this browser?`)) return;
+    try {
+      if (this.keeping) await this.store(clearMusic);
+      this.songs = []; this.selectedId = null;
+      this.renderSongs();
+      localStorage.setItem('studio-music-changed', String(Date.now()));
+      this.options.notify('info', `Removed ${count} ${noun}.`);
+    } catch (error) {
+      this.options.notify('error', error.message || 'The songs were not removed.');
+    }
   }
   async removeSong(id) {
     try {
@@ -1228,20 +1356,36 @@ class MusicStudio extends HTMLElement {
     card.querySelector('.music-lyrics-toggle').title = lyrics ? 'Show style' : 'Show lyrics';
   }
   closeDetails(focus = true) {
-    this.querySelectorAll('.music-details-sheet').forEach(sheet => { sheet.hidden = true; });
     this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
-    if (focus) this.detailsTrigger?.focus();
+    if (!this.detailsSheet) {
+      if (focus) this.detailsTrigger?.focus();
+      return;
+    }
+    this.detailsQuiet = !focus;
+    dismissSheet(this.detailsSheet);
   }
-  openDetails(sheet, trigger) {
+  openDetails(songId, trigger) {
+    const detail = this.detailsBodies.get(songId);
+    if (!detail) return;
     this.closeScore(false); this.closeDetails(false); this.detailsTrigger = trigger;
-    trigger.setAttribute('aria-expanded', 'true'); sheet.hidden = false;
-    sheet.querySelector('.close').focus();
+    trigger.setAttribute('aria-expanded', 'true');
+    this.detailsSheet = openSheet({
+      id: detail.id,
+      title: detail.title,
+      label: 'Music details',
+      closeLabel: 'Close music details',
+      body: detail.body,
+      footer: detail.footer,
+      onClose: () => {
+        const quiet = this.detailsQuiet;
+        this.detailsQuiet = false;
+        this.detailsSheet = null;
+        this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
+        if (!quiet) this.detailsTrigger?.focus();
+      },
+    });
   }
   closeScore(focus = true) { this.closeAbcEditor(focus); }
-  updateScoreScrollHint(pane) {
-    const hint = pane.parentElement.querySelector('.music-abc-scroll-hint');
-    if (hint) hint.hidden = pane.scrollHeight <= pane.clientHeight + 1 && pane.scrollWidth <= pane.clientWidth + 1;
-  }
   scrollScore(event) {
     if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
     const pane = event.currentTarget;
@@ -1332,6 +1476,7 @@ class MusicStudio extends HTMLElement {
     this.lyricsShown?.forEach(id => { if (!this.songs.some(song => song.id === id)) this.lyricsShown.delete(id); });
     this.closeDetails(false);
     this.closeScore(false);
+    this.detailsBodies = new Map();
     const players = new Map();
     for (const card of this.querySelectorAll('.music-song')) {
       const audio = card.querySelector('audio');
@@ -1349,7 +1494,6 @@ class MusicStudio extends HTMLElement {
     const list = this.querySelector('.music-songs');
     list.replaceChildren();
     const bars = this.querySelector('.music-output-bars'); bars.replaceChildren();
-    const sheets = this.querySelector('.music-detail-sheets'); sheets.replaceChildren();
     const strip = this.querySelector('.music-strip'); strip.replaceChildren();
     for (const song of this.songs.slice().reverse()) {
       const card = document.createElement('article');
@@ -1392,31 +1536,53 @@ class MusicStudio extends HTMLElement {
       const style = document.createElement('p'); style.className = 'music-song-style'; style.textContent = song.settings?.style || 'Song';
       const download = document.createElement('a'); download.className = 'icon-btn';
       download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? 'Download WAV' : 'Download ABC'); download.title = hasAudio ? 'Download WAV' : 'Download ABC'; download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
-      const details = document.createElement('section');
-      details.hidden = true; details.id = 'music-details-' + this.songs.indexOf(song);
-      details.setAttribute('role', 'region'); details.setAttribute('aria-label', 'Music details');
-      const summary = document.createElement('h3'); summary.textContent = hasAudio ? 'Song details' : 'Score details';
-      details.append(summary);
+      const details = document.createElement('div');
+      details.className = 'music-details-body';
       const metadata = document.createElement('dl');
       for (const [name, value] of [['Model', musicModelName(song.model)], ['Seed', song.seed], ['Length', hasAudio ? song.seconds.toFixed(1) + ' seconds' : null], ['Generation time', Number.isFinite(song.generationSeconds) ? song.generationSeconds.toFixed(1) + ' seconds' : null],
-        ['Audio', hasAudio ? '48 kHz · stereo · WAV' : 'Score only · ABC'], ['Workflow', ({generate: 'Create song', plan: 'Compose score', transcribe: 'Transcribe audio', cover: 'Cover song'})[song.settings?.mode || 'generate']], ['Reference', song.settings?.reference_name], ['Instrumental', song.settings?.instrumental ? 'Yes' : null], ['Synthesis steps', hasAudio ? song.settings?.steps || 32 : null], ['Guidance', hasAudio ? song.settings?.cfg_scale ?? 1 : null], ['Style', song.settings?.style], ['Lyrics', song.settings?.lyrics], ['Planning', ({full: 'Melody and chords', melody: 'Melody', off: 'Direct generation'})[song.metadata?.config?.cot || song.settings?.cot]], ['Cover model', song.coverModel], ['Cover seed', song.coverSeed]]) {
+        ['Audio', hasAudio ? '48 kHz · stereo · WAV' : 'Score only · ABC'], ['Workflow', ({generate: 'Create song', plan: 'Compose score', transcribe: 'Transcribe audio', cover: 'Cover song'})[song.settings?.mode || 'generate']], ['Reference', song.settings?.reference_name], ['Instrumental', song.settings?.instrumental ? 'Yes' : null], ['Synthesis steps', hasAudio ? song.settings?.steps || 32 : null], ['Guidance', hasAudio ? song.settings?.cfg_scale ?? 1 : null], ['Style', song.settings?.style], ['Planning', ({full: 'Melody and chords', melody: 'Melody', off: 'Direct generation'})[song.metadata?.config?.cot || song.settings?.cot]], ['Cover model', song.coverModel], ['Cover seed', song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;
         const data = document.createElement('dd'); data.textContent = String(value); metadata.append(label, data);
       }
       details.append(metadata);
-      details.className = 'sheet music-details-sheet';
-      const close = document.createElement('button'); close.type = 'button'; close.className = 'icon-btn close'; close.setAttribute('aria-label', 'Close music details'); close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
-      close.addEventListener('click', () => this.closeDetails()); details.append(close);
-      details.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeDetails(); } });
-      const score = document.createElement('details'); const scoreHeading = document.createElement('summary'); scoreHeading.textContent = 'ABC score';
-      const notation = document.createElement('pre'); notation.textContent = song.score || 'No score was generated.';
-      score.append(scoreHeading, notation); details.append(score);
+      // The words are the longest thing in the sheet and the least often read,
+      // so they start folded. A song with no words has nothing to fold.
+      const lyrics = String(song.settings?.lyrics || '').trim();
+      if (lyrics) {
+        const fold = document.createElement('details'); fold.className = 'music-details-lyrics';
+        const lyricsHead = document.createElement('summary'); lyricsHead.textContent = 'Lyrics';
+        const words = document.createElement('p'); words.textContent = lyrics;
+        fold.append(lyricsHead, words); details.append(fold);
+      }
+      // The sheet the song was written from, then the text it was written in. A score
+      // arrives engraved when the sheet opens, because the engraver needs a laid-out box.
       if (song.score) {
-        const downloads = this.scoreArtifacts(song);
+        const scoreView = document.createElement('section'); scoreView.className = 'music-details-score';
+        const pane = document.createElement('div'); pane.className = 'music-abc-notation music-details-notation';
+        pane.tabIndex = 0; pane.setAttribute('role', 'region'); pane.setAttribute('aria-label', 'Rendered score');
+        pane.addEventListener('keydown', event => this.scrollScore(event));
+        // Both readings start folded, so the sheet opens on the metadata. The engraver needs
+        // a laid-out box, so it runs on the first open rather than on a hidden element.
+        const sheetFold = document.createElement('details'); sheetFold.className = 'music-details-sheet';
+        const sheetHead = document.createElement('summary'); sheetHead.textContent = 'Score';
+        sheetFold.addEventListener('toggle', () => {
+          if (sheetFold.open) this.engraveDetails(pane, song.score);
+        });
+        sheetFold.append(sheetHead, pane);
+        const source = document.createElement('details'); const sourceHead = document.createElement('summary'); sourceHead.textContent = 'ABC source';
+        const notation = document.createElement('pre'); notation.textContent = song.score;
+        source.append(sourceHead, notation);
+        scoreView.append(sheetFold, source); details.append(scoreView);
+      }
+      // The downloads sit in the sheet's own foot, so they stay reachable while
+      // the body scrolls through the metadata.
+      let downloads = null;
+      if (song.score) {
+        downloads = this.scoreArtifacts(song);
         const abc = document.createElement('a'); abc.className = 'text-btn'; abc.textContent = 'Download ABC'; abc.download = `music-${song.seed}.abc`;
         const abcUrl = URL.createObjectURL(new Blob([song.score], {type: 'text/vnd.abc;charset=utf-8'})); this.urls.push(abcUrl); abc.href = abcUrl;
-        downloads.prepend(abc); details.append(downloads);
+        downloads.prepend(abc);
       }
       const send = menuItem('music', 'Send to Video', () => {
         if (this.busy || song.stub || !hasAudio) return;
@@ -1427,23 +1593,31 @@ class MusicStudio extends HTMLElement {
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger'; remove.setAttribute('aria-label', 'Delete'); remove.title = 'Delete song';
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>';
       remove.addEventListener('click', () => this.removeSong(song.id));
-      const cover = menuItem('image', song.coverBlob ? 'Regenerate artwork' : 'Generate artwork', () => this.generateCover(song));
-      cover.dataset.musicCover = ''; cover.title = 'Generate a square cover from this song (Alt+C)'; cover.setAttribute('aria-keyshortcuts', 'Alt+C');
+      const artworkButton = document.createElement('button'); artworkButton.type = 'button'; artworkButton.className = 'btn quiet';
+      artworkButton.dataset.musicCover = '';
+      artworkButton.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>Artwork';
+      artworkButton.title = (song.coverBlob ? 'Make a new cover for this song' : 'Generate a square cover from this song') + ' (Alt+C)';
+      artworkButton.setAttribute('aria-keyshortcuts', 'Alt+C');
+      artworkButton.addEventListener('click', () => this.generateCover(song));
       const facts = document.createElement('div'); facts.className = 'facts num'; facts.setAttribute('aria-label', 'Music metadata');
       for (const value of [musicModelName(song.model), hasAudio ? song.seconds.toFixed(1) + ' s' : 'Score only', Number.isFinite(song.generationSeconds) ? 'Generated in ' + song.generationSeconds.toFixed(1) + ' s' : hasAudio ? '48 kHz · stereo' : 'ABC notation', 'Seed ' + song.seed]) { const fact = document.createElement('span'); fact.textContent = value; facts.append(fact); }
+      const detailsId = 'music-details-' + this.songs.indexOf(song);
+      this.detailsBodies.set(song.id, {id: detailsId, title: hasAudio ? 'Song details' : 'Score details', body: details, footer: downloads});
       const about = document.createElement('div'); about.className = 'about';
       const caption = document.createElement('p'); caption.className = 'prompt-line'; caption.textContent = song.settings?.style || song.settings?.reference_name || (hasAudio ? 'Song' : 'Music score'); caption.title = caption.textContent;
-      caption.setAttribute('role', 'button'); caption.tabIndex = 0; caption.dataset.musicDetails = ''; caption.setAttribute('aria-controls', details.id); caption.setAttribute('aria-expanded', 'false');
-      caption.addEventListener('click', () => this.openDetails(details, caption));
-      caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(details, caption); } });
+      caption.setAttribute('role', 'button'); caption.tabIndex = 0; caption.dataset.musicDetails = ''; caption.setAttribute('aria-controls', detailsId); caption.setAttribute('aria-expanded', 'false');
+      caption.addEventListener('click', () => this.openDetails(song.id, caption));
+      caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(song.id, caption); } });
       about.append(caption, facts);
       const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
-      const useScore = document.createElement('button'); useScore.type = 'button'; useScore.className = 'btn quiet'; useScore.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>Edit score'; useScore.addEventListener('click', () => this.useScore(song));
+      // A score moves into the form from here; the modal belongs to the form's own
+      // Edit score link, so this item never opens it.
+      const useScore = menuItem('music', 'Use this score', () => this.useScore(song)); useScore.dataset.musicScore = '';
       const more = document.createElement('div'); more.className = 'menu-anchor';
-      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', 'More actions'); toggle.title = 'More actions';
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Music actions');
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
-      menu.append(cover, send);
+      menu.append(...(song.score ? [useScore] : []), send);
       const reuse = menuItem('text', 'Reuse style, lyrics and seed', () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
@@ -1454,10 +1628,9 @@ class MusicStudio extends HTMLElement {
         this.controls.dispatchEvent(new Event('input', {bubbles: true}));
         this.controls.querySelector('#music-style').focus();
       }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
-      if (song.score) actions.append(useScore);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
-      actions.append(more, rule, download, remove);
-      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', 'Music preview details'); bar.append(about, actions); bars.append(bar); sheets.append(details);
+      actions.append(artworkButton, more, rule, download, remove);
+      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', 'Music preview details'); bar.append(about, actions); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? 'Stub preview · no music generated' : 'Stub score preview · no model used'; body.append(warning); }

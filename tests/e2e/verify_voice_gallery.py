@@ -95,7 +95,7 @@ with sync_playwright() as tool:
     check(
         "clip details open an accessible sheet",
         sheet.is_visible()
-        and sheet.get_attribute("role") == "region"
+        and sheet.evaluate("element => element.tagName === 'DIALOG'")
         and sheet.get_attribute("aria-label") == "Audio details",
     )
     check("clip details keep the complete long voice description", original_voice in sheet.inner_text())
@@ -115,6 +115,7 @@ with sync_playwright() as tool:
         and page.locator(".voice-output-description").evaluate("button => button === document.activeElement"),
     )
     page.locator(".voice-output-description").press("Enter")
+    sheet.wait_for(state="visible")
     check("the description opens details from the keyboard", sheet.is_visible())
     page.locator("#voice-details-close").click()
     check("the details close control returns to the preview", sheet.is_hidden())

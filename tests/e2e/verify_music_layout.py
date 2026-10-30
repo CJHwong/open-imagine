@@ -15,7 +15,10 @@ SCORE = (
 
 
 def open_editor(page):
-    page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Edit score", exact=True).click()
+    bar = page.locator(".music-output-details:not([hidden])")
+    bar.get_by_role("button", name="More actions", exact=True).click()
+    bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+    page.locator("#music-abc-edit").click()
     editor = page.get_by_role("dialog", name="ABC score", exact=True)
     expect(editor).to_be_visible()
     return editor
@@ -45,6 +48,13 @@ def main():
         page.locator("#music-generate").click()
         expect(page.locator(".music-song audio")).to_have_count(1)
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        # The shelf label opens the strip head, at the same left edge as Image, Video and
+        # Voice, with Browse and the bulk actions on the right.
+        head = page.locator("#music-studio .strip-head")
+        expect(head).to_be_visible()
+        assert head.evaluate("node => node.firstElementChild.className") == "music-count"
+        assert abs(head.locator(".music-count").bounding_box()["x"] - head.bounding_box()["x"]) <= 3
+        assert head.locator(".music-count").inner_text().endswith("kept in this browser.")
         recording = page.locator(".music-song audio")
         recording.evaluate("audio=>{audio.loop=true;return audio.play();}")
         editor = open_editor(page)
@@ -61,18 +71,23 @@ def main():
         expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
         facts = page.locator("#music-abc-facts")
         expect(facts).to_be_visible()
-        expect(facts).to_contain_text("Key C")
-        expect(facts).to_contain_text("Meter 4/4")
-        expect(facts).to_contain_text("Tempo 88 BPM")
+        # Three labelled columns: each name keeps its own value when the line is copied.
+        expect(facts.locator("dt")).to_have_text(["Key", "Meter", "Tempo"])
+        expect(facts.locator("dd")).to_have_text(["C", "4/4", "88 BPM"])
         assert page.locator("#music-abc-notation .abcjs-note").count() > 32
         assert "Vocal Melody" in page.locator("#music-abc-notation").inner_text()
         assert "Instrumental" in page.locator("#music-abc-notation").inner_text()
         assert "Am" in page.locator("#music-abc-notation").inner_text()
         notation = page.get_by_role("region", name="Score preview", exact=True)
-        expect(page.locator(".music-abc-scroll-hint")).to_be_visible()
         notation.evaluate("node=>node.scrollTop=0")
         notation.hover()
         page.mouse.wheel(0, 240)
+        page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
+        # The hint promises arrow keys once the score is clicked; a click focuses it.
+        notation.click()
+        assert notation.evaluate("node=>node === document.activeElement")
+        notation.evaluate("node=>node.scrollTop=0")
+        page.keyboard.press("ArrowDown")
         page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
         notation.evaluate("node=>node.scrollTop=0")
         notation.focus()
@@ -109,15 +124,25 @@ def main():
         expect(bar.get_by_role("link", name="Download WAV")).to_be_visible()
         assert bar.locator(".actions").bounding_box()["y"] < page.locator(".music-gallery").bounding_box()["y"]
         bar.locator(".prompt-line").click()
-        sheet = page.get_by_role("region", name="Music details", exact=True)
+        sheet = page.get_by_role("dialog", name="Music details", exact=True)
         expect(sheet).to_be_visible()
-        expect(sheet.locator("dd")).to_contain_text(["YuE2", "48 kHz", "Warm piano", "A melody"])
+        expect(sheet.locator("dd")).to_contain_text(["YuE2", "48 kHz", "Warm piano"])
+        # The words start folded, so the sheet stays short until someone asks.
+        lyrics = sheet.locator("details.music-details-lyrics")
+        expect(lyrics).not_to_have_attribute("open", "")
+        lyrics.locator("summary").click()
+        expect(lyrics.locator("p")).to_have_text("[Verse]\nA melody for the morning")
         expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2")
         expect(bar.locator(".facts span").first).to_have_text("YuE2")
         assert page.locator("#music-studio gallery-browser").evaluate(
             "node=>node.items.every(item=>item.model==='YuE2')"
         )
-        sheet.locator("details summary", has_text="ABC score").click()
+        # Both readings start folded; the sheet engraves when it is opened.
+        score_fold = sheet.locator("details.music-details-sheet")
+        expect(score_fold).not_to_have_attribute("open", "")
+        score_fold.locator("summary").click()
+        expect(score_fold.locator(".music-details-notation svg").first).to_be_visible(timeout=30000)
+        sheet.locator("details summary", has_text="ABC source").click()
         expect(sheet.locator("details pre")).to_have_text(SCORE)
         with page.expect_download() as download:
             sheet.get_by_role("link", name="Download ABC").click()

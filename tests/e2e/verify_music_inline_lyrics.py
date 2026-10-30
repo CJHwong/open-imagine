@@ -95,7 +95,7 @@ def main():
             expect(page.get_by_role("button", name="Expand lyrics", exact=True)).to_have_count(0)
             expect(page.locator(".music-lyrics-dialog")).to_have_count(0)
             page.locator(".music-output-details:not([hidden]) .prompt-line").click()
-            details = page.get_by_role("region", name="Music details", exact=True)
+            details = page.get_by_role("dialog", name="Music details", exact=True)
             expect(details.locator("dd").filter(has_text="Detailed style stays in the metadata")).to_be_visible()
             page.get_by_role("button", name="Close music details", exact=True).click()
             page.get_by_role("button", name="Select song 2", exact=True).click()

@@ -55,7 +55,10 @@ def main():
         current = page.locator(".music-song:not([hidden])")
         bar = page.locator(".music-output-details:not([hidden])")
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
-        bar.get_by_role("button", name="Edit score", exact=True).click()
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+        expect(page.locator("#music-abc")).to_have_value(SCORE)
+        page.locator("#music-abc-edit").click()
         editor = page.get_by_role("dialog", name="ABC score", exact=True)
         expect(editor).to_be_visible()
         expect(editor.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
@@ -73,7 +76,7 @@ def main():
 
         page.route("**/api/v1/operations", hold_image)
         bar.get_by_role("button", name="More actions", exact=True).click()
-        bar.get_by_role("menuitem", name="Generate artwork", exact=True).click()
+        bar.get_by_role("button", name="Artwork", exact=True).click()
         deadline = time.monotonic() + 10
         while not held and time.monotonic() < deadline:
             page.wait_for_timeout(50)
@@ -87,7 +90,7 @@ def main():
         assert "Do not render" in payload["prompt"]
         assert payload["count"] == 1 and ":music-cover:" in payload["client_id"]
         expect(page.locator("#media-music-mode")).to_have_attribute("aria-pressed", "true")
-        expect(bar.get_by_role("menuitem", name="Generate artwork", exact=True, include_hidden=True)).to_be_disabled()
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_disabled()
         for route in held:
             route.continue_()
         page.unroute("**/api/v1/operations")
@@ -96,19 +99,19 @@ def main():
         assert current.locator(".music-artwork > img").evaluate(
             "image => image.naturalWidth === image.naturalHeight && image.naturalWidth > 0"
         )
-        expect(bar.get_by_role("menuitem", name="Regenerate artwork", exact=True, include_hidden=True)).to_be_enabled()
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_enabled()
         page.reload()
         expect(current.locator(".music-artwork > img")).to_be_visible()
-        bar.get_by_role("button", name="Edit score", exact=True).click()
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use this score", exact=True).click()
         expect(page.locator("#music-abc")).to_have_value(SCORE)
-        page.locator("#music-abc-close").click()
         # A failed regeneration preserves the previous cover and can be retried.
         page.route("**/api/v1/operations", lambda route: route.fulfill(status=409, json={"error": "Cover test busy"}))
         bar.get_by_role("button", name="More actions", exact=True).focus()
         page.keyboard.press("Alt+C")
         expect(current.locator(".music-error:not(.music-player-error)")).to_have_text("Cover test busy")
         expect(current.locator(".music-artwork > img")).to_be_visible()
-        expect(bar.get_by_role("menuitem", name="Regenerate artwork", exact=True, include_hidden=True)).to_be_enabled()
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_enabled()
         page.unroute("**/api/v1/operations")
         # The cover update transaction rejects stale requests and deleted songs.
         page.evaluate("""async () => {
@@ -129,7 +132,7 @@ def main():
         expect(current.locator(".music-error:not(.music-player-error)")).to_have_text(
             "Cover request expired. Generate it again."
         )
-        expect(bar.get_by_role("menuitem", name="Regenerate artwork", exact=True, include_hidden=True)).to_be_enabled()
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_enabled()
         expect(current.locator(".music-artwork > img")).to_be_visible()
 
         page.locator("#music-style").fill("Warm piano pop, original song")

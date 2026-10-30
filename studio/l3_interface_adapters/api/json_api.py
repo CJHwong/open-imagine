@@ -298,6 +298,15 @@ class JsonApi:
     def rewrite_state(self) -> dict[str, Any]:
         return asdict(self._controller.rewrite_state())
 
+    def workspaces(self) -> dict[str, bool]:
+        """Which optional workspaces this studio offers.
+
+        The page draws its workspace tabs from this on the first paint, so a tab
+        never appears after the layout has settled. It is the same source as the
+        `voice` and `music` blocks of `studio()`.
+        """
+        return {"voice": self._voice is not None, "music": self._music is not None}
+
     def studio(self) -> dict[str, Any]:
         document = studio_document(self._controller.page())
         document["private_operations"] = True

@@ -1,6 +1,7 @@
 import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
 import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
+import {startRecording} from '../lib/recorder.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
@@ -49,6 +50,7 @@ class VoiceStudio extends LitElement {
     this.showGeneration = false;
     this.recording = false;
     this.recordingPending = false;
+    this.capture = null;
     this.capabilities = DEFAULT_CAPABILITIES;
     this.seconds = 0;
     this.convert = 'tw2s';
@@ -429,42 +431,53 @@ class VoiceStudio extends LitElement {
     await this.chooseReference(file);
   }
 
-  async toggleRecording() {
+  toggleRecording() {
     if (this.recording) { this.stopRecording(); return; }
     if (this.reference || this.recordingPending || this.locked) return;
-    if (!navigator.mediaDevices?.getUserMedia) { this.fail('Recording needs localhost or HTTPS microphone access.'); return; }
     this.recordingPending = true;
     this.requestUpdate();
-    let stream = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({audio: true});
-      if (this.hidden || this.locked || !this.needsReference) { stream.getTracks().forEach(track => track.stop()); return; }
-      this.recorderStream = stream;
-      this.recorder = new MediaRecorder(stream);
-      const chunks = [];
-      this.recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
-      this.recorder.onstop = () => {
-        clearTimeout(this.recordingTimer);
-        const blob = new Blob(chunks, {type: this.recorder.mimeType});
-        stream.getTracks().forEach(track => track.stop());
+    this.capture = startRecording({
+      maxSeconds: this.capabilities.max_seconds || 120,
+      onStart: () => {
+        // The microphone can arrive after the mode or the workspace moved on.
+        if (this.hidden || this.locked || !this.needsReference) {
+          this.capture?.cancel();
+          this.recordingPending = false;
+          this.requestUpdate();
+          return;
+        }
+        this.recording = true;
+        this.recordingPending = false;
+        this.requestUpdate();
+      },
+      onFinish: file => {
         this.recording = false;
-        this.chooseReference(new File([blob], 'recording.webm', {type: blob.type}));
-      };
-      this.recorder.start();
-      this.recording = true;
-      this.recordingTimer = setTimeout(() => this.stopRecording(), (this.capabilities.max_seconds || 120) * 1000);
-    } catch (error) {
-      stream?.getTracks().forEach(track => track.stop());
-      this.fail('The microphone could not be opened: ' + error.message);
-    } finally {
-      this.recordingPending = false;
-      this.requestUpdate();
-    }
+        this.recordingPending = false;
+        this.capture = null;
+        this.requestUpdate();
+        this.chooseReference(file);
+      },
+      onError: message => {
+        this.recording = false;
+        this.recordingPending = false;
+        this.capture = null;
+        this.requestUpdate();
+        this.fail(message);
+      },
+    });
   }
 
+  // Voice keeps the take: a mode or workspace that moves on still leaves the recording in
+  // the form, which is what the Clone reference is for.
   stopRecording() {
-    clearTimeout(this.recordingTimer);
-    if (this.recorder?.state === 'recording') this.recorder.stop();
+    if (this.recordingPending) {
+      this.capture?.cancel();
+      this.capture = null;
+      this.recordingPending = false;
+      this.requestUpdate();
+      return;
+    }
+    this.capture?.stop();
   }
 
   setOperation(operation) {
@@ -1004,6 +1017,8 @@ class VoiceStudio extends LitElement {
   }
 
   updated(changes) {
+    const sheet = this.querySelector('#voice-details-sheet');
+    if (this.detailsOpen && sheet && !sheet.open) sheet.showModal();
     const take = this.previewItem?.take;
     if (take && !take.blob && !take.mediaLoading && !take.mediaError && !this.showingGeneration) {
       this.ensureTake(take).catch(error => { take.mediaError = error.message; this.fail(error.message); });
@@ -1027,6 +1042,17 @@ class VoiceStudio extends LitElement {
         y1=${24 - Math.max(1, peak * 22)} y2=${24 + Math.max(1, peak * 22)}></line>`)}</svg>`;
   }
 
+  // One path for the browser panel and the strip head, so a file's name and its
+  // type come from the same place.
+  async downloadTakes(clips, ids) {
+    for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
+      const blob = await this.ensureTake(take);
+      downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
+        at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+  }
+
   async openDetails(event) {
     this.detailsTrigger = event?.currentTarget;
     this.detailsOpen = true;
@@ -1035,23 +1061,29 @@ class VoiceStudio extends LitElement {
   }
 
   closeDetails() {
+    const sheet = this.querySelector('#voice-details-sheet');
+    if (sheet?.open) sheet.close();
     this.detailsOpen = false;
     this.detailsTrigger?.focus();
   }
 
   renderMetadata(item) {
     if (!this.detailsOpen || !item) return nothing;
-    return html`<section class="sheet" id="voice-details-sheet" role="region" aria-label="Audio details"
-      @keydown=${event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeDetails(); } }}>
-      <dl><dt>Script</dt><dd>${item.segment.text}</dd>
+    // Escape is handled here and the state is written by closeDetails. A late
+    // `close` event would write the same field after the next open, which is how
+    // the second open closed itself.
+    return html`<dialog class="sheet" id="voice-details-sheet" aria-label="Audio details"
+      @cancel=${event => { event.preventDefault(); this.closeDetails(); }}>
+      <div class="sheet-head"><h2>Audio details</h2>
+        <button type="button" class="icon-btn close" id="voice-details-close" aria-label="Close audio details" title="Close" @click=${() => this.closeDetails()}>
+          <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+      <div class="sheet-body"><dl><dt>Script</dt><dd>${item.segment.text}</dd>
         ${item.take?.voice ? html`<dt>Voice description</dt><dd>${item.take.voice}</dd>` : nothing}
         ${item.take ? html`<dt>Model</dt><dd>${item.take.model || 'AuK Flash'}</dd>
           <dt>Mode</dt><dd>${item.take.mode || 'design'}</dd>
           <dt>Duration</dt><dd>${durationLabel(item.take.duration)}</dd>
-          <dt>Seed</dt><dd>${item.take.seed ?? 'Random'}</dd>` : nothing}</dl>
-      <button type="button" class="icon-btn close" id="voice-details-close" aria-label="Close audio details" title="Close" @click=${() => this.closeDetails()}>
-        <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button>
-    </section>`;
+          <dt>Seed</dt><dd>${item.take.seed ?? 'Random'}</dd>` : nothing}</dl></div>
+    </dialog>`;
   }
 
   renderTrackMenu(item) {
@@ -1117,8 +1149,13 @@ class VoiceStudio extends LitElement {
     const rendering = this.voiceRunning;
     const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})));
     clips.sort((first, second) => (second.take?.createdAt ?? Infinity) - (first.take?.createdAt ?? Infinity));
+    // The head names what the shelf holds and what happens to it, as the Image strip does.
+    const shelf = `${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}`;
+    const shelfNote = this.options.keeping?.() !== false
+      ? shelf + ', kept in this browser.'
+      : shelf + ' in this tab. Download the ones you want to keep.';
     return html`<section class="strip-wrap voice-gallery" id="voice-gallery" aria-label="Voice gallery" ?hidden=${!clips.length && !rendering}>
-      <div class="strip-head"><span>${this.takesCount} ${this.takesCount === 1 ? 'clip' : 'clips'}</span>
+      <div class="strip-head"><span>${shelfNote}</span>
         <gallery-browser workspace="voice" .items=${clips.map(({segment, take}) => ({id: take.id,
           number: this.clipNumber(take), text: segment.text, description: take.voice, model: take.model,
           mode: take.mode, seed: take.seed, at: take.createdAt, duration: take.duration, peaks: take.peaks,
@@ -1128,17 +1165,13 @@ class VoiceStudio extends LitElement {
           .showPending=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
           .choose=${id => { const found = clips.find(({take}) => take.id === id); if (found) this.selectTake(found.segment.id, id); }}
           .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
-          .download=${async ids => {
-            for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
-              const blob = await this.ensureTake(take);
-              downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
-                at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
-              await new Promise(resolve => setTimeout(resolve, 300));
-            }
-          }} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
-        <span class="strip-actions"><button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
-          if (confirm('Remove all completed audio clips from this browser?')) this.clearCompleted();
-        }}>Clear all</button></span></div>
+          .download=${ids => this.downloadTakes(clips, ids)} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
+        <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all"
+          ?disabled=${!this.takesCount}
+          @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>Download all</button>
+          <button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
+            if (confirm('Remove all completed audio clips from this browser?')) this.clearCompleted();
+          }}>Clear all</button></span></div>
       <div class="strip voice-clips" role="group" aria-label="Generated audio" @keydown=${event => this.galleryKey(event)}>
         ${rendering ? html`<button type="button" class=${'frame pending voice-render-pending' + (this.showingGeneration ? ' selected' : '')}
           aria-label="Show audio generation" aria-pressed=${String(this.showingGeneration)}
@@ -1191,7 +1224,16 @@ class VoiceStudio extends LitElement {
   render() {
     const item = this.previewItem;
     return html`<div class="voice-studio-shell" @dragover=${event => event.preventDefault()}
-      @drop=${event => { event.preventDefault(); this.addReference(event.dataTransfer.files[0]); }}>
+      @drop=${event => {
+        event.preventDefault();
+        // A stray drop used to switch to Clone and clear the template and its
+        // fields. The mode that takes a recording is the mode that accepts it.
+        if (!this.needsReference) {
+          this.options.notify?.('info', 'A dropped recording is used by Clone. Switch to Clone first.');
+          return;
+        }
+        this.addReference(event.dataTransfer.files[0]);
+      }}>
       <div class="voice-preview-area stage">
         <div id="voice-preview-pane">
           ${this.showingGeneration ? this.renderGeneration() : item?.take ? html`<audio-preview id="voice-audio-preview" class=${this.previewReady ? 'voice-result-ready' : ''} .blob=${item.take.blob}

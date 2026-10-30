@@ -37,7 +37,7 @@ def main():
         expect(page.get_by_role("heading", name="Songs", exact=True)).to_be_hidden()
         expect(page.locator(".music-gallery")).to_be_hidden()
         expect(page.locator(".music-empty")).to_be_visible()
-        expect(page.locator(".music-count")).to_have_text("0 songs")
+        expect(page.locator(".music-count")).to_have_text("0 songs, kept in this browser.")
         page.locator("#music-style").fill("English, warm piano pop, 88 BPM")
         page.locator("#music-lyrics").fill("[Verse]\nMorning fills the quiet street\nEvery window keeps a beat")
         page.locator(".music-advanced-fields summary").click()
@@ -53,7 +53,7 @@ def main():
         assert not any(url.endswith("/generate") or url.endswith("/image/operations") for url in requests)
         expect(page.locator(".music-song .music-song-title")).to_have_text("Untitled")
         expect(page.locator(".music-stub-note")).to_contain_text("Stub preview")
-        expect(page.locator(".music-count")).to_have_text("1 song")
+        expect(page.locator(".music-count")).to_have_text("1 song, kept in this browser.")
         expect(page.locator(".music-gallery")).to_be_visible()
         expect(page.locator(".music-empty")).to_be_hidden()
         expect(page.locator(".music-waveform")).to_have_count(0)
@@ -92,10 +92,10 @@ def main():
         metadata = page.request.get(base + operation["status_url"] + "/metadata").json()
         assert metadata["seed"] == 42 and metadata["stub"]
         page.locator(".music-output-details:not([hidden]) .prompt-line").click()
-        expect(page.get_by_role("region", name="Music details").get_by_text("Raw metadata", exact=True)).to_have_count(
+        expect(page.get_by_role("dialog", name="Music details").get_by_text("Raw metadata", exact=True)).to_have_count(
             0
         )
-        expect(page.get_by_role("region", name="Music details").locator("dl")).to_contain_text("piano pop")
+        expect(page.get_by_role("dialog", name="Music details").locator("dl")).to_contain_text("piano pop")
         page.get_by_role("button", name="Close music details").click()
         assert page.locator("audio").get_attribute("src").startswith("blob:")
         page.locator("#media-voice-mode").click()
@@ -108,8 +108,15 @@ def main():
         page.locator("#media-music-mode").click()
         expect(page.locator("#music-style")).to_have_value("")
         expect(page.locator(".music-song")).to_have_count(1)
-        # Edit score opens the editor with the saved score; it does not touch the song.
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Edit score", exact=True).click()
+        # Use this score copies the saved score into the form and leaves the editor shut.
+        bar = page.locator(".music-output-details:not([hidden])")
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_have_count(0)
+        expect(page.locator(".music-advanced-fields")).to_have_attribute("open", "")
+        assert page.locator("#music-abc").input_value().startswith("X:")
+        # The editor is the form's own Edit score link, and it opens on that score.
+        page.locator("#music-abc-edit").click()
         editor = page.get_by_role("dialog", name="ABC score", exact=True)
         expect(editor).to_be_visible()
         assert page.locator("#music-abc").input_value().startswith("X:")
@@ -233,7 +240,7 @@ def main():
             route.continue_()
         expect(page.locator(".music-song")).to_have_count(2)
         expect(page.locator(".music-generation")).to_be_hidden()
-        expect(page.locator(".music-count")).to_have_text("2 songs")
+        expect(page.locator(".music-count")).to_have_text("2 songs, kept in this browser.")
         while page.locator(".music-song").count():
             page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
             page.wait_for_timeout(100)
