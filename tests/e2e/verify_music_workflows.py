@@ -451,6 +451,34 @@ def main():
         )
         expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.get_by_text("Choose an audio recording.", exact=True)).to_be_visible()
+
+        # A generated track can go back in the reference door; a score has no audio and
+        # offers no such item. The stub writes no audio, so the cards are drawn by hand.
+        page.evaluate("""() => {
+          const studio = document.querySelector('music-studio');
+          const now = Date.now();
+          studio.songs.push({id: 'take-1', seed: 12, blob: new Blob([new Uint8Array(2048)], {type: 'audio/wav'}),
+            stub: false, seconds: 8, model: 'yue2', settings: {style: 'warm analog synth', mode: 'generate'},
+            score: '', createdAt: now});
+          studio.songs.push({id: 'score-1', seed: 13, blob: new Blob([]), stub: false, seconds: 0, model: 'yue2',
+            settings: {style: 'warm analog synth', mode: 'plan'},
+            score: 'X:1\\nT:S\\nM:4/4\\nL:1/4\\nK:C\\nC D E F|', createdAt: now + 1});
+          studio.renderSongs();
+        }""")
+        page.evaluate(
+            "() => { const studio = document.querySelector('music-studio'); studio.selectedId = 'score-1'; studio.renderSongs(); }"
+        )
+        score = page.locator('.music-output-bars [data-song-id="score-1"]')
+        score.locator("[data-music-more]").click()
+        expect(score.get_by_role("menuitem", name="Use as reference", exact=True)).to_have_count(0)
+        page.evaluate(
+            "() => { const studio = document.querySelector('music-studio'); studio.selectedId = 'take-1'; studio.renderSongs(); }"
+        )
+        take = page.locator('.music-output-bars [data-song-id="take-1"]')
+        take.locator("[data-music-more]").click()
+        take.get_by_role("menuitem", name="Use as reference", exact=True).click()
+        expect(page.locator("#music-reference-name")).to_have_text("music-12.wav")
+        expect(page.locator("#music-mode")).to_have_value("cover")
         page.set_viewport_size({"width": 390, "height": 844})
         assert page.locator("#music-studio").evaluate("node=>node.scrollWidth<=node.clientWidth")
         assert errors == [], errors

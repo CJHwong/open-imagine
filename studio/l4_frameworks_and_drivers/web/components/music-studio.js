@@ -796,11 +796,7 @@ class MusicStudio extends HTMLElement {
     status.textContent = this.recordingPending ? t('record.opening') : this.recordingText;
     status.classList.toggle('is-recording', this.recording);
   }
-  reportShortTake({active, needed, dropped}) {
-    if (!dropped) {
-      this.options.notify('info', t('record.keep_going', {remaining: (needed - active).toFixed(1)}));
-      return;
-    }
+  reportShortTake({active, needed}) {
     this.recording = false;
     this.recordingPending = false;
     this.capture = null;
@@ -815,6 +811,19 @@ class MusicStudio extends HTMLElement {
     this.recording = false;
     this.recordingPending = false;
     this.sync();
+  }
+  // A track this studio generated is a source like any other: put its audio back in the
+  // reference door, and the form turns that into a cover or a transcription.
+  useReference(song) {
+    if (this.busy || !song.blob) return;
+    closeMenus();
+    this.reference = {blob: song.blob, name: `music-${song.seed}.wav`};
+    this.syncEngineMode();
+    this.updateReference();
+    this.epoch++;
+    this.sync();
+    this.controls.querySelector('.music-reference-fields')?.scrollIntoView({block: 'center', behavior: 'smooth'});
+    if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
   }
   // The item's whole job: the song's score becomes the form's score, and the form shows
   // where it landed. The editor stays behind the form's own Edit score link.
@@ -1724,11 +1733,15 @@ class MusicStudio extends HTMLElement {
       // A score moves into the form from here; the modal belongs to the form's own
       // Edit score link, so this item never opens it.
       const useScore = menuItem('music', t('music.menu.use_score'), () => this.useScore(song)); useScore.dataset.musicScore = '';
+      // A generated track is a source too: it can go back in the reference door. A score
+      // has no audio, so the item is not offered for one.
+      const useReference = menuItem('music', t('music.menu.use_reference'), () => this.useReference(song));
+      useReference.dataset.musicReference = '';
       const more = document.createElement('div'); more.className = 'menu-anchor';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more')); toggle.title = t('music.actions.more');
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', t('music.actions.menu_label'));
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
-      menu.append(...(song.score ? [useScore] : []), send);
+      menu.append(...(song.score ? [useScore] : []), ...(hasAudio ? [useReference] : []), send);
       const reuse = menuItem('text', t('music.menu.reuse'), () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
