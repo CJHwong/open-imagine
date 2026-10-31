@@ -1375,6 +1375,19 @@
   .music-recording-status.is-recording::before, .voice-recording-status.is-recording::before {
     content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%;
     background: var(--danger-fill); animation: pulse .9s ease-in-out infinite alternate; }
+  /* The reading sheet: the script at reading size, and bars that move only while the
+     microphone hears something. */
+  .voice-record-sheet { z-index: 20; }
+  .voice-record-script { margin: 0 0 18px; font: 17px/1.6 var(--serif); }
+  .voice-record-live { display: flex; align-items: center; gap: 4px; height: 34px; margin: 0 0 10px; }
+  .voice-record-live i { width: 4px; height: 6px; border-radius: 2px; background: var(--text-3); }
+  .voice-record-live.is-pending { animation: pulse .9s ease-in-out infinite alternate; }
+  .voice-record-live.is-recording i { background: var(--danger-fill); animation: record-bars .55s ease-in-out infinite alternate; }
+  .voice-record-live.is-recording i:nth-child(2) { animation-delay: .12s; }
+  .voice-record-live.is-recording i:nth-child(3) { animation-delay: .24s; }
+  .voice-record-live.is-recording i:nth-child(4) { animation-delay: .36s; }
+  .voice-record-live.is-recording i:nth-child(5) { animation-delay: .48s; }
+  @keyframes record-bars { from { height: 6px; } to { height: 30px; } }
   .music-reference-scope[hidden], .music-reference-preview[hidden], .music-reference-fields[hidden], .music-generation-fields[hidden],
   .music-lyrics-fields[hidden], .music-composition-fields[hidden], .music-synthesis-fields[hidden], .music-sound-fields[hidden] { display: none; }
   /* Lyrics are written a song at a time, so the box stays tall once it holds
