@@ -2977,7 +2977,7 @@
     const apiHead = document.createElement('div');
     apiHead.className = 'menu-head';
     apiHead.textContent = t('page.api.label');
-    const spec = menus.menuItem('', t('page.api.spec'), function () {
+    const spec = menus.menuItem('text', t('page.api.spec'), function () {
       window.open('/api/docs', '_blank', 'noreferrer');
     });
     spec.id = 'api-spec';
