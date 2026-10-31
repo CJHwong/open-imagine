@@ -43,6 +43,8 @@ with sync_playwright() as tool:
         "the held run button says why",
         page.locator("#music-generate .sub").inner_text() == "Stop the recording first",
     )
+    check("the recording sheet is open", page.locator("#music-record-sheet").evaluate("el => el.open"))
+    check("the sheet names the hum", page.locator("#music-record-title").inner_text() == "Hum or sing")
     # Stop always ends the take. One below seven seconds of sound is rejected, not kept.
     page.wait_for_function("document.getElementById('music-studio').recordingActive >= 1", timeout=10000)
     check(
@@ -54,6 +56,10 @@ with sync_playwright() as tool:
     check(
         "a short take is rejected",
         page.evaluate("document.getElementById('music-studio').reference") is None,
+    )
+    check(
+        "the sheet closes when the take is refused",
+        not page.locator("#music-record-sheet").evaluate("el => el.open"),
     )
     check(
         "the rejection says why",
