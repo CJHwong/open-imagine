@@ -154,9 +154,21 @@ with sync_playwright() as tool:
         "document.getElementById('voice-record-status').textContent.includes('of 7 s')", timeout=15000
     )
     check("the sheet shows the count", True)
-    check("the sheet holds Stop until the minimum", page.locator("#voice-record-stop").is_disabled())
-    page.wait_for_function("document.getElementById('voice-studio').recordingReady", timeout=25000)
-    check("seven seconds of sound enable Stop", page.locator("#voice-record-stop").is_enabled())
+    check("the sheet offers Stop at once", page.locator("#voice-record-stop").is_enabled())
+    # Stop always ends the take. One below seven seconds of sound is rejected, not kept.
+    page.wait_for_timeout(1200)
+    page.locator("#voice-record-stop").click()
+    page.wait_for_function("!document.getElementById('voice-studio').recording", timeout=15000)
+    check(
+        "a short take is rejected",
+        page.evaluate("document.getElementById('voice-studio').reference") is None,
+    )
+    check(
+        "the rejection says why",
+        "Nothing kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
+    )
+    page.locator(".voice-reference-group").get_by_role("button", name="Record", exact=True).click()
+    page.wait_for_function("document.getElementById('voice-studio').recordingActive >= 7", timeout=25000)
     page.locator("#voice-record-stop").click()
     page.wait_for_function("document.getElementById('voice-studio').reference", timeout=15000)
     check(

@@ -3,8 +3,8 @@
 // a stop, a cancel, the length cap, and an error from the permission prompt.
 //
 // A take counts only the seconds that carry sound. A hum of three seconds in a ten second
-// take leaves the take short of `minActiveSeconds`, so Stop keeps the microphone open and
-// the cap drops a take that never reached it.
+// take leaves the take short of `minActiveSeconds`, so the take is rejected and the form
+// says why, exactly as it does for a take the cap ends.
 
 const SOUND_FLOOR = 0.01;  // Full-scale RMS, about -40 dBFS: above a laptop's noise floor.
 const TICK_SECONDS = 0.2;
@@ -46,15 +46,9 @@ export function startRecording({
   };
   const stopNow = () => { if (recorder?.state === 'recording') recorder.stop(); };
   const api = {
-    // Below the minimum, Stop asks the caller for a moment more and leaves the take running.
-    stop() {
-      if (recorder?.state !== 'recording') return;
-      if (active < minActiveSeconds) { onShort?.({active, needed: minActiveSeconds, dropped: false}); return; }
-      recorder.stop();
-    },
-    // A forced end, for a mode or workspace that moves on: the take stops, and one below
-    // the minimum is dropped by `onstop` rather than kept.
-    finish() { if (recorder?.state === 'recording') recorder.stop(); },
+    // Stop always ends the take. One below the minimum is dropped by `onstop`, so the
+    // button never argues with the person holding the microphone.
+    stop() { stopNow(); },
     cancel() {
       cancelled = true;
       clearTimeout(timer);
@@ -92,7 +86,7 @@ export function startRecording({
       const values = {active, needed: minActiveSeconds};
       release();
       if (cancelled) return;
-      if (short) { onShort?.({...values, dropped: true}); return; }
+      if (short) { onShort?.(values); return; }
       onFinish?.(new File([blob], name, {type: blob.type}));
     };
     recorder.start();

@@ -41,7 +41,7 @@ class VoiceStudio extends LitElement {
     editText: {state: true},
     reference: {state: true}, referencePending: {state: true}, selectedId: {state: true}, templateName: {state: true},
     fieldValues: {state: true}, activeOperation: {state: true}, showGeneration: {state: true}, recording: {state: true},
-    recordingReady: {state: true}, referencePlaying: {state: true},
+    referencePlaying: {state: true},
     engineOptions: {state: true}, capabilities: {state: true}, seconds: {state: true}, convert: {state: true}, seed: {state: true},
     busy: {state: true}, stopping: {state: true}, error: {state: true}, playing: {state: true},
     position: {state: true}, trackDuration: {state: true}, detailsOpen: {state: true}, previewReady: {state: true}, previewBusy: {state: true}, previewSource: {attribute: false}, previewSpeed: {state: true},
@@ -66,7 +66,6 @@ class VoiceStudio extends LitElement {
     this.recordingPending = false;
     this.recordingText = '';
     this.recordingActive = 0;
-    this.recordingReady = false;
     this.referencePlayer = null;
     this.referencePlaying = false;
     this.capture = null;
@@ -467,7 +466,6 @@ class VoiceStudio extends LitElement {
     if (this.recording) { this.stopRecording(); return; }
     if (this.reference || this.recordingPending || this.locked) return;
     this.recordingPending = true;
-    this.recordingReady = false;
     this.openRecordSheet();
     this.requestUpdate();
     this.capture = startRecording({
@@ -488,7 +486,6 @@ class VoiceStudio extends LitElement {
       },
       onTick: values => {
         this.recordingActive = values.active;
-        this.recordingReady = values.active >= values.needed;
         this.recordingText = this.recordingTextFor(values);
         this.paintRecordingStatus();
       },
@@ -496,7 +493,6 @@ class VoiceStudio extends LitElement {
       onFinish: file => {
         this.recording = false;
         this.recordingPending = false;
-        this.recordingReady = false;
         this.capture = null;
         this.closeRecordSheet();
         this.requestUpdate();
@@ -506,7 +502,6 @@ class VoiceStudio extends LitElement {
       onError: message => {
         this.recording = false;
         this.recordingPending = false;
-        this.recordingReady = false;
         this.capture = null;
         this.closeRecordSheet();
         this.requestUpdate();
@@ -549,20 +544,14 @@ class VoiceStudio extends LitElement {
     this.capture = null;
     this.recording = false;
     this.recordingPending = false;
-    this.recordingReady = false;
     this.recordingText = '';
     this.recordingActive = 0;
     this.requestUpdate();
     this.closeRecordSheet();
   }
-  reportShortTake({active, needed, dropped}) {
-    if (!dropped) {
-      this.options.notify('info', t('record.keep_going', {remaining: (needed - active).toFixed(1)}));
-      return;
-    }
+  reportShortTake({active, needed}) {
     this.recording = false;
     this.recordingPending = false;
-    this.recordingReady = false;
     this.capture = null;
     this.recordingText = '';
     this.requestUpdate();
@@ -574,7 +563,7 @@ class VoiceStudio extends LitElement {
   // short for the engine.
   finishRecording() {
     if (this.recordingPending) { this.stopRecording(); return; }
-    this.capture?.finish();
+    this.capture?.stop();
   }
   // Voice keeps the take: a mode or workspace that moves on still leaves the recording in
   // the form, which is what the Clone reference is for.
@@ -1161,7 +1150,7 @@ class VoiceStudio extends LitElement {
       </div>
       <div class="sheet-foot">
         <button type="button" class="btn quiet" id="voice-record-cancel" @click=${() => this.cancelRecording()}>${t('voice.record.cancel')}</button>
-        <button type="button" class="btn" id="voice-record-stop" ?disabled=${!this.recordingReady} @click=${() => this.stopRecording()}>${t('voice.action.stopRecording')}</button>
+        <button type="button" class="btn" id="voice-record-stop" @click=${() => this.stopRecording()}>${t('voice.action.stopRecording')}</button>
       </div>
     </dialog>`;
   }
