@@ -41,6 +41,7 @@ class VoiceStudio extends LitElement {
     editText: {state: true},
     reference: {state: true}, referencePending: {state: true}, selectedId: {state: true}, templateName: {state: true},
     fieldValues: {state: true}, activeOperation: {state: true}, showGeneration: {state: true}, recording: {state: true},
+    recordingReady: {state: true}, referencePlaying: {state: true},
     engineOptions: {state: true}, capabilities: {state: true}, seconds: {state: true}, convert: {state: true}, seed: {state: true},
     busy: {state: true}, stopping: {state: true}, error: {state: true}, playing: {state: true},
     position: {state: true}, trackDuration: {state: true}, detailsOpen: {state: true}, previewReady: {state: true}, previewBusy: {state: true}, previewSource: {attribute: false}, previewSpeed: {state: true},
@@ -65,6 +66,9 @@ class VoiceStudio extends LitElement {
     this.recordingPending = false;
     this.recordingText = '';
     this.recordingActive = 0;
+    this.recordingReady = false;
+    this.referencePlayer = null;
+    this.referencePlaying = false;
     this.capture = null;
     this.capabilities = DEFAULT_CAPABILITIES;
     this.seconds = 0;
@@ -440,6 +444,7 @@ class VoiceStudio extends LitElement {
       } while (backend !== this.capabilities.backend_id);
       if (normalized.duration > (this.capabilities.max_seconds || 120)) throw new Error(t('voice.error.referenceTooLong', {seconds: this.capabilities.max_seconds || 120}));
       if (normalized.blob.size > (this.capabilities.max_reference_megabytes || 32) * 1024 * 1024) throw new Error(t('voice.error.referenceNormalizedTooLarge'));
+      this.releaseReferenceAudio();
       this.reference = {...normalized, name: name || file.name || 'recording.wav', transcript: normalized.trimmed ? '' : transcript};
       this.editSegmentId = null;
       this.error = '';
@@ -462,6 +467,8 @@ class VoiceStudio extends LitElement {
     if (this.recording) { this.stopRecording(); return; }
     if (this.reference || this.recordingPending || this.locked) return;
     this.recordingPending = true;
+    this.recordingReady = false;
+    this.openRecordSheet();
     this.requestUpdate();
     this.capture = startRecording({
       maxSeconds: this.capabilities.max_seconds || 120,
@@ -481,6 +488,7 @@ class VoiceStudio extends LitElement {
       },
       onTick: values => {
         this.recordingActive = values.active;
+        this.recordingReady = values.active >= values.needed;
         this.recordingText = this.recordingTextFor(values);
         this.paintRecordingStatus();
       },
@@ -488,14 +496,19 @@ class VoiceStudio extends LitElement {
       onFinish: file => {
         this.recording = false;
         this.recordingPending = false;
+        this.recordingReady = false;
         this.capture = null;
+        this.closeRecordSheet();
         this.requestUpdate();
-        this.chooseReference(file);
+        // The take is the script read aloud, so the words are the transcript.
+        this.chooseReference(file, this.hasParam('ref_text') ? {transcript: t('voice.record.script')} : {});
       },
       onError: message => {
         this.recording = false;
         this.recordingPending = false;
+        this.recordingReady = false;
         this.capture = null;
+        this.closeRecordSheet();
         this.requestUpdate();
         this.fail(message);
       },
@@ -511,10 +524,36 @@ class VoiceStudio extends LitElement {
   }
   paintRecordingStatus() {
     // The form is rendered into `#voice-controls`, outside this element.
-    const status = document.getElementById('voice-recording-status');
-    if (!status) return;
-    status.textContent = this.recordingPending ? t('record.opening') : this.recordingText;
-    status.classList.toggle('is-recording', this.recording);
+    const text = this.recordingPending ? t('record.opening') : this.recordingText;
+    for (const id of ['voice-recording-status', 'voice-record-status']) {
+      const status = document.getElementById(id);
+      if (status) status.textContent = text;
+    }
+  }
+  // The recording sheet: a script to read, a live bar for the sound, and the count. The
+  // words land in the transcript after the take, because the take is those words.
+  openRecordSheet() {
+    const dialog = document.getElementById('voice-record-sheet');
+    if (!dialog || dialog.open) return;
+    // Not modal: the workspace tabs and the mode radios stay reachable, and each one ends
+    // the take through `finishRecording` on the way out.
+    dialog.show();
+    this.paintRecordingStatus();
+  }
+  closeRecordSheet() {
+    const dialog = document.getElementById('voice-record-sheet');
+    if (dialog?.open) dialog.close();
+  }
+  cancelRecording() {
+    this.capture?.cancel();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
+    this.recordingReady = false;
+    this.recordingText = '';
+    this.recordingActive = 0;
+    this.requestUpdate();
+    this.closeRecordSheet();
   }
   reportShortTake({active, needed, dropped}) {
     if (!dropped) {
@@ -523,9 +562,11 @@ class VoiceStudio extends LitElement {
     }
     this.recording = false;
     this.recordingPending = false;
+    this.recordingReady = false;
     this.capture = null;
     this.recordingText = '';
     this.requestUpdate();
+    this.closeRecordSheet();
     this.options.notify('error', t('record.dropped', {active: active.toFixed(1), needed}));
   }
   // A mode or workspace that moves on ends the take rather than leaving the microphone
@@ -801,9 +842,33 @@ class VoiceStudio extends LitElement {
     return this.querySelector('audio-preview')?.play();
   }
 
+  // The reference chip plays the recording, so the take can be checked before a run. The
+  // player is an Audio object: the form keeps no media element.
+  toggleReferencePlayback() {
+    if (!this.reference?.blob) return;
+    if (!this.referencePlayer) {
+      this.referencePlayer = new Audio(URL.createObjectURL(this.reference.blob));
+      this.referencePlayer.addEventListener('play', () => { this.referencePlaying = true; });
+      this.referencePlayer.addEventListener('pause', () => { this.referencePlaying = false; });
+      this.referencePlayer.addEventListener('ended', () => { this.referencePlaying = false; });
+    }
+    if (this.referencePlayer.paused) {
+      this.player.pause();
+      this.referencePlayer.play().catch(() => { this.referencePlaying = false; });
+    } else this.referencePlayer.pause();
+  }
+  releaseReferenceAudio() {
+    if (!this.referencePlayer) return;
+    this.referencePlayer.pause();
+    URL.revokeObjectURL(this.referencePlayer.src);
+    this.referencePlayer = null;
+    this.referencePlaying = false;
+  }
+
   pausePlayback() {
     this.playbackRevision++;
     this.player.pause();
+    this.referencePlayer?.pause();
     this.querySelector('audio-preview')?.pause();
   }
 
@@ -909,6 +974,7 @@ class VoiceStudio extends LitElement {
         this.trackUrl = url;
         this.urls.add(url);
         this.player.src = url;
+        this.referencePlayer?.pause();
         await this.player.play();
       } else downloadAudio(joined, mediaDownloadName({kind: 'audio', text: this.script,
         at: Math.max(...takes.map(take => take.createdAt || 0)) || undefined,
@@ -920,6 +986,7 @@ class VoiceStudio extends LitElement {
 
   async playTrack() {
     const revision = ++this.playbackRevision;
+    this.referencePlayer?.pause();
     this.querySelector('audio-preview')?.pause();
     if (this.playing) { this.player.pause(); return; }
     if (this.trackUrl && this.player.src === this.trackUrl && !this.player.ended) {
@@ -1017,9 +1084,14 @@ class VoiceStudio extends LitElement {
             @change=${event => { this.chooseReference(event.target.files[0]); event.target.value = ''; }}>
           ${this.reference ? html`<div class="voice-reference-card video-audios">
             <div class="video-audio">
-              <div class="video-audio-picture"><span class="video-audio-badge"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span>
+              <div class="video-audio-picture">
+                <button type="button" class="video-audio-badge voice-reference-play" id="voice-reference-play"
+                  aria-label=${this.referencePlaying ? t('audio.preview.pause') : t('audio.preview.play')}
+                  title=${this.referencePlaying ? t('audio.preview.pause') : t('audio.preview.play')}
+                  @click=${() => this.toggleReferencePlayback()}>
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d=${this.referencePlaying ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z'}></path></svg></button>
                 <button type="button" class="video-audio-remove" aria-label=${t('voice.reference.clearAria')} ?disabled=${this.locked}
-                  @click=${() => { this.referenceVersion += 1; this.referencePending = false; this.reference = null; this.editSegmentId = null; this.persist(true); }}>
+                  @click=${() => { this.referenceVersion += 1; this.referencePending = false; this.releaseReferenceAudio(); this.reference = null; this.editSegmentId = null; this.persist(true); }}>
                   <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
               </div>
               <div><span class="video-audio-name">${this.reference.name}</span><span class="caption">${this.reference.trimmed ? t('voice.reference.trimmed', {duration: durationLabel(this.reference.duration)}) : durationLabel(this.reference.duration)}</span></div>
@@ -1069,7 +1141,29 @@ class VoiceStudio extends LitElement {
           </div>
         </details>
         ${this.error ? html`<p class="voice-error" role="alert">${this.error}</p>` : nothing}
+        ${this.renderRecordSheet()}
       </div>`;
+  }
+
+  renderRecordSheet() {
+    return html`<dialog class="sheet voice-record-sheet" id="voice-record-sheet" aria-labelledby="voice-record-title"
+      @cancel=${event => { event.preventDefault(); this.cancelRecording(); }}
+      @close=${() => { if (this.recording || this.recordingPending) this.cancelRecording(); }}>
+      <div class="sheet-head"><h2 id="voice-record-title">${t('voice.record.title')}</h2>
+        <button type="button" class="icon-btn close" id="voice-record-close" aria-label=${t('voice.record.close')} title=${t('voice.record.close')}
+          @click=${() => this.cancelRecording()}><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+      <div class="sheet-body">
+        <p class="voice-record-script" id="voice-record-script">${t('voice.record.script')}</p>
+        <div class=${'voice-record-live' + (this.recording ? ' is-recording' : '') + (this.recordingPending ? ' is-pending' : '')}
+          aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="caption" id="voice-record-status"></p>
+        <p class="caption voice-note">${this.hasParam('ref_text') ? t('voice.record.hintTranscript') : t('voice.record.hint')}</p>
+      </div>
+      <div class="sheet-foot">
+        <button type="button" class="btn quiet" id="voice-record-cancel" @click=${() => this.cancelRecording()}>${t('voice.record.cancel')}</button>
+        <button type="button" class="btn" id="voice-record-stop" ?disabled=${!this.recordingReady} @click=${() => this.stopRecording()}>${t('voice.action.stopRecording')}</button>
+      </div>
+    </dialog>`;
   }
 
   footerTemplate() {

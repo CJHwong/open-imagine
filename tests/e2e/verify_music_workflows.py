@@ -138,7 +138,8 @@ def verify_failure_restores_inputs(browser, base, audio):
     page.locator("#music-generate").click()
     expect(page.locator("#music-style")).to_have_value("")
     expect(page.locator("#music-lyrics")).to_have_value("")
-    expect(page.locator("#music-reference-name")).to_have_text("")
+    # The recording stays through the run, so the next one can reuse it.
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
     expect(page.locator("#music-seed")).to_have_value("")
     expect(page.locator("#music-count")).to_have_value("1")
     expect(page.locator("#music-steps")).to_have_value("32")
@@ -386,9 +387,9 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
-        expect(page.locator("#music-reference-choose")).to_be_visible()
-        expect(page.locator("#music-reference-name")).to_have_text("")
-        expect(page.locator("#music-mode")).to_have_value("plan")
+        expect(page.locator("#music-reference-choose")).to_be_hidden()
+        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        expect(page.locator("#music-mode")).to_have_value("transcribe")
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
@@ -406,13 +407,11 @@ def main():
             expect(details.get_by_role("link", name=label, exact=True)).to_be_visible()
         page.get_by_role("button", name="Close music details", exact=True).click()
 
-        # A cover keeps Style and Lyrics and starts from the recording's composition.
+        # A cover keeps Style and Lyrics and starts from the recording's composition. The
+        # recording from the run before is still attached, so the form is ready to reuse it.
         page.locator('label[for="music-mode-generate"]').click()
-        expect(page.locator("#music-mode")).to_have_value("generate")
-        with page.expect_file_chooser() as chosen:
-            page.locator("#music-reference-choose").click()
-        chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
         expect(page.locator("#music-mode")).to_have_value("cover")
+        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
         page.locator("#music-style").fill("Warm piano pop")
         page.locator("#music-lyrics").fill("[Verse]\nA different morning song")
         advanced.evaluate("node=>node.open=true")
@@ -425,10 +424,11 @@ def main():
         assert submitted[-1]["mode"] == "cover" and submitted[-1]["reference_name"] == "reference.wav"
         assert submitted[-1]["abc"] == "" and submitted[-1]["steps"] == 16
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
-        expect(page.locator("#music-reference-choose")).to_be_visible()
-        expect(page.locator("#music-reference-name")).to_have_text("")
-        expect(page.locator("#music-mode")).to_have_value("generate")
-        expect(page.locator(".music-reference-scope")).to_be_hidden()
+        # The recording stays for the next cover of the same hum.
+        expect(page.locator("#music-reference-choose")).to_be_hidden()
+        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        expect(page.locator("#music-mode")).to_have_value("cover")
+        expect(page.locator(".music-reference-scope")).to_be_visible()
         # The cover run emptied the words, so the form asks for them again.
         page.locator("#music-style").fill("Warm piano pop")
         expect(page.locator("#music-generate")).to_be_enabled()
