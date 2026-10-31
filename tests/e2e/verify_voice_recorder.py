@@ -63,20 +63,22 @@ with sync_playwright() as tool:
     }""")
     page.wait_for_function("document.getElementById('voice-studio').recording")
     check("repeated presses acquire only one microphone stream", page.evaluate("window.microphoneCalls") == 1)
-    page.wait_for_timeout(600)
+    page.wait_for_function("document.getElementById('voice-studio').recordingActive >= 1", timeout=10000)
     page.locator('label[for="voice-mode-design"]').click()
     page.wait_for_function("window.recordingStream.getTracks().every(track => track.readyState === 'ended')")
     check("Design stops an active microphone recording", True)
-    page.locator('label[for="voice-mode-clone"]').click()
-    page.locator(".voice-reference-card").wait_for()
-    page.get_by_role("button", name="Clear voice reference", exact=True).click()
     check(
-        "clearing the stopped recording enables Record",
+        "a take below seven seconds of sound is dropped, not kept",
+        page.evaluate("document.getElementById('voice-studio').reference") is None,
+    )
+    page.locator('label[for="voice-mode-clone"]').click()
+    check(
+        "a dropped take leaves Record enabled",
         page.get_by_role("button", name="Record", exact=True).is_enabled(),
     )
     page.evaluate("document.getElementById('voice-studio').toggleRecording()")
     page.wait_for_function("document.getElementById('voice-studio').recording")
-    page.wait_for_timeout(600)
+    page.wait_for_function("document.getElementById('voice-studio').recordingActive >= 7", timeout=20000)
     page.get_by_role("button", name="Image", exact=True).click()
     page.wait_for_function("window.recordingStream.getTracks().every(track => track.readyState === 'ended')")
     check("leaving Voice stops microphone tracks", True)

@@ -43,7 +43,20 @@ with sync_playwright() as tool:
         "the held run button says why",
         page.locator("#music-generate .sub").inner_text() == "Stop the recording first",
     )
-    page.wait_for_timeout(1200)
+    # The take counts sound: Stop below seven seconds of it keeps the microphone open.
+    page.wait_for_function("document.getElementById('music-studio').recordingActive >= 1", timeout=10000)
+    check(
+        "the take says how much sound it holds",
+        page.locator("#music-recording-status").inner_text().startswith("Sound recorded:"),
+    )
+    page.locator("#music-reference-record").click()
+    page.wait_for_timeout(400)
+    check("Stop below the minimum keeps recording", page.evaluate("document.getElementById('music-studio').recording"))
+    page.wait_for_function("document.getElementById('music-studio').recordingActive >= 7", timeout=20000)
+    check(
+        "seven seconds of sound offer the stop",
+        "Press Stop" in page.locator("#music-recording-status").inner_text(),
+    )
     page.locator("#music-reference-record").click()
     page.wait_for_function("document.getElementById('music-studio').reference", timeout=15000)
     check(
@@ -99,5 +112,27 @@ with sync_playwright() as tool:
         "a dropped take is not kept as a reference",
         page.evaluate("document.getElementById('music-studio').reference") is None,
     )
+    # Silence is not input: a silent stream reaches the cap with no sound counted, and the
+    # take is dropped instead of becoming a reference.
+    silent = page.evaluate("""async () => {
+      navigator.mediaDevices.getUserMedia = async () => {
+        const context = new AudioContext();
+        const destination = context.createMediaStreamDestination();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        gain.gain.value = 0;
+        oscillator.connect(gain).connect(destination);
+        oscillator.start();
+        return destination.stream;
+      };
+      const {startRecording} = await import('/page/lib/recorder.js');
+      return await new Promise(resolve => {
+        startRecording({maxSeconds: 1.6, minActiveSeconds: 1,
+          onShort: values => resolve({dropped: values.dropped, active: values.active}),
+          onFinish: () => resolve({dropped: false}),
+          onError: message => resolve({error: message})});
+      });
+    }""")
+    check("a silent take counts no sound and is dropped", silent == {"dropped": True, "active": 0})
     check("no browser errors occurred", not errors)
     browser.close()
