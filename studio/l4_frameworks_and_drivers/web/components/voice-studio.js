@@ -10,7 +10,7 @@ import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
-import {t, plural} from '../lib/i18n.js';
+import {t, plural, label} from '../lib/i18n.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
 
@@ -156,6 +156,17 @@ class VoiceStudio extends LitElement {
   }
 
   hasParam(id) { return Boolean(this.currentMode?.params.some(param => param.id === id)); }
+
+  // A parameter the model declares arrives with an id and a hint, never a label. The table
+  // speaks first by id, and the id's own words stay the fallback, so a new model needs no copy.
+  paramLabel(param) {
+    return label('param', param.id, param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase()));
+  }
+
+  paramHint(param) {
+    return label('param', param.id + '.hint', param.hint || '');
+  }
+
   get needsReference() { return Boolean(this.currentMode?.min_references); }
 
   get takesCount() { return this.segments.reduce((count, segment) => count + segment.takes.length, 0); }
@@ -225,8 +236,9 @@ class VoiceStudio extends LitElement {
       const value = this.engineOptions[param.id] ?? param.default;
       if (!Number.isFinite(value) || (param.minimum != null && value < param.minimum)
           || (param.maximum != null && value > param.maximum) || (param.integer && !Number.isInteger(value))) {
-        const label = param.id === 'max_tokens' ? t('voice.advanced.audioTokenLimit') : param.id.replaceAll('_', ' ');
-        return t('voice.reason.paramRange', {label, minimum: param.minimum, maximum: param.maximum});
+        return t('voice.reason.paramRange', {
+          label: this.paramLabel(param), minimum: param.minimum, maximum: param.maximum,
+        });
       }
     }
     if (!this.templateComplete) return t('voice.reason.fillTemplate');
@@ -1004,11 +1016,11 @@ class VoiceStudio extends LitElement {
               </select>
               <span class="caption" id="voice-convert-hint">${t('voice.advanced.convertHint')}</span>
             </div>` : nothing}
-            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${param.id === 'max_tokens' ? t('voice.advanced.audioTokenLimit') : param.id.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase())}
+            ${(this.currentMode?.params || []).filter(param => !['seconds', 'voice', 'convert', 'ref_text'].includes(param.id)).map(param => html`<label class="field" for=${'voice-param-' + param.id}>${this.paramLabel(param)}
               <input id=${'voice-param-' + param.id} type="number" min=${param.minimum ?? nothing} max=${param.maximum ?? nothing}
                 step=${param.step || (param.integer ? 1 : 0.1)} .value=${String(this.engineOptions[param.id] ?? param.default)} ?disabled=${this.locked}
                 @input=${event => { this.engineOptions = {...this.engineOptions, [param.id]: Number(event.target.value)}; this.persist(true); }}>
-              <span class="caption">${param.id === 'max_tokens' ? t('voice.advanced.audioTokenHint') : param.hint}</span></label>`)}
+              <span class="caption">${this.paramHint(param)}</span></label>`)}
             ${this.capabilities.loading?.note ? html`<p class="caption voice-note">${this.capabilities.loading.note}</p>` : nothing}
           </div>
         </details>

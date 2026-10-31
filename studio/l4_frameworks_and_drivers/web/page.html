@@ -604,6 +604,10 @@
       if (typeof capabilities.description === 'string' && typeof backend === 'string') {
         capabilities.description = label('backend', backend, capabilities.description);
       }
+      // The note a model shows before its first load belongs to the backend that wrote it.
+      if (capabilities.loading && typeof capabilities.loading.note === 'string' && typeof backend === 'string') {
+        capabilities.loading.note = label('loading', backend + '.note', capabilities.loading.note);
+      }
     }
     function translateBackends(list) {
       (list || []).forEach(function (entry) {
@@ -2609,6 +2613,7 @@
           STUDIO.music = {backend: {id: music.active, name: musicDisplayName(music.capabilities.name), badge: music.capabilities.badge},
             backends: music.backends.map(one => [one.id, musicDisplayName(one.name), '']), capabilities: music.capabilities};
           document.getElementById('media-music-mode').hidden = false;
+          translateServerLabels(STUDIO);
           musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
             keeping: () => keeping, notify: showToast, onSendToVideo: sendVoiceToVideo,
             onBusyChange: () => { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
@@ -2620,6 +2625,7 @@
             backends: voice.backends.map(function (one) { return [one.id, one.name, one.description || '']; }),
             capabilities: voice.capabilities};
           document.getElementById('media-voice-mode').hidden = false;
+          translateServerLabels(STUDIO);
           if (voiceStudio.configure) voiceStudio.configure({capabilities: voice.capabilities, clientId: CLIENT_ID,
             libraryId: LIBRARY_ID, keeping: function () { return keeping; }, notify: showToast,
             onSendToVideo: sendVoiceToVideo,

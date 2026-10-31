@@ -24,6 +24,15 @@ def main() -> None:
         expect(page.locator("#media-image-mode")).to_have_text("Image")
         print("PASS ?lang=en draws the English page", flush=True)
 
+        # No query and no cookie: the browser's own language list decides.
+        chinese = browser.new_context(locale="zh-TW")
+        chinese_page = chinese.new_page()
+        chinese_page.goto(URL + "/")
+        chinese_page.wait_for_function("document.documentElement.dataset.locale === 'zh-TW'")
+        expect(chinese_page.locator("#media-image-mode")).to_have_text("圖片")
+        chinese.close()
+        print("PASS a browser that asks for zh-TW gets it", flush=True)
+
         # A plain URL, so the picker's cookie is what decides. The query wins by design.
         page.goto(URL + "/")
         page.wait_for_function("document.documentElement.dataset.locale === 'en'")
@@ -47,6 +56,20 @@ def main() -> None:
         assert "locale-pending" not in (page.locator("html").get_attribute("class") or "")
         print("PASS the picker reloads into zh-TW and the sweep translated the chrome", flush=True)
 
+        # Two strings no data-i18n attribute reaches, because a script writes them: the
+        # guide's API line, and the parameters the voice model declares.
+        page.locator("#guide-toggle").click()
+        expect(page.locator(".guide-api")).to_contain_text("列出所有 JSON 路由。從 /api/v1/studio 開始。")
+        page.keyboard.press("Escape")
+        page.locator("#media-voice-mode").click()
+        page.locator(".voice-advanced").evaluate("element => { element.open = true; }")
+        panel = page.locator(".voice-advanced")
+        expect(panel).to_contain_text("溫度")
+        expect(panel).to_contain_text("數值越高，演出的變化越大。")  # noqa: RUF001 (the copy is Chinese)
+        expect(panel).to_contain_text("首次執行會下載約 42 GB")
+        page.locator("#media-image-mode").click()
+        print("PASS the guide line and the declared voice parameters are translated", flush=True)
+
         cookie = [item for item in context.cookies() if item["name"] == "studio-locale"]
         assert cookie and cookie[0]["value"] == "zh-TW", cookie
         fresh = context.new_page()
@@ -59,7 +82,21 @@ def main() -> None:
         page.goto(URL + "/?lang=en")
         page.wait_for_function("document.documentElement.dataset.locale === 'en'")
         expect(page.locator("#media-image-mode")).to_have_text("Image")
+        page.locator("#guide-toggle").click()
+        expect(page.locator(".guide-api")).to_have_text("OpenAPI spec lists every JSON route. Start at /api/v1/studio.")
+        page.keyboard.press("Escape")
         print("PASS ?lang=en wins over the saved cookie", flush=True)
+
+        # The plain URL still reads the saved pick. Automatic drops it, and this context
+        # asks for en-US, so the browser decides and the page comes back English.
+        page.goto(URL + "/")
+        page.wait_for_function("document.documentElement.dataset.locale === 'zh-TW'")
+        page.locator("#theme-toggle").click()
+        page.get_by_role("menuitemradio", name="自動（瀏覽器語言）", exact=True).click()  # noqa: RUF001
+        page.wait_for_load_state()
+        page.wait_for_function("document.documentElement.dataset.locale === 'en'")
+        assert not [item for item in context.cookies() if item["name"] == "studio-locale"]
+        print("PASS Automatic drops the pick and the browser decides", flush=True)
 
         mobile = context.new_page()
         mobile.set_viewport_size({"width": 390, "height": 844})
