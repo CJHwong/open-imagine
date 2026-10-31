@@ -55,6 +55,29 @@ with sync_playwright() as tool:
     )
     check("the recorded reference shows in the preview", page.locator(".music-reference-preview").is_visible())
     check("the recorder gives way to Replace", not page.locator("#music-reference-record").is_visible())
+    # The hum is short, so the chip is the play control: hear it before the run. The player
+    # is not in the page, so the form still holds no media element.
+    page.locator("#music-reference-play").click()
+    page.wait_for_function(
+        "document.getElementById('music-studio').referencePlayer?.currentTime > 0",
+        timeout=5000,
+    )
+    check(
+        "the chip plays the recording",
+        not page.evaluate("document.getElementById('music-studio').referencePlayer.paused"),
+    )
+    check(
+        "the chip offers Pause while it plays",
+        page.locator("#music-reference-play").get_attribute("aria-label") == "Pause",
+    )
+    page.locator("#music-reference-play").click()
+    page.wait_for_function(
+        "document.querySelector('#music-reference-play').getAttribute('aria-label') === 'Play'",
+    )
+    check(
+        "a second press stops it",
+        page.evaluate("document.getElementById('music-studio').referencePlayer.paused"),
+    )
     check(
         "the run button promises a cover",
         page.locator("#music-generate .sub").inner_text() == "A new song from your recording",

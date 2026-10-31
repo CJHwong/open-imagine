@@ -321,6 +321,7 @@ class MusicStudio extends HTMLElement {
     this.detailsQuiet = false;
     this.detailsBodies = new Map();
     this.capture = null;
+    this.referencePlayer = null;
     this.recording = false;
     this.recordingPending = false;
   }
@@ -379,7 +380,9 @@ class MusicStudio extends HTMLElement {
               <span><strong>${t('music.reference.add')}</strong><span id="music-reference-note"></span></span></span></button>
           <div class="music-reference-preview video-audios" hidden>
             <div class="video-audio"><div class="video-audio-picture">
-              <span class="video-audio-badge"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg></span>
+              <button type="button" class="video-audio-badge music-reference-play" id="music-reference-play"
+                aria-label="${t('audio.preview.play')}" title="${t('audio.preview.play')}">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l11 7-11 7z"></path></svg></button>
               <button type="button" class="video-audio-remove" id="music-reference-remove" aria-label="${t('music.reference.remove_label')}">
                 <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div><span class="video-audio-name" id="music-reference-name"></span></div>
@@ -510,6 +513,7 @@ class MusicStudio extends HTMLElement {
     referenceInput.addEventListener('change', () => { if (referenceInput.files[0]) this.setReference(referenceInput.files[0]); });
     this.controls.querySelector('#music-reference-remove').addEventListener('click', () => this.setReference(null));
     this.controls.querySelector('#music-reference-record').addEventListener('click', () => this.toggleRecording());
+    this.controls.querySelector('#music-reference-play').addEventListener('click', () => this.toggleReferencePlayback());
     const drop = this.controls.querySelector('#music-reference-drop');
     drop.addEventListener('dragover', event => { if (!this.busy) { event.preventDefault(); drop.classList.add('dragover'); } });
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
@@ -642,6 +646,7 @@ class MusicStudio extends HTMLElement {
     field('style').value = '';
     field('lyrics').value = '';
     for (const [id, value] of Object.entries(defaults)) field(id).value = value;
+    this.releaseReferenceAudio();
     this.reference = null;
     this.updateReference();
     this.syncEngineMode();
@@ -656,6 +661,7 @@ class MusicStudio extends HTMLElement {
     field('style').value = snapshot.style;
     field('lyrics').value = snapshot.lyrics;
     for (const [id, value] of Object.entries(snapshot.advanced || {})) field(id).value = value;
+    this.releaseReferenceAudio();
     this.reference = snapshot.reference || null;
     this.updateReference();
     this.syncEngineMode();
@@ -681,11 +687,40 @@ class MusicStudio extends HTMLElement {
       this.options.notify('error', t('music.error.file_type')); return;
     }
     this.closeScore(false);
+    this.releaseReferenceAudio();
     this.reference = file ? {blob: file, name: file.name || 'reference.wav'} : null;
     this.syncEngineMode();
     this.controls.querySelector('#music-reference').value = '';
     this.updateReference(); this.epoch++; this.sync();
     if (this.keeping) await this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+  }
+  // A hum is short, so the chip plays it back before the run. The player stays off the
+  // page: the form holds no media element, and the only URL it reads is the one it made.
+  toggleReferencePlayback() {
+    if (!this.reference) return;
+    if (!this.referencePlayer) {
+      this.referencePlayer = new Audio(URL.createObjectURL(this.reference.blob));
+      this.referencePlayer.addEventListener('play', () => this.paintReferencePlayback(true));
+      this.referencePlayer.addEventListener('pause', () => this.paintReferencePlayback(false));
+      this.referencePlayer.addEventListener('ended', () => this.paintReferencePlayback(false));
+    }
+    if (this.referencePlayer.paused) this.referencePlayer.play().catch(() => this.paintReferencePlayback(false));
+    else this.referencePlayer.pause();
+  }
+  paintReferencePlayback(playing) {
+    const button = this.controls?.querySelector('#music-reference-play');
+    if (!button) return;
+    const text = playing ? t('audio.preview.pause') : t('audio.preview.play');
+    button.setAttribute('aria-label', text);
+    button.title = text;
+    button.querySelector('path')?.setAttribute('d', playing ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z');
+  }
+  releaseReferenceAudio() {
+    if (!this.referencePlayer) return;
+    this.referencePlayer.pause();
+    URL.revokeObjectURL(this.referencePlayer.src);
+    this.referencePlayer = null;
+    this.paintReferencePlayback(false);
   }
   updateReference() {
     const attached = Boolean(this.reference);
@@ -1102,7 +1137,11 @@ class MusicStudio extends HTMLElement {
     this.renderSongs();
     localStorage.setItem('studio-music-changed', String(Date.now()));
   }
-  pausePlayback() { this.querySelectorAll('audio').forEach(audio => audio.pause()); this.controls?.querySelectorAll('audio').forEach(audio => audio.pause()); }
+  pausePlayback() {
+    this.querySelectorAll('audio').forEach(audio => audio.pause());
+    this.controls?.querySelectorAll('audio').forEach(audio => audio.pause());
+    this.referencePlayer?.pause();
+  }
   syncBackgroundPlayback() {
     const control = this.querySelector('.music-background-pause');
     const playing = [...this.querySelectorAll('.music-song audio')].find(audio => !audio.paused && !audio.ended);
