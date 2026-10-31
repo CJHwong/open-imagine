@@ -1135,21 +1135,21 @@ class VoiceStudio extends LitElement {
   }
 
   renderRecordSheet() {
-    return html`<dialog class="sheet voice-record-sheet" id="voice-record-sheet" aria-labelledby="voice-record-title"
+    return html`<dialog class="sheet record-sheet" id="voice-record-sheet" aria-labelledby="voice-record-title"
       @cancel=${event => { event.preventDefault(); this.cancelRecording(); }}
       @close=${() => { if (this.recording || this.recordingPending) this.cancelRecording(); }}>
       <div class="sheet-head"><h2 id="voice-record-title">${t('voice.record.title')}</h2>
-        <button type="button" class="icon-btn close" id="voice-record-close" aria-label=${t('voice.record.close')} title=${t('voice.record.close')}
+        <button type="button" class="icon-btn close" id="voice-record-close" aria-label=${t('record.close')} title=${t('record.close')}
           @click=${() => this.cancelRecording()}><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
       <div class="sheet-body">
-        <p class="voice-record-script" id="voice-record-script">${t('voice.record.script')}</p>
-        <div class=${'voice-record-live' + (this.recording ? ' is-recording' : '') + (this.recordingPending ? ' is-pending' : '')}
+        <p class="record-script" id="voice-record-script">${t('voice.record.script')}</p>
+        <div class=${'record-live' + (this.recording ? ' is-recording' : '') + (this.recordingPending ? ' is-pending' : '')}
           aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
         <p class="caption" id="voice-record-status"></p>
         <p class="caption voice-note">${this.hasParam('ref_text') ? t('voice.record.hintTranscript') : t('voice.record.hint')}</p>
       </div>
       <div class="sheet-foot">
-        <button type="button" class="btn quiet" id="voice-record-cancel" @click=${() => this.cancelRecording()}>${t('voice.record.cancel')}</button>
+        <button type="button" class="btn quiet" id="voice-record-cancel" @click=${() => this.cancelRecording()}>${t('record.cancel')}</button>
         <button type="button" class="btn" id="voice-record-stop" @click=${() => this.stopRecording()}>${t('voice.action.stopRecording')}</button>
       </div>
     </dialog>`;

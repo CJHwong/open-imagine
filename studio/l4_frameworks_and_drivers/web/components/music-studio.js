@@ -454,6 +454,20 @@ class MusicStudio extends HTMLElement {
           </div>
         </div>
       </dialog>
+      <dialog class="sheet record-sheet" id="music-record-sheet" aria-labelledby="music-record-title">
+        <div class="sheet-head"><h2 id="music-record-title">${t('music.record.title')}</h2>
+          <button type="button" class="icon-btn close" id="music-record-close" aria-label="${t('record.close')}" title="${t('record.close')}">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+        <div class="sheet-body">
+          <div class="record-live" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <p class="caption" id="music-record-status"></p>
+          <p class="caption music-note">${t('music.record.hint')}</p>
+        </div>
+        <div class="sheet-foot">
+          <button type="button" class="btn quiet" id="music-record-cancel">${t('record.cancel')}</button>
+          <button type="button" class="btn" id="music-record-stop">${t('music.common.stop')}</button>
+        </div>
+      </dialog>
       <p class="music-note" id="music-loading-note" hidden></p>`;
     configureLookRows({form: 'music', fields: [], scope: () => this.controls,
       mode: () => this.controls.querySelector('#music-mode').value,
@@ -516,6 +530,14 @@ class MusicStudio extends HTMLElement {
     referenceInput.addEventListener('change', () => { if (referenceInput.files[0]) this.setReference(referenceInput.files[0]); });
     this.controls.querySelector('#music-reference-remove').addEventListener('click', () => this.setReference(null));
     this.controls.querySelector('#music-reference-record').addEventListener('click', () => this.toggleRecording());
+    const recordSheet = this.controls.querySelector('#music-record-sheet');
+    this.controls.querySelector('#music-record-cancel').addEventListener('click', () => this.cancelRecording());
+    this.controls.querySelector('#music-record-close').addEventListener('click', () => this.cancelRecording());
+    this.controls.querySelector('#music-record-stop').addEventListener('click', () => this.finishRecording());
+    recordSheet.addEventListener('cancel', event => { event.preventDefault(); this.cancelRecording(); });
+    recordSheet.addEventListener('close', () => {
+      if (this.recording || this.recordingPending) this.cancelRecording();
+    });
     this.controls.querySelector('#music-reference-play').addEventListener('click', () => this.toggleReferencePlayback());
     const drop = this.controls.querySelector('#music-reference-drop');
     drop.addEventListener('dragover', event => { if (!this.busy) { event.preventDefault(); drop.classList.add('dragover'); } });
@@ -749,6 +771,7 @@ class MusicStudio extends HTMLElement {
     if (this.recording) { this.finishRecording(); return; }
     if (this.recordingPending || this.busy || this.hidden || this.reference) return;
     this.recordingPending = true;
+    this.openRecordSheet();
     this.sync();
     this.capture = startRecording({
       maxSeconds: 120,
@@ -768,12 +791,14 @@ class MusicStudio extends HTMLElement {
       onFinish: file => {
         this.recording = false;
         this.capture = null;
+        this.closeRecordSheet();
         this.recordReference(file);
       },
       onError: message => {
         this.recording = false;
         this.recordingPending = false;
         this.capture = null;
+        this.closeRecordSheet();
         this.sync();
         this.options.notify('error', message);
       },
@@ -782,6 +807,28 @@ class MusicStudio extends HTMLElement {
   // The button ends a take and keeps it. Leaving the workspace drops it, so a half-finished
   // hum never lands in the form by surprise.
   finishRecording() { this.capture?.stop(); }
+  // A hum is a take like a Voice take, so it gets the same sheet: the live bars, the count
+  // and the way out. There is no script to read here; the tune is the words.
+  openRecordSheet() {
+    const dialog = this.controls?.querySelector('#music-record-sheet');
+    if (!dialog || dialog.open) return;
+    dialog.show();
+    this.paintRecordingStatus();
+  }
+  closeRecordSheet() {
+    const dialog = this.controls?.querySelector('#music-record-sheet');
+    if (dialog?.open) dialog.close();
+  }
+  cancelRecording() {
+    this.capture?.cancel();
+    this.capture = null;
+    this.recording = false;
+    this.recordingPending = false;
+    this.recordingText = '';
+    this.recordingActive = 0;
+    this.sync();
+    this.closeRecordSheet();
+  }
   // The line under the door: the microphone opening, then the seconds of sound the take
   // holds, then that it is long enough. Stop below the minimum asks for a moment more.
   recordingTextFor({active, needed}) {
@@ -790,17 +837,26 @@ class MusicStudio extends HTMLElement {
       : t('record.progress', {active: active.toFixed(1), needed});
   }
   paintRecordingStatus() {
-    const status = this.controls?.querySelector('#music-recording-status');
-    if (!status) return;
-    status.hidden = !(this.recording || this.recordingPending);
-    status.textContent = this.recordingPending ? t('record.opening') : this.recordingText;
-    status.classList.toggle('is-recording', this.recording);
+    const text = this.recordingPending ? t('record.opening') : this.recordingText;
+    const inline = this.controls?.querySelector('#music-recording-status');
+    if (inline) {
+      inline.hidden = !(this.recording || this.recordingPending);
+      inline.textContent = text;
+      inline.classList.toggle('is-recording', this.recording);
+    }
+    const sheetStatus = this.controls?.querySelector('#music-record-status');
+    if (sheetStatus) sheetStatus.textContent = text;
+    this.controls?.querySelectorAll('#music-record-sheet .record-live').forEach(node => {
+      node.classList.toggle('is-recording', this.recording);
+      node.classList.toggle('is-pending', this.recordingPending);
+    });
   }
   reportShortTake({active, needed}) {
     this.recording = false;
     this.recordingPending = false;
     this.capture = null;
     this.recordingText = '';
+    this.closeRecordSheet();
     this.sync();
     this.options.notify('error', t('record.dropped', {active: active.toFixed(1), needed}));
   }
@@ -810,6 +866,7 @@ class MusicStudio extends HTMLElement {
     this.capture = null;
     this.recording = false;
     this.recordingPending = false;
+    this.closeRecordSheet();
     this.sync();
   }
   // A track this studio generated is a source like any other: put its audio back in the
