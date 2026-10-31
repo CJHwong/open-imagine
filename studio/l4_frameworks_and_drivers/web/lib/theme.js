@@ -39,7 +39,7 @@ function paintTheme(id) {
 
 function markTheme() {
   const current = get('theme');
-  document.querySelectorAll('#theme-menu [role=menuitemradio]').forEach(function (item) {
+  document.querySelectorAll('#theme-menu [data-theme]').forEach(function (item) {
     item.setAttribute('aria-checked', String(item.dataset.theme === current));
   });
 }

@@ -178,8 +178,8 @@ export function openGuide(workspace, backend, capabilities = {}) {
   spec.href = '/api/docs';
   spec.target = '_blank';
   spec.rel = 'noreferrer';
-  spec.textContent = 'OpenAPI spec';
-  api.append(spec, document.createTextNode(' lists every JSON route. Start at /api/v1/studio.'));
+  spec.textContent = t('page.api.spec');
+  api.append(spec, document.createTextNode(t('guide.api.rest')));
   const body = document.createDocumentFragment();
   body.append(stepsSection(workspace, capabilities), referenceSection(entriesFor(workspace, capabilities)), api);
   guideSheet = openSheet({

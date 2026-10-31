@@ -217,7 +217,10 @@ from `web/lib/i18n.js`, which re-exports the helpers the page's classic script d
 A non-English page also receives the English table, so a key no translator has reached
 yet falls back to real copy.
 
-Server catalogue labels resolve by stable id (`label.mode.<id>`, `label.adapter.<id>`) or,
+Picking Automatic in the menu drops the cookie, so a browser's own language decides again.
+
+Server catalogue labels resolve by stable id (`label.mode.<id>`, `label.adapter.<id>`,
+`label.param.<id>` for a voice model's declared controls, `label.loading.<backend>.note`) or,
 for templates and Looks, by the catalogue's English name; the English the server sent is
 the fallback, so a new backend needs no translation to work. Prompt text, model names,
 filenames and routes stay English. `tests/l3_interface_adapters/presenters/test_locale.py`
