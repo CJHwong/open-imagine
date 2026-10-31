@@ -874,7 +874,7 @@
       musicStudio.pausePlayback?.();
     }
     if (mediaMode === 'voice' && next !== 'voice') {
-      voiceStudio.stopRecording?.();
+      voiceStudio.finishRecording?.();
       voiceStudio.pausePlayback?.();
     }
     if (mediaMode !== next) guide?.close(false);

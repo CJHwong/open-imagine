@@ -324,6 +324,8 @@ class MusicStudio extends HTMLElement {
     this.referencePlayer = null;
     this.recording = false;
     this.recordingPending = false;
+    this.recordingText = '';
+    this.recordingActive = 0;
   }
   connectedCallback() {
     if (this.ready) return;
@@ -388,6 +390,7 @@ class MusicStudio extends HTMLElement {
             </div><span class="video-audio-name" id="music-reference-name"></span></div>
           </div>
         </div>
+        <p class="caption music-recording-status" id="music-recording-status" hidden></p>
           <div class="music-reference-scope field"><div class="field-head"><label for="music-transcription-task">${t('music.field.keep')}</label></div>
             <select id="music-transcription-task"><option value="melody-full">${t('music.keep.melody_full')}</option><option value="melody-vocal">${t('music.keep.melody_vocal')}</option><option value="full">${t('music.planning.full')}</option></select></div>
       </section>
@@ -750,7 +753,19 @@ class MusicStudio extends HTMLElement {
     this.sync();
     this.capture = startRecording({
       maxSeconds: 120,
-      onStart: () => { this.recording = true; this.recordingPending = false; this.sync(); },
+      onStart: () => {
+        this.recording = true;
+        this.recordingPending = false;
+        this.recordingActive = 0;
+        this.recordingText = this.recordingTextFor({active: 0, needed: 7});
+        this.sync();
+      },
+      onTick: values => {
+        this.recordingActive = values.active;
+        this.recordingText = this.recordingTextFor(values);
+        this.paintRecordingStatus();
+      },
+      onShort: values => this.reportShortTake(values),
       onFinish: file => {
         this.recording = false;
         this.capture = null;
@@ -768,6 +783,32 @@ class MusicStudio extends HTMLElement {
   // The button ends a take and keeps it. Leaving the workspace drops it, so a half-finished
   // hum never lands in the form by surprise.
   finishRecording() { this.capture?.stop(); }
+  // The line under the door: the microphone opening, then the seconds of sound the take
+  // holds, then that it is long enough. Stop below the minimum asks for a moment more.
+  recordingTextFor({active, needed}) {
+    return active >= needed
+      ? t('record.ready', {needed})
+      : t('record.progress', {active: active.toFixed(1), needed});
+  }
+  paintRecordingStatus() {
+    const status = this.controls?.querySelector('#music-recording-status');
+    if (!status) return;
+    status.hidden = !(this.recording || this.recordingPending);
+    status.textContent = this.recordingPending ? t('record.opening') : this.recordingText;
+    status.classList.toggle('is-recording', this.recording);
+  }
+  reportShortTake({active, needed, dropped}) {
+    if (!dropped) {
+      this.options.notify('info', t('record.keep_going', {remaining: (needed - active).toFixed(1)}));
+      return;
+    }
+    this.recording = false;
+    this.recordingPending = false;
+    this.capture = null;
+    this.recordingText = '';
+    this.sync();
+    this.options.notify('error', t('record.dropped', {active: active.toFixed(1), needed}));
+  }
   stopRecording() {
     if (!this.capture && !this.recording && !this.recordingPending) return;
     this.capture?.cancel();
@@ -961,6 +1002,7 @@ class MusicStudio extends HTMLElement {
     record.disabled = this.busy || this.recordingPending;
     record.title = this.recording ? t('music.reference.title_stop')
       : this.busy ? t('music.reference.title_busy') : t('music.reference.title_idle');
+    this.paintRecordingStatus();
     if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
       this.closeAbcEditor(false);
     }
