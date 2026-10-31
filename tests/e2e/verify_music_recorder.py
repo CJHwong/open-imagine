@@ -43,18 +43,26 @@ with sync_playwright() as tool:
         "the held run button says why",
         page.locator("#music-generate .sub").inner_text() == "Stop the recording first",
     )
-    # The take counts sound: Stop below seven seconds of it keeps the microphone open.
+    # Stop always ends the take. One below seven seconds of sound is rejected, not kept.
     page.wait_for_function("document.getElementById('music-studio').recordingActive >= 1", timeout=10000)
     check(
         "the take says how much sound it holds",
         page.locator("#music-recording-status").inner_text().startswith("Sound recorded:"),
     )
     page.locator("#music-reference-record").click()
-    page.wait_for_timeout(400)
-    check("Stop below the minimum keeps recording", page.evaluate("document.getElementById('music-studio').recording"))
+    page.wait_for_function("!document.getElementById('music-studio').recording", timeout=10000)
+    check(
+        "a short take is rejected",
+        page.evaluate("document.getElementById('music-studio').reference") is None,
+    )
+    check(
+        "the rejection says why",
+        "Nothing kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
+    )
+    page.locator("#music-reference-record").click()
     page.wait_for_function("document.getElementById('music-studio').recordingActive >= 7", timeout=20000)
     check(
-        "seven seconds of sound offer the stop",
+        "seven seconds of sound are ready",
         "Press Stop" in page.locator("#music-recording-status").inner_text(),
     )
     page.locator("#music-reference-record").click()
@@ -128,11 +136,11 @@ with sync_playwright() as tool:
       const {startRecording} = await import('/page/lib/recorder.js');
       return await new Promise(resolve => {
         startRecording({maxSeconds: 1.6, minActiveSeconds: 1,
-          onShort: values => resolve({dropped: values.dropped, active: values.active}),
-          onFinish: () => resolve({dropped: false}),
+          onShort: values => resolve({rejected: true, active: values.active}),
+          onFinish: () => resolve({rejected: false}),
           onError: message => resolve({error: message})});
       });
     }""")
-    check("a silent take counts no sound and is dropped", silent == {"dropped": True, "active": 0})
+    check("a silent take counts no sound and is dropped", silent == {"rejected": True, "active": 0})
     check("no browser errors occurred", not errors)
     browser.close()
