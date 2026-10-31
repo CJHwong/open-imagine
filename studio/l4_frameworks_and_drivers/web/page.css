@@ -773,6 +773,10 @@
     border: 3px solid var(--film); border-radius: 3px;
     background: linear-gradient(135deg, #454d53, #1d2023); color: #d9e2e7; }
   .video-audio-badge .icon { width: 22px; height: 22px; }
+  /* The reference chip is the play control: the hum is short, so one press answers it. */
+  .music-reference-play { padding: 0; cursor: pointer; }
+  .music-reference-play:hover { border-color: var(--accent); color: #fff; }
+  .music-reference-play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .video-audio-name { min-width: 0; overflow: hidden; color: var(--text-2); font-size: 10px;
     text-overflow: ellipsis; white-space: nowrap; }
   .video-audio-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px;
