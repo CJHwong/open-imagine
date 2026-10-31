@@ -6,6 +6,7 @@
 // take leaves the take short of `minActiveSeconds`, so the take is rejected and the form
 // says why, exactly as it does for a take the cap ends.
 
+export const MINIMUM_ACTIVE_SECONDS = 7;
 const SOUND_FLOOR = 0.01;  // Full-scale RMS, about -40 dBFS: above a laptop's noise floor.
 const TICK_SECONDS = 0.2;
 
@@ -22,7 +23,7 @@ function readyTone(context) {
 }
 
 export function startRecording({
-  maxSeconds = 120, minActiveSeconds = 7, name = 'recording.webm',
+  maxSeconds = 120, minActiveSeconds = MINIMUM_ACTIVE_SECONDS, name = 'recording.webm',
   onStart, onFinish, onError, onTick, onShort,
 }) {
   let stream = null;

@@ -3,7 +3,7 @@ import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
 import {blobBase64, normalizeReference} from '../lib/voice-audio.js';
-import {startRecording} from '../lib/recorder.js';
+import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
@@ -459,9 +459,12 @@ class MusicStudio extends HTMLElement {
           <button type="button" class="icon-btn close" id="music-record-close" aria-label="${t('record.close')}" title="${t('record.close')}">
             <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
         <div class="sheet-body">
-          <div class="record-live" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-          <p class="caption" id="music-record-status"></p>
-          <p class="caption music-note">${t('music.record.hint')}</p>
+          <div class="record-stage">
+            <div class="record-live" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <p class="caption record-status" id="music-record-status"></p>
+            <div class="record-progress" aria-hidden="true"><span></span></div>
+          </div>
+          <p class="caption music-note record-hint">${t('music.record.hint')}</p>
         </div>
         <div class="sheet-foot">
           <button type="button" class="btn quiet" id="music-record-cancel">${t('record.cancel')}</button>
@@ -779,7 +782,7 @@ class MusicStudio extends HTMLElement {
         this.recording = true;
         this.recordingPending = false;
         this.recordingActive = 0;
-        this.recordingText = this.recordingTextFor({active: 0, needed: 7});
+        this.recordingText = this.recordingTextFor({active: 0, needed: MINIMUM_ACTIVE_SECONDS});
         this.sync();
       },
       onTick: values => {
@@ -850,6 +853,8 @@ class MusicStudio extends HTMLElement {
       node.classList.toggle('is-recording', this.recording);
       node.classList.toggle('is-pending', this.recordingPending);
     });
+    const progress = Math.min(1, this.recordingActive / MINIMUM_ACTIVE_SECONDS) * 100;
+    this.controls?.querySelector('#music-record-sheet')?.style.setProperty('--record-progress', progress.toFixed(1) + '%');
   }
   reportShortTake({active, needed}) {
     this.recording = false;

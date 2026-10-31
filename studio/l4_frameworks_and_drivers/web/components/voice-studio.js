@@ -1,7 +1,7 @@
 import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
 import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
-import {startRecording} from '../lib/recorder.js';
+import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
@@ -481,7 +481,7 @@ class VoiceStudio extends LitElement {
         this.recording = true;
         this.recordingPending = false;
         this.recordingActive = 0;
-        this.recordingText = this.recordingTextFor({active: 0, needed: 7});
+        this.recordingText = this.recordingTextFor({active: 0, needed: MINIMUM_ACTIVE_SECONDS});
         this.requestUpdate();
       },
       onTick: values => {
@@ -524,6 +524,8 @@ class VoiceStudio extends LitElement {
       const status = document.getElementById(id);
       if (status) status.textContent = text;
     }
+    const progress = Math.min(1, this.recordingActive / MINIMUM_ACTIVE_SECONDS) * 100;
+    document.getElementById('voice-record-sheet')?.style.setProperty('--record-progress', progress.toFixed(1) + '%');
   }
   // The recording sheet: a script to read, a live bar for the sound, and the count. The
   // words land in the transcript after the take, because the take is those words.
@@ -1143,10 +1145,13 @@ class VoiceStudio extends LitElement {
           @click=${() => this.cancelRecording()}><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
       <div class="sheet-body">
         <p class="record-script" id="voice-record-script">${t('voice.record.script')}</p>
-        <div class=${'record-live' + (this.recording ? ' is-recording' : '') + (this.recordingPending ? ' is-pending' : '')}
-          aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-        <p class="caption" id="voice-record-status"></p>
-        <p class="caption voice-note">${this.hasParam('ref_text') ? t('voice.record.hintTranscript') : t('voice.record.hint')}</p>
+        <div class="record-stage">
+          <div class=${'record-live' + (this.recording ? ' is-recording' : '') + (this.recordingPending ? ' is-pending' : '')}
+            aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+          <p class="caption record-status" id="voice-record-status"></p>
+          <div class="record-progress" aria-hidden="true"><span></span></div>
+        </div>
+        <p class="caption voice-note record-hint">${this.hasParam('ref_text') ? t('voice.record.hintTranscript') : t('voice.record.hint')}</p>
       </div>
       <div class="sheet-foot">
         <button type="button" class="btn quiet" id="voice-record-cancel" @click=${() => this.cancelRecording()}>${t('record.cancel')}</button>
