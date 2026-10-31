@@ -119,6 +119,7 @@ with sync_playwright() as tool:
     check("a successful generation enables Record", page.get_by_role("button", name="Record", exact=True).is_enabled())
     page.evaluate("""() => {
       const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      window.originalMicrophone = original;
       navigator.mediaDevices.getUserMedia = async options => {
         await new Promise(resolve => { window.finishMicrophone = resolve; });
         return original(options);
@@ -135,5 +136,40 @@ with sync_playwright() as tool:
     page.locator('label[for="voice-mode-design"]').click()
     page.evaluate("window.finishMicrophone()")
     page.wait_for_function("!document.getElementById('voice-studio').recordingPending")
+    page.evaluate("() => { navigator.mediaDevices.getUserMedia = window.originalMicrophone; }")
+
+    # Drama-3 takes a transcript, so the sheet gives the words to read and fills it in.
+    context.request.post(URL + "/api/v1/voice/backend", data={"backend": "drama3"})
+    page.wait_for_function(
+        "document.getElementById('voice-studio').capabilities.backend_id === 'drama3'", timeout=15000
+    )
+    page.locator('label[for="voice-mode-clone"]').click()
+    if page.get_by_role("button", name="Clear voice reference", exact=True).count():
+        page.get_by_role("button", name="Clear voice reference", exact=True).click()
+    page.locator(".voice-reference-group").get_by_role("button", name="Record", exact=True).click()
+    page.wait_for_selector("#voice-record-sheet[open]", timeout=15000)
+    script = page.locator("#voice-record-script").text_content()
+    check("the recording sheet opens with a script", script.startswith("The room was quiet"))
+    page.wait_for_function(
+        "document.getElementById('voice-record-status').textContent.includes('of 7 s')", timeout=15000
+    )
+    check("the sheet shows the count", True)
+    check("the sheet holds Stop until the minimum", page.locator("#voice-record-stop").is_disabled())
+    page.wait_for_function("document.getElementById('voice-studio').recordingReady", timeout=25000)
+    check("seven seconds of sound enable Stop", page.locator("#voice-record-stop").is_enabled())
+    page.locator("#voice-record-stop").click()
+    page.wait_for_function("document.getElementById('voice-studio').reference", timeout=15000)
+    check(
+        "the sheet closes when the take lands",
+        not page.locator("#voice-record-sheet").evaluate("node => node.open"),
+    )
+    check(
+        "the script becomes the transcript",
+        page.locator("#voice-reference-text").input_value() == script,
+    )
+    page.locator("#voice-reference-play").click()
+    page.wait_for_function("document.getElementById('voice-studio').referencePlaying", timeout=5000)
+    check("the reference recording plays from its chip", True)
+    page.locator("#voice-reference-play").click()
     check("no browser errors occurred", not errors)
     browser.close()
