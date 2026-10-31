@@ -63,6 +63,8 @@ class VoiceStudio extends LitElement {
     this.showGeneration = false;
     this.recording = false;
     this.recordingPending = false;
+    this.recordingText = '';
+    this.recordingActive = 0;
     this.capture = null;
     this.capabilities = DEFAULT_CAPABILITIES;
     this.seconds = 0;
@@ -387,7 +389,7 @@ class VoiceStudio extends LitElement {
   selectMode(mode) {
     if (this.locked) return;
     if (!this.capabilities.modes.some(candidate => candidate.id === mode)) return;
-    if (!this.capabilities.modes.find(candidate => candidate.id === mode)?.min_references) this.stopRecording();
+    if (!this.capabilities.modes.find(candidate => candidate.id === mode)?.min_references) this.finishRecording();
     this.mode = mode;
     this.templateName = '';
     this.fieldValues = {};
@@ -473,8 +475,16 @@ class VoiceStudio extends LitElement {
         }
         this.recording = true;
         this.recordingPending = false;
+        this.recordingActive = 0;
+        this.recordingText = this.recordingTextFor({active: 0, needed: 7});
         this.requestUpdate();
       },
+      onTick: values => {
+        this.recordingActive = values.active;
+        this.recordingText = this.recordingTextFor(values);
+        this.paintRecordingStatus();
+      },
+      onShort: values => this.reportShortTake(values),
       onFinish: file => {
         this.recording = false;
         this.recordingPending = false;
@@ -492,6 +502,39 @@ class VoiceStudio extends LitElement {
     });
   }
 
+  // The line under the reference: the microphone opening, then the seconds of sound the
+  // take holds, then that it is long enough. Stop below the minimum asks for a moment more.
+  recordingTextFor({active, needed}) {
+    return active >= needed
+      ? t('record.ready', {needed})
+      : t('record.progress', {active: active.toFixed(1), needed});
+  }
+  paintRecordingStatus() {
+    // The form is rendered into `#voice-controls`, outside this element.
+    const status = document.getElementById('voice-recording-status');
+    if (!status) return;
+    status.textContent = this.recordingPending ? t('record.opening') : this.recordingText;
+    status.classList.toggle('is-recording', this.recording);
+  }
+  reportShortTake({active, needed, dropped}) {
+    if (!dropped) {
+      this.options.notify('info', t('record.keep_going', {remaining: (needed - active).toFixed(1)}));
+      return;
+    }
+    this.recording = false;
+    this.recordingPending = false;
+    this.capture = null;
+    this.recordingText = '';
+    this.requestUpdate();
+    this.options.notify('error', t('record.dropped', {active: active.toFixed(1), needed}));
+  }
+  // A mode or workspace that moves on ends the take rather than leaving the microphone
+  // open. A take under the minimum is dropped, so the form never keeps a hum that is too
+  // short for the engine.
+  finishRecording() {
+    if (this.recordingPending) { this.stopRecording(); return; }
+    this.capture?.finish();
+  }
   // Voice keeps the take: a mode or workspace that moves on still leaves the recording in
   // the form, which is what the Clone reference is for.
   stopRecording() {
@@ -986,6 +1029,7 @@ class VoiceStudio extends LitElement {
             <span class="refs-empty"><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>
               <span><strong>${t('voice.reference.add')}</strong>${t('voice.reference.dropHint')}</span></span>
           </button>`}
+          ${this.recording || this.recordingPending ? html`<p class="caption voice-note voice-recording-status" id="voice-recording-status"></p>` : nothing}
           ${this.referencePending ? html`<p class="caption voice-note" role="status">${t('voice.status.preparingReference')}</p>` : nothing}
           <p class="caption voice-note">${editing ? t('voice.reference.chooseEdit') : t('voice.reference.useHint', {seconds: this.capabilities.max_seconds || 120})}${this.referenceClipSeconds < Infinity ? ' ' + t('voice.reference.trimHint') : ''}</p>
           ${this.hasParam('ref_text') ? html`<label class="field" for="voice-reference-text">${t('voice.reference.transcriptLabel')}
@@ -1056,6 +1100,8 @@ class VoiceStudio extends LitElement {
     const controls = document.getElementById('voice-controls');
     const footer = document.getElementById('voice-footer');
     if (controls) render(this.controlsTemplate(), controls);
+    // After the render: a take's first paint creates the status line.
+    if (changes.has('recording') || changes.has('recordingPending')) this.paintRecordingStatus();
     if (footer) render(this.footerTemplate(), footer);
     const menu = document.getElementById('voice-templates');
     if (this.locked && menu && !menu.hidden) closeMenus();

@@ -1369,6 +1369,12 @@
   .music-reference-drop > .refs { width: 100%; }
   .music-reference-drop.dragover > .refs, .music-reference-drop.dragover > .video-audios { background: var(--accent-soft); border-color: var(--accent); }
   .music-reference-preview .video-audio-name { display: block; }
+  /* The take states in words beside a live dot, so a recording is not only a button label. */
+  .music-recording-status, .voice-recording-status { display: flex; align-items: center; gap: 6px;
+    margin: 6px 0 0; color: var(--text-2); }
+  .music-recording-status.is-recording::before, .voice-recording-status.is-recording::before {
+    content: ''; width: 7px; height: 7px; flex: none; border-radius: 50%;
+    background: var(--danger-fill); animation: pulse .9s ease-in-out infinite alternate; }
   .music-reference-scope[hidden], .music-reference-preview[hidden], .music-reference-fields[hidden], .music-generation-fields[hidden],
   .music-lyrics-fields[hidden], .music-composition-fields[hidden], .music-synthesis-fields[hidden], .music-sound-fields[hidden] { display: none; }
   /* Lyrics are written a song at a time, so the box stays tall once it holds
