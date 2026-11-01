@@ -1,6 +1,8 @@
 """Music keeps one recording playing while the gallery selection and records change.
 
-Run against a fresh all-backends stub. No model is loaded.
+Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port <port>`.
+The artwork stub names one step, which only a backend with an editable step count accepts.
+No model is loaded.
 """
 
 import base64
@@ -102,8 +104,10 @@ def main():
         assert page.evaluate("!window.secondAudio.paused")
         assert page.evaluate("window.firstAudio.paused && !window.firstAudio.isConnected")
         assert page.evaluate("fetch(window.firstSource).then(() => false, () => true)")
-        # The persistent pause remains reachable on narrow screens.
+        # The persistent pause remains reachable on narrow screens. The tabbed layout keeps
+        # the strip head in the gallery pane, so that is where the control is shown.
         page.set_viewport_size({"width": 390, "height": 844})
+        page.locator('.pane-switch [data-pane="gallery"]').click()
         expect(pause).to_be_visible()
         assert pause.evaluate(
             "button => {const box=button.getBoundingClientRect();return box.left>=0 && box.right<=innerWidth && box.top>=0 && box.bottom<=innerHeight;}"
@@ -111,15 +115,19 @@ def main():
         page.evaluate("window.secondAudio.currentTime = 59.8")
         expect(pause).to_be_hidden(timeout=5000)
         assert page.evaluate("window.secondAudio.ended")
+        # The strip rows sit behind the gallery pane, so play the selected song from the
+        # preview pane's own transport.
         page.evaluate("document.querySelector('music-studio').selectSong('playback-1')")
-        second.get_by_role("button", name="Play", exact=True).click()
+        page.locator('.pane-switch [data-pane="preview"]').click()
+        preview = page.get_by_role("region", name="Music preview")
+        preview.get_by_role("button", name="Play", exact=True).click()
         page.evaluate("document.querySelector('music-studio').removeSong('playback-1')")
         assert page.evaluate("window.secondAudio.paused && !window.secondAudio.isConnected")
         expect(pause).to_be_hidden()
         # Workspace changes retain the existing stop behavior.
-        third = page.locator('.music-song[data-song-id="playback-2"]')
-        third.get_by_role("button", name="Play", exact=True).click()
-        third.locator("audio").evaluate("audio => window.thirdAudio = audio")
+        page.evaluate("document.querySelector('music-studio').selectSong('playback-2')")
+        preview.get_by_role("button", name="Play", exact=True).click()
+        page.evaluate("window.thirdAudio = document.querySelector('.music-song[data-song-id=\"playback-2\"] audio')")
         page.locator("#media-voice-mode").click()
         expect(page.locator("#music-studio")).to_be_hidden()
         assert page.evaluate("window.thirdAudio.paused")

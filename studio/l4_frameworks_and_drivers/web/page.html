@@ -74,6 +74,7 @@
   <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8 5L4 9l4 4"/><path d="M4 9h9a6 6 0 0 1 0 12H7"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.5v.01"/></symbol>
   <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-score" viewBox="0 0 24 24"><path d="M4 6h16M4 9.5h16M4 13h16M4 16.5h16M4 20h16"/><circle cx="9" cy="15" r="2.1"/><circle cx="15" cy="10" r="2.1"/></symbol>
 </svg>
 
 <div class="app">
@@ -105,6 +106,12 @@
         </div>
       </div>
     </header>
+    <nav class="pane-switch" id="pane-switch" role="group" aria-label="View"
+      data-i18n-attr='{"aria-label":"pane.label"}'>
+      <button type="button" data-pane="preview" aria-pressed="true" data-i18n="pane.preview">Preview</button>
+      <button type="button" data-pane="gallery" aria-pressed="false" data-i18n="pane.gallery">Gallery</button>
+      <button type="button" data-pane="controls" aria-pressed="false" data-i18n="pane.controls">Controls</button>
+    </nav>
     <section id="shared-operation" class="shared-operation" aria-label="Current operation"
       data-i18n-attr='{"aria-label":"page.operation.current"}' hidden>
       <span class="operation-indicator" aria-hidden="true"></span>
@@ -588,6 +595,11 @@
       if (typeof mode.prompt_hint === 'string' && backend) {
         mode.prompt_hint = label('mode', mode.id + '.hint.' + backend, mode.prompt_hint);
       }
+      // The script placeholder is the mode's text hint. Two backends can offer the same
+      // mode with different words, so the backend id joins the key here too.
+      if (typeof mode.text_hint === 'string' && backend) {
+        mode.text_hint = label('mode', mode.id + '.text.' + backend, mode.text_hint);
+      }
       (mode.templates || []).forEach(translateTemplate);
       (mode.looks || []).forEach(translateLook);
     }
@@ -793,7 +805,7 @@
   function syncVideoGenerateButton() {
     const button = document.getElementById('video-generate');
     const prompt = document.getElementById('video-prompt').value.trim();
-    const waiting = videoRunState === 'starting' || videoRunState === 'stopping';
+    const running = videoRunState !== 'idle';
     /* A rewrite is a second model and the video engine does not fit beside it, so the run
        waits for the press, said on the button rather than as an error after it, the way the
        image form's own run button waits through `blocker`. The form marks a press on the
@@ -809,7 +821,9 @@
     const ready = mode.needs_clip
       ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce() && !videoRunReason())
       : Boolean(prompt && !unfilled);
-    button.disabled = sharedBusy() || waiting || rewriting || (videoRunState === 'idle' && !ready);
+    // The run's only Cancel is the status bar's, as in the other three workspaces, so this
+    // button keeps its verb and waits, disabled, until the run ends.
+    button.disabled = sharedBusy() || running || rewriting || !ready;
     document.getElementById('video-go-sub').textContent =
       videoRunState !== 'idle' ? ''
         : rewriting ? t('page.video.waitRewrite')
@@ -819,20 +833,15 @@
   function setVideoRunState(state) {
     videoRunState = state;
     const active = state !== 'idle';
-    const stopping = state === 'stopping';
     const button = document.getElementById('video-generate');
     document.body.classList.toggle('video-busy', active);
-    document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
     if (formApi) formApi.holdPanel(t('page.lock.video'), active);
-    /* The button carries the video run's verbs: it starts the run, and while one
-       goes it is the way out of it. It says Cancel and not Cancel render, because
-       the button already sits in the video workspace's own footer and the word
-       it cancels is the one next to it. The labels are `run-button`, the same
-       element the image form's button uses, so the two cannot drift: the state
-       arrives here, and the verb arrives from the mode in `syncVideoMode`. */
-    document.getElementById('video-run-labels').dataset.state =
-      stopping ? 'stopping' : active ? 'busy' : 'idle';
+    /* The button carries the video run's verbs: it starts the run, and it waits while one
+       goes. The shared status bar owns Cancel, as in the other three workspaces. The labels
+       are `run-button`, the same element the image form's button uses, so the two cannot
+       drift: the state arrives here, and the verb arrives from the mode in `syncVideoMode`. */
+    document.getElementById('video-run-labels').dataset.state = active ? 'busy' : 'idle';
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
@@ -880,6 +889,9 @@
     if (mediaMode !== next) guide?.close(false);
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
+    document.body.dataset.media = mediaMode;
+    sizePanes();
+    if (document.body.dataset.pane === 'gallery' && tabbed.matches) setPane('gallery');
     const video = mediaMode === 'video';
     const voice = mediaMode === 'voice';
     const music = mediaMode === 'music';
@@ -939,13 +951,76 @@
       applyMediaMode(next);
       if (keeping && !sharedOperation) localStorage.setItem('studio-draft-workspace', next);
     } catch (error) {
-      showToast('info', error.message);
+      showToast('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
     } finally {
       tab.removeAttribute('aria-busy');
       workspaceSwitchPending = false;
       setWorkspaceControlsDisabled();
     }
   }
+
+  // A narrow window cannot hold the preview, the gallery and the controls at once, so it
+  // shows one at a time and opens on the preview.
+  const paneSwitch = document.getElementById('pane-switch');
+  function activeBrowser() {
+    if (mediaMode === 'image') return document.getElementById('image-gallery-browser');
+    const studio = mediaMode === 'video' ? videoStudio : mediaMode === 'voice' ? voiceStudio : musicStudio;
+    return studio?.querySelector('gallery-browser') || null;
+  }
+  function activeShelf() {
+    if (mediaMode === 'image') return document.getElementById('strip-wrap');
+    if (mediaMode === 'video') return document.getElementById('video-gallery');
+    if (mediaMode === 'voice') return document.getElementById('voice-gallery');
+    return document.querySelector('music-studio .music-gallery');
+  }
+  let paneShelf = null;
+  const tabbed = window.matchMedia('(max-width: 900px)');
+  // A wider window has no panes: the layout is the full studio again, and the gallery is
+  // the compact strip unless a person opens it.
+  tabbed.addEventListener('change', function (event) {
+    if (!event.matches) setPane('preview');
+    sizePanes();
+  });
+  // The tabs' height decides where a pane starts; it changes with the locale and the
+  // workspace set.
+  function sizePanes() {
+    const topbar = document.querySelector('.topbar');
+    if (topbar) document.documentElement.style.setProperty('--topbar-h', Math.round(topbar.getBoundingClientRect().height) + 'px');
+  }
+  window.addEventListener('resize', sizePanes);
+  function setPane(pane) {
+    // The panes exist only below the tabbed breakpoint.
+    if (!tabbed.matches) pane = 'preview';
+    document.body.dataset.pane = pane;
+    for (const button of paneSwitch.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
+    }
+    document.querySelectorAll('gallery-browser.pane-gallery').forEach(node => {
+      // The pane opened this browser; leaving the pane puts it back to the compact strip.
+      node.expanded = false;
+      node.classList.remove('pane-gallery');
+    });
+    document.querySelectorAll('.pane-gallery-shelf').forEach(node => node.classList.remove('pane-gallery-shelf'));
+    if (paneShelf && pane !== 'gallery') {
+      // An empty shelf is hidden by the page; the gallery pane puts it back as it was.
+      if (paneShelf.dataset.paneHidden === 'yes') { paneShelf.hidden = true; delete paneShelf.dataset.paneHidden; }
+      paneShelf = null;
+    }
+    if (pane === 'gallery') {
+      const shelf = activeShelf();
+      if (shelf && shelf.hidden) { shelf.dataset.paneHidden = 'yes'; shelf.hidden = false; }
+      if (shelf) shelf.classList.add('pane-gallery-shelf');
+      paneShelf = shelf || null;
+      const browser = activeBrowser();
+      if (browser) { browser.classList.add('pane-gallery'); browser.expanded = true; }
+    }
+  }
+  paneSwitch.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-pane]');
+    if (button) setPane(button.dataset.pane);
+  });
+  sizePanes();
+  setPane('preview');
 
   async function sendVoiceToVideo(selection) {
     if (sharedOperation || musicStudio.busy || voiceStudio.busy || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
@@ -1638,24 +1713,6 @@
     syncVideoFrameCount();
   });
 
-  async function cancelVideoRun() {
-    if (videoRunState === 'idle' || videoRunState === 'starting' || videoRunState === 'stopping') return;
-    setVideoRunState('stopping');
-    videoStudio.setCancelRequested(true);
-    try {
-      const response = await fetch('/video/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: videoRunRequestId }),
-      });
-      if (!response.ok) throw new Error(t('page.error.cancelFailed'));
-    } catch (error) {
-      videoStudio.setCancelRequested(false);
-      setVideoRunState('running');
-      videoStudio.setError(error.message);
-    }
-  }
-
   document.getElementById('video-modes').addEventListener('change', function (event) {
     if (event.target.name === 'video-mode') chooseVideoMode(event.target.value);
   });
@@ -1752,10 +1809,7 @@
   }
 
   document.getElementById('video-generate').addEventListener('click', async function () {
-    if (videoRunState !== 'idle') {
-      await cancelVideoRun();
-      return;
-    }
+    if (videoRunState !== 'idle') return;
     const status = document.getElementById('video-request-status');
     const capabilities = videoCapabilities();
     // An edit runs at the clip's own geometry, since the shape and duration controls belong
@@ -1838,6 +1892,7 @@
     setVideoRunState('starting');
     let progressTimer = null;
     let progressRequestPending = false;
+    let progressFailures = 0;
     const requestStarted = performance.now();
     videoStudio.setGenerationProgress(
       {running: true, stage: 'preparing', step: 0, total: 0},
@@ -1862,13 +1917,18 @@
         const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
         if (!progressResponse.ok) throw new Error('The progress request failed.');
         const progressState = await progressResponse.json();
+        progressFailures = 0;
         if (progressState.kind === 'video' && progressState.request_id === videoRunRequestId) {
           videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
           if (progressState.running && videoRunState === 'starting') setVideoRunState('running');
         }
       } catch (error) {
+        // One lost poll is a blip. A run that has lost several is not reporting, and the
+        // person watching it should know before the request itself gives up.
+        progressFailures += 1;
+        if (progressFailures === 5) videoStudio.setError(t('page.error.videoProgress'));
         videoStudio.setGenerationProgress(
-          {running: true, stage: 'preparing', step: 0, total: 0, stopping: videoRunState === 'stopping'},
+          {running: true, stage: 'preparing', step: 0, total: 0},
           (performance.now() - requestStarted) / 1000,
         );
       } finally {
@@ -1905,7 +1965,7 @@
       settings.createdAt = Number(response.headers.get('X-Studio-Completed')) * 1000 || Date.now();
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
-        const failure = await response.json();
+        const failure = await response.json().catch(() => ({}));
         throw new Error(failure.error || t('page.error.videoRequestFailed'));
       }
       if (contentType.indexOf('video/mp4') !== -1) {
@@ -1933,7 +1993,7 @@
       videoStudio.clearImageReferences();
       videoStudio.clearAudio();
     } catch (error) {
-      videoStudio.setError(error.message);
+      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed') : error.message);
       status.textContent = t('page.error.videoFailed');
     } finally {
       if (progressTimer !== null) window.clearInterval(progressTimer);
@@ -2238,7 +2298,16 @@
         canvas.replaceChildren(loading); stageBar.hidden = true;
       }
       try { await kept.hydrate(entry); }
-      catch (error) { if (view === entry.id) showToast('error', error.message); return; }
+      catch (error) {
+        // The loading note was already in the stage; leaving it there made a failed read
+        // look like a slow one.
+        if (view === entry.id) {
+          showToast('error', t('page.error.imageRead'));
+          const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = t('page.error.imageRead');
+          canvas.replaceChildren(empty); stageBar.hidden = false;
+        }
+        return;
+      }
       if (view !== entry.id || !gallery.includes(entry)) return;
     }
     if (stage) stage.renderStage();
@@ -2274,7 +2343,13 @@
   // An image made in this tab carries its base64. A kept one reads it from its
   // blob only when it is used, so a long strip does not hold every image twice.
   async function referFrom(entry) {
-    if (!entry.src && entry.loadMedia) await kept.hydrate(entry);
+    if (!entry.src && entry.loadMedia) {
+      try { await kept.hydrate(entry); }
+      catch (error) {
+        showToast('error', t('page.error.imageAsReference', {message: error.message}));
+        return;
+      }
+    }
     const ready = entry.b64 ? Promise.resolve(entry.b64) : kept.blobOf(entry.src).then(function (blob) {
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();
@@ -2323,6 +2398,9 @@
   // allows one run at a time, so two tabs never number two new images at once.
   const KEEP_KEY = 'studio-keep';
   let keeping = readKeep();
+  // Autoplay is a preference, not stored media, so turning keep off leaves it alone.
+  const AUTOPLAY_KEY = 'studio-autoplay';
+  let autoplay = readAutoplay();
 
   function readKeep() {
     try {
@@ -2331,6 +2409,30 @@
       console.warn('The keep setting was not read:', error);
       return true;
     }
+  }
+
+  function readAutoplay() {
+    try {
+      return localStorage.getItem(AUTOPLAY_KEY) !== 'off';
+    } catch (error) {
+      console.warn('The autoplay setting was not read:', error);
+      return true;
+    }
+  }
+
+  function setAutoplay(on) {
+    autoplay = on;
+    try {
+      localStorage.setItem(AUTOPLAY_KEY, on ? 'on' : 'off');
+    } catch (error) {
+      showToast('error', t('page.error.autoplayTabOnly', {message: error.message}));
+    }
+    markAutoplay();
+  }
+
+  function markAutoplay() {
+    const item = document.getElementById('autoplay-toggle');
+    if (item) item.setAttribute('aria-checked', String(autoplay));
   }
 
   // A kept image joins the strip in order, newest first, and moves the frame
@@ -2541,6 +2643,9 @@
       prepareNativeCancel: function (operation) {
         if (operation.kind === 'image' && operation.client_id === CLIENT_ID) run?.prepareCancel(operation);
         if (operation.kind === 'music' && operation.client_id === CLIENT_ID) musicStudio.prepareCancel?.();
+        // The video form has no Cancel of its own, so the status bar's press has to paint
+        // the preview as stopping; the run's own response puts it back.
+        if (operation.kind === 'video' && operation.client_id === CLIENT_ID) videoStudio.setCancelRequested(true);
       },
       notify: showToast,
       video: function () { return videoStudio; },
@@ -2615,7 +2720,7 @@
           document.getElementById('media-music-mode').hidden = false;
           translateServerLabels(STUDIO);
           musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
-            keeping: () => keeping, notify: showToast, onSendToVideo: sendVoiceToVideo,
+            keeping: () => keeping, autoplay: () => autoplay, notify: showToast, onSendToVideo: sendVoiceToVideo,
             onBusyChange: () => { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
         }
         const voice = state.voice;
@@ -2627,7 +2732,7 @@
           document.getElementById('media-voice-mode').hidden = false;
           translateServerLabels(STUDIO);
           if (voiceStudio.configure) voiceStudio.configure({capabilities: voice.capabilities, clientId: CLIENT_ID,
-            libraryId: LIBRARY_ID, keeping: function () { return keeping; }, notify: showToast,
+            libraryId: LIBRARY_ID, keeping: function () { return keeping; }, autoplay: function () { return autoplay; }, notify: showToast,
             onSendToVideo: sendVoiceToVideo,
             onBusyChange: function () { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
         }
@@ -2976,8 +3081,16 @@
     const keep = menus.menuItem('check', t('page.keep.label'), function () { setKeep(!keeping); });
     keep.setAttribute('role', 'menuitemcheckbox');
     keep.id = 'keep-toggle';
-    menu.append(head, keep);
+    const play = menus.menuItem('check', t('page.autoplay.label'), function () { setAutoplay(!autoplay); });
+    play.setAttribute('role', 'menuitemcheckbox');
+    play.id = 'autoplay-toggle';
+    menu.append(head, keep, play);
     markKeep();
+    markAutoplay();
+    // The clip player arrives with its module, after this script runs.
+    customElements.whenDefined('video-studio').then(function () {
+      videoStudio.setAutoplay(function () { return autoplay; });
+    });
     // The API is the page's other door onto the same use cases, so its document
     // belongs in the menu a reader opens to look something up.
     const apiHead = document.createElement('div');

@@ -79,7 +79,15 @@ export function startRecording({
     }
     const samples = analyser ? new Float32Array(analyser.fftSize) : null;
     const chunks = [];
-    recorder = new MediaRecorder(stream);
+    try {
+      recorder = new MediaRecorder(stream);
+    } catch (error) {
+      // The microphone opened; the recorder did not. Saying the microphone failed sent
+      // people looking at the wrong device.
+      release();
+      onError?.('This browser cannot record audio: ' + error.message);
+      return;
+    }
     recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
     recorder.onstop = () => {
       const blob = new Blob(chunks, {type: recorder.mimeType});

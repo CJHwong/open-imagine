@@ -1,11 +1,24 @@
+import {t} from './i18n.js';
+
 let opening;
 function database() {
-  if (!opening) opening = new Promise((resolve, reject) => {
-    const request = indexedDB.open('studio-drafts', 1);
-    request.onupgradeneeded = () => request.result.createObjectStore('inputs');
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  if (!opening) {
+    opening = new Promise((resolve, reject) => {
+      const request = indexedDB.open('studio-drafts', 1);
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains('inputs')) request.result.createObjectStore('inputs');
+      };
+      request.onsuccess = () => {
+        // Another tab upgraded the database: close, and open again on the next call.
+        request.result.onversionchange = () => { request.result.close(); opening = undefined; };
+        resolve(request.result);
+      };
+      request.onerror = () => reject(request.error);
+      request.onblocked = () => reject(new Error('Reload other Studio tabs to update saved inputs.'));
+    });
+    // A rejected open must not stall every later read and write.
+    opening.catch(() => { opening = undefined; });
+  }
   return opening;
 }
 
@@ -44,6 +57,7 @@ export async function clearDrafts() {
     transaction.objectStore('inputs').clear();
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error('Draft storage was interrupted.'));
   });
 }
 
@@ -61,7 +75,7 @@ function createDrafts(page) {
   const stamp = () => performance.timeOrigin + performance.now();
   const failure = error => {
     console.warn('Input settings were not saved:', error);
-    page.notify('error', 'This browser could not keep the input settings.');
+    page.notify('error', t('form.error.keepFailed'));
   };
   function queue(action) { writes = writes.then(action).catch(failure); return writes; }
   function record(inputs, submitted = null) {

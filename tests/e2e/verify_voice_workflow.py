@@ -2,6 +2,7 @@
 
 import sys
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from voice_helpers import choose_voice_profile
 
@@ -70,6 +71,12 @@ with sync_playwright() as tool:
         timeout=120000,
     )
     check("the whole script produces one clip", page.locator(".voice-clip").count() == 1)
+    try:
+        page.wait_for_function("() => Boolean(document.querySelector('audio-preview')?.playing)", timeout=10000)
+        plays = True
+    except PlaywrightTimeoutError:
+        plays = False
+    check("the new take plays on arrival", plays)
     check("the result replaces the placeholder", page.locator(".voice-render-pending").count() == 0)
     check("success clears the script", page.locator("#voice-text").input_value() == "")
     check("success clears the voice", page.locator("#voice-description").input_value() == "")

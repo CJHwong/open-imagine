@@ -8,6 +8,8 @@ const owners = new Set();
 const observed = new Set();
 const batchItems = new Set();
 const batchCounts = new Map();
+// A result that fails to load gets two more polls before it is set aside.
+const importFailures = new Map();
 const openedAt = performance.timeOrigin / 1000;
 try {
   JSON.parse(sessionStorage.getItem('studio-seen-operations') || '[]').forEach(id => imported.add(id));
@@ -85,10 +87,13 @@ async function cancelActive() {
   document.getElementById('shared-operation-cancel').disabled = true;
   try {
     const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operationId) + '/cancel', {method: 'POST'});
-    if (!answer.ok) throw new Error((await answer.json()).error || t('operation.error.notStopped'));
+    if (!answer.ok) {
+      const body = await answer.json().catch(() => ({}));
+      throw new Error(body.error || t('operation.error.notStopped'));
+    }
     await poll();
   } catch (error) {
-    page.notify('error', error.message);
+    page.notify('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
   }
 }
 
@@ -150,6 +155,7 @@ async function importResult(operation) {
   const answer = await fetch(operation.result_url, {cache: 'no-store'});
   if (answer.status === 404 || answer.status === 410) {
     remember(operation.id);
+    page.notify('info', t('operation.error.expired'));
     return;
   }
   if (!answer.ok) throw new Error(t('operation.error.result'));
@@ -212,12 +218,17 @@ async function poll() {
     if (answer.status === 404) {
       stopped = true;
       awake.set(false);
+      page.notify('error', t('operation.error.updatesStopped'));
       return;
     }
-    if (answer.status === 503 && (await answer.clone().json()).error === 'The JSON API is not configured.') {
-      stopped = true;
-      awake.set(false);
-      return;
+    if (answer.status === 503) {
+      const body = await answer.clone().json().catch(() => null);
+      if (body?.error === 'The JSON API is not configured.') {
+        stopped = true;
+        awake.set(false);
+        page.notify('error', t('operation.error.updatesStopped'));
+        return;
+      }
     }
     if (!answer.ok) throw new Error(t('operation.error.status'));
     const state = await answer.json();
@@ -246,16 +257,33 @@ async function poll() {
       });
     }
     page.observeDrafts(state.operations || []);
+    let importFailure = '';
     for (const operation of (state.operations || []).slice().reverse()) {
-      await importResult(operation);
+      try {
+        await importResult(operation);
+        importFailures.delete(operation.id);
+      } catch (error) {
+        // One result that will not load must not hold the page on "Cancel" or hide the
+        // results behind it. It gets two more polls, then the poll moves on.
+        const failures = (importFailures.get(operation.id) || 0) + 1;
+        importFailures.set(operation.id, failures);
+        if (failures >= 3) { remember(operation.id); importFailures.delete(operation.id); }
+        const message = error instanceof SyntaxError ? t('operation.error.result')
+          : (error.message || t('operation.error.result'));
+        importFailure = message;
+        if (lastFailure !== message) page.notify('error', message);
+        lastFailure = message;
+      }
       page.finishImageOperation(operation);
     }
-    lastFailure = '';
+    if (!importFailure) lastFailure = '';
   } catch (error) {
     serverBusy = false;
     awake.set(false);
-    if (lastFailure !== error.message) page.notify('info', error.message);
-    lastFailure = error.message;
+    const message = error instanceof SyntaxError || error instanceof TypeError
+      ? t('operation.error.status') : (error.message || t('operation.error.status'));
+    if (lastFailure !== message) page.notify('error', message);
+    lastFailure = message;
   } finally {
     polling = false;
     if (refreshPending) { refreshPending = false; poll(); }

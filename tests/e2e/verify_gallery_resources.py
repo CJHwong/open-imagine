@@ -86,10 +86,15 @@ with sync_playwright() as playwright:
     }""",
         payload,
     )
-    context.add_init_script("""window.mediaAudit = {gets:[], all:0, urls:new Map(), wake:0, release:0};
+    context.add_init_script("""window.mediaAudit = {gets:[], all:{images:0, clips:0, media:0}, urls:new Map(), wake:0, release:0};
       const get = IDBObjectStore.prototype.get, all = IDBObjectStore.prototype.getAll;
       IDBObjectStore.prototype.get = function(key) { mediaAudit.gets.push([this.name, key]); return get.call(this, key); };
-      IDBObjectStore.prototype.getAll = function(...args) { mediaAudit.all++; return all.apply(this,args); };
+      // Only the media stores are audited. The music store reads its songs on startup, and
+      // that read says nothing about how the gallery loads its own media.
+      IDBObjectStore.prototype.getAll = function(...args) {
+        if (this.name in mediaAudit.all) mediaAudit.all[this.name]++;
+        return all.apply(this,args);
+      };
       const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL);
       URL.createObjectURL = blob => { const url = create(blob); mediaAudit.urls.set(url,blob.type); return url; };
       URL.revokeObjectURL = url => { mediaAudit.urls.delete(url); return revoke(url); };
@@ -107,7 +112,7 @@ with sync_playwright() as playwright:
     initial = page.evaluate(
         "({gets:mediaAudit.gets.filter(([store]) => ['images','clips','media'].includes(store)).length, all:mediaAudit.all, originalImages:[...mediaAudit.urls.values()].filter(type => type === 'image/png').length})"
     )
-    assert initial["all"] == 0, initial
+    assert sum(initial["all"].values()) == 0, initial
     assert initial["gets"] < 60, initial
     assert initial["originalImages"] <= 2, initial
     print("PASS initial restore: 768 metadata records, bounded media reads, no media getAll", initial, flush=True)

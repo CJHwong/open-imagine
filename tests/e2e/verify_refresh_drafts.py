@@ -1,4 +1,8 @@
-"""Check Image and Video drafts against a fresh all-backend stub."""
+"""Check Image and Video drafts against a fresh all-backend stub.
+
+Run against `uv run studio --stub --all-backends --backend qwen21 --port <port>`. The
+Image draft names a step count, which only a backend with an editable step count accepts.
+"""
 
 import io
 import sys

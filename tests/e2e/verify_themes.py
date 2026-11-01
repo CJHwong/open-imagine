@@ -113,6 +113,8 @@ with sync_playwright() as playwright:
             for width in (1000, 768, 390):
                 page.set_viewport_size({"width": width, "height": 900})
                 assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (theme, workspace, width)
+                if page.locator(".pane-switch").is_visible():
+                    page.locator('.pane-switch [data-pane="controls"]').click()
                 button = page.locator(
                     {
                         "Image": "#go",

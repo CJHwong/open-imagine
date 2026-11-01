@@ -267,6 +267,7 @@ class VideoStudio extends LitElement {
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
     this.addEventListener('timeupdate', this.onTimeUpdate, true);
+    this.addEventListener('error', this.onMediaError, true);
     document.addEventListener('paste', this.handleDocumentPaste);
     document.addEventListener('keydown', this.handleDocumentKeydown);
     if (this.sourcePanel) {
@@ -288,6 +289,7 @@ class VideoStudio extends LitElement {
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
     this.removeEventListener('timeupdate', this.onTimeUpdate, true);
+    this.removeEventListener('error', this.onMediaError, true);
     document.removeEventListener('paste', this.handleDocumentPaste);
     document.removeEventListener('keydown', this.handleDocumentKeydown);
     if (this.sourcePanel) {
@@ -362,6 +364,11 @@ class VideoStudio extends LitElement {
   setStoragePersisted(value) {
     this.storagePersisted = value;
     this.renderVideoGallery();
+  }
+
+  // The page owns the autoplay setting; this element reads it when a clip lands.
+  setAutoplay(read) {
+    this.autoplay = read;
   }
 
   setKeeping(keeping) {
@@ -877,7 +884,22 @@ class VideoStudio extends LitElement {
     const saved = await this.persistVideo(clip);
     this.renderVideoGallery();
     this.createThumbnail(clip);
+    this.playArrival(clip);
     return saved;
+  }
+
+  // A finished clip plays once, when the page's Media menu allows it. A browser that
+  // blocks the sound leaves it paused: the policy is not a failure.
+  async playArrival(clip) {
+    if (!this.autoplay?.() || !clip?.url) return;
+    if (!this.querySelector('#video-preview')?.getAttribute('src')) this.renderPreview();
+    await this.updateComplete;
+    const video = this.querySelector('#video-preview-root video');
+    if (!video) return;
+    // A short clip that autoplayed can sit at its end, where the play button does nothing
+    // until a seek. Rewind it so the button starts the clip again.
+    video.addEventListener('ended', () => { video.currentTime = 0; }, {once: true});
+    if (video.paused) await video.play().catch(() => {});
   }
 
   addStubClip(result, settings) {
@@ -950,6 +972,7 @@ class VideoStudio extends LitElement {
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
     if (action === 'show-render') this.showRenderMonitor();
     if (action === 'capture-video-frame') this.captureFrameForVideo();
+    if (action === 'toggle-video-playback') this.togglePlayback();
     if (action === 'edit-this-clip') this.editThisClip(control.dataset.clipId);
     if (action === 'capture-image-frame') this.captureFrameForImage();
   }
@@ -1427,6 +1450,10 @@ class VideoStudio extends LitElement {
     if (!video) return;
     if (!video.paused) video.pause();
     else {
+      // A clip that ended needs the playhead at the start before it will play again.
+      if (video.ended || (Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.05)) {
+        video.currentTime = 0;
+      }
       try { await video.play(); }
       catch (error) {
         if (error.name !== 'AbortError' && video.isConnected && video === this.querySelector('#video-preview-root video')) {
@@ -1543,6 +1570,15 @@ class VideoStudio extends LitElement {
 
   onTimeUpdate(event) {
     this.currentTime = event.target.currentTime || 0;
+  }
+
+  // A clip whose bytes cannot be decoded used to leave a blank monitor with every action
+  // still offered. The failure belongs on the page when the clip is selected, not only
+  // when someone presses Play.
+  onMediaError(event) {
+    const preview = this.querySelector('#video-preview');
+    if (!preview || event.target !== preview) return;
+    this.setError(t('video.error.preview'));
   }
 
   captureFrameForImage() {
@@ -1764,6 +1800,21 @@ class VideoStudio extends LitElement {
       : this.renderClip(this.selectedClip());
     renderTemplate(content, preview);
     this.fitVideoMonitor();
+    this.syncPlayOverlay();
+  }
+
+  // A short clip that autoplay left at its end does not answer the native play button,
+  // so the preview carries its own play control and shows it whenever the clip is paused.
+  syncPlayOverlay() {
+    const video = this.querySelector('#video-preview');
+    const overlay = this.querySelector('.video-play-overlay');
+    if (!video || !overlay) return;
+    const sync = () => { overlay.hidden = !video.paused; };
+    if (video.dataset.overlaySync !== 'yes') {
+      video.dataset.overlaySync = 'yes';
+      for (const event of ['play', 'pause', 'ended', 'loadedmetadata']) video.addEventListener(event, sync);
+    }
+    sync();
   }
 
   fitVideoMonitor() {
@@ -1928,6 +1979,10 @@ class VideoStudio extends LitElement {
     }
     const preview = html`<div class="video-preview-pane">
       <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls playsinline preload="metadata"></video>
+      <button type="button" class="video-play-overlay" data-action="toggle-video-playback"
+        aria-label=${t('video.action.play')} title=${t('video.action.play')} ?hidden=${clip.stub}>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>
+      </button>
       <div class="video-preview-stub" ?hidden=${!clip.stub}>
         <div class="video-empty-mark">${t('video.mark.stub')}</div>
         <strong>${t('video.empty.stubTitle')}</strong>

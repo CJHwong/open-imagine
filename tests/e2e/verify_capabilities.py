@@ -332,7 +332,13 @@ def main():
         check("a switch reloads on the new backend", page.inner_text("h1") == "Tiny", page.inner_text("h1"))
         check("the caret stays with three backends", page.locator("#backend-toggle .icon").is_visible())
         check("an undeclared mode is disabled", page.is_disabled("#mode-edit"))
-        check("the mode takes its label from the spec", page.inner_text("label[for=mode-generate]").strip() == "Draw")
+        # The two built-in modes are the page's own tabs, and their words are translated
+        # with the rest of the page. The backend's label names the mode for its own callers.
+        check(
+            "the built-in modes keep the page's own labels",
+            page.inner_text("label[for=mode-generate]").strip() == "Generate",
+            page.inner_text("label[for=mode-generate]"),
+        )
         check("the prompt hint comes from the spec", page.get_attribute("#prompt", "placeholder") == "Tiny prompt hint")
         check("no templates button without templates", not visible(page, "#templates-toggle"))
         check("no Look without Looks", not visible(page, "#look"))
@@ -376,8 +382,8 @@ def main():
         page.get_by_role("menuitemradio", name="Plain").click()
         page.wait_for_function("STUDIO.backend.id === 'plain'")
         check(
-            "the plain labels come from its spec",
-            page.inner_text("label[for=mode-edit]").strip() == "Touch up",
+            "the plain backend keeps the page's own mode labels too",
+            page.inner_text("label[for=mode-edit]").strip() == "Edit",
             page.inner_text("label[for=mode-edit]"),
         )
         page.fill("#prompt", "a plain square")

@@ -7,6 +7,8 @@ export function pencilLoop(draw = false) {
   return html`<svg class="mark${draw ? ' draw' : ''}" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M58 5 C80 5 97 16 98 44 C99 74 84 95 52 96 C20 97 3 80 2 52 C1 24 18 7 44 4 C52 3 62 4 70 7"></path></svg>`;
 }
 
+// The bars say it. A word in a narrow tile wraps, and in Chinese it wraps worst; the
+// status role and its name carry the meaning for assistive tech.
 export function playingMark() {
-  return html`<span class="music-playing-mark" role="status" aria-label=${t('gallery.playing.aria')}><span class="music-playing-bars" aria-hidden="true"><i></i><i></i><i></i></span><span>${t('gallery.playing.text')}</span></span>`;
+  return html`<span class="music-playing-mark" role="status" aria-label=${t('gallery.playing.aria')}><span class="music-playing-bars" aria-hidden="true"><i></i><i></i><i></i></span></span>`;
 }

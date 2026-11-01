@@ -44,7 +44,9 @@ with sync_playwright() as tool:
         delivered.append(True)
         route.fulfill(response=response)
 
-    page.route("**/generate", clear_first_batch_response)
+    # A count above one is a prepared batch: the page imports each item from its own
+    # result URL, so the clear has to land before the first item is read.
+    page.route("**/api/v1/operations/*/items/*/result", clear_first_batch_response)
     page.fill("#prompt", "a batch across Clear all")
     page.locator("#steps").evaluate(
         "input => { input.value = input.min; input.dispatchEvent(new Event('input', {bubbles: true})); }"
@@ -53,12 +55,12 @@ with sync_playwright() as tool:
     page.get_by_role("menuitemradio", name="2 images", exact=True).click()
     page.locator("#go").click()
     page.wait_for_function("!document.body.classList.contains('busy')")
-    assert page.evaluate("gallery.map(entry => entry.position)") == ["2 of 2"]
+    assert page.evaluate("gallery.map(entry => entry.position)") == [2]
     page.reload()
     page.wait_for_function("gallery.length === 1")
-    assert page.evaluate("gallery.map(entry => entry.position)") == ["2 of 2"]
+    assert page.evaluate("gallery.map(entry => entry.position)") == [2]
     print("PASS a batch retains only the image completed after Clear all", flush=True)
-    page.unroute("**/generate", clear_first_batch_response)
+    page.unroute("**/api/v1/operations/*/items/*/result", clear_first_batch_response)
 
     page.goto(URL + "/?workspace=video")
     page.wait_for_function("Boolean(document.getElementById('video-studio').galleryStore)")

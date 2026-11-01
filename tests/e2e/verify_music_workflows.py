@@ -12,6 +12,46 @@ import wave
 from playwright.sync_api import expect, sync_playwright
 
 
+def stored_sources(page):
+    """The ids in the Music source store. One id means every song shares one recording."""
+    return page.evaluate(
+        """async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('studio-music');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const ids = await new Promise((resolve, reject) => {
+        const request = db.transaction('sources', 'readonly').objectStore('sources').getAllKeys();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return ids;
+    }"""
+    )
+
+
+def stored_draft(page):
+    """The saved form draft, including the reference pointer."""
+    return page.evaluate(
+        """async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('studio-music');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const draft = await new Promise((resolve, reject) => {
+        const request = db.transaction('state', 'readonly').objectStore('state').get('draft');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return draft;
+    }"""
+    )
+
+
 def verify_automatic_instrumental(browser, base):
     """Blank words imply instrumental without hiding the optional lyrics editor."""
     page = browser.new_page()
@@ -106,7 +146,9 @@ def verify_cancel_restores_words(browser, base):
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'busy'", timeout=30000
     )
-    page.locator("#music-generate").click()
+    assert not page.locator("#music-generate").is_enabled(), "The form button must wait while a run goes"
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
+    page.locator("#shared-operation-cancel").click()
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
     )
@@ -138,8 +180,10 @@ def verify_failure_restores_inputs(browser, base, audio):
     page.locator("#music-generate").click()
     expect(page.locator("#music-style")).to_have_value("")
     expect(page.locator("#music-lyrics")).to_have_value("")
-    # The recording stays through the run, so the next one can reuse it.
-    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    # The run empties the recording with the words; the failed run puts it back.
+    expect(page.locator("#music-reference-name")).to_have_text("")
+    expect(page.locator("#music-reference-choose")).to_be_visible()
+    expect(page.locator("#music-mode")).to_have_value("generate")
     expect(page.locator("#music-seed")).to_have_value("")
     expect(page.locator("#music-count")).to_have_value("1")
     expect(page.locator("#music-steps")).to_have_value("32")
@@ -168,6 +212,174 @@ def verify_failure_restores_inputs(browser, base, audio):
     )
     assert errors == [], errors
     page.close()
+
+
+def verify_score_sheet(browser, base):
+    """A score previews as the engraved sheet, wears the staff tile and plays."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.locator("#music-style").fill("Warm piano pop")
+    page.locator('label[for="music-mode-plan"]').click()
+    page.locator("#music-generate").click()
+    expect(page.locator(".music-song.is-score")).to_have_count(1, timeout=30000)
+    card = page.locator(".music-song:not([hidden])")
+    # The engraver loads from the CDN, so the sheet arrives after the card.
+    # The engraver writes one SVG per line, so the first is the check.
+    expect(card.locator(".music-sheet-notes svg").first).to_be_visible(timeout=60000)
+    expect(card.locator(".music-song-style")).to_have_count(0)
+    assert page.evaluate(
+        "() => document.querySelector('.music-strip .music-thumb:not(.music-pending-thumb) .music-thumb-note')"
+        ".innerHTML.includes('i-score')"
+    ), "A score tile must wear the staff, not the note glyph"
+    assert page.evaluate(
+        "() => document.querySelector('gallery-browser[workspace=\"music\"]').items.every(item => item.score)"
+    )
+    play = card.locator("[data-music-score-play]")
+    expect(play).to_have_attribute("aria-pressed", "false")
+    play.click()
+    expect(play).to_have_attribute("aria-pressed", "true", timeout=30000)
+    play.click()
+    expect(play).to_have_attribute("aria-pressed", "false")
+    assert errors == [], errors
+    page.close()
+    print("PASS a score previews as the engraved sheet, wears the staff tile and plays")
+
+
+def verify_reload_cancel_restores(browser, base, audio):
+    """A reload during a run keeps what the submit emptied, and a cancel puts it back."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.locator("#music-style").fill("Warm piano pop")
+    page.locator("#music-lyrics").fill("[Verse]\nA long morning")
+    page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    page.locator("#music-seed").fill("99")
+    with page.expect_file_chooser() as chosen:
+        page.locator("#music-reference-choose").click()
+    chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    # A submit waits for the recording's record before it empties the form; this one does too.
+    page.wait_for_function("() => Boolean(document.querySelector('music-studio').reference?.sourceId)", timeout=10000)
+    # The submit is simulated, because a real run can import while the page reloads and
+    # then clears the snapshot for the right reason. The store path is the same one a
+    # submit takes: the form empties and the snapshot keeps the recording's id.
+    page.evaluate("""() => {
+      const studio = document.querySelector('music-studio');
+      studio.setOperation({id: 'reload-test', kind: 'music', status: 'running', client_id: 'another-tab'});
+      studio.clearInputs();
+    }""")
+    page.wait_for_function("() => Boolean(sessionStorage.getItem('studio-music-cleared'))", timeout=10000)
+    saved = page.evaluate("() => JSON.parse(sessionStorage.getItem('studio-music-cleared'))")
+    assert saved["style"] == "Warm piano pop" and saved["lyrics"] == "[Verse]\nA long morning", saved
+    assert saved["advanced"]["seed"] == "99", saved["advanced"]
+    assert saved["reference"]["sourceId"] and "blob" not in saved["reference"], saved["reference"]
+    assert saved["operationId"] == "reload-test", saved
+    # A real submit leaves the link that keeps the recording alive until its song lands;
+    # without it the startup sweep would rightly remove the unreferenced record.
+    page.evaluate(
+        """async (source) => {
+      const store = await import('/page/lib/music-store.js');
+      await store.putMusicLink({id: 'reload-test', sourceId: source.sourceId, name: source.name});
+    }""",
+        saved["reference"],
+    )
+    page.reload()
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    expect(page.locator("#music-style")).to_have_value("")
+    page.wait_for_function("() => !document.querySelector('music-studio').busy", timeout=30000)
+    page.evaluate(
+        """(operation) => document.querySelector('music-studio').restoreAfterFailure(operation)""",
+        {"id": saved["operationId"], "client_id": "another-tab", "kind": "music", "status": "cancelled"},
+    )
+    expect(page.locator("#music-style")).to_have_value("Warm piano pop")
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nA long morning")
+    expect(page.locator("#music-seed")).to_have_value("99")
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    restored = page.evaluate(
+        """async () => {
+      const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+      let text = '';
+      for (const byte of bytes) text += String.fromCharCode(byte);
+      return btoa(text);
+    }"""
+    )
+    assert restored == base64.b64encode(audio.getvalue()).decode()
+    assert page.evaluate("() => sessionStorage.getItem('studio-music-cleared')") is None
+    assert errors == [], errors
+    page.close()
+    print("PASS a reload during a run keeps what the submit emptied, and Cancel puts it back")
+
+
+def verify_source_across_tabs(browser, base, audio):
+    """A song imported by another tab still points at the recording that made it."""
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    first, second = context.new_page(), context.new_page()
+    errors = []
+    for page in (first, second):
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(base + "/?workspace=music")
+        page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    try:
+        # A run empties the form before it imports, so the link is the only claimant for a
+        # while. A sweep in any tab must keep that source until the link expires.
+        held = second.evaluate("""async () => {
+          const store = await import('/page/lib/music-store.js');
+          const id = 'held-' + Date.now();
+          await store.putMusicSource({id, blob: new Blob([new Uint8Array(16)], {type: 'audio/wav'}), name: 'held.wav'});
+          await store.putMusicLink({id: 'run-' + id, sourceId: id, name: 'held.wav'});
+          await store.sweepMusicSources();
+          const source = await store.musicSource(id);
+          const link = await store.musicLink('run-' + id);
+          await store.deleteMusicLink('run-' + id);
+          await store.sweepMusicSources();
+          const gone = await store.musicSource(id);
+          return Boolean(source) && Boolean(link) && !gone;
+        }""")
+        assert held, "A sweep removed the recording an unfinished run will claim"
+        # The tab that starts the run hands the import to the other one, as a closed tab would.
+        first.evaluate("() => { document.querySelector('music-studio').importSong = async () => {}; }")
+        with first.expect_file_chooser() as chosen:
+            first.locator("#music-reference-choose").click()
+        chosen.value.set_files({"name": "hum.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+        expect(first.locator("#music-reference-name")).to_have_text("hum.wav")
+        first.locator("#music-style").fill("Warm piano pop")
+        first.locator("#music-generate").click()
+        second.wait_for_function(
+            "() => document.querySelector('music-studio').songs.some(song => song.sourceId)", timeout=20000
+        )
+        song = second.evaluate(
+            """() => {
+          const song = document.querySelector('music-studio').songs.find(item => item.sourceId);
+          return {id: song.id, sourceId: song.sourceId};
+        }"""
+        )
+        second.evaluate(
+            "id => { const studio = document.querySelector('music-studio'); studio.selectedId = id; studio.renderSongs(); }",
+            song["id"],
+        )
+        card = second.locator(f'.music-output-bars [data-song-id="{song["id"]}"]')
+        card.locator("[data-music-more]").click()
+        card.get_by_role("menuitem", name="Use the original recording", exact=True).click()
+        expect(second.locator("#music-reference-name")).to_have_text("hum.wav")
+        restored = second.evaluate(
+            """async () => {
+          const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+          let text = '';
+          for (const byte of bytes) text += String.fromCharCode(byte);
+          return btoa(text);
+        }"""
+        )
+        assert restored == base64.b64encode(audio.getvalue()).decode()
+        assert errors == [], errors
+        print("PASS a tab that did not start the run still restores the original recording")
+    finally:
+        context.close()
 
 
 def main():
@@ -364,6 +576,10 @@ def main():
         expect(page.locator("#music-mode")).to_have_value("cover")
         expect(page.locator("#music-mode-generate")).to_be_checked()
         expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        # The draft points at the one stored record instead of copying the bytes.
+        draft = stored_draft(page)
+        assert draft["reference"]["sourceId"] and "blob" not in draft["reference"], draft["reference"]
+        assert len(stored_sources(page)) == 1
         page.locator("#music-mode-generate").focus()
         page.keyboard.press("ArrowRight")
         expect(page.locator("#music-mode-plan")).to_be_checked()
@@ -387,10 +603,19 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
-        expect(page.locator("#music-reference-choose")).to_be_hidden()
+        # The run emptied the recording with the words. The score it made points at the
+        # recording, so the same one comes back from the card.
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        # No recording, so the engine mode follows the visible choice, which is Compose.
+        expect(page.locator("#music-mode")).to_have_value("plan")
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use the original recording", exact=True).click()
         expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        # Compose is the visible choice, so the recording makes it a transcription.
         expect(page.locator("#music-mode")).to_have_value("transcribe")
-        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
+        # A score has no recording, so it offers no artwork.
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_have_count(0)
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
         details = page.get_by_role("dialog", name="Music details", exact=True)
@@ -424,11 +649,11 @@ def main():
         assert submitted[-1]["mode"] == "cover" and submitted[-1]["reference_name"] == "reference.wav"
         assert submitted[-1]["abc"] == "" and submitted[-1]["steps"] == 16
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
-        # The recording stays for the next cover of the same hum.
-        expect(page.locator("#music-reference-choose")).to_be_hidden()
-        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
-        expect(page.locator("#music-mode")).to_have_value("cover")
-        expect(page.locator(".music-reference-scope")).to_be_visible()
+        # The cover run emptied the recording too.
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        expect(page.locator("#music-mode")).to_have_value("generate")
+        expect(page.locator(".music-reference-scope")).to_be_hidden()
         # The cover run emptied the words, so the form asks for them again.
         page.locator("#music-style").fill("Warm piano pop")
         expect(page.locator("#music-generate")).to_be_enabled()
@@ -452,6 +677,60 @@ def main():
         expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.get_by_text("Choose an audio recording.", exact=True)).to_be_visible()
 
+        # The recording that made a song comes back from one stored record, not from the
+        # rendered song. Every song made from this file points at that one record.
+        cover = page.evaluate(
+            """() => {
+          const song = document.querySelector('music-studio').songs.filter(item => item.sourceId).at(-1);
+          return song ? {id: song.id, sourceId: song.sourceId} : null;
+        }"""
+        )
+        assert cover, "The cover must point at the recording that made it"
+        page.evaluate(
+            "id => { const studio = document.querySelector('music-studio'); studio.selectedId = id; studio.renderSongs(); }",
+            cover["id"],
+        )
+        card = page.locator(f'.music-output-bars [data-song-id="{cover["id"]}"]')
+        card.locator("[data-music-more]").click()
+        expect(card.get_by_role("menuitem", name="Use the original recording", exact=True)).to_be_visible()
+        expect(card.get_by_role("menuitem", name="Use this song", exact=True)).to_be_visible()
+        card.get_by_role("menuitem", name="Use the original recording", exact=True).click()
+        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        expect(page.locator("#music-mode")).to_have_value("cover")
+        restored = page.evaluate(
+            """async () => {
+          const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+          let text = '';
+          for (const byte of bytes) text += String.fromCharCode(byte);
+          return btoa(text);
+        }"""
+        )
+        assert restored == base64.b64encode(audio.getvalue()).decode()
+        sources = stored_sources(page)
+        assert len(sources) == 1, sources
+        assert sources[0] == cover["sourceId"]
+        # Clearing the songs leaves the record because the form still holds it; removing
+        # the form reference releases the last user.
+        page.once("dialog", lambda dialog: dialog.accept())
+        page.locator("#music-clear-all").click()
+        expect(page.locator(".music-song")).to_have_count(0)
+        assert stored_sources(page) == [cover["sourceId"]]
+        page.locator("#music-reference-remove").click()
+        page.wait_for_function(
+            """() => new Promise(resolve => {
+          const open = indexedDB.open('studio-music');
+          open.onsuccess = () => {
+            const db = open.result;
+            const count = db.transaction('sources', 'readonly').objectStore('sources').count();
+            count.onsuccess = () => { db.close(); resolve(count.result === 0); };
+            count.onerror = () => { db.close(); resolve(false); };
+          };
+          open.onerror = () => resolve(false);
+        })""",
+            timeout=5000,
+        )
+        assert stored_sources(page) == []
+
         # A generated track can go back in the reference door; a score has no audio and
         # offers no such item. The stub writes no audio, so the cards are drawn by hand.
         page.evaluate("""() => {
@@ -470,13 +749,14 @@ def main():
         )
         score = page.locator('.music-output-bars [data-song-id="score-1"]')
         score.locator("[data-music-more]").click()
-        expect(score.get_by_role("menuitem", name="Use as reference", exact=True)).to_have_count(0)
+        expect(score.get_by_role("menuitem", name="Use this song", exact=True)).to_have_count(0)
+        expect(score.get_by_role("menuitem", name="Use the original recording", exact=True)).to_have_count(0)
         page.evaluate(
             "() => { const studio = document.querySelector('music-studio'); studio.selectedId = 'take-1'; studio.renderSongs(); }"
         )
         take = page.locator('.music-output-bars [data-song-id="take-1"]')
         take.locator("[data-music-more]").click()
-        take.get_by_role("menuitem", name="Use as reference", exact=True).click()
+        take.get_by_role("menuitem", name="Use this song", exact=True).click()
         expect(page.locator("#music-reference-name")).to_have_text("music-12.wav")
         expect(page.locator("#music-mode")).to_have_value("cover")
         page.set_viewport_size({"width": 390, "height": 844})
@@ -484,7 +764,10 @@ def main():
         assert errors == [], errors
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
+        verify_score_sheet(browser, base)
         verify_failure_restores_inputs(browser, base, audio)
+        verify_reload_cancel_restores(browser, base, audio)
+        verify_source_across_tabs(browser, base, audio)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "

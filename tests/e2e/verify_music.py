@@ -244,10 +244,12 @@ def main():
         while page.locator(".music-song").count():
             page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
             page.wait_for_timeout(100)
-        # A mobile viewport must retain reachable form controls.
+        # A phone keeps the form in the controls pane and the empty stage in the preview.
         page.set_viewport_size({"width": 390, "height": 844})
+        page.locator('.pane-switch [data-pane="controls"]').click()
         expect(page.locator("#music-style")).to_be_visible()
         expect(page.locator("#music-generate")).to_be_visible()
+        page.locator('.pane-switch [data-pane="preview"]').click()
         expect(page.locator(".music-empty")).to_be_visible()
         assert page.locator("#music-studio").evaluate("node => node.scrollWidth <= node.clientWidth")
         assert errors == [], errors

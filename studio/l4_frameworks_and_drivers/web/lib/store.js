@@ -98,10 +98,19 @@ function openStore() {
   if (!database) {
     database = new Promise(function (resolve, reject) {
       const request = indexedDB.open('studio', 1);
-      request.onupgradeneeded = function () { request.result.createObjectStore('images', { keyPath: 'id' }); };
-      request.onsuccess = function () { resolve(request.result); };
-      request.onerror = function () { reject(request.error); };
+      request.onupgradeneeded = function () {
+        if (!request.result.objectStoreNames.contains('images')) request.result.createObjectStore('images', { keyPath: 'id' });
+      };
+      request.onsuccess = function () {
+        // Another tab upgraded or removed the database: open it again on the next call.
+        request.result.onversionchange = function () { request.result.close(); database = null; };
+        resolve(request.result);
+      };
+      request.onerror = function () { database = null; reject(request.error); };
+      request.onblocked = function () { database = null; reject(new Error('Reload other Studio tabs to update image storage.')); };
     });
+    // A failed open must not poison every later read.
+    database.catch(function () { database = null; });
   }
   return database;
 }
@@ -123,10 +132,17 @@ function openVideoStore() {
   if (!videoDatabase) {
     videoDatabase = new Promise(function (resolve, reject) {
       const request = indexedDB.open('studio-video-gallery', 1);
-      request.onupgradeneeded = function () { request.result.createObjectStore('clips', { keyPath: 'id' }); };
-      request.onsuccess = function () { resolve(request.result); };
-      request.onerror = function () { reject(request.error); };
+      request.onupgradeneeded = function () {
+        if (!request.result.objectStoreNames.contains('clips')) request.result.createObjectStore('clips', { keyPath: 'id' });
+      };
+      request.onsuccess = function () {
+        request.result.onversionchange = function () { request.result.close(); videoDatabase = null; };
+        resolve(request.result);
+      };
+      request.onerror = function () { videoDatabase = null; reject(request.error); };
+      request.onblocked = function () { videoDatabase = null; reject(new Error('Reload other Studio tabs to update video storage.')); };
     });
+    videoDatabase.catch(function () { videoDatabase = null; });
   }
   return videoDatabase;
 }

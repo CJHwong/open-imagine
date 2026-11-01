@@ -164,6 +164,7 @@ class ImageStrip extends LitElement {
   frame(row) {
     const entry = row.entry;
     const mode = entry.mode === 'edit' ? t('image.frame.mode.edit') : entry.mode === 'generate' ? t('image.frame.mode.generate') : entry.mode;
+    // The tile takes the picture's own shape, the way the big preview does.
     return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
   }
 
