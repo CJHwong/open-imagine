@@ -1090,7 +1090,7 @@ class MusicStudio extends HTMLElement {
         this.setAbcFacts(score);
         status.textContent = '';
         try {
-          const warnings = await renderNotation(pane, score);
+          const {warnings} = await renderNotation(pane, score);
           status.textContent = warnings ? t('music.error.notation_warning') : '';
         } catch (_) {
           pane.replaceChildren();
@@ -1456,24 +1456,38 @@ class MusicStudio extends HTMLElement {
       thumb.querySelector('.music-playing-state').hidden = !active;
     }
   }
-  // A score's preview is the engraved sheet, not the sentence that asked for it. The
-  // engraver runs only when the card is the one on screen, and the sheet plays through the
-  // same abcjs module the editor already loads.
+  // A score's preview is a performance: the programme line, the engraved page and one
+  // transport under it. The notes light as the synth reaches them, and the line fills with
+  // the same clock, so the sheet sounds and moves with the music.
   sheetFor(song) {
     const wrap = document.createElement('div');
     wrap.className = 'music-sheet';
-    const actions = document.createElement('div');
-    actions.className = 'music-sheet-actions';
-    const play = document.createElement('button');
-    play.type = 'button'; play.className = 'pill music-sheet-play'; play.dataset.musicScorePlay = '';
-    play.setAttribute('aria-pressed', 'false');
-    play.textContent = t('music.score.play');
-    play.addEventListener('click', () => this.toggleScorePlayback(song, play));
-    actions.append(play);
+    const score = musicScore(song.score);
+    const meta = document.createElement('p');
+    meta.className = 'music-sheet-meta';
+    const tempo = String(score.tempo || '').replace(/^1\/\d+\s*=\s*/, '♩ = ');
+    meta.textContent = [score.key, score.meter, tempo].filter(Boolean).join(' · ');
+    const page = document.createElement('div');
+    page.className = 'music-sheet-page';
     const sheet = document.createElement('div');
     sheet.className = 'music-sheet-notes music-abc-notation';
     sheet.dataset.songId = song.id;
-    wrap.append(actions, sheet);
+    page.append(sheet);
+    const transport = document.createElement('div');
+    transport.className = 'music-sheet-transport';
+    const play = document.createElement('button');
+    play.type = 'button'; play.className = 'music-sheet-play'; play.dataset.musicScorePlay = '';
+    this.paintScoreButton(play, false);
+    play.addEventListener('click', () => this.toggleScorePlayback(song, play));
+    const progress = document.createElement('div');
+    progress.className = 'music-sheet-progress';
+    const fill = document.createElement('i');
+    progress.append(fill);
+    const time = document.createElement('span');
+    time.className = 'music-sheet-time num';
+    time.textContent = '0:00';
+    transport.append(play, progress, time);
+    wrap.append(meta, page, transport);
     return wrap;
   }
   engraveSheet() {
@@ -1482,7 +1496,51 @@ class MusicStudio extends HTMLElement {
     const song = this.songs.find(item => item.id === sheet.dataset.songId);
     if (!song?.score) return;
     sheet.dataset.engraved = 'yes';
-    renderNotation(sheet, song.score).catch(() => { sheet.textContent = t('music.score.unavailable'); });
+    renderNotation(sheet, song.score).then(({tunes}) => {
+      this.scoreTunes ||= new Map();
+      if (tunes[0]) this.scoreTunes.set(song.id, tunes[0]);
+    }).catch(() => { sheet.textContent = t('music.score.unavailable'); });
+  }
+  // The ABC carries the length: its meter, its tempo and its bar count.
+  scoreTiming(source) {
+    const score = musicScore(source);
+    const bars = score.sections.reduce((total, section) => total + section.bars.length, 0);
+    const meter = /^(\d+)\/(\d+)/.exec(score.meter || '');
+    const tempo = /^1\/(\d+)\s*=\s*(\d+(?:\.\d+)?)/.exec(score.tempo || '');
+    const [numerator, denominator] = meter ? [Number(meter[1]), Number(meter[2])] : [4, 4];
+    const [beatDenominator, bpm] = tempo ? [Number(tempo[1]), Number(tempo[2])] : [4, 120];
+    const beats = bars * numerator * beatDenominator / denominator;
+    return {seconds: bpm ? beats * 60 / bpm : 0, qpm: beatDenominator ? bpm * 4 / beatDenominator : 120};
+  }
+  paintScoreButton(button, playing) {
+    const label = playing ? t('music.score.stop') : t('music.score.play');
+    button.setAttribute('aria-pressed', String(playing));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${playing
+      ? '<path d="M7 5h3v14H7zm7 0h3v14h-3z"/>' : '<path d="m8 5 11 7-11 7z"/>'}</svg>`;
+  }
+  lightScore(elements) {
+    for (const element of this.scoreLit || []) element.classList?.remove('score-lit');
+    this.scoreLit = [];
+    for (const element of elements) {
+      if (!element?.classList) continue;
+      element.classList.add('score-lit');
+      this.scoreLit.push(element);
+    }
+  }
+  paintScore(event, button) {
+    this.lightScore((event.elements || []).flat());
+    const card = button.closest('.music-sheet');
+    const fill = card?.querySelector('.music-sheet-progress i');
+    const time = card?.querySelector('.music-sheet-time');
+    const elapsed = Math.max(0, Number(event.milliseconds) || 0) / 1000;
+    if (fill) fill.style.width = `${this.scoreTotal ? Math.min(100, elapsed / this.scoreTotal * 100) : 0}%`;
+    if (time) time.textContent = this.clockText(elapsed) + (this.scoreTotal ? ' / ' + this.clockText(this.scoreTotal) : '');
+  }
+  clockText(value) {
+    const seconds = Math.floor(Math.max(0, value));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   }
   async toggleScorePlayback(song, button) {
     if (this.scoreSynth) { this.stopScore(); return; }
@@ -1490,7 +1548,9 @@ class MusicStudio extends HTMLElement {
     try {
       const abcjs = await import('https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm');
       const module = abcjs.default || abcjs;
-      const tune = module.renderAbc(document.createElement('div'), song.score)[0];
+      // The tune comes from the sheet on the page, so the notes it lights are the ones a
+      // person sees.
+      const tune = this.scoreTunes?.get(song.id);
       if (!tune) throw new Error(t('music.score.unavailable'));
       this.scoreContext ||= new AudioContext();
       const synth = new module.synth.CreateSynth();
@@ -1498,20 +1558,40 @@ class MusicStudio extends HTMLElement {
       await synth.prime();
       // The selection or the card can move while the synth primes.
       if (this.selectedId !== song.id || !button.isConnected) { synth.stop?.(); return; }
+      const timing = this.scoreTiming(song.score);
       this.scoreSynth = synth;
+      this.scoreButton = button;
+      this.scoreTotal = timing.seconds;
+      this.lightScore([]);
+      this.scoreTimer = new module.TimingCallbacks(tune, {
+        qpm: timing.qpm,
+        eventCallback: event => this.paintScore(event, button),
+      });
       if (typeof synth.onEnded === 'function') synth.onEnded(() => this.stopScore());
       await synth.start();
-      button.setAttribute('aria-pressed', 'true');
-      button.textContent = t('music.score.stop');
+      this.scoreTimer.start();
+      this.paintScoreButton(button, true);
     } catch (error) {
       this.options.notify('error', error?.message || t('music.score.unavailable'));
     } finally { button.disabled = false; }
   }
   stopScore() {
+    this.scoreTimer?.stop?.();
+    this.scoreTimer = null;
     this.scoreSynth?.stop?.();
     this.scoreSynth = null;
-    const button = this.querySelector('.music-song:not([hidden]) [data-music-score-play]');
-    if (button) { button.setAttribute('aria-pressed', 'false'); button.textContent = t('music.score.play'); }
+    this.lightScore([]);
+    const button = this.scoreButton?.isConnected ? this.scoreButton : this.querySelector('.music-song:not([hidden]) [data-music-score-play]');
+    this.scoreButton = null;
+    if (button) {
+      this.paintScoreButton(button, false);
+      const card = button.closest('.music-sheet');
+      const fill = card?.querySelector('.music-sheet-progress i');
+      const time = card?.querySelector('.music-sheet-time');
+      if (fill) fill.style.width = '0%';
+      if (time) time.textContent = this.scoreTotal ? '0:00 / ' + this.clockText(this.scoreTotal) : '0:00';
+    }
+    this.scoreTotal = null;
   }
   selectSong(id) {
     if (!this.songs.some(song => song.id === id)) return;

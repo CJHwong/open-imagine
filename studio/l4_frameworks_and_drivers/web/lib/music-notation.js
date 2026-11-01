@@ -11,5 +11,7 @@ export async function renderNotation(target, score) {
     wrap: {minSpacing: 1.8, maxSpacing: 2.7, preferredMeasuresPerLine: 4}});
   if (!target.querySelector('svg')) throw new Error('This score could not be engraved. Open the ABC source below.');
   const warnings = tunes.flatMap(tune => tune.warnings || []);
-  return warnings.length;
+  // The tunes are the engraving's own objects: their elements are the SVG on the page, so
+  // a player can light the notes the synth reaches.
+  return {tunes, warnings: warnings.length};
 }

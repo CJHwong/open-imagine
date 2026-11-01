@@ -1288,10 +1288,28 @@
   /* The details sheet shows the engraved score over its ABC source, in the same paper
      block the editor uses, so the two readings of one song look alike. */
   .music-details-score { display: grid; gap: 12px; margin-top: 18px; }
-  /* The score's preview is the engraved sheet, with the player above it. */
-  .music-sheet { display: grid; gap: 10px; min-width: 0; }
-  .music-sheet-actions { display: flex; align-items: center; gap: 10px; }
-  .music-sheet-notes { min-width: 0; max-height: min(44dvh, 360px); }
+  /* A score is a performance: a programme line, a paper page, and one transport under it
+     that lights the notes as the synth reaches them. */
+  .music-sheet { display: grid; gap: 12px; min-width: 0; }
+  .music-sheet-meta { margin: 0; color: var(--text-3); font: 10px/1.4 var(--mono);
+    letter-spacing: .12em; text-transform: uppercase; }
+  .music-sheet-page { position: relative; padding: 18px 20px 16px; border-radius: 6px;
+    background: #fcfaf5; box-shadow: 0 12px 34px #0004, inset 0 0 0 1px #00000012; }
+  .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); }
+  .music-sheet-notes svg { display: block; margin: 0 auto; max-width: 100%; }
+  .music-sheet-page .music-abc-notation { padding: 0; background: none; max-height: min(46dvh, 420px); }
+  .music-sheet-notes .score-lit, .music-sheet-notes .score-lit * { fill: var(--marker); }
+  .music-sheet-transport { display: flex; align-items: center; gap: 14px; }
+  .music-sheet-play { display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%;
+    background: var(--plate); color: var(--text); cursor: pointer; flex: none; }
+  .music-sheet-play .icon { width: 14px; height: 14px; fill: currentColor; }
+  .music-sheet-play[aria-pressed="true"] { border-color: var(--marker); color: var(--marker); }
+  .music-sheet-play:disabled { opacity: .55; cursor: default; }
+  .music-sheet-progress { flex: 1; height: 3px; border-radius: 2px; background: #ffffff26; overflow: hidden; }
+  .music-sheet-progress i { display: block; height: 100%; width: 0; background: var(--marker);
+    transition: width .12s linear; }
+  .music-sheet-time { flex: none; color: var(--text-3); font: 10px var(--mono); }
   .music-thumb-note .icon { width: 22px; height: 22px; }
   .gallery-no-preview .icon { width: 22px; height: 22px; }
   .music-details-score .music-abc-notation { max-height: 420px; }
