@@ -1616,10 +1616,16 @@ class MusicStudio extends HTMLElement {
   }
   syncGallery() {
     const gallery = this.querySelector('gallery-browser');
-    gallery.items = this.songs.slice().reverse().map((song, i) => ({id: song.id, number: this.songs.length - i,
-      text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name, model: musicModelName(song.model), seed: song.seed,
-      at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id),
-      score: Boolean(song.score), batch: galleryBatch(song.id)}));
+    gallery.items = this.songs.slice().reverse().map((song, i) => {
+      const hasAudio = song.blob instanceof Blob && song.blob.size > 0;
+      return {id: song.id, number: this.songs.length - i,
+        text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name,
+        model: musicModelName(song.model), seed: song.seed,
+        at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id),
+        // Only a score has no recording, so only a score wears the staff and the score badge.
+        score: !hasAudio, mode: hasAudio ? '' : t('music.thumb.score'),
+        batch: galleryBatch(song.id)};
+    });
     gallery.selectedId = this.selectedId; gallery.keeping = this.keeping;
     gallery.pending = this.pending || this.operation?.kind === 'music';
     gallery.pendingSelected = gallery.pending && this.showGeneration !== false;
@@ -2163,7 +2169,8 @@ class MusicStudio extends HTMLElement {
         this.controls.querySelector('#music-style').focus();
       }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
-      actions.append(artworkButton, more, rule, download, remove);
+      // A score has no recording, so there is nothing to draw artwork for.
+      actions.append(...(hasAudio ? [artworkButton] : []), more, rule, download, remove);
       const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', t('music.preview.details_label')); bar.append(about, actions); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);

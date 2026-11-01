@@ -614,7 +614,8 @@ def main():
         expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
         # Compose is the visible choice, so the recording makes it a transcription.
         expect(page.locator("#music-mode")).to_have_value("transcribe")
-        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
+        # A score has no recording, so it offers no artwork.
+        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_have_count(0)
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
         bar.locator(".prompt-line").click()
         details = page.get_by_role("dialog", name="Music details", exact=True)
