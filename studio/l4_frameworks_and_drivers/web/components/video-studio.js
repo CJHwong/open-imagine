@@ -972,6 +972,7 @@ class VideoStudio extends LitElement {
     if (action === 'select-clip') this.selectClip(control.dataset.clipId);
     if (action === 'show-render') this.showRenderMonitor();
     if (action === 'capture-video-frame') this.captureFrameForVideo();
+    if (action === 'toggle-video-playback') this.togglePlayback();
     if (action === 'edit-this-clip') this.editThisClip(control.dataset.clipId);
     if (action === 'capture-image-frame') this.captureFrameForImage();
   }
@@ -1449,6 +1450,10 @@ class VideoStudio extends LitElement {
     if (!video) return;
     if (!video.paused) video.pause();
     else {
+      // A clip that ended needs the playhead at the start before it will play again.
+      if (video.ended || (Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.05)) {
+        video.currentTime = 0;
+      }
       try { await video.play(); }
       catch (error) {
         if (error.name !== 'AbortError' && video.isConnected && video === this.querySelector('#video-preview-root video')) {
@@ -1795,6 +1800,21 @@ class VideoStudio extends LitElement {
       : this.renderClip(this.selectedClip());
     renderTemplate(content, preview);
     this.fitVideoMonitor();
+    this.syncPlayOverlay();
+  }
+
+  // A short clip that autoplay left at its end does not answer the native play button,
+  // so the preview carries its own play control and shows it whenever the clip is paused.
+  syncPlayOverlay() {
+    const video = this.querySelector('#video-preview');
+    const overlay = this.querySelector('.video-play-overlay');
+    if (!video || !overlay) return;
+    const sync = () => { overlay.hidden = !video.paused; };
+    if (video.dataset.overlaySync !== 'yes') {
+      video.dataset.overlaySync = 'yes';
+      for (const event of ['play', 'pause', 'ended', 'loadedmetadata']) video.addEventListener(event, sync);
+    }
+    sync();
   }
 
   fitVideoMonitor() {
@@ -1959,6 +1979,10 @@ class VideoStudio extends LitElement {
     }
     const preview = html`<div class="video-preview-pane">
       <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls playsinline preload="metadata"></video>
+      <button type="button" class="video-play-overlay" data-action="toggle-video-playback"
+        aria-label=${t('video.action.play')} title=${t('video.action.play')} ?hidden=${clip.stub}>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>
+      </button>
       <div class="video-preview-stub" ?hidden=${!clip.stub}>
         <div class="video-empty-mark">${t('video.mark.stub')}</div>
         <strong>${t('video.empty.stubTitle')}</strong>

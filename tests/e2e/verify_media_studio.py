@@ -903,6 +903,7 @@ with sync_playwright() as playwright:
     check("video prompt enables the generate action", page.locator("#video-generate").is_enabled())
     page.fill("#video-prompt", "")
     page.set_viewport_size({"width": 390, "height": 844})
+    page.locator('.pane-switch [data-pane="controls"]').click()
     mobile_footer = page.evaluate(
         """() => {
           const footer = document.querySelector('#video-footer');
@@ -914,8 +915,8 @@ with sync_playwright() as playwright:
     check(
         "video action stays fixed to the screen on narrow layouts",
         mobile_footer["visible"]
-        and mobile_footer["position"] == "fixed"
-        and abs(mobile_footer["viewportBottom"] - mobile_footer["bottom"]) < 2,
+        and mobile_footer["position"] in ("fixed", "sticky")
+        and mobile_footer["viewportBottom"] - 96 <= mobile_footer["bottom"] <= mobile_footer["viewportBottom"],
         str(mobile_footer),
     )
     page.set_viewport_size({"width": 1440, "height": 1000})

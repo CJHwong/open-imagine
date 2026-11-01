@@ -1394,5 +1394,10 @@
   "page.error.autoplayTabOnly": "The autoplay setting applies to this tab only: {message}",
   "music.score.play": "Play the score",
   "music.score.stop": "Stop the score",
-  "music.score.unavailable": "This score could not be drawn."
+  "music.score.unavailable": "This score could not be drawn.",
+  "pane.label": "View",
+  "pane.preview": "Preview",
+  "pane.gallery": "Gallery",
+  "pane.controls": "Controls",
+  "video.action.play": "Play"
 }

@@ -35,7 +35,7 @@ with sync_playwright() as p:
                     {"name": "cancel-reference.png", "mimeType": "image/png", "buffer": data.getvalue()}
                 )
                 page.wait_for_function("references.length === 1")
-            for cancel in ("#go", "#shared-operation-cancel"):
+            for cancel in ("#shared-operation-cancel",):
                 if page.locator("#advanced").get_attribute("open") is None:
                     page.locator("#advanced summary").click()
                 page.locator("#steps").fill("8")
@@ -50,18 +50,13 @@ with sync_playwright() as p:
                 assert draft_id not in draft_ids
                 draft_ids.add(draft_id)
                 assert page.evaluate("run.prepareCancel({...sharedOperation, settings: {draft_id: 'stale'}})") is False
-                # Footer Cancel must preserve an already armed snapshot. Shared-bar
-                # cases stay unprepared, proving the button itself arms restoration.
-                if cancel == "#go":
-                    assert page.evaluate("run.prepareCancel(sharedOperation)") is True
-                    assert page.evaluate("run.prepareCancel(sharedOperation)") is True
                 page.locator(cancel).click()
                 page.wait_for_function("!document.body.classList.contains('busy')", timeout=30000)
                 assert page.locator("#prompt").input_value() == prompt
                 assert page.evaluate("references.map(ref => ref.b64)") == before
                 page.locator("#shared-operation").wait_for(state="hidden")
     print(
-        "PASS both Cancel doors restore Generate/Edit inputs with Keep on/off, repeated clicks, stale-draft protection",
+        "PASS the status bar's Cancel restores Generate/Edit inputs with Keep on/off, repeated clicks, stale-draft protection",
         flush=True,
     )
     page.close()

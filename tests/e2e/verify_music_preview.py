@@ -162,8 +162,9 @@ def main():
         expect(page.locator(".gallery-card")).to_have_count(2)
         page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
         page.set_viewport_size({"width": 390, "height": 844})
-        expect(page.locator(".music-gallery")).to_be_visible()
-        assert page.locator("#music-studio").evaluate("node=>node.scrollWidth <= node.clientWidth")
+        page.locator('.pane-switch [data-pane="gallery"]').click()
+        expect(page.get_by_role("region", name="music gallery browser")).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         assert errors == [], errors
         browser.close()
     print(

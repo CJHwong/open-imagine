@@ -106,6 +106,12 @@
         </div>
       </div>
     </header>
+    <nav class="pane-switch" id="pane-switch" role="group" aria-label="View"
+      data-i18n-attr='{"aria-label":"pane.label"}'>
+      <button type="button" data-pane="preview" aria-pressed="true" data-i18n="pane.preview">Preview</button>
+      <button type="button" data-pane="gallery" aria-pressed="false" data-i18n="pane.gallery">Gallery</button>
+      <button type="button" data-pane="controls" aria-pressed="false" data-i18n="pane.controls">Controls</button>
+    </nav>
     <section id="shared-operation" class="shared-operation" aria-label="Current operation"
       data-i18n-attr='{"aria-label":"page.operation.current"}' hidden>
       <span class="operation-indicator" aria-hidden="true"></span>
@@ -881,6 +887,8 @@
     if (mediaMode !== next) guide?.close(false);
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
+    document.body.dataset.media = mediaMode;
+    if (document.body.dataset.pane === 'gallery') setPane('gallery');
     const video = mediaMode === 'video';
     const voice = mediaMode === 'voice';
     const music = mediaMode === 'music';
@@ -947,6 +955,48 @@
       setWorkspaceControlsDisabled();
     }
   }
+
+  // A narrow window cannot hold the preview, the gallery and the controls at once, so it
+  // shows one at a time and opens on the preview.
+  const paneSwitch = document.getElementById('pane-switch');
+  function activeBrowser() {
+    if (mediaMode === 'image') return document.getElementById('image-gallery-browser');
+    const studio = mediaMode === 'video' ? videoStudio : mediaMode === 'voice' ? voiceStudio : musicStudio;
+    return studio?.querySelector('gallery-browser') || null;
+  }
+  function activeShelf() {
+    if (mediaMode === 'image') return document.getElementById('strip-wrap');
+    if (mediaMode === 'video') return document.getElementById('video-gallery');
+    if (mediaMode === 'voice') return document.getElementById('voice-gallery');
+    return document.querySelector('music-studio .music-gallery');
+  }
+  let paneShelf = null;
+  function setPane(pane) {
+    document.body.dataset.pane = pane;
+    for (const button of paneSwitch.querySelectorAll('button')) {
+      button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
+    }
+    document.querySelectorAll('gallery-browser.pane-gallery').forEach(node => node.classList.remove('pane-gallery'));
+    document.querySelectorAll('.pane-gallery-shelf').forEach(node => node.classList.remove('pane-gallery-shelf'));
+    if (paneShelf && pane !== 'gallery') {
+      // An empty shelf is hidden by the page; the gallery pane puts it back as it was.
+      if (paneShelf.dataset.paneHidden === 'yes') { paneShelf.hidden = true; delete paneShelf.dataset.paneHidden; }
+      paneShelf = null;
+    }
+    if (pane === 'gallery') {
+      const shelf = activeShelf();
+      if (shelf && shelf.hidden) { shelf.dataset.paneHidden = 'yes'; shelf.hidden = false; }
+      if (shelf) shelf.classList.add('pane-gallery-shelf');
+      paneShelf = shelf || null;
+      const browser = activeBrowser();
+      if (browser) { browser.classList.add('pane-gallery'); browser.expanded = true; }
+    }
+  }
+  paneSwitch.addEventListener('click', function (event) {
+    const button = event.target.closest('[data-pane]');
+    if (button) setPane(button.dataset.pane);
+  });
+  setPane('preview');
 
   async function sendVoiceToVideo(selection) {
     if (sharedOperation || musicStudio.busy || voiceStudio.busy || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {

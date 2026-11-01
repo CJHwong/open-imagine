@@ -1464,41 +1464,42 @@ class MusicStudio extends HTMLElement {
     wrap.className = 'music-sheet';
     const score = musicScore(song.score);
     const timing = this.scoreTiming(song.score);
-    const meta = document.createElement('p');
-    meta.className = 'music-sheet-meta';
+    // The heading, the plate and the controls take the Voice preview's shape, which the
+    // workspace's own listening surface already uses.
+    const heading = document.createElement('div');
+    heading.className = 'audio-preview-heading music-sheet-heading';
+    const name = document.createElement('strong');
+    name.textContent = t('music.common.music_score');
+    const facts = document.createElement('span');
     const tempo = String(score.tempo || '').replace(/^1\/\d+\s*=\s*/, '♩ = ');
-    meta.textContent = [score.key, score.meter, tempo].filter(Boolean).join(' · ');
+    facts.textContent = [score.key, score.meter, tempo].filter(Boolean).join(' · ');
+    heading.append(name, facts);
     const page = document.createElement('div');
     page.className = 'music-sheet-page';
     const sheet = document.createElement('div');
     sheet.className = 'music-sheet-notes music-abc-notation';
     sheet.dataset.songId = song.id;
     page.append(sheet);
-    // The player is the song player's own: the same track, the same clock line and the same
-    // button, so a score sits in the workspace like any other piece of music.
-    const player = document.createElement('div');
-    player.className = 'music-player music-score-player';
-    player.dataset.songId = song.id;
-    const timeline = document.createElement('div');
-    timeline.className = 'music-timeline';
-    const rail = document.createElement('div');
-    rail.className = 'music-score-rail';
-    const times = document.createElement('div');
-    times.className = 'music-times num';
-    const elapsed = document.createElement('span'); elapsed.className = 'music-time-elapsed'; elapsed.textContent = '0:00';
-    const remaining = document.createElement('span'); remaining.className = 'music-time-remaining';
-    remaining.textContent = '−' + this.clockText(timing.seconds);
-    times.append(elapsed, remaining);
-    timeline.append(rail, times);
-    const transport = document.createElement('div');
-    transport.className = 'music-transport';
+    const controls = document.createElement('div');
+    controls.className = 'audio-preview-controls music-sheet-controls';
+    const row = document.createElement('div');
+    row.className = 'audio-preview-player music-sheet-player';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', t('music.score.playback'));
     const play = document.createElement('button');
-    play.type = 'button'; play.className = 'icon-btn music-play'; play.dataset.musicScorePlay = '';
+    play.type = 'button'; play.className = 'icon-btn music-sheet-play'; play.dataset.musicScorePlay = '';
     this.paintScoreButton(play, false);
     play.addEventListener('click', () => this.toggleScorePlayback(song, play));
-    transport.append(play);
-    player.append(timeline, transport);
-    wrap.append(meta, page, player);
+    const seek = document.createElement('div');
+    seek.className = 'music-sheet-seek';
+    const fill = document.createElement('i');
+    seek.append(fill);
+    const output = document.createElement('output');
+    output.className = 'audio-preview-position-value music-sheet-position';
+    output.textContent = '0:00 / ' + this.clockText(timing.seconds);
+    row.append(play, seek, output);
+    controls.append(row);
+    wrap.append(heading, page, controls);
     return wrap;
   }
   engraveSheet() {
@@ -1542,15 +1543,13 @@ class MusicStudio extends HTMLElement {
   }
   paintScore(event, button) {
     this.lightScore((event.elements || []).flat());
-    const player = button.closest('.music-score-player') || button.closest('.music-sheet');
-    const rail = player?.querySelector('.music-score-rail');
-    const elapsedNode = player?.querySelector('.music-time-elapsed');
-    const remainingNode = player?.querySelector('.music-time-remaining');
+    const card = button.closest('.music-sheet');
+    const fill = card?.querySelector('.music-sheet-seek i');
+    const output = card?.querySelector('.music-sheet-position');
     const elapsed = Math.max(0, Number(event.milliseconds) || 0) / 1000;
     const share = this.scoreTotal ? Math.min(100, elapsed / this.scoreTotal * 100) : 0;
-    if (rail) rail.style.setProperty('--music-progress', `${share}%`);
-    if (elapsedNode) elapsedNode.textContent = this.clockText(elapsed);
-    if (remainingNode) remainingNode.textContent = '−' + this.clockText(Math.max(0, (this.scoreTotal || 0) - elapsed));
+    if (fill) fill.style.width = `${share}%`;
+    if (output) output.textContent = this.clockText(elapsed) + ' / ' + this.clockText(this.scoreTotal || 0);
   }
   clockText(value) {
     const seconds = Math.floor(Math.max(0, value));
@@ -1599,13 +1598,11 @@ class MusicStudio extends HTMLElement {
     this.scoreButton = null;
     if (button) {
       this.paintScoreButton(button, false);
-      const player = button.closest('.music-score-player') || button.closest('.music-sheet');
-      const rail = player?.querySelector('.music-score-rail');
-      const elapsedNode = player?.querySelector('.music-time-elapsed');
-      const remainingNode = player?.querySelector('.music-time-remaining');
-      if (rail) rail.style.setProperty('--music-progress', '0%');
-      if (elapsedNode) elapsedNode.textContent = '0:00';
-      if (remainingNode) remainingNode.textContent = '−' + this.clockText(this.scoreTotal || 0);
+      const card = button.closest('.music-sheet');
+      const fill = card?.querySelector('.music-sheet-seek i');
+      const output = card?.querySelector('.music-sheet-position');
+      if (fill) fill.style.width = '0%';
+      if (output) output.textContent = '0:00 / ' + this.clockText(this.scoreTotal || 0);
     }
     this.scoreTotal = null;
   }

@@ -154,7 +154,9 @@ with sync_playwright() as tool:
         page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"),
     )
     check("the script keeps both cards on a phone", page.locator(".voice-clip[data-take-id]").count() == 2)
+    page.locator('.pane-switch [data-pane="controls"]').click()
     page.locator("#voice-text").fill("Unfinished layout script.")
+    page.locator('.pane-switch [data-pane="gallery"]').click()
     header.get_by_role("button", name="Clear all", exact=True).click()
     page.wait_for_function("document.getElementById('voice-studio').takesCount === 0")
     check(
