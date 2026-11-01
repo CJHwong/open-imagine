@@ -1201,7 +1201,7 @@
   gallery-browser[workspace="music"] .gallery-card .still { width: 80px; height: 80px; margin: 0 auto; }
   .music-thumb-art img { width: 100%; height: 100%; object-fit: cover; }
   .music-thumb-note { font: 32px var(--serif); color: #c8b4a1; }
-  .music-thumb-note .icon { width: 32px; height: 32px; }
+  .music-thumb-note .icon { width: 36px; height: 36px; }
   .music-thumb .still, gallery-browser[workspace="music"] .gallery-card .still { position: relative; }
   .music-thumb.is-playing .still, gallery-browser[workspace="music"] .gallery-card.is-playing .still {
     opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
