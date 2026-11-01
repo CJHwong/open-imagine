@@ -149,15 +149,21 @@ with sync_playwright() as tool:
     page.locator("#voice-text").fill("Cancel this continuous recording.")
     page.locator("#voice-generate").click()
     page.wait_for_function("document.getElementById('voice-run-labels').getAttribute('data-state') === 'busy'")
-    check("a running operation uses Cancel", page.locator("#voice-run-labels").inner_text() == "Cancel")
+    check(
+        "a running operation keeps the form verb and waits",
+        page.locator("#voice-run-labels").inner_text() == "Generate" and page.locator("#voice-generate").is_disabled(),
+    )
     check("a running operation locks every mode", modes.locator("input:disabled").count() == 3)
     cancellations = []
     page.route("**/api/v1/operations/*/cancel", lambda route: cancellations.append(route))
-    page.locator("#voice-generate").click()
-    page.wait_for_function("document.getElementById('voice-run-labels').getAttribute('data-state') === 'stopping'")
-    check("the shared stopping label stays consistent", page.locator("#voice-run-labels").inner_text() == "Stopping…")
-    check("Stopping prevents a second cancellation", page.locator("#voice-generate").is_disabled())
-    check("Cancel sends one request", len(cancellations) == 1)
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
+    page.locator("#shared-operation-cancel").click()
+    for _ in range(100):
+        if cancellations:
+            break
+        page.wait_for_timeout(50)
+    check("the status bar's Cancel sends one request", len(cancellations) == 1)
+    check("the form button stays disabled while the run stops", page.locator("#voice-generate").is_disabled())
     cancellations[0].continue_()
     page.wait_for_function("!document.getElementById('voice-studio').busy")
     check("cancellation restores Generate", page.locator("#voice-run-labels").inner_text() == "Generate")

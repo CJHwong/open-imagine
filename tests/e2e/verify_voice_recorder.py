@@ -97,6 +97,10 @@ with sync_playwright() as tool:
     page.locator("#voice-generate").click()
     page.wait_for_function("document.getElementById('voice-studio').takesCount === 1", timeout=120000)
     preview = page.locator("#voice-audio-preview")
+    # The Media menu keeps autoplay on, so the new take starts and finishes by itself.
+    # Let it, then play it by hand from the start.
+    page.wait_for_function("() => document.getElementById('voice-audio-preview')?.playing", timeout=30000)
+    page.wait_for_function("() => !document.getElementById('voice-audio-preview')?.playing", timeout=30000)
     preview.get_by_role("button", name="Play", exact=True).click()
     page.wait_for_function("document.getElementById('voice-audio-preview').position > .1")
     preview.get_by_role("button", name="Pause", exact=True).click()

@@ -107,7 +107,8 @@ with sync_playwright() as tool:
         ) == ["9007199254740993", "9007199254740994"]
     print("PASS exact decimal seed increments and gallery metadata above 2^53", flush=True)
 
-    # Both cancellation controls must restore the consumed settings and reference.
+    # The status bar is the one cancellation control, and it must restore the consumed
+    # settings and reference.
     for mode in ("generate", "edit"):
         first.locator(f"label[for=mode-{mode}]").click()
         if mode == "edit":
@@ -117,19 +118,19 @@ with sync_playwright() as tool:
                 {"name": "orange.png", "mimeType": "image/png", "buffer": data.getvalue()}
             )
             first.wait_for_function("references.length === 1")
-        for cancel in ("#go", "#shared-operation-cancel"):
-            inputs(first, f"cancel {mode} via {cancel}", steps=8, count=2)
-            before = first.evaluate("run.snapshotInputs()")
-            first.locator("#go").click()
-            first.locator("#shared-operation:not([hidden])").wait_for()
-            first.wait_for_timeout(750)
-            first.locator(cancel).click()
-            idle(first)
-            assert first.locator("#prompt").input_value() == before["prompt"]
-            assert first.locator("#count").input_value() == "2"
-            assert first.locator("#seed").input_value() == "7"
-            assert first.evaluate("references.map(ref=>ref.b64)") == [ref["b64"] for ref in before["references"]]
-    print("PASS both Cancel controls restore Generate/Edit batch inputs and reference", flush=True)
+        inputs(first, f"cancel {mode}", steps=8, count=2)
+        before = first.evaluate("run.snapshotInputs()")
+        first.locator("#go").click()
+        first.locator("#shared-operation:not([hidden])").wait_for()
+        first.wait_for_timeout(750)
+        assert not first.locator("#go").is_enabled()
+        first.locator("#shared-operation-cancel").click()
+        idle(first)
+        assert first.locator("#prompt").input_value() == before["prompt"]
+        assert first.locator("#count").input_value() == "2"
+        assert first.locator("#seed").input_value() == "7"
+        assert first.evaluate("references.map(ref=>ref.b64)") == [ref["b64"] for ref in before["references"]]
+    print("PASS the status bar's Cancel restores Generate/Edit batch inputs and reference", flush=True)
 
     for seed in ("abc", "1e3", "0x10", "-7"):
         inputs(first, "reject invalid batch seed", count=2)

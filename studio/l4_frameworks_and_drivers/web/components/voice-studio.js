@@ -1007,22 +1007,6 @@ class VoiceStudio extends LitElement {
     await this.exportTrack(true);
   }
 
-  async cancel() {
-    const id = this.ownOperationId || this.activeOperation?.id;
-    if (!id || this.stopping) return;
-    this.stopping = true;
-    try {
-      const answer = await fetch('/api/v1/operations/' + encodeURIComponent(id) + '/cancel', {method: 'POST'});
-      if (!answer.ok) {
-        const body = await answer.json().catch(() => ({}));
-        throw new Error(body.error || t('voice.error.stopFailed'));
-      }
-    } catch (error) {
-      this.stopping = false;
-      this.fail(error instanceof TypeError ? t('form.error.serverSilent') : error.message);
-    }
-  }
-
   templateFields(template) {
     if (!template) return nothing;
     return html`<p class="caption voice-note">${template.hint}</p>
@@ -1192,10 +1176,11 @@ class VoiceStudio extends LitElement {
     const starting = this.busy && !this.ownOperationId;
     const state = stopping ? 'stopping' : starting ? 'starting' : own ? 'busy' : 'idle';
     const caption = this.mode === 'edit' ? t('voice.footer.editCaption') : t('voice.footer.caption');
-    return html`<button id="voice-generate" class="run-button" type="button" data-state=${state} ?disabled=${starting || stopping || (!own && Boolean(this.reason))}
-      @click=${() => own ? this.cancel() : this.generate()}>
+    // The shared status bar owns Cancel, so this button keeps its verb and waits.
+    return html`<button id="voice-generate" class="run-button" type="button" data-state=${state} ?disabled=${starting || stopping || Boolean(own) || Boolean(this.reason)}
+      @click=${() => this.generate()}>
       <run-button id="voice-run-labels" data-mode=${this.mode === 'edit' ? 'edit' : 'generate'} data-state=${state}></run-button>
-      <span class="sub num" id="voice-go-sub">${starting ? t('voice.status.preparingRequest') : own ? t('voice.footer.stopping') : this.reason || caption}</span>
+      <span class="sub num" id="voice-go-sub">${starting ? t('voice.status.preparingRequest') : this.reason || caption}</span>
     </button>`;
   }
 

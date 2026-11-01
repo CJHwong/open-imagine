@@ -146,7 +146,9 @@ def verify_cancel_restores_words(browser, base):
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'busy'", timeout=30000
     )
-    page.locator("#music-generate").click()
+    assert not page.locator("#music-generate").is_enabled(), "The form button must wait while a run goes"
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
+    page.locator("#shared-operation-cancel").click()
     page.wait_for_function(
         "document.getElementById('music-run-labels').getAttribute('data-state') === 'idle'", timeout=30000
     )
@@ -210,6 +212,64 @@ def verify_failure_restores_inputs(browser, base, audio):
     )
     assert errors == [], errors
     page.close()
+
+
+def verify_reload_cancel_restores(browser, base, audio):
+    """A reload during a run keeps what the submit emptied, and a cancel puts it back."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.locator("#music-style").fill("Warm piano pop")
+    page.locator("#music-lyrics").fill("[Verse]\nA long morning")
+    page.locator(".music-advanced-fields").evaluate("node => { node.open = true; }")
+    page.locator("#music-seed").fill("99")
+    with page.expect_file_chooser() as chosen:
+        page.locator("#music-reference-choose").click()
+    chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    page.locator("#music-generate").click()
+    # The submit writes what it emptied, so a reload has something to put back. The
+    # recording travels as its stored id, never as bytes.
+    page.wait_for_function("() => Boolean(sessionStorage.getItem('studio-music-cleared'))", timeout=10000)
+    saved = page.evaluate("() => JSON.parse(sessionStorage.getItem('studio-music-cleared'))")
+    assert saved["style"] == "Warm piano pop" and saved["lyrics"] == "[Verse]\nA long morning", saved
+    assert saved["advanced"]["seed"] == "99", saved["advanced"]
+    assert saved["reference"]["sourceId"] and "blob" not in saved["reference"], saved["reference"]
+    assert saved["operationId"], saved
+    page.reload()
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    expect(page.locator("#music-style")).to_have_value("")
+    # The snapshot is written back here because the stub run may have finished and cleared
+    # it while the page reloaded. sessionStorage is what carries it across a reload; this
+    # check is about the restore, the ownership match and the stored recording.
+    page.evaluate("saved => sessionStorage.setItem('studio-music-cleared', JSON.stringify(saved))", saved)
+    # A restore arrives after the run has ended; the stub run from before the reload may
+    # still be finishing here.
+    page.wait_for_function("() => !document.querySelector('music-studio').busy", timeout=30000)
+    page.evaluate(
+        """(operation) => document.querySelector('music-studio').restoreAfterFailure(operation)""",
+        {"id": saved["operationId"], "client_id": "another-tab", "kind": "music", "status": "cancelled"},
+    )
+    expect(page.locator("#music-style")).to_have_value("Warm piano pop")
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\nA long morning")
+    expect(page.locator("#music-seed")).to_have_value("99")
+    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    expect(page.locator("#music-mode")).to_have_value("cover")
+    restored = page.evaluate(
+        """async () => {
+      const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+      let text = '';
+      for (const byte of bytes) text += String.fromCharCode(byte);
+      return btoa(text);
+    }"""
+    )
+    assert restored == base64.b64encode(audio.getvalue()).decode()
+    assert page.evaluate("() => sessionStorage.getItem('studio-music-cleared')") is None
+    assert errors == [], errors
+    page.close()
+    print("PASS a reload during a run keeps what the submit emptied, and Cancel puts it back")
 
 
 def verify_source_across_tabs(browser, base, audio):
@@ -660,6 +720,7 @@ def main():
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
         verify_failure_restores_inputs(browser, base, audio)
+        verify_reload_cancel_restores(browser, base, audio)
         verify_source_across_tabs(browser, base, audio)
         browser.close()
     print(

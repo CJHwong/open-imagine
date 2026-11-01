@@ -495,10 +495,12 @@ with sync_playwright() as playwright:
     )
     check("leave warning while running", leave_blocked(page))
     check("tab title shows progress", page.title().startswith("("), page.title())
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=30000)
     check(
-        "the run button turns into Cancel",
-        page.is_enabled("#go") and page.locator("#image-footer").get_by_role("button", name=RUNNING).count() == 1,
-        page.locator("#image-footer").get_by_role("button", name=RUNNING).inner_text(),
+        "the run button waits while the status bar turns into Cancel",
+        not page.is_enabled("#go")
+        and page.locator("#shared-operation").get_by_role("button", name=RUNNING).count() == 1,
+        page.locator("#go").inner_text(),
     )
     check("the run button shows no step text", page.inner_text("#go-sub") == "", page.inner_text("#go-sub"))
     # LEFT: the fill bar has no role, and the claim is that it is absent.
@@ -895,16 +897,15 @@ with sync_playwright() as playwright:
     page.fill("#steps", "20")
     page.dispatch_event("#steps", "input")
     page.click("#go")
-    page.click("#go")  # a double click on Generate must not cancel the run it just started
     time.sleep(0.3)
     check(
-        "a click in the first half second does not cancel",
-        page.locator(RUN_STOPPING).count() == 0,
+        "a second press cannot cancel the run it just started",
+        not page.is_enabled("#go") and page.locator(RUN_STOPPING).count() == 0,
     )
     # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
-    page.click("#go")
+    page.locator("#shared-operation-cancel").click()
     cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
     check(
         "Cancel reads Stopping while it stops",
@@ -1370,7 +1371,7 @@ with sync_playwright() as playwright:
     # LEFT: the progress card's percentage again.
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
-    page.click("#go")
+    page.locator("#shared-operation-cancel").click()
     cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
     check(
         "Cancel reads Stopping while it stops",

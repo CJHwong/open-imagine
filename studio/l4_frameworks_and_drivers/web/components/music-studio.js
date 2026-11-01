@@ -15,6 +15,10 @@ import './run-button.js';
 import {configureLookRows} from './look-rows.js';
 import {t, plural} from '../lib/i18n.js';
 
+// What a run emptied, kept for this tab so a reload can still put it back. The reference
+// travels as its stored source id, never as bytes.
+const CLEARED_KEY = 'studio-music-cleared';
+
 // The run button says Generate in every workflow, as every other workspace's does, and
 // the sub line names what this one makes. The mode picker is the four workflows the
 // engine declares, so a workflow is never hidden behind an Advanced checkbox.
@@ -491,7 +495,7 @@ class MusicStudio extends HTMLElement {
       <run-button id="music-run-labels" data-mode="generate" data-state="idle"></run-button>
       <span class="sub num" id="music-go-sub"></span></button>`;
     this.generateButton = footer.querySelector('button');
-    this.generateButton.addEventListener('click', () => this.ownOperation ? this.cancel() : this.generate());
+    this.generateButton.addEventListener('click', () => this.generate());
     this.querySelector('#music-write').addEventListener('click', () => {
       const target = (EMPTY_COPY[this.draft().mode] || EMPTY_COPY.generate)[2];
       if (target === 'task') this.controls.querySelector('#music-transcription-task').focus();
@@ -676,6 +680,7 @@ class MusicStudio extends HTMLElement {
       reference: this.reference,
       advanced: Object.fromEntries(advanced.map(id => [id, field(id).value])),
     };
+    this.rememberCleared(this.operation?.id);
     const defaults = {
       seed: '',
       count: '1',
@@ -698,8 +703,28 @@ class MusicStudio extends HTMLElement {
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
-  restoreInputs() {
+  // A reload loses this tab's own copy, so the submit writes one to sessionStorage. It
+  // holds the reference's stored id, not its bytes.
+  rememberCleared(operationId) {
     const snapshot = this.clearedInputs;
+    const reference = snapshot?.reference;
+    try {
+      sessionStorage.setItem(CLEARED_KEY, JSON.stringify({...snapshot,
+        reference: reference ? {name: reference.name, sourceId: reference.sourceId || ''} : null,
+        operationId: operationId || null}));
+    } catch (_) { /* The run still works; a reload then has nothing to put back. */ }
+  }
+  storedCleared() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(CLEARED_KEY) || 'null');
+      return saved && typeof saved === 'object' ? saved : null;
+    } catch (_) { return null; }
+  }
+  forgetCleared() {
+    try { sessionStorage.removeItem(CLEARED_KEY); } catch (_) { /* Nothing to forget. */ }
+  }
+  restoreInputs() {
+    const snapshot = this.clearedInputs || this.storedCleared();
     this.clearedInputs = null;
     this.restoreOnStop = false;
     if (!snapshot) return;
@@ -708,19 +733,33 @@ class MusicStudio extends HTMLElement {
     field('lyrics').value = snapshot.lyrics;
     for (const [id, value] of Object.entries(snapshot.advanced || {})) field(id).value = value;
     this.releaseReferenceAudio();
-    this.reference = snapshot.reference || null;
-    // The submit cleared the draft pointer; the restore puts it back so a reload still
-    // finds the recording.
-    this.referenceReady = this.reference ? this.persistReference() : null;
+    const saved = snapshot.reference || null;
+    if (saved?.sourceId && !saved.blob) {
+      // A reloaded tab has the id and not the bytes; the stored record still holds them.
+      this.reference = null;
+      this.referenceReady = musicSource(saved.sourceId).then(source => {
+        if (source?.blob) return this.setReference(source.blob, saved.name || source.name, saved.sourceId);
+      }).catch(() => {});
+    } else {
+      this.reference = saved;
+      // The submit cleared the draft pointer; the restore puts it back so a reload still
+      // finds the recording.
+      this.referenceReady = this.reference ? this.persistReference() : null;
+    }
+    this.forgetCleared();
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
-  prepareCancel() { this.restoreOnStop = Boolean(this.clearedInputs); }
+  prepareCancel() { this.restoreOnStop = Boolean(this.clearedInputs || this.storedCleared()); }
   // The shared poll reports a terminal failure from its history, after the active slot
-  // emptied. Only this client's run owns the snapshot.
+  // emptied. This tab's run owns the snapshot; after a reload the stored operation id is
+  // what proves the same run.
   restoreAfterFailure(operation) {
-    if (operation?.client_id !== this.options?.clientId) return;
+    const stored = this.storedCleared();
+    const mine = operation?.client_id === this.options?.clientId
+      || Boolean(stored?.operationId && stored.operationId === operation?.id);
+    if (!mine) return;
     this.restoreInputs();
     // A failed or cancelled run never imports a song, so its link would outlive it.
     if (operation.id) {
@@ -1250,8 +1289,8 @@ class MusicStudio extends HTMLElement {
       Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
     this.syncBackgroundPlayback();
   }
-  // The run button is the shared one: Generate while idle, Cancel while this workspace owns
-  // the run, and the same Starting and Stopping labels as the Image, Video and Voice forms.
+  // The run button is the shared one, and it keeps its verb. The shared status bar owns
+  // Cancel, so this button waits disabled while a run goes.
   syncRunButton(draft, ready) {
     if (!this.generateButton) return;
     const own = this.ownOperation;
@@ -1262,28 +1301,9 @@ class MusicStudio extends HTMLElement {
     const labels = this.generateButton.querySelector('run-button');
     const sub = this.generateButton.querySelector('.sub');
     if (labels) { labels.dataset.state = state; labels.dataset.mode = 'generate'; }
-    this.generateButton.disabled = stopping || (state === 'idle' && (!this.capabilities || !ready || this.busy));
+    this.generateButton.disabled = state !== 'idle' || !this.capabilities || !ready || this.busy;
     if (sub) sub.textContent = starting ? t('music.run.preparing')
-      : own ? t('music.run.songs_remain')
-        : this.recording ? t('music.run.stop_recording_first') : t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
-  }
-  async cancel() {
-    const operation = this.ownOperation;
-    if (!operation || this.stopping) return;
-    this.stopping = true;
-    this.sync();
-    try {
-      const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operation.id) + '/cancel', {method: 'POST'});
-      if (!answer.ok) {
-        const body = await answer.json().catch(() => ({}));
-        throw new Error(body.error || t('music.error.stop_failed'));
-      }
-      this.prepareCancel();
-    } catch (error) {
-      this.stopping = false;
-      this.options.notify('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
-      this.sync();
-    }
+      : this.recording ? t('music.run.stop_recording_first') : t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
   }
   setOperation(operation) {
     if (operation?.kind === 'music' && this.operation?.id !== operation.id) this.showGeneration = true;
@@ -1386,6 +1406,8 @@ class MusicStudio extends HTMLElement {
     this.showGeneration = false;
     this.renderSongs();
     this.playArrival(operation, song);
+    // The run made its song, so nothing is waiting to be put back.
+    this.forgetCleared();
     localStorage.setItem('studio-music-changed', String(Date.now()));
   }
   // A finished song plays once, when the page allows it and this tab started the run.

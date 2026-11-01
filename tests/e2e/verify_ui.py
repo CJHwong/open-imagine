@@ -45,12 +45,11 @@ URL = f"http://127.0.0.1:{PORT}/"
 MEASURE = "--coverage" in sys.argv
 HEADED = "--headed" in sys.argv
 # How the page says a run is in flight, and how it says one has finished. The run
-# button publishes that state on itself, and the button is where a user reads the
-# state from: it is Generate when idle and Cancel while a run goes. Reading the
-# button's name instead made these checks depend on the stylesheet, which composes
-# the name by hiding all but one of the button's four labels: with no stylesheet
-# the name was the whole concatenation, and the waits below timed out instead of
-# failing.
+# button publishes that state on itself. It keeps its verb and waits disabled while
+# a run goes; Cancel lives in the shared status bar. Reading the button's name
+# instead made these checks depend on the stylesheet, which composes the name by
+# hiding all but one of the button's four labels: with no stylesheet the name was
+# the whole concatenation, and the waits below timed out instead of failing.
 RUNNING = "#go[data-state='busy']"
 IDLE = "#go[data-state='idle']"
 # The rewrite button's own two states, read from the label it shows. A rewrite is
@@ -670,9 +669,11 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     page.click("#go")
     wait_until_running(page)
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
     check(
-        "a run in flight offers Cancel and blocks the count",
+        "a run in flight waits the form button and blocks the count",
         page.locator(RUNNING).is_visible()
+        and not page.is_enabled("#go")
         and page.get_by_role("button", name=re.compile("change the count")).is_disabled(),
     )
     # A rewrite writes into the form a run is using, and the rewriter does not fit beside an
@@ -710,19 +711,19 @@ with sync_playwright() as playwright:
     page.click("#go")
     wait_until_running(page)
     check(
-        "the run button is the one a user cancels with",
-        page.locator(RUNNING).is_visible(),
+        "the form button waits while the status bar offers Cancel",
+        page.locator(RUNNING).is_visible() and not page.is_enabled("#go"),
     )
     # One verb and nothing else, with the stylesheet loaded. The page hides the
     # labels it is not using, so two of them showing at once means a rule has
     # taken the choice back from the DOM, which is what a failed stylesheet used
     # to look like. The same claim is made with the stylesheet refused at the end.
-    # Scope the form: the shared-operation footer also offers Cancel once its
-    # event arrives. Waiting for that footer makes both controls deterministic.
+    # Cancel is the status bar's, never the form's.
     page.locator("#shared-operation:not([hidden])").wait_for()
     check(
-        "the run button is called Cancel and nothing else",
-        page.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 1,
+        "the form button keeps its verb while the status bar cancels",
+        page.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 0
+        and page.locator("#shared-operation").get_by_role("button", name="Cancel", exact=True).count() == 1,
         page.locator("#go").aria_snapshot(),
     )
     # The progress card is the page's own drawing of a run, and the module that
@@ -753,7 +754,7 @@ with sync_playwright() as playwright:
     )
     page.wait_for_timeout(700)
     began = time.monotonic()
-    page.locator(RUNNING).click()
+    page.locator("#shared-operation-cancel").click()
     wait_until_idle(page)
     stopped = time.monotonic() - began
     check(
@@ -2929,8 +2930,9 @@ with sync_playwright() as playwright:
     plain.locator(RUNNING).wait_for(state="visible", timeout=30000)
     plain.locator("#shared-operation:not([hidden])").wait_for()
     check(
-        "the run button is called Cancel with no stylesheet at all",
-        plain.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 1,
+        "the run button keeps its verb with no stylesheet at all",
+        plain.locator("#form").get_by_role("button", name="Cancel", exact=True).count() == 0
+        and plain.locator("#form").get_by_role("button", name="Generate", exact=True).count() == 1,
         plain.locator("#go").aria_snapshot(),
     )
     check(

@@ -98,8 +98,8 @@ with sync_playwright() as tool:
     page.wait_for_function("document.body.classList.contains('busy')")
     assert not page.locator("#form").evaluate("element => element.inert")
     assert page.locator("#form").get_attribute("data-panel-held") == "true"
-    assert page.locator("#go").is_enabled()
+    assert not page.locator("#go").is_enabled()
     page.wait_for_function("!document.body.classList.contains('busy')")
     page.wait_for_function("!document.querySelector('#form').hasAttribute('data-panel-held')")
-    print("PASS the native hold still preserves its Cancel control and releases afterward", flush=True)
+    print("PASS the native hold keeps the form button waiting and releases afterward", flush=True)
     browser.close()
