@@ -18,6 +18,10 @@ def open_editor(page):
     bar = page.locator(".music-output-details:not([hidden])")
     bar.get_by_role("button", name="More actions", exact=True).click()
     bar.get_by_role("menuitem", name="Use this score", exact=True).click()
+    # The score lands in the form, which a narrow window keeps in its own pane.
+    controls = page.locator('.pane-switch [data-pane="controls"]')
+    if controls.is_visible():
+        controls.click()
     page.locator("#music-abc-edit").click()
     editor = page.get_by_role("dialog", name="ABC score", exact=True)
     expect(editor).to_be_visible()
@@ -154,10 +158,13 @@ def main():
         mobile = mobile_context.new_page()
         mobile.route("**/operations/*/metadata", metadata)
         mobile.goto(base + "/?workspace=music")
+        mobile.locator('.pane-switch [data-pane="controls"]').click()
         mobile.locator("#music-style").fill("Piano")
         mobile.locator("#music-lyrics").fill("A long melody")
         mobile.locator("#music-generate").click()
         expect(mobile.locator(".music-song")).to_have_count(1)
+        # The bar lives on the stage, so the preview pane is where its menu is reachable.
+        mobile.locator('.pane-switch [data-pane="preview"]').click()
         editor = open_editor(mobile)
         mobile.wait_for_timeout(400)
         box = mobile.evaluate("""() => {

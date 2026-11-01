@@ -167,7 +167,7 @@ function readReference(file) {
   return new Promise(function (resolve) {
     const reader = new FileReader();
     reader.onload = function () { resolve({ b64: reader.result.split(',')[1], name: file.name }); };
-    reader.onerror = function () { resolve(null); };   // a file that cannot be read joins nothing
+    reader.onerror = function () { resolve(null); };
     reader.readAsDataURL(file);
   });
 }
@@ -175,13 +175,19 @@ function readReference(file) {
 // The reads finish in their own order, and a list built in that order would put the third
 // picture a person picked in the second place. So they are all kept and the list is built
 // from them in the order they were picked, which is the order they were shown the picker in.
+// A file that is not an image, or that the browser cannot read, says so instead of
+// disappearing.
 function addFiles(files) {
-  const images = Array.from(files).filter(function (file) {
+  const chosen = Array.from(files);
+  const images = chosen.filter(function (file) {
     return file.type.startsWith('image/');
   });
+  chosen.filter(function (file) { return !file.type.startsWith('image/'); })
+    .forEach(function (file) { page.notify('error', t('form.error.notImage', {name: file.name})); });
   Promise.all(images.map(readReference)).then(function (read) {
-    read.forEach(function (reference) {
+    read.forEach(function (reference, index) {
       if (reference) addReference(reference.b64, reference.name);
+      else page.notify('error', t('form.error.imageUnreadable', {name: images[index].name}));
     });
   });
 }
@@ -1237,13 +1243,15 @@ async function askRewriter(prompt, pictures) {
   const answer = await fetch('/rewrite', { method: 'POST',
     headers: {'X-Studio-Client': page.clientId, 'X-Studio-Library': page.libraryId}, body: body });
   const text = await answer.text();
-  let result;
+  let result = null;
   try {
     result = JSON.parse(text);
   } catch (error) {
-    throw new Error(text || answer.statusText);
+    // A proxy's HTML error page is not a message for the person who pressed Rewrite.
+    result = null;
   }
-  if (result.error) throw new Error(result.error);
+  if (!result) throw new Error(t('form.error.rewriteUnavailable'));
+  if (!answer.ok || result.error) throw new Error(result.error || t('form.error.rewriteUnavailable'));
   return result;
 }
 

@@ -1,6 +1,7 @@
 """Check image and video handoffs against the local stub server.
 
-uv run studio --stub --port <port>
+Run against `uv run studio --stub --port <port>`. Do not pass `--all-backends`: this suite
+checks that each workspace shows its one model with no picker.
 uv run --with playwright python tests/e2e/verify_media_studio.py <port>
 """
 
@@ -903,6 +904,7 @@ with sync_playwright() as playwright:
     check("video prompt enables the generate action", page.locator("#video-generate").is_enabled())
     page.fill("#video-prompt", "")
     page.set_viewport_size({"width": 390, "height": 844})
+    page.locator('.pane-switch [data-pane="controls"]').click()
     mobile_footer = page.evaluate(
         """() => {
           const footer = document.querySelector('#video-footer');
@@ -914,8 +916,8 @@ with sync_playwright() as playwright:
     check(
         "video action stays fixed to the screen on narrow layouts",
         mobile_footer["visible"]
-        and mobile_footer["position"] == "fixed"
-        and abs(mobile_footer["viewportBottom"] - mobile_footer["bottom"]) < 2,
+        and mobile_footer["position"] in ("fixed", "sticky")
+        and mobile_footer["viewportBottom"] - 96 <= mobile_footer["bottom"] <= mobile_footer["viewportBottom"],
         str(mobile_footer),
     )
     page.set_viewport_size({"width": 1440, "height": 1000})
@@ -1334,10 +1336,13 @@ with sync_playwright() as playwright:
           window.__studioCancelRequested = false;
           window.__studioProgressReady = false;
           window.__studioForeignRequestId = null;
+          window.__studioRunActive = false;
+          window.__studioOperationId = 'video-cancel-test';
           window.fetch = (input, options = {}) => {
             const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
             if (path === '/video/generate') {
               window.__studioRequestId = JSON.parse(options.body).request_id;
+              window.__studioRunActive = true;
               return new Promise(resolve => { window.__studioResolveVideo = resolve; });
             }
             if (path === '/video/progress') return Promise.resolve(new Response(JSON.stringify({
@@ -1346,9 +1351,23 @@ with sync_playwright() as playwright:
               kind: 'video', stopping: false,
               request_id: window.__studioForeignRequestId || window.__studioRequestId,
             }), {headers: {'Content-Type': 'application/json'}}));
-            if (path === '/video/cancel') {
-              window.__studioCancelRequestId = JSON.parse(options.body).request_id;
+            // The run's Cancel is the status bar's, as in the other three workspaces. This
+            // render never reaches the stub server, so the state poll is told about it.
+            if (path === '/api/v1/state' && window.__studioRunActive) {
+              return window.__studioOriginalFetch(input, options).then(async response => {
+                const state = await response.json();
+                return new Response(JSON.stringify({...state, busy: true, active: {
+                  id: window.__studioOperationId, kind: 'video', workspace: 'video', mode: 'generate',
+                  status: 'running', client_id: CLIENT_ID, model: 'LTX-2.5',
+                  started_at: Date.now() / 1000 - 5, finished_at: null, settings: {},
+                  progress: {running: true, stage: 'running', step: 2, total: 8},
+                }}), {headers: {'Content-Type': 'application/json'}});
+              });
+            }
+            if (path === '/api/v1/operations/' + window.__studioOperationId + '/cancel') {
+              window.__studioCancelOperationId = window.__studioOperationId;
               window.__studioCancelRequested = true;
+              window.__studioRunActive = false;
               window.__studioResolveVideo(new Response(JSON.stringify({cancelled: true}), {
                 headers: {'Content-Type': 'application/json'},
               }));
@@ -1400,9 +1419,9 @@ with sync_playwright() as playwright:
         })"""
     )
     check(
-        "video shows one status and a visible lock while cancel waits for the server",
+        "video shows one status and a visible lock while the run waits for the server",
         starting_locked["disabled"]
-        and starting_locked["label"] == "Cancel"
+        and starting_locked["label"] == "Generate"
         and starting_locked["panelHeld"]
         and starting_locked["durationPointerLocked"]
         and float(starting_locked["controlsOpacity"]) < 1
@@ -1419,14 +1438,13 @@ with sync_playwright() as playwright:
         })"""
     )
     check(
-        "another tab cannot unlock this request's cancel button",
-        foreign_run_state["disabled"] and foreign_run_state["label"] == "Cancel",
+        "the run button keeps its verb and stays disabled while the render runs",
+        foreign_run_state["disabled"] and foreign_run_state["label"] == "Generate",
         str(foreign_run_state),
     )
     page.evaluate("() => { window.__studioForeignRequestId = null; }")
-    page.get_by_role("button", name="Cancel", exact=True).wait_for(state="visible", timeout=10000)
     page.wait_for_function(
-        "() => !document.querySelector('#video-generate').disabled",
+        "() => !document.querySelector('#shared-operation-cancel').disabled",
         timeout=10000,
     )
     cancel_locked = page.evaluate(
@@ -1435,13 +1453,13 @@ with sync_playwright() as playwright:
           durationPointerLocked: document.querySelector('#video-duration').style.pointerEvents === 'none',
           modeLocked: document.querySelector('#media-image-mode').disabled
             && document.querySelector('#media-video-mode').disabled,
-          cancelAvailable: !document.querySelector('#video-generate').disabled
-            && document.querySelector('#video-generate').textContent.includes('Cancel'),
+          cancelAvailable: !document.querySelector('#shared-operation-cancel').disabled
+            && document.querySelector('#shared-operation-cancel').textContent.includes('Cancel'),
           pendingVisible: Boolean(document.querySelector('#video-gallery .video-gallery-pending')),
         })"""
     )
     check(
-        "video generation locks the sidebar and offers Cancel beside its status",
+        "video generation locks the sidebar and the status bar owns Cancel",
         cancel_state
         and cancel_locked["promptReadOnly"]
         and cancel_locked["durationPointerLocked"]
@@ -1483,10 +1501,10 @@ with sync_playwright() as playwright:
         and page.locator("#video-source-panel").get_by_text("late-shortcut.png").count() == 0,
         f"references: {page.locator('#video-source-panel .video-reference').count()}",
     )
-    page.get_by_role("button", name="Cancel", exact=True).click()
+    page.locator("#shared-operation-cancel").click()
     check(
-        "video cancellation carries this render's request id",
-        page.evaluate("() => window.__studioCancelRequestId === window.__studioRequestId"),
+        "the status bar cancels this render's operation",
+        page.evaluate("() => window.__studioCancelOperationId === window.__studioOperationId"),
     )
     page.wait_for_function(
         "() => document.querySelector('#video-request-status').textContent === 'Video generation cancelled.'",
@@ -1765,6 +1783,12 @@ with sync_playwright() as playwright:
           );
         }""",
         {"videoBytes": list(video_bytes)},
+    )
+    # The Media menu keeps autoplay on, so a finished clip starts by itself. The clip is
+    # short, so check that playback began, not that it runs.
+    page.wait_for_function(
+        "() => { const video = document.querySelector('#video-preview'); return Boolean(video) && video.played.length > 0; }",
+        timeout=15000,
     )
     # A video clip draws a 16-frame contact sheet in its thumb, not an img
     # (components/video-gallery-preview.js:render). A still poster can appear first.

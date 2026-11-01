@@ -1,6 +1,7 @@
 """Drive the JSON API while three tabs follow the same server.
 
-Run against a fresh `uv run studio --stub --all-backends --port <port>`.
+Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port <port>`.
+The payloads name step counts, which only a backend with an editable step count accepts.
 """
 
 import sys

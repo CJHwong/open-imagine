@@ -152,7 +152,8 @@ function startWork(element) {
   if (fresh) nativeRunning = true;
   document.body.classList.add('busy');
   page.syncRunState();
-  page.el.go.disabled = false;
+  // The status bar owns Cancel. This button stays the run's verb, disabled while a run goes.
+  page.el.go.disabled = true;
   page.el.goSub.textContent = '';
   page.el.countToggle.disabled = true;
   page.el.progressSlot.innerHTML = POLLER;
@@ -257,8 +258,11 @@ async function submitBatch(parameters, headers) {
   try {
     const answer = await fetch('/image/operations', {method: 'POST',
       headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(batchPayload(parameters))});
+    if (!answer.ok) {
+      const body = await answer.json().catch(() => ({}));
+      throw new Error(body.error || t('form.error.batchStart'));
+    }
     const operation = await answer.json();
-    if (!answer.ok) throw new Error(operation.error || t('form.error.batchStart'));
     nativeOperationId = operation.id;
   } catch (error) {
     armCancelRestore();
@@ -524,10 +528,10 @@ function listen() {
     if (records.some(function (record) { return record.addedNodes.length; })) harvest();
   }).observe(page.el.incoming, { childList: true, subtree: true });
 
-  // While a run goes, the run button is Cancel. A click in the first half
-  // second is the second half of a double click on Generate, so it waits.
-  // Enter in a text field also clicks this button (an implicit submit), with
-  // no click count and the focus left in the field; that is not a cancel.
+  // The status bar owns Cancel, and the run button waits disabled while a run goes. A
+  // click that still lands on it (a press made as the run started) cancels; one in the
+  // first half second is the second half of a double click on Generate, and Enter in a
+  // text field also clicks this button with no click count. Neither is a cancel.
   page.el.go.addEventListener('click', function (event) {
     if (!page.busy()) return;
     event.preventDefault();
@@ -656,7 +660,12 @@ function listen() {
     stopWork();
   }
   });
-  document.body.addEventListener('htmx:responseError', stopWork);
+  document.body.addEventListener('htmx:responseError', function () {
+    stopWork();
+    // An error response from /generate, /progress or /cancel used to take the card away
+    // without a word. The run may still be going on the server, so the copy says so.
+    page.notify('error', t('form.error.requestFailed'));
+  });
   document.body.addEventListener('htmx:sendError', function () {
     stopWork();
     page.notify('error', t('form.error.serverSilent'));

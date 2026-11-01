@@ -21,8 +21,10 @@ def open_page(context):
 def run(page, prompt, observer=None):
     page.fill("#prompt", prompt)
     page.locator("#steps").evaluate(
-        "input => { input.value = input.min; input.dispatchEvent(new Event('input', {bubbles: true})); }"
+        "input => { input.value = '20'; input.dispatchEvent(new Event('input', {bubbles: true})); }"
     )
+    # Twenty stub steps is twenty seconds, which is longer than one idle poll of the
+    # server state, so another browser can see the run while it lasts.
     page.locator("#go").click()
     if observer:
         observer.locator("#shared-operation:not([hidden])").wait_for()
@@ -117,7 +119,9 @@ with sync_playwright() as tool:
     assert api_page.evaluate("gallery[0].prompt") == "an API pear"
     print("PASS a fresh browser imports historical API results", flush=True)
     pending = isolated.request.post(
-        URL + "/api/v1/operations", data={"kind": "image", "prompt": "a result after Clear all", "steps": 2}
+        URL + "/api/v1/operations",
+        # Long enough to outlast one idle poll, so this tab sees it as running.
+        data={"kind": "image", "prompt": "a result after Clear all", "steps": 20},
     )
     assert pending.status == 202
     api_page.locator("#shared-operation:not([hidden])").wait_for()

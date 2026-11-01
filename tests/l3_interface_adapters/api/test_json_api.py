@@ -1,6 +1,7 @@
 """The JSON API: a body becomes the page's form, and the answer becomes a document."""
 
 import base64
+import threading
 from typing import cast
 
 import pytest
@@ -9,19 +10,31 @@ from studio.l1_entities.errors import InvalidJob, StudioError
 from studio.l1_entities.image_job import ImageResult
 from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_capabilities import VideoCapabilities, VideoShape
-from studio.l1_entities.video_job import VideoResult
+from studio.l1_entities.video_job import VideoJob, VideoResult
+from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import StudioView
+from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
 from studio.l2_use_cases.run_image_use_case import NextRun, RunImageResponse
+from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l3_interface_adapters.api.json_api import (
     BATCH_LIMIT,
+    JsonApi,
 )
 from studio.l3_interface_adapters.api.request_mapper import next_form
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+    InMemoryModelResidencyGateway,
+)
+from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
+from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+    InMemoryVideoBackendCatalogGateway,
+)
 from tests.support.api import api_for
-from tests.support.fakes import fake_capabilities
+from tests.support.fakes import FakeVideoBackendGateway, fake_capabilities
 
 
 class FakeController(FormController):
@@ -382,6 +395,56 @@ def test_reserved_video_cancellation_survives_before_progress_begins():
     with pytest.raises(Cancelled):
         api.execute_operation(operation, {"kind": "video"})
     assert not api.cancellation_requested()
+
+
+def test_the_shared_cancel_stops_a_video_run_through_its_operation():
+    """The page's video run is an operation, so the status bar's Cancel reaches the engine.
+
+    The progress gateway asks the operation gateway whether the active run is stopping, and
+    the video use case hands that answer to the engine. The API holds no video controller
+    here on purpose: the stop travels through the operation record, not through a cancel
+    route, which is why the video form keeps no Cancel of its own.
+    """
+    from studio.l1_entities.errors import Cancelled
+
+    operations = InMemoryOperationGateway()
+    holder: dict[str, JsonApi] = {}
+    progress = InMemoryProgressGateway(
+        external_cancel=lambda: holder["api"].cancellation_requested() if "api" in holder else False
+    )
+    seen = []
+
+    class StoppingVideo(FakeVideoBackendGateway):
+        def run(self, job, progress=None, cancelled=None):
+            assert cancelled is not None
+            seen.append(cancelled())
+            operation = holder["api"].state()["active"]
+            holder["api"].cancel_operation(operation["id"])
+            seen.append(cancelled())
+            raise Cancelled("The video run was cancelled.")
+
+    backend = StoppingVideo("video-fake")
+    catalog = InMemoryVideoBackendCatalogGateway({"video-fake": backend}, "video-fake", ("video-fake",))
+    residency = InMemoryModelResidencyGateway({"video-fake": backend})
+    use_case = RunVideoUseCase(catalog, progress, threading.Lock(), residency)
+    holder["api"] = JsonApi(
+        FakeController(),
+        None,
+        None,
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+    )
+    api = holder["api"]
+    operation = api.reserve({"kind": "video", "request_id": "render"})
+
+    with pytest.raises(Cancelled):
+        api.complete(
+            operation["id"], lambda: use_case.execute(VideoJob("clip", 384, 384, 9, 24, 7), "video-fake", "render")
+        )
+
+    assert seen == [False, True]
+    assert api.operation(operation["id"])["status"] == "cancelled"
 
 
 def test_native_batch_owns_one_operation_and_retains_each_image():

@@ -1,4 +1,5 @@
-import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic} from '../lib/music-store.js';
+import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
+  musicSource, putMusicSource, sourceIdFor, sweepMusicSources, musicLink, putMusicLink, deleteMusicLink} from '../lib/music-store.js';
 import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
 import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
@@ -13,6 +14,10 @@ import './gallery-browser.js';
 import './run-button.js';
 import {configureLookRows} from './look-rows.js';
 import {t, plural} from '../lib/i18n.js';
+
+// What a run emptied, kept for this tab so a reload can still put it back. The reference
+// travels as its stored source id, never as bytes.
+const CLEARED_KEY = 'studio-music-cleared';
 
 // The run button says Generate in every workflow, as every other workspace's does, and
 // the sub line names what this one makes. The mode picker is the four workflows the
@@ -322,6 +327,11 @@ class MusicStudio extends HTMLElement {
     this.detailsBodies = new Map();
     this.capture = null;
     this.referencePlayer = null;
+    // Resolves when the reference recording is in the source store. Submit waits for it,
+    // so a song never loses the recording it was made from to a slow hash.
+    this.referenceReady = null;
+    // operation id -> the reference sent to the engine, so the imported song can point at it.
+    this.submittedSources = new Map();
     this.recording = false;
     this.recordingPending = false;
     this.recordingText = '';
@@ -485,7 +495,7 @@ class MusicStudio extends HTMLElement {
       <run-button id="music-run-labels" data-mode="generate" data-state="idle"></run-button>
       <span class="sub num" id="music-go-sub"></span></button>`;
     this.generateButton = footer.querySelector('button');
-    this.generateButton.addEventListener('click', () => this.ownOperation ? this.cancel() : this.generate());
+    this.generateButton.addEventListener('click', () => this.generate());
     this.querySelector('#music-write').addEventListener('click', () => {
       const target = (EMPTY_COPY[this.draft().mode] || EMPTY_COPY.generate)[2];
       if (target === 'task') this.controls.querySelector('#music-transcription-task').focus();
@@ -530,7 +540,10 @@ class MusicStudio extends HTMLElement {
     });
     const referenceInput = this.controls.querySelector('#music-reference');
     for (const id of ['music-reference-choose', 'music-reference-replace']) this.controls.querySelector('#' + id).addEventListener('click', () => referenceInput.click());
-    referenceInput.addEventListener('change', () => { if (referenceInput.files[0]) this.setReference(referenceInput.files[0]); });
+    referenceInput.addEventListener('change', () => {
+      const file = referenceInput.files[0];
+      if (file) this.setReference(file, file.name || 'reference.wav');
+    });
     this.controls.querySelector('#music-reference-remove').addEventListener('click', () => this.setReference(null));
     this.controls.querySelector('#music-reference-record').addEventListener('click', () => this.toggleRecording());
     const recordSheet = this.controls.querySelector('#music-record-sheet');
@@ -547,7 +560,8 @@ class MusicStudio extends HTMLElement {
     drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
     drop.addEventListener('drop', event => {
       event.preventDefault(); drop.classList.remove('dragover');
-      if (!this.busy && event.dataTransfer.files[0]) this.setReference(event.dataTransfer.files[0]);
+      const file = event.dataTransfer.files[0];
+      if (!this.busy && file) this.setReference(file, file.name || 'reference.wav');
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
     this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
@@ -567,7 +581,9 @@ class MusicStudio extends HTMLElement {
       if (next !== null) { event.preventDefault(); buttons[next].click(); buttons[next].focus(); }
     });
     window.addEventListener('storage', event => {
-      if (event.key === 'studio-music-changed' && this.keeping) this.restoreSongs();
+      if (event.key === 'studio-music-changed' && this.keeping) {
+        this.restoreSongs().catch(error => this.options.notify('error', t('music.error.restore', {message: error.message})));
+      }
     });
   }
   get busy() { return this.pending || this.coverStarting || Boolean(this.operation); }
@@ -653,7 +669,8 @@ class MusicStudio extends HTMLElement {
   }
   // Run empties what it sent, as the Image workspace does: the words, the reference
   // recording and the Advanced settings. A cancelled or failed run puts them back. The
-  // reference recording stays: it is the same hum for the next cover or transcription.
+  // recording is not lost: the song it makes points at it, and that song's menu restores
+  // it. The stored record and the link to it stay until the import claims them.
   clearInputs() {
     const field = id => this.controls.querySelector('#music-' + id);
     const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task'];
@@ -663,6 +680,7 @@ class MusicStudio extends HTMLElement {
       reference: this.reference,
       advanced: Object.fromEntries(advanced.map(id => [id, field(id).value])),
     };
+    this.rememberCleared(this.operation?.id);
     const defaults = {
       seed: '',
       count: '1',
@@ -675,12 +693,38 @@ class MusicStudio extends HTMLElement {
     field('style').value = '';
     field('lyrics').value = '';
     for (const [id, value] of Object.entries(defaults)) field(id).value = value;
+    // The form drops the recording; the store keeps it for the song this run makes. No
+    // sweep here: the link and the draft already decided what survives, and the run has
+    // not imported yet.
+    this.releaseReferenceAudio();
+    this.reference = null;
+    this.referenceReady = null;
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
-  restoreInputs() {
+  // A reload loses this tab's own copy, so the submit writes one to sessionStorage. It
+  // holds the reference's stored id, not its bytes.
+  rememberCleared(operationId) {
     const snapshot = this.clearedInputs;
+    const reference = snapshot?.reference;
+    try {
+      sessionStorage.setItem(CLEARED_KEY, JSON.stringify({...snapshot,
+        reference: reference ? {name: reference.name, sourceId: reference.sourceId || ''} : null,
+        operationId: operationId || null}));
+    } catch (_) { /* The run still works; a reload then has nothing to put back. */ }
+  }
+  storedCleared() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(CLEARED_KEY) || 'null');
+      return saved && typeof saved === 'object' ? saved : null;
+    } catch (_) { return null; }
+  }
+  forgetCleared() {
+    try { sessionStorage.removeItem(CLEARED_KEY); } catch (_) { /* Nothing to forget. */ }
+  }
+  restoreInputs() {
+    const snapshot = this.clearedInputs || this.storedCleared();
     this.clearedInputs = null;
     this.restoreOnStop = false;
     if (!snapshot) return;
@@ -689,37 +733,101 @@ class MusicStudio extends HTMLElement {
     field('lyrics').value = snapshot.lyrics;
     for (const [id, value] of Object.entries(snapshot.advanced || {})) field(id).value = value;
     this.releaseReferenceAudio();
-    this.reference = snapshot.reference || null;
+    const saved = snapshot.reference || null;
+    if (saved?.sourceId && !saved.blob) {
+      // A reloaded tab has the id and not the bytes; the stored record still holds them.
+      this.reference = null;
+      this.referenceReady = musicSource(saved.sourceId).then(source => {
+        if (source?.blob) return this.setReference(source.blob, saved.name || source.name, saved.sourceId);
+      }).catch(() => {});
+    } else {
+      this.reference = saved;
+      // The submit cleared the draft pointer; the restore puts it back so a reload still
+      // finds the recording.
+      this.referenceReady = this.reference ? this.persistReference() : null;
+    }
+    this.forgetCleared();
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
   }
-  prepareCancel() { this.restoreOnStop = Boolean(this.clearedInputs); }
+  prepareCancel() { this.restoreOnStop = Boolean(this.clearedInputs || this.storedCleared()); }
   // The shared poll reports a terminal failure from its history, after the active slot
-  // emptied. Only this client's run owns the snapshot.
+  // emptied. This tab's run owns the snapshot; after a reload the stored operation id is
+  // what proves the same run.
   restoreAfterFailure(operation) {
-    if (operation?.client_id !== this.options?.clientId) return;
+    const stored = this.storedCleared();
+    const mine = operation?.client_id === this.options?.clientId
+      || Boolean(stored?.operationId && stored.operationId === operation?.id);
+    if (!mine) return;
     this.restoreInputs();
+    // A failed or cancelled run never imports a song, so its link would outlive it.
+    if (operation.id) {
+      const ids = [operation.id];
+      for (let index = 0; index < (operation.batch_total || 0); index++) ids.push(operation.id + ':' + index);
+      for (const id of ids) this.forgetSourceLink(id);
+    }
   }
-  savedDraft() { return {...this.draft(), reference: this.reference || null}; }
-  async setReference(file) {
+  async forgetSourceLink(id) {
+    this.submittedSources.delete(id);
+    await deleteMusicLink(id).catch(() => {});
+  }
+  savedDraft() {
+    const reference = this.reference;
+    // A stored reference travels as a pointer to its one record. One that has no id yet
+    // keeps its bytes, so a draft saved before the hash lands still restores.
+    return {...this.draft(), reference: reference ? (reference.sourceId
+      ? {sourceId: reference.sourceId, name: reference.name}
+      : {blob: reference.blob, name: reference.name}) : null};
+  }
+  async setReference(blob, name, sourceId = '') {
     if (this.busy) return;
     const limit = this.capabilities?.max_reference_bytes || 32 * 1024 * 1024;
-    if (file && (!file.size || file.size > limit)) {
+    const label = name || 'reference.wav';
+    if (blob && (!blob.size || blob.size > limit)) {
       this.controls.querySelector('#music-reference').value = '';
       this.options.notify('error', t('music.error.file_too_large', {size: Math.round(limit / 1024 / 1024)})); return;
     }
-    if (file && file.type && !file.type.startsWith('audio/') && !/\.(wav|mp3|flac|m4a|ogg|aiff?|aac|opus)$/i.test(file.name)) {
+    if (blob && blob.type && !blob.type.startsWith('audio/') && !/\.(wav|mp3|flac|m4a|ogg|aiff?|aac|opus)$/i.test(label)) {
       this.controls.querySelector('#music-reference').value = '';
       this.options.notify('error', t('music.error.file_type')); return;
     }
     this.closeScore(false);
     this.releaseReferenceAudio();
-    this.reference = file ? {blob: file, name: file.name || 'reference.wav'} : null;
+    this.reference = blob ? {blob, name: label, sourceId} : null;
     this.syncEngineMode();
     this.controls.querySelector('#music-reference').value = '';
     this.updateReference(); this.epoch++; this.sync();
-    if (this.keeping) await this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+    this.referenceReady = this.persistReference();
+    await this.referenceReady;
+  }
+  // One record holds the bytes, keyed by their hash, so the same hum for five covers is
+  // stored once. A selection that changes while the hash runs keeps its own result.
+  async persistReference() {
+    const reference = this.reference;
+    try {
+      if (!reference) {
+        // Removing the reference also clears the draft pointer and releases a record no
+        // song uses any more.
+        if (!this.keeping) return;
+        await this.store(() => saveMusicDraft(this.savedDraft()));
+        await this.store(sweepMusicSources).catch(() => {});
+        return;
+      }
+      const id = reference.sourceId || await sourceIdFor(reference.blob);
+      if (!this.keeping) {
+        if (this.reference === reference) this.reference = {...reference, sourceId: id};
+        return;
+      }
+      await this.store(() => putMusicSource({id, blob: reference.blob, name: reference.name}));
+      if (this.reference === reference) {
+        this.reference = {...reference, sourceId: id};
+        this.updateReference();
+      }
+      await this.store(() => saveMusicDraft(this.savedDraft()));
+    } catch (_) {
+      // The run still works without a stored copy; that song then offers only its own audio.
+    }
   }
   // A hum is short, so the chip plays it back before the run. The player stays off the
   // page: the form holds no media element, and the only URL it reads is the one it made.
@@ -731,7 +839,10 @@ class MusicStudio extends HTMLElement {
       this.referencePlayer.addEventListener('pause', () => this.paintReferencePlayback(false));
       this.referencePlayer.addEventListener('ended', () => this.paintReferencePlayback(false));
     }
-    if (this.referencePlayer.paused) this.referencePlayer.play().catch(() => this.paintReferencePlayback(false));
+    if (this.referencePlayer.paused) this.referencePlayer.play().catch(() => {
+      this.paintReferencePlayback(false);
+      this.options.notify('error', t('audio.error.play_failed'));
+    });
     else this.referencePlayer.pause();
   }
   paintReferencePlayback(playing) {
@@ -763,7 +874,7 @@ class MusicStudio extends HTMLElement {
   async recordReference(file) {
     try {
       const normalized = await normalizeReference(file, 44100, 120);
-      await this.setReference(new File([normalized.blob], 'hum-mmm.wav', {type: 'audio/wav'}));
+      await this.setReference(new File([normalized.blob], 'hum-mmm.wav', {type: 'audio/wav'}), 'hum-mmm.wav');
     } catch (error) {
       this.options.notify('error', error.message);
     } finally {
@@ -879,13 +990,24 @@ class MusicStudio extends HTMLElement {
   useReference(song) {
     if (this.busy || !song.blob) return;
     closeMenus();
-    this.reference = {blob: song.blob, name: `music-${song.seed}.wav`};
-    this.syncEngineMode();
-    this.updateReference();
-    this.epoch++;
-    this.sync();
+    this.setReference(song.blob, `music-${song.seed}.wav`).catch(error => this.options.notify('error', error.message));
     this.controls.querySelector('.music-reference-fields')?.scrollIntoView({block: 'center', behavior: 'smooth'});
-    if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+  }
+  // The recording the song was made from, not the rendered song. It is one stored record,
+  // and several songs can point at it.
+  async useOriginalReference(song) {
+    if (this.busy || !song.sourceId) return;
+    closeMenus();
+    const source = await musicSource(song.sourceId).catch(() => null);
+    if (!(source?.blob instanceof Blob)) {
+      this.options.notify('info', t('music.error.source_missing'));
+      this.useReference(song);
+      return;
+    }
+    // The song remembers the file name its run saw. The record's name is the last one
+    // that touched the same bytes, so it is only the fallback.
+    await this.setReference(source.blob, song.settings?.reference_name || source.name || 'reference.wav', song.sourceId);
+    this.controls.querySelector('.music-reference-fields')?.scrollIntoView({block: 'center', behavior: 'smooth'});
   }
   // The item's whole job: the song's score becomes the form's score, and the form shows
   // where it landed. The editor stays behind the form's own Edit score link.
@@ -968,7 +1090,7 @@ class MusicStudio extends HTMLElement {
         this.setAbcFacts(score);
         status.textContent = '';
         try {
-          const warnings = await renderNotation(pane, score);
+          const {warnings} = await renderNotation(pane, score);
           status.textContent = warnings ? t('music.error.notation_warning') : '';
         } catch (_) {
           pane.replaceChildren();
@@ -993,29 +1115,52 @@ class MusicStudio extends HTMLElement {
     const first = this.keeping === undefined;
     this.keeping = on;
     const epoch = this.epoch;
-    if (!on) { await this.store(clearMusic); return; }
+    if (!on) {
+      await this.store(clearMusic);
+      // The stored originals went with the store. A song that comes back without one
+      // offers its own audio and nothing more.
+      for (const song of this.songs) delete song.sourceId;
+      return;
+    }
     if (first) {
       try {
         const draft = await musicDraft();
-        if (!this.keeping) return;
-        if (draft && this.epoch === epoch) {
+        if (!this.keeping || this.epoch !== epoch) return;
+        if (draft) {
           for (const [key, value] of Object.entries(draft)) {
             const input = this.controls.querySelector('#music-' + key.replaceAll('_', '-'));
             if (input && input.type !== 'file') { if (input.type === 'checkbox') input.checked = Boolean(value); else input.value = value; }
           }
           if (draft.instrumental) this.controls.querySelector('#music-lyrics').value = '';
-          if (draft.reference?.blob instanceof Blob) { this.reference = draft.reference; this.updateReference(); }
+          await this.restoreReference(draft.reference, epoch);
           this.selectWorkflow(draft.mode || 'generate');
         }
         await this.restoreSongs();
+        await this.store(sweepMusicSources).catch(() => {});
       } catch (error) { this.options?.notify('error', t('music.error.restore', {message: error.message})); }
     } else {
-      await this.store(async () => {
-        await saveMusicDraft(this.savedDraft());
-        for (const song of this.songs) await saveMusicSong(song);
-      });
+      if (this.reference) await this.persistReference().catch(() => {});
+      else await this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
+      await this.store(async () => { for (const song of this.songs) await saveMusicSong(song); });
     }
     this.sync();
+  }
+  // A draft from this version points at the stored bytes. One from the version before it
+  // carries the bytes; loading it once puts them in the store and rewrites the pointer.
+  async restoreReference(saved, epoch) {
+    if (!saved) return;
+    if (saved.sourceId) {
+      const source = await musicSource(saved.sourceId).catch(() => null);
+      if (!this.keeping || this.epoch !== epoch || !(source?.blob instanceof Blob)) return;
+      this.reference = {blob: source.blob, name: saved.name || source.name, sourceId: saved.sourceId};
+      this.updateReference();
+      return;
+    }
+    if (!(saved.blob instanceof Blob)) return;
+    this.reference = {blob: saved.blob, name: saved.name || 'reference.wav', sourceId: ''};
+    this.updateReference();
+    this.referenceReady = this.persistReference();
+    await this.referenceReady.catch(() => {});
   }
   async restoreSongs() {
     const epoch = this.restoreEpoch = (this.restoreEpoch || 0) + 1;
@@ -1116,6 +1261,7 @@ class MusicStudio extends HTMLElement {
     this.querySelector('.music-generation').hidden = !previewingGeneration;
     this.querySelector('.music-empty').hidden = this.songs.length > 0 || generating;
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
+    if (!previewingGeneration) this.engraveSheet();
     if (previewingGeneration || this.hidden) { this.closeDetails(false); this.closeScore(false); }
     const scores = this.songs.filter(song => !song.blob).length, recordings = this.songs.length - scores;
     // The head names what the shelf holds, and what happens to it, the way the Image strip
@@ -1144,8 +1290,8 @@ class MusicStudio extends HTMLElement {
       Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0');
     this.syncBackgroundPlayback();
   }
-  // The run button is the shared one: Generate while idle, Cancel while this workspace owns
-  // the run, and the same Starting and Stopping labels as the Image, Video and Voice forms.
+  // The run button is the shared one, and it keeps its verb. The shared status bar owns
+  // Cancel, so this button waits disabled while a run goes.
   syncRunButton(draft, ready) {
     if (!this.generateButton) return;
     const own = this.ownOperation;
@@ -1156,21 +1302,9 @@ class MusicStudio extends HTMLElement {
     const labels = this.generateButton.querySelector('run-button');
     const sub = this.generateButton.querySelector('.sub');
     if (labels) { labels.dataset.state = state; labels.dataset.mode = 'generate'; }
-    this.generateButton.disabled = stopping || (state === 'idle' && (!this.capabilities || !ready || this.busy));
+    this.generateButton.disabled = state !== 'idle' || !this.capabilities || !ready || this.busy;
     if (sub) sub.textContent = starting ? t('music.run.preparing')
-      : own ? t('music.run.songs_remain')
-        : this.recording ? t('music.run.stop_recording_first') : t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
-  }
-  async cancel() {
-    const operation = this.ownOperation;
-    if (!operation || this.stopping) return;
-    this.stopping = true;
-    this.sync();
-    try {
-      const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operation.id) + '/cancel', {method: 'POST'});
-      if (!answer.ok) throw new Error((await answer.json()).error || t('music.error.stop_failed'));
-      this.prepareCancel();
-    } catch (error) { this.stopping = false; this.options.notify('error', error.message); this.sync(); }
+      : this.recording ? t('music.run.stop_recording_first') : t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
   }
   setOperation(operation) {
     if (operation?.kind === 'music' && this.operation?.id !== operation.id) this.showGeneration = true;
@@ -1192,8 +1326,13 @@ class MusicStudio extends HTMLElement {
     this.sync();
     this.options.onBusyChange();
     try {
-      const reference = ['transcribe', 'cover'].includes(draft.mode) && this.reference
-        ? {reference_audio: await blobBase64(this.reference.blob), reference_name: this.reference.name} : {};
+      const needsReference = ['transcribe', 'cover'].includes(draft.mode);
+      // The source record is written before the run starts, so the imported song can
+      // point at the recording that made it. A failed store still lets the run go.
+      if (needsReference && this.reference) await this.referenceReady?.catch(() => {});
+      const sent = needsReference ? this.reference : null;
+      const reference = sent
+        ? {reference_audio: await blobBase64(sent.blob), reference_name: sent.name} : {};
       const scoreOnly = ['plan', 'transcribe'].includes(draft.mode);
       const payload = {...draft, ...reference, steps: scoreOnly ? 32 : Number(draft.steps), cfg_scale: scoreOnly ? 1 : Number(draft.cfg_scale), count: 1,
         abc: ['generate', 'plan'].includes(draft.mode) ? draft.abc : '',
@@ -1207,10 +1346,21 @@ class MusicStudio extends HTMLElement {
       });
       const operation = await answer.json();
       if (!answer.ok) throw new Error(operation.error || t('music.error.start_failed'));
+      if (sent?.sourceId) {
+        const ids = Array.from({length: count}, (_, index) => count > 1 ? operation.id + ':' + index : operation.id);
+        for (const id of ids) this.submittedSources.set(id, sent);
+        // The link lives in the store, so a tab that did not start the run can still find
+        // the recording when it imports the song.
+        await Promise.all(ids.map(id => putMusicLink({id, sourceId: sent.sourceId, name: sent.name}))).catch(() => {});
+      }
       this.setOperation(operation);
       this.clearInputs();
       document.dispatchEvent(new CustomEvent('music-submitted'));
-    } catch (error) { this.options.notify('error', error.message); }
+    } catch (error) {
+      const message = error instanceof TypeError ? t('form.error.serverSilent')
+        : error instanceof SyntaxError ? t('music.error.start_failed') : (error.message || t('music.error.start_failed'));
+      this.options.notify('error', message);
+    }
     finally { this.pending = false; this.sync(); this.options.onBusyChange(); }
   }
   async importOperation(operation, answer) {
@@ -1226,7 +1376,15 @@ class MusicStudio extends HTMLElement {
     } else await this.importSong(operation, answer);
   }
   async importSong(operation, answer) {
-    if (this.songs.some(song => song.id === operation.id)) return;
+    const existing = this.songs.find(song => song.id === operation.id);
+    if (existing) {
+      // Another tab may have imported it first, before the link that names the source.
+      if (this.keeping && !existing.sourceId) {
+        const source = await this.sourceFor(operation.id);
+        if (source?.sourceId) { await this.attachSource(existing, source); this.renderSongs(); }
+      }
+      return;
+    }
     const scoreOnly = (answer.headers.get('content-type') || '').includes('application/json');
     const blob = scoreOnly ? null : await answer.blob();
     const metadataAnswer = await fetch(operation.result_url.replace(/\/result$/, '/metadata'), {cache: 'no-store'});
@@ -1240,16 +1398,47 @@ class MusicStudio extends HTMLElement {
     if (this.keeping) {
       song = await this.store(() => saveMusicSong(song));
       if (!song) return;
-    }
+      song = await this.attachSource(song, await this.sourceFor(operation.id));
+    } else this.submittedSources.delete(operation.id);
     if (this.songs.some(item => item.id === song.id)) return;
     this.restoreEpoch = (this.restoreEpoch || 0) + 1;
     this.songs.push(song);
     this.selectedId = song.id;
     this.showGeneration = false;
     this.renderSongs();
+    this.playArrival(operation, song);
+    // The run made its song, so nothing is waiting to be put back.
+    this.forgetCleared();
     localStorage.setItem('studio-music-changed', String(Date.now()));
   }
+  // A finished song plays once, when the page allows it and this tab started the run.
+  // Every other tab imports the same song and stays silent. A browser that blocks the
+  // sound leaves it paused: the policy is not a failure.
+  playArrival(operation, song) {
+    if (!song.blob || document.hidden) return;
+    if (!this.options.autoplay?.() || operation?.client_id !== this.options.clientId) return;
+    this.pausePlayback();
+    this.querySelector('.music-song:not([hidden]) audio')?.play().catch(() => {});
+  }
+  // This tab knows the reference from its submit; another tab knows it from the link.
+  async sourceFor(id) {
+    return this.submittedSources.get(id) || await musicLink(id).catch(() => null);
+  }
+  // The song points at the recording that made it. The update is conditional, so a song
+  // that already names a source keeps it.
+  async attachSource(song, source) {
+    if (!song || !source?.sourceId) return song;
+    if (!song.sourceId) song.sourceId = source.sourceId;
+    if (!this.keeping) return song;
+    await this.store(() => updateMusicSong(song.id, saved => saved.sourceId ? null : {...saved, sourceId: source.sourceId})).catch(() => {});
+    // A cleanup in another tab can drop the record between its write and this insert.
+    const stored = await musicSource(source.sourceId).catch(() => null);
+    if (!stored && source.blob) await this.store(() => putMusicSource({id: source.sourceId, blob: source.blob, name: source.name})).catch(() => {});
+    await this.forgetSourceLink(song.id);
+    return song;
+  }
   pausePlayback() {
+    this.stopScore();
     this.querySelectorAll('audio').forEach(audio => audio.pause());
     this.controls?.querySelectorAll('audio').forEach(audio => audio.pause());
     this.referencePlayer?.pause();
@@ -1267,8 +1456,159 @@ class MusicStudio extends HTMLElement {
       thumb.querySelector('.music-playing-state').hidden = !active;
     }
   }
+  // A score's preview is a performance: the programme line, the engraved page and one
+  // transport under it. The notes light as the synth reaches them, and the line fills with
+  // the same clock, so the sheet sounds and moves with the music.
+  sheetFor(song) {
+    const wrap = document.createElement('div');
+    wrap.className = 'music-sheet';
+    const score = musicScore(song.score);
+    const timing = this.scoreTiming(song.score);
+    // The heading, the plate and the controls take the Voice preview's shape, which the
+    // workspace's own listening surface already uses.
+    const heading = document.createElement('div');
+    heading.className = 'audio-preview-heading music-sheet-heading';
+    const name = document.createElement('strong');
+    name.textContent = t('music.common.music_score');
+    const facts = document.createElement('span');
+    const tempo = String(score.tempo || '').replace(/^1\/\d+\s*=\s*/, '♩ = ');
+    facts.textContent = [score.key, score.meter, tempo].filter(Boolean).join(' · ');
+    heading.append(name, facts);
+    const page = document.createElement('div');
+    page.className = 'music-sheet-page';
+    const sheet = document.createElement('div');
+    sheet.className = 'music-sheet-notes music-abc-notation';
+    sheet.dataset.songId = song.id;
+    page.append(sheet);
+    const controls = document.createElement('div');
+    controls.className = 'audio-preview-controls music-sheet-controls';
+    const row = document.createElement('div');
+    row.className = 'audio-preview-player music-sheet-player';
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', t('music.score.playback'));
+    const play = document.createElement('button');
+    play.type = 'button'; play.className = 'icon-btn music-sheet-play'; play.dataset.musicScorePlay = '';
+    this.paintScoreButton(play, false);
+    play.addEventListener('click', () => this.toggleScorePlayback(song, play));
+    const seek = document.createElement('div');
+    seek.className = 'music-sheet-seek';
+    const fill = document.createElement('i');
+    seek.append(fill);
+    const output = document.createElement('output');
+    output.className = 'audio-preview-position-value music-sheet-position';
+    output.textContent = '0:00 / ' + this.clockText(timing.seconds);
+    row.append(play, seek, output);
+    controls.append(row);
+    wrap.append(heading, page, controls);
+    return wrap;
+  }
+  engraveSheet() {
+    const sheet = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+    if (!sheet || sheet.dataset.engraved) return;
+    const song = this.songs.find(item => item.id === sheet.dataset.songId);
+    if (!song?.score) return;
+    sheet.dataset.engraved = 'yes';
+    renderNotation(sheet, song.score).then(({tunes}) => {
+      this.scoreTunes ||= new Map();
+      if (tunes[0]) this.scoreTunes.set(song.id, tunes[0]);
+    }).catch(() => { sheet.textContent = t('music.score.unavailable'); });
+  }
+  // The ABC carries the length: its meter, its tempo and its bar count.
+  scoreTiming(source) {
+    const score = musicScore(source);
+    const bars = score.sections.reduce((total, section) => total + section.bars.length, 0);
+    const meter = /^(\d+)\/(\d+)/.exec(score.meter || '');
+    const tempo = /^1\/(\d+)\s*=\s*(\d+(?:\.\d+)?)/.exec(score.tempo || '');
+    const [numerator, denominator] = meter ? [Number(meter[1]), Number(meter[2])] : [4, 4];
+    const [beatDenominator, bpm] = tempo ? [Number(tempo[1]), Number(tempo[2])] : [4, 120];
+    const beats = bars * numerator * beatDenominator / denominator;
+    return {seconds: bpm ? beats * 60 / bpm : 0, qpm: beatDenominator ? bpm * 4 / beatDenominator : 120};
+  }
+  paintScoreButton(button, playing) {
+    const label = playing ? t('music.score.stop') : t('music.score.play');
+    button.setAttribute('aria-pressed', String(playing));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${playing
+      ? '<path d="M7 5h3v14H7zm7 0h3v14h-3z"/>' : '<path d="m8 5 11 7-11 7z"/>'}</svg>`;
+  }
+  lightScore(elements) {
+    for (const element of this.scoreLit || []) element.classList?.remove('score-lit');
+    this.scoreLit = [];
+    for (const element of elements) {
+      if (!element?.classList) continue;
+      element.classList.add('score-lit');
+      this.scoreLit.push(element);
+    }
+  }
+  paintScore(event, button) {
+    this.lightScore((event.elements || []).flat());
+    const card = button.closest('.music-sheet');
+    const fill = card?.querySelector('.music-sheet-seek i');
+    const output = card?.querySelector('.music-sheet-position');
+    const elapsed = Math.max(0, Number(event.milliseconds) || 0) / 1000;
+    const share = this.scoreTotal ? Math.min(100, elapsed / this.scoreTotal * 100) : 0;
+    if (fill) fill.style.width = `${share}%`;
+    if (output) output.textContent = this.clockText(elapsed) + ' / ' + this.clockText(this.scoreTotal || 0);
+  }
+  clockText(value) {
+    const seconds = Math.floor(Math.max(0, value));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  }
+  async toggleScorePlayback(song, button) {
+    if (this.scoreSynth) { this.stopScore(); return; }
+    button.disabled = true;
+    try {
+      const abcjs = await import('https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm');
+      const module = abcjs.default || abcjs;
+      // The tune comes from the sheet on the page, so the notes it lights are the ones a
+      // person sees.
+      const tune = this.scoreTunes?.get(song.id);
+      if (!tune) throw new Error(t('music.score.unavailable'));
+      this.scoreContext ||= new AudioContext();
+      const synth = new module.synth.CreateSynth();
+      await synth.init({visualObj: tune, audioContext: this.scoreContext});
+      await synth.prime();
+      // The selection or the card can move while the synth primes.
+      if (this.selectedId !== song.id || !button.isConnected) { synth.stop?.(); return; }
+      const timing = this.scoreTiming(song.score);
+      this.scoreSynth = synth;
+      this.scoreButton = button;
+      this.scoreTotal = timing.seconds;
+      this.lightScore([]);
+      this.scoreTimer = new module.TimingCallbacks(tune, {
+        qpm: timing.qpm,
+        eventCallback: event => this.paintScore(event, button),
+      });
+      if (typeof synth.onEnded === 'function') synth.onEnded(() => this.stopScore());
+      await synth.start();
+      this.scoreTimer.start();
+      this.paintScoreButton(button, true);
+    } catch (error) {
+      this.options.notify('error', error?.message || t('music.score.unavailable'));
+    } finally { button.disabled = false; }
+  }
+  stopScore() {
+    this.scoreTimer?.stop?.();
+    this.scoreTimer = null;
+    this.scoreSynth?.stop?.();
+    this.scoreSynth = null;
+    this.lightScore([]);
+    const button = this.scoreButton?.isConnected ? this.scoreButton : this.querySelector('.music-song:not([hidden]) [data-music-score-play]');
+    this.scoreButton = null;
+    if (button) {
+      this.paintScoreButton(button, false);
+      const card = button.closest('.music-sheet');
+      const fill = card?.querySelector('.music-sheet-seek i');
+      const output = card?.querySelector('.music-sheet-position');
+      if (fill) fill.style.width = '0%';
+      if (output) output.textContent = '0:00 / ' + this.clockText(this.scoreTotal || 0);
+    }
+    this.scoreTotal = null;
+  }
   selectSong(id) {
     if (!this.songs.some(song => song.id === id)) return;
+    this.stopScore();
     this.closeDetails(false);
     this.closeScore(false); this.selectedId = id; this.showGeneration = false;
     rememberGalleryView('music', {selected: id}, this.keeping);
@@ -1276,9 +1616,16 @@ class MusicStudio extends HTMLElement {
   }
   syncGallery() {
     const gallery = this.querySelector('gallery-browser');
-    gallery.items = this.songs.slice().reverse().map((song, i) => ({id: song.id, number: this.songs.length - i,
-      text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name, model: musicModelName(song.model), seed: song.seed,
-      at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id), batch: galleryBatch(song.id)}));
+    gallery.items = this.songs.slice().reverse().map((song, i) => {
+      const hasAudio = song.blob instanceof Blob && song.blob.size > 0;
+      return {id: song.id, number: this.songs.length - i,
+        text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name,
+        model: musicModelName(song.model), seed: song.seed,
+        at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id),
+        // Only a score has no recording, so only a score wears the staff and the score badge.
+        score: !hasAudio, mode: hasAudio ? '' : t('music.thumb.score'),
+        batch: galleryBatch(song.id)};
+    });
     gallery.selectedId = this.selectedId; gallery.keeping = this.keeping;
     gallery.pending = this.pending || this.operation?.kind === 'music';
     gallery.pendingSelected = gallery.pending && this.showGeneration !== false;
@@ -1326,6 +1673,9 @@ class MusicStudio extends HTMLElement {
     if (!confirm(plural(count, t('music.confirm.remove')))) return;
     try {
       if (this.keeping) await this.store(clearMusic);
+      // Clearing the gallery also clears the store. The form keeps its reference, so put
+      // it back, or the next reload would find a pointer to nothing.
+      if (this.keeping && this.reference) await this.persistReference().catch(() => {});
       this.songs = []; this.selectedId = null;
       this.renderSongs();
       localStorage.setItem('studio-music-changed', String(Date.now()));
@@ -1337,6 +1687,7 @@ class MusicStudio extends HTMLElement {
   async removeSong(id) {
     try {
       if (this.keeping) await this.store(() => deleteMusicSong(id));
+      if (this.keeping) await this.store(sweepMusicSources).catch(() => {});
       this.restoreEpoch = (this.restoreEpoch || 0) + 1;
       this.songs = this.songs.filter(song => song.id !== id);
       if (this.selectedId === id) this.selectedId = this.songs.at(-1)?.id;
@@ -1713,7 +2064,6 @@ class MusicStudio extends HTMLElement {
       audio.onpause = audio.onended = syncPlayback;
       card.classList.toggle('is-playing', !audio.paused && !audio.ended);
       if (!audio.paused && !audio.ended) playback.textContent = t('music.playback.playing');
-      const style = document.createElement('p'); style.className = 'music-song-style'; style.textContent = song.settings?.style || t('music.common.song');
       const download = document.createElement('a'); download.className = 'icon-btn';
       download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? t('music.download.wav') : t('music.download.abc')); download.title = hasAudio ? t('music.download.wav') : t('music.download.abc'); download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
       const details = document.createElement('div');
@@ -1796,14 +2146,18 @@ class MusicStudio extends HTMLElement {
       // Edit score link, so this item never opens it.
       const useScore = menuItem('music', t('music.menu.use_score'), () => this.useScore(song)); useScore.dataset.musicScore = '';
       // A generated track is a source too: it can go back in the reference door. A score
-      // has no audio, so the item is not offered for one.
+      // has no audio, so the item is not offered for one. The recording that made the
+      // song leads when the store still holds it.
+      const useOriginal = menuItem('music', t('music.menu.use_original_reference'), () => this.useOriginalReference(song));
+      useOriginal.dataset.musicSource = '';
       const useReference = menuItem('music', t('music.menu.use_reference'), () => this.useReference(song));
       useReference.dataset.musicReference = '';
       const more = document.createElement('div'); more.className = 'menu-anchor';
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more')); toggle.title = t('music.actions.more');
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', t('music.actions.menu_label'));
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
-      menu.append(...(song.score ? [useScore] : []), ...(hasAudio ? [useReference] : []), send);
+      menu.append(...(song.score ? [useScore] : []), ...(song.sourceId ? [useOriginal] : []),
+        ...(hasAudio ? [useReference] : []), send);
       const reuse = menuItem('text', t('music.menu.reuse'), () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
@@ -1815,12 +2169,13 @@ class MusicStudio extends HTMLElement {
         this.controls.querySelector('#music-style').focus();
       }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
-      actions.append(artworkButton, more, rule, download, remove);
+      // A score has no recording, so there is nothing to draw artwork for.
+      actions.append(...(hasAudio ? [artworkButton] : []), more, rule, download, remove);
       const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', t('music.preview.details_label')); bar.append(about, actions); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
-      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : style);
+      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : this.sheetFor(song));
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
@@ -1829,7 +2184,13 @@ class MusicStudio extends HTMLElement {
       thumb.setAttribute('aria-label', t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number})); thumb.title = this.songTitle(song);
       const still = document.createElement('span'); still.className = 'still music-thumb-art';
       if (song.coverBlob) { const image = document.createElement('img'); image.src = this.coverUrls.get(song.id); image.alt = ''; still.append(image); }
-      else { const mark = document.createElement('span'); mark.textContent = '♫'; mark.className = 'music-thumb-note'; still.append(mark); }
+      else {
+        const mark = document.createElement('span'); mark.className = 'music-thumb-note';
+        // A score is not a recording: its tile wears a staff, not the note glyph.
+        if (hasAudio) mark.textContent = '♫';
+        else mark.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>';
+        still.append(mark);
+      }
       const playing = document.createElement('span'); playing.className = 'music-playing-state'; playing.hidden = true;
       render(playingMark(), playing); still.append(playing);
       const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});

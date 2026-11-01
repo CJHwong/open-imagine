@@ -218,10 +218,12 @@ with sync_playwright() as tool:
             "progress": {"step": 50, "total": 100},
         },
     )
-    check("a running operation uses Cancel", page.locator("#music-run-labels").inner_text() == "Cancel")
     check(
-        "a running operation explains what stopping keeps",
-        page.locator("#music-go-sub").inner_text() == "Finished songs remain if you stop",
+        "a running operation keeps the form verb and waits",
+        page.locator("#music-run-labels").inner_text() == "Generate" and page.locator("#music-generate").is_disabled(),
+    )
+    check(
+        "a running operation keeps its mode caption", page.locator("#music-go-sub").inner_text() == "A song with audio"
     )
     check(
         "a run draws the player's own timeline",
@@ -231,7 +233,10 @@ with sync_playwright() as tool:
     check(
         "the timeline fills with the sampler's share", page.locator(".music-generation-percent").inner_text() == "50%"
     )
-    page.locator("#music-generate").click()
+    page.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
+    # The server is what marks a run as stopping; this fake state has to say so too.
+    running["status"] = "stopping"
+    page.locator("#shared-operation-cancel").click()
     page.wait_for_function("document.getElementById('music-run-labels').getAttribute('data-state') === 'stopping'")
     check("the shared stopping label stays consistent", page.locator("#music-run-labels").inner_text() == "Stopping…")
     check("Stopping prevents a second cancellation", page.locator("#music-generate").is_disabled())

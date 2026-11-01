@@ -1,19 +1,29 @@
 let opening;
 function database() {
-  if (!opening) opening = new Promise((resolve, reject) => {
-    const request = indexedDB.open('studio-voice', 2);
-    request.onupgradeneeded = event => {
-      const db = request.result;
-      if (event.oldVersion < 1) db.createObjectStore('state');
-      const media = db.createObjectStore('media');
-      const state = request.transaction.objectStore('state');
-      const current = state.get('project');
-      current.onsuccess = () => { if (current.result) state.put(withoutAudio(current.result, media), 'project'); };
-    };
-    request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result); };
-    request.onblocked = () => reject(new Error('Reload other Studio tabs to update audio storage.'));
-    request.onerror = () => reject(request.error);
-  });
+  if (!opening) {
+    opening = new Promise((resolve, reject) => {
+      const request = indexedDB.open('studio-voice', 2);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        // The upgrade runs for every version bump, so create only what is missing.
+        if (!db.objectStoreNames.contains('state')) db.createObjectStore('state');
+        if (!db.objectStoreNames.contains('media')) db.createObjectStore('media');
+        const media = request.transaction.objectStore('media');
+        const state = request.transaction.objectStore('state');
+        const current = state.get('project');
+        current.onsuccess = () => { if (current.result) state.put(withoutAudio(current.result, media), 'project'); };
+      };
+      request.onsuccess = () => {
+        // Another tab upgraded the database: close, and open again on the next call.
+        request.result.onversionchange = () => { request.result.close(); opening = undefined; };
+        resolve(request.result);
+      };
+      request.onblocked = () => reject(new Error('Reload other Studio tabs to update audio storage.'));
+      request.onerror = () => reject(request.error);
+    });
+    // A rejected open must not poison every later read.
+    opening.catch(() => { opening = undefined; });
+  }
   return opening;
 }
 
@@ -82,6 +92,7 @@ export async function clearVoice() {
     transaction.objectStore('media').clear();
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error('Voice storage was interrupted.'));
   });
 }
 

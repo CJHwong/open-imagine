@@ -213,6 +213,10 @@ class GalleryBrowser extends LitElement {
     if (this.workspace === 'video' && item.video) return html`<video-gallery-preview .source=${item.video}
       .poster=${item.thumbnail} .blocked=${this.pending}></video-gallery-preview>`;
     if (item.thumbnail) return html`<img src=${item.thumbnail} alt="" loading="lazy" decoding="async">`;
+    // A score has no recording to preview, so its tile wears the staff the strip uses.
+    if (this.workspace === 'music' && item.score) {
+      return html`<span class="gallery-no-preview"><svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg></span>`;
+    }
     const maximum = Math.max(0.001, ...(item.peaks || []));
     if (item.peaks?.length) return svg`<svg class="gallery-wave" viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
       ${item.peaks.map((peak, index) => svg`<line x1=${(index + 0.5) * 160 / item.peaks.length}
@@ -238,14 +242,16 @@ class GalleryBrowser extends LitElement {
           ${item.duration ? html`<span class="gallery-duration">${item.duration.toFixed(1)} s</span>` : nothing}
           ${row.batch ? html`<span class="gallery-batch-count">${t('gallery.batch.count', {count: row.batch.length})}</span>` : nothing}
         </span>
-        <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
+        <span class="gallery-card-foot">
+          <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
+          ${item.mode ? html`<span class="gallery-card-mode">${item.mode}</span>` : nothing}
+        </span>
         ${selected && !row.batch ? pencilLoop(false) : nothing}
       </button>
       ${this.selecting && !row.batch ? html`<label class="gallery-check" title=${t('gallery.selectResult')}>
         <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
           .checked=${this.checked.has(item.id)} ?disabled=${this.working} @change=${() => this.check(item.id)}></label>` : nothing}
       <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
-      <p class="gallery-card-facts">${item.model || workspaceName(this.workspace)}${item.mode ? t('gallery.facts.mode', {mode: item.mode}) : ''}</p>
     </article>`;
   }
   render() {
@@ -267,12 +273,6 @@ class GalleryBrowser extends LitElement {
           <select aria-label=${t('gallery.order')} @change=${event => this.change('order', event.target.value)}>
             <option value="newest" .selected=${this.order === 'newest'}>${t('gallery.orderNewest')}</option>
             <option value="oldest" .selected=${this.order === 'oldest'}>${t('gallery.orderOldest')}</option></select>
-          ${modes.length > 1 ? html`<select aria-label=${t('gallery.filterMode')}
-            @change=${event => this.change('mode', event.target.value)}><option value="" .selected=${!this.mode}>${t('gallery.allModes')}</option>
-            ${modes.map(mode => html`<option value=${mode} .selected=${this.mode === mode}>${mode}</option>`)}</select>` : nothing}
-          ${models.length > 1 ? html`<select aria-label=${t('gallery.filterModel')}
-            @change=${event => this.change('model', event.target.value)}><option value="" .selected=${!this.model}>${t('gallery.allModels')}</option>
-            ${models.map(model => html`<option value=${model} .selected=${this.model === model}>${model}</option>`)}</select>` : nothing}
           ${hasBatch ? html`<label class="gallery-group-toggle"><input type="checkbox" .checked=${this.grouped}
             @change=${event => this.change('grouped', event.target.checked)}>${t('gallery.groupBatches')}</label>` : nothing}
           <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}
