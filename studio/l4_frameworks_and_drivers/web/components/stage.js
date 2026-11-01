@@ -75,7 +75,7 @@ export function fitStage() {
   const plate = page.canvas.querySelector('.card .plate');
   if (plate) fitBox(plate, page.runRatio(), 1);
   const pic = page.canvas.querySelector('.pic');
-  if (pic) fitBox(pic, pic.classList.contains('portrait') ? 1 : Number(pic.dataset.ratio), 1);
+  if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
 }
 
 // The stage's own box is what the print is fitted to, so a change to it is a
@@ -335,12 +335,7 @@ export function renderStage() {
   shot.className = 'shot' + (entry.id === page.arrivedId() ? ' arrive' : '');
   const pic = document.createElement('div');
   pic.className = 'pic';
-  const ratio = entry.width / entry.height;
-  pic.dataset.ratio = ratio;
-  // A tall picture keeps the print square, with the picture centred and dark space on
-  // both sides. While a mark is being drawn the print keeps the picture's shape, because
-  // the mark's coordinates are the picture's.
-  if (ratio < 1 && !region.onPrint()) pic.classList.add('portrait');
+  pic.dataset.ratio = entry.width / entry.height;
   const image = document.createElement('img');
   image.src = entry.src;
   image.alt = entry.prompt;
