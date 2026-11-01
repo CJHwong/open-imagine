@@ -121,12 +121,14 @@
   :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
     .video-source-list, .video-references, .video-audios, #voice-preview-pane,
     .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
-    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid) {
-    scrollbar-color: transparent transparent; }
+    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid,
+    #form, .pane-gallery-shelf) {
+    scrollbar-width: thin; scrollbar-color: transparent transparent; }
   :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
     .video-source-list, .video-references, .video-audios, #voice-preview-pane,
     .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
-    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid):is(:hover, .is-scrolling) {
+    .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid,
+    #form, .pane-gallery-shelf):is(:hover, .is-scrolling) {
     scrollbar-color: var(--scroll-thumb, var(--line-strong)) transparent; }
   /* scrollbar-color inherits, so a box inside a pane takes the pane's rule. A writing
      surface keeps its bar at rest: a prompt that runs past its box must say so. */
@@ -1398,6 +1400,10 @@
     .work { display: flex; flex-direction: column; min-height: 0; }
     .topbar { flex: none; row-gap: 8px; padding: 6px 14px; }
     #image-stage, #video-studio, #voice-studio, #music-studio { flex: 1 1 auto; min-height: 0; }
+    /* The video shell must fit the pane, not its own tall minimum, or its details bar
+       slides under the switch. */
+    .video-studio-shell, #video-studio.has-video-gallery .video-studio-shell { min-height: 0; }
+    .video-preview-area { min-height: 0; }
     .work > .strip-wrap, .work > #shared-operation, .work > #shared-rewrite-result { flex: none; }
     /* The preview ends above the switch, so its last controls stay clear of it. */
     body[data-pane="preview"] .work { padding-bottom: 64px; }
@@ -1416,6 +1422,9 @@
     body[data-pane="preview"] #video-gallery,
     body[data-pane="preview"] #voice-gallery,
     body[data-pane="preview"] .music-gallery { display: none; }
+    /* The video shelf is a pane of its own; its editing area would leave an empty band
+       under the clip. */
+    body[data-pane="preview"] .video-editing-area { display: none; }
     body[data-pane="gallery"], body[data-pane="controls"] { overflow: hidden; }
     /* Each pane covers the page below the workspace tabs and ends above the switch, so no
        sliver of another pane shows through. */
@@ -1448,8 +1457,7 @@
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
     .music-track-text { height: clamp(64px, calc(100svh - 760px), 104px); }
-    .music-sheet-page, .music-sheet-page .music-abc-notation {
-      max-height: clamp(64px, calc(100svh - 740px), 240px); }
+    .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
     .music-stub-note { margin-bottom: 8px; }
     .music-player { margin-top: 6px; }
     .music-transport { gap: 24px; margin: 8px 0; }
