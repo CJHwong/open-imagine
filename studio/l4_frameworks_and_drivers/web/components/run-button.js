@@ -27,10 +27,6 @@ class RunLabels extends LitElement {
   static properties = {
     state: { attribute: 'data-state', type: String },
     mode: { attribute: 'data-mode', type: String },
-    // The Video form cancels its own run from this button, because the shared status bar
-    // cannot reach the video controller. The other forms leave it off and the button keeps
-    // its verb while it is disabled.
-    cancel: { attribute: 'data-cancel', type: Boolean },
   };
 
   createRenderRoot() { return this; }
@@ -43,9 +39,8 @@ class RunLabels extends LitElement {
   render() {
     const starting = this.state === 'starting';
     const stopping = this.state === 'stopping';
-    const busy = this.state === 'busy';
     const editing = (this.mode || get('mode')) === 'edit';
-    return html`<span class="main"><span class="idle-label" ?hidden=${starting || stopping || (busy && this.cancel)}><span class="generate-only" ?hidden=${editing}>${t('page.run.generate')}</span><span class="edit-only" ?hidden=${!editing}>${t('page.run.edit')}</span></span><span class="busy-label" ?hidden=${!busy || !this.cancel}>${t('page.run.cancel')}</span><span class="starting-label" ?hidden=${!starting}>${t('page.run.starting')}</span><span class="stopping-label" ?hidden=${!stopping}>${t('page.run.stopping')}</span></span>`;
+    return html`<span class="main"><span class="idle-label" ?hidden=${starting || stopping}><span class="generate-only" ?hidden=${editing}>${t('page.run.generate')}</span><span class="edit-only" ?hidden=${!editing}>${t('page.run.edit')}</span></span><span class="starting-label" ?hidden=${!starting}>${t('page.run.starting')}</span><span class="stopping-label" ?hidden=${!stopping}>${t('page.run.stopping')}</span></span>`;
   }
 }
 

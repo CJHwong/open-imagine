@@ -491,7 +491,7 @@
       </div>
       <div class="footer video-footer" id="video-footer" hidden>
         <button id="video-generate" class="run-button" type="button" disabled>
-          <run-button id="video-run-labels" data-state="idle" data-cancel></run-button>
+          <run-button id="video-run-labels" data-state="idle"></run-button>
           <span class="sub num" id="video-go-sub"></span>
         </button>
         <span class="visually-hidden" id="video-request-status" role="status" aria-live="polite"></span>
@@ -805,7 +805,7 @@
   function syncVideoGenerateButton() {
     const button = document.getElementById('video-generate');
     const prompt = document.getElementById('video-prompt').value.trim();
-    const waiting = videoRunState === 'starting' || videoRunState === 'stopping';
+    const running = videoRunState !== 'idle';
     /* A rewrite is a second model and the video engine does not fit beside it, so the run
        waits for the press, said on the button rather than as an error after it, the way the
        image form's own run button waits through `blocker`. The form marks a press on the
@@ -821,7 +821,9 @@
     const ready = mode.needs_clip
       ? Boolean(prompt && !unfilled && videoClip.id && !videoClip.stub && videoAdapterInForce() && !videoRunReason())
       : Boolean(prompt && !unfilled);
-    button.disabled = sharedBusy() || waiting || rewriting || (videoRunState === 'idle' && !ready);
+    // The run's only Cancel is the status bar's, as in the other three workspaces, so this
+    // button keeps its verb and waits, disabled, until the run ends.
+    button.disabled = sharedBusy() || running || rewriting || !ready;
     document.getElementById('video-go-sub').textContent =
       videoRunState !== 'idle' ? ''
         : rewriting ? t('page.video.waitRewrite')
@@ -831,20 +833,15 @@
   function setVideoRunState(state) {
     videoRunState = state;
     const active = state !== 'idle';
-    const stopping = state === 'stopping';
     const button = document.getElementById('video-generate');
     document.body.classList.toggle('video-busy', active);
-    document.body.classList.toggle('video-stopping', stopping);
     form.setAttribute('aria-busy', String(active));
     if (formApi) formApi.holdPanel(t('page.lock.video'), active);
-    /* The button carries the video run's verbs: it starts the run, and while one
-       goes it is the way out of it. It says Cancel and not Cancel render, because
-       the button already sits in the video workspace's own footer and the word
-       it cancels is the one next to it. The labels are `run-button`, the same
-       element the image form's button uses, so the two cannot drift: the state
-       arrives here, and the verb arrives from the mode in `syncVideoMode`. */
-    document.getElementById('video-run-labels').dataset.state =
-      stopping ? 'stopping' : active ? 'busy' : 'idle';
+    /* The button carries the video run's verbs: it starts the run, and it waits while one
+       goes. The shared status bar owns Cancel, as in the other three workspaces. The labels
+       are `run-button`, the same element the image form's button uses, so the two cannot
+       drift: the state arrives here, and the verb arrives from the mode in `syncVideoMode`. */
+    document.getElementById('video-run-labels').dataset.state = active ? 'busy' : 'idle';
     syncVideoGenerateButton();
     setWorkspaceControlsDisabled();
     renderBackendSelector();
@@ -1716,26 +1713,6 @@
     syncVideoFrameCount();
   });
 
-  async function cancelVideoRun() {
-    // A run that is still starting already holds a request id, so it can be cancelled.
-    if (videoRunState === 'idle' || videoRunState === 'stopping') return;
-    const previous = videoRunState;
-    setVideoRunState('stopping');
-    videoStudio.setCancelRequested(true);
-    try {
-      const response = await fetch('/video/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: videoRunRequestId }),
-      });
-      if (!response.ok) throw new Error(t('page.error.cancelFailed'));
-    } catch (error) {
-      videoStudio.setCancelRequested(false);
-      setVideoRunState(previous);
-      videoStudio.setError(error instanceof TypeError ? t('form.error.serverSilent') : error.message);
-    }
-  }
-
   document.getElementById('video-modes').addEventListener('change', function (event) {
     if (event.target.name === 'video-mode') chooseVideoMode(event.target.value);
   });
@@ -1832,10 +1809,7 @@
   }
 
   document.getElementById('video-generate').addEventListener('click', async function () {
-    if (videoRunState !== 'idle') {
-      await cancelVideoRun();
-      return;
-    }
+    if (videoRunState !== 'idle') return;
     const status = document.getElementById('video-request-status');
     const capabilities = videoCapabilities();
     // An edit runs at the clip's own geometry, since the shape and duration controls belong
@@ -1954,7 +1928,7 @@
         progressFailures += 1;
         if (progressFailures === 5) videoStudio.setError(t('page.error.videoProgress'));
         videoStudio.setGenerationProgress(
-          {running: true, stage: 'preparing', step: 0, total: 0, stopping: videoRunState === 'stopping'},
+          {running: true, stage: 'preparing', step: 0, total: 0},
           (performance.now() - requestStarted) / 1000,
         );
       } finally {
@@ -2669,6 +2643,9 @@
       prepareNativeCancel: function (operation) {
         if (operation.kind === 'image' && operation.client_id === CLIENT_ID) run?.prepareCancel(operation);
         if (operation.kind === 'music' && operation.client_id === CLIENT_ID) musicStudio.prepareCancel?.();
+        // The video form has no Cancel of its own, so the status bar's press has to paint
+        // the preview as stopping; the run's own response puts it back.
+        if (operation.kind === 'video' && operation.client_id === CLIENT_ID) videoStudio.setCancelRequested(true);
       },
       notify: showToast,
       video: function () { return videoStudio; },
