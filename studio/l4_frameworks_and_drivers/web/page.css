@@ -802,7 +802,10 @@
     gap: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
   /* A strip tile takes the picture's own shape, the way the big preview does: a square
      picture is a square tile, a wide one is wide, a tall one is tall. The shared 112px
-     strip width would crop every picture to 2:1, so the image strip drops it. */
+     strip rule pins both the frame and its picture, which centres a narrow picture in a
+     wide empty frame and makes the gaps between pictures look uneven; the image strip
+     drops it so one gutter runs the whole way. */
+  #strip gallery-window > .frame { flex: 0 0 auto; width: auto; }
   #strip .frame .still { width: auto; max-width: none; }
   #strip .frame .still gallery-media { grid-template-rows: 100%; }
   #strip .frame .still img { object-fit: contain; }

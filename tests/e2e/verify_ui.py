@@ -687,7 +687,7 @@ with sync_playwright() as playwright:
     frame_nodes(page).first.wait_for(state="visible", timeout=10000)
     check(
         "a finished run keeps one image, numbered 01",
-        frames(page) == 1 and frame_nodes(page).first.inner_text().strip() == "01",
+        frames(page) == 1 and frame_nodes(page).first.locator(".no").inner_text().strip() == "01",
     )
     check(
         "the submitted prompt carries the Look the chip picked",
@@ -1641,7 +1641,8 @@ with sync_playwright() as playwright:
     source_link = page.get_by_role("button", name=re.compile("^Show frame "))
     wanted = source_link.get_attribute("aria-label").replace("Show frame ", "")
     check("an edit names the frame it was made from", source_link.count() == 1, wanted)
-    named = page.get_by_role("button", name=FRAME).filter(has_text=re.compile(rf"^{wanted}$"))
+    # The frame's own text now starts with its number and carries the mode badge after it.
+    named = page.get_by_role("button", name=FRAME).filter(has_text=re.compile(rf"^{re.escape(str(wanted))}"))
     wanted_seed = named.first.get_attribute("aria-label").split(", seed ")[1]
     source_link.click()
     page.wait_for_timeout(300)

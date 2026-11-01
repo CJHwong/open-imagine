@@ -242,14 +242,16 @@ class GalleryBrowser extends LitElement {
           ${item.duration ? html`<span class="gallery-duration">${item.duration.toFixed(1)} s</span>` : nothing}
           ${row.batch ? html`<span class="gallery-batch-count">${t('gallery.batch.count', {count: row.batch.length})}</span>` : nothing}
         </span>
-        <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
+        <span class="gallery-card-foot">
+          <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
+          ${item.mode ? html`<span class="gallery-card-mode">${item.mode}</span>` : nothing}
+        </span>
         ${selected && !row.batch ? pencilLoop(false) : nothing}
       </button>
       ${this.selecting && !row.batch ? html`<label class="gallery-check" title=${t('gallery.selectResult')}>
         <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
           .checked=${this.checked.has(item.id)} ?disabled=${this.working} @change=${() => this.check(item.id)}></label>` : nothing}
       <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
-      ${item.mode ? html`<p class="gallery-card-facts">${item.mode}</p>` : nothing}
     </article>`;
   }
   render() {
