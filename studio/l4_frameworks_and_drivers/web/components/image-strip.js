@@ -48,6 +48,15 @@ function glyph(name) {
   return html`<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
 }
 
+// A tile is as wide as the picture's own shape, at the strip's 60px height. The
+// width is explicit so a tile keeps its place while its picture is unloaded;
+// gallery-window reads the same number to size its spacers.
+function frameWidth(row) {
+  const entry = row?.entry || {};
+  const ratio = entry.width && entry.height ? entry.width / entry.height : 1;
+  return Math.round(60 * Math.min(2, Math.max(0.5, ratio)));
+}
+
 class ImageStrip extends LitElement {
   createRenderRoot() { return this; }
 
@@ -165,7 +174,7 @@ class ImageStrip extends LitElement {
     const entry = row.entry;
     const mode = entry.mode === 'edit' ? t('image.frame.mode.edit') : entry.mode === 'generate' ? t('image.frame.mode.generate') : entry.mode;
     // The tile takes the picture's own shape, the way the big preview does.
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still" style=${'width:' + frameWidth(row) + 'px'}><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
   }
 
   waiting(row) {
@@ -174,7 +183,7 @@ class ImageStrip extends LitElement {
 
   render() {
     if (!page) return html``;
-    return html`<gallery-window .items=${this.rows()} .selected=${get('view')} .renderItem=${row => row.pending ? this.waiting(row) : this.frame(row)}></gallery-window>`;
+    return html`<gallery-window .items=${this.rows()} .selected=${get('view')} .itemSize=${row => frameWidth(row)} .renderItem=${row => row.pending ? this.waiting(row) : this.frame(row)}></gallery-window>`;
   }
 }
 

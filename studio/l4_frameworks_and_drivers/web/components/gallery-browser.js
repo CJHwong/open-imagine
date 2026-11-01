@@ -2,7 +2,9 @@ import {LitElement, html, svg, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3
 import './video-gallery-preview.js';
 import './gallery-media.js';
 import './gallery-window.js';
-import {pencilLoop, playingMark} from './gallery-marker.js';
+import './gallery-transfer.js';
+import './gallery-card.js';
+import {pencilLoop} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {t} from '../lib/i18n.js';
 
@@ -228,31 +230,11 @@ class GalleryBrowser extends LitElement {
     const selected = String(this.selectedId) === String(item.id) && !this.pendingSelected;
     const playing = this.workspace === 'music' && this.playingId != null
       && (row.batch || [item]).some(entry => String(entry.id) === String(this.playingId));
-    return html`<article class="gallery-card${this.checked.has(item.id) ? ' checked' : ''}${playing ? ' is-playing' : ''}">
-      <button type="button" class=${'frame gallery-card-pick' + (selected && !row.batch ? ' selected' : '')}
-        data-row-id=${row.batch ? 'batch-' + item.id : item.id}
-        data-item-id=${row.batch ? nothing : item.id} ?disabled=${this.working}
-        aria-label=${row.batch
-          ? t('gallery.batch.open', {count: row.batch.length})
-          : t('gallery.view', {workspace: workspaceName(this.workspace), number: item.number})}
-        aria-pressed=${row.batch ? nothing : String(selected)}
-        @click=${() => row.batch ? this.change('group', item.batch) : this.pick(item)}>
-        <span class="still">${this.thumbnail(item)}
-          ${playing ? playingMark() : nothing}
-          ${item.duration ? html`<span class="gallery-duration">${item.duration.toFixed(1)} s</span>` : nothing}
-          ${row.batch ? html`<span class="gallery-batch-count">${t('gallery.batch.count', {count: row.batch.length})}</span>` : nothing}
-        </span>
-        <span class="gallery-card-foot">
-          <span class="no">${row.batch ? t('gallery.batch.label') : String(item.number).padStart(2, '0')}</span>
-          ${item.mode ? html`<span class="gallery-card-mode">${item.mode}</span>` : nothing}
-        </span>
-        ${selected && !row.batch ? pencilLoop(false) : nothing}
-      </button>
-      ${this.selecting && !row.batch ? html`<label class="gallery-check" title=${t('gallery.selectResult')}>
-        <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
-          .checked=${this.checked.has(item.id)} ?disabled=${this.working} @change=${() => this.check(item.id)}></label>` : nothing}
-      <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
-    </article>`;
+    return html`<gallery-card .item=${item} .row=${row} workspace=${this.workspace}
+      ?selected=${selected} ?playing=${playing} ?checked=${this.checked.has(item.id)}
+      ?selecting=${this.selecting} ?working=${this.working} .thumbnail=${entry => this.thumbnail(entry)}
+      @pick=${event => event.detail.batch ? this.change('group', event.detail.group) : this.pick(event.detail.item)}
+      @check=${event => this.check(event.detail)}></gallery-card>`;
   }
   render() {
     const items = this.filtered();
@@ -277,6 +259,8 @@ class GalleryBrowser extends LitElement {
             @change=${event => this.change('grouped', event.target.checked)}>${t('gallery.groupBatches')}</label>` : nothing}
           <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}
             @click=${() => { this.selecting = !this.selecting; this.checked = new Set(); }}>${icon('check')}${t(this.selecting ? 'gallery.done' : 'gallery.selectMode')}</button>
+        </div>
+        <div class="gallery-browser-transfer"><gallery-transfer></gallery-transfer></div>
         </div>
         <div class="gallery-browser-summary">
           ${this.group ? html`<button type="button" class="text-btn" @click=${() => this.change('group', '')}>${icon('undo')}${t('gallery.allResults')}</button>` : nothing}

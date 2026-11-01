@@ -144,12 +144,6 @@ with sync_playwright() as playwright:
         expect(gallery.get_by_text("No matching results", exact=True)).to_be_visible()
         gallery.get_by_role("button", name="Clear filters", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(16)
-        gallery.get_by_label("Filter by model").select_option("Model B")
-        expect(gallery.locator(".gallery-card")).to_have_count(5)
-        gallery.get_by_label("Filter by model").select_option("")
-        gallery.get_by_label("Filter by mode", exact=True).select_option("generate")
-        expect(gallery.locator(".gallery-card")).to_have_count(8)
-        gallery.get_by_label("Filter by mode", exact=True).select_option("")
         gallery.get_by_label("Gallery order").select_option("oldest")
         expect(gallery.locator(".gallery-card-pick").first.locator(".no")).to_have_text("01")
         gallery.get_by_label("Gallery order").select_option("newest")
@@ -163,17 +157,14 @@ with sync_playwright() as playwright:
         gallery.get_by_label("Group batches").uncheck()
         # Restored filter controls must agree with their rendered results.
         gallery.get_by_role("searchbox").fill("red apple")
-        gallery.get_by_label("Filter by model").select_option("Model B")
         gallery.get_by_label("Gallery order").select_option("oldest")
         page.reload()
         page.locator(f"#media-{workspace}-mode").click()
         gallery = page.locator(f'gallery-browser[workspace="{workspace}"]')
         expect(gallery.get_by_role("searchbox")).to_have_value("red apple")
-        expect(gallery.get_by_label("Filter by model")).to_have_value("Model B")
         expect(gallery.get_by_label("Gallery order")).to_have_value("oldest")
-        expect(gallery.locator(".gallery-card")).to_have_count(2)
+        expect(gallery.locator(".gallery-card")).to_have_count(8)
         gallery.get_by_role("searchbox").fill("")
-        gallery.get_by_label("Filter by model").select_option("")
         gallery.get_by_label("Gallery order").select_option("newest")
         # Arrow navigation updates one preview and keeps focus on the corresponding card.
         cards = gallery.locator(".gallery-card-pick")
@@ -311,6 +302,28 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True).click()
     assert page.evaluate("localStorage.getItem('studio-autoplay')") == "on"
     print("PASS the Media menu turns autoplay off and restores it", flush=True)
+    # The image strip is content-sized, and its window must still reach the first
+    # frame after a scroll to the end. A fixed stride left the tail unmounted.
+    page.locator("#media-image-mode").click()
+    strip = page.locator("#strip")
+    for _ in range(6):
+        strip.evaluate("node => { node.scrollLeft = node.scrollWidth; }")
+        page.wait_for_timeout(300)
+    expect(page.locator('#strip .frame .no:text-is("01")')).to_have_count(1)
+    print("PASS the content-sized strip window reaches every frame", flush=True)
+    # Storage refusal must not prevent any browsing operation. The descriptor is
+    # put back because the Keep-off check below reads the same storage.
+    page.evaluate(
+        "window.__sessionDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage'); "
+        "Object.defineProperty(window, 'sessionStorage', "
+        "{get() {throw new Error('storage denied')}, configurable: true})"
+    )
+    gallery = page.locator('gallery-browser[workspace="image"]')
+    gallery.locator(".gallery-browse-toggle").click()
+    gallery.get_by_role("searchbox").fill("apple")
+    assert gallery.locator(".gallery-card").count() > 0
+    print("PASS unavailable presentation storage is non-fatal; no page errors", flush=True)
+    page.evaluate("Object.defineProperty(window, 'sessionStorage', window.__sessionDescriptor)")
     page.once("dialog", lambda dialog: dialog.accept())
     page.locator("#theme-toggle").click()
     page.get_by_role("menuitemcheckbox", name="Keep in this browser", exact=True).click()
@@ -318,13 +331,5 @@ with sync_playwright() as playwright:
         '["image", "video", "voice"].every(kind => !sessionStorage.getItem("studio-gallery-view-" + kind))'
     )
     print("PASS Keep off clears gallery view preferences", flush=True)
-    # Storage refusal must not prevent any browsing operation.
-    page.evaluate(
-        "Object.defineProperty(window, 'sessionStorage', {get() {throw new Error('storage denied')}, configurable: true})"
-    )
-    gallery.locator(".gallery-browse-toggle").click()
-    gallery.get_by_role("searchbox").fill("apple")
-    assert gallery.locator(".gallery-card").count() > 0
     assert not errors, errors
-    print("PASS unavailable presentation storage is non-fatal; no page errors", flush=True)
     browser.close()

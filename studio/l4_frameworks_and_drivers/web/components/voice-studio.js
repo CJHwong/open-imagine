@@ -1,6 +1,6 @@
 import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
-import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
+import {clearVoice, exportVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
 import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
@@ -370,6 +370,29 @@ class VoiceStudio extends LitElement {
     if (message.kind === 'take') this.addTake(message.take, message.text, false, message.segmentId);
     if (message.kind === 'remove') this.removeTake(message.id, false);
     if (message.kind === 'clear') this.clearCompleted(message.cutoff, false);
+  }
+
+  // The gallery file carries every take and its WAV. An import adds each take
+  // through the same door a run uses, so the tombstones and the cutoff still rule.
+  async collectBundle() {
+    if (this.options?.keeping?.() === false) return [];
+    return exportVoice();
+  }
+
+  async restoreBundle(items) {
+    let imported = 0, skipped = 0;
+    for (const item of items) {
+      const audio = (item.media || []).find(entry => entry.role === 'audio' && entry.blob instanceof Blob);
+      if (!audio) { skipped += 1; continue; }
+      const take = {...item.record, id: item.id, blob: audio.blob};
+      delete take.segmentId;
+      delete take.segmentText;
+      const duplicate = this.segments.some(segment => segment.takes.some(one => one.id === take.id));
+      if (this.removed.has(take.id) || take.createdAt <= this.cutoff || duplicate) { skipped += 1; continue; }
+      this.addTake(take, item.record.segmentText || take.text || '', false, item.record.segmentId || null);
+      imported += 1;
+    }
+    return {imported, skipped};
   }
 
   setScript(value) {

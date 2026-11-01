@@ -104,3 +104,9 @@ gallery-media { display: grid; place-items: center; width: 100%; height: 100%; o
    is clipped. */
 .gallery-card .still gallery-media { grid-template-rows: 100%; }
 gallery-media > img { width: 100%; max-width: 100%; height: 100%; object-fit: contain; }
+
+/* The gallery file keeps its own row: the tools row holds the filters, and a
+   third control there would push them off a narrow overlay. */
+.gallery-browser-transfer { display: flex; justify-content: flex-end; gap: 8px; }
+.gallery-transfer { display: inline-flex; align-items: center; gap: 4px; }
+.gallery-transfer .text-btn { white-space: nowrap; }

@@ -3085,6 +3085,14 @@
     play.setAttribute('role', 'menuitemcheckbox');
     play.id = 'autoplay-toggle';
     menu.append(head, keep, play);
+    // The gallery file is reachable with no images too, which is where an import
+    // usually starts. The browser repeats the two controls when a shelf exists.
+    const fileHead = document.createElement('div');
+    fileHead.className = 'menu-head';
+    fileHead.textContent = t('page.gallery.file');
+    menu.append(fileHead,
+      menus.menuItem('download', t('gallery.export'), () => exportGalleryFile()),
+      menus.menuItem('plus', t('gallery.import'), () => importGalleryFile()));
     markKeep();
     markAutoplay();
     // The clip player arrives with its module, after this script runs.
@@ -3105,6 +3113,58 @@
 
   // The kept images are asked for on the store's own door: that module owns the
   // database, and reading it back is the first thing it does.
+
+  // The gallery file. The page owns the four stores, so the transfer control asks
+  // it for the items, and the file comes back here to be split by workspace.
+  window.notifyStudio = showToast;
+  async function exportGalleryFile() {
+    try {
+      const {encodeBundle, bundleName, saveBundle} = await import('/page/lib/gallery-bundle.js');
+      const items = await window.collectStudioBundle();
+      const at = Date.now();
+      saveBundle(await encodeBundle(items, at), bundleName(at));
+      showToast('info', t('gallery.exported', {count: items.length}));
+    } catch (error) {
+      showToast('error', t('gallery.exportFailed', {message: error.message}));
+    }
+  }
+  function importGalleryFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.gz,.json,application/gzip,application/json';
+    input.onchange = async function () {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const {decodeBundle} = await import('/page/lib/gallery-bundle.js');
+        const result = await window.restoreStudioBundle(await decodeBundle(file));
+        showToast('info', t('gallery.imported', {count: result.imported, skipped: result.skipped}));
+      } catch (error) {
+        showToast('error', t('gallery.importFailed', {message: error.message}));
+      }
+    };
+    input.click();
+  }
+  window.collectStudioBundle = async function () {
+    const items = [];
+    if (kept) items.push(...await kept.collectBundle());
+    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle());
+    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle());
+    return items;
+  };
+  window.restoreStudioBundle = async function (items) {
+    const media = items.filter(item => item.workspace === 'image' || item.workspace === 'video');
+    const result = kept ? await kept.restoreBundle(media) : {imported: 0, skipped: media.length};
+    let imported = result.imported, skipped = result.skipped;
+    for (const [studio, workspace] of [[voiceStudio, 'voice'], [musicStudio, 'music']]) {
+      const own = items.filter(item => item.workspace === workspace);
+      if (!own.length || typeof studio.restoreBundle !== 'function') continue;
+      const count = await studio.restoreBundle(own);
+      imported += count.imported;
+      skipped += count.skipped;
+    }
+    return {imported, skipped};
+  };
 </script>
 </body>
 </html>
