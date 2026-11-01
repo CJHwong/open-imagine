@@ -895,7 +895,11 @@ class VideoStudio extends LitElement {
     if (!this.querySelector('#video-preview')?.getAttribute('src')) this.renderPreview();
     await this.updateComplete;
     const video = this.querySelector('#video-preview-root video');
-    if (video?.paused) await video.play().catch(() => {});
+    if (!video) return;
+    // A short clip that autoplayed can sit at its end, where the play button does nothing
+    // until a seek. Rewind it so the button starts the clip again.
+    video.addEventListener('ended', () => { video.currentTime = 0; }, {once: true});
+    if (video.paused) await video.play().catch(() => {});
   }
 
   addStubClip(result, settings) {
