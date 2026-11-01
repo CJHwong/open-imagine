@@ -894,7 +894,7 @@
     form.dataset.mediaMode = mediaMode;
     document.body.dataset.media = mediaMode;
     sizePanes();
-    if (document.body.dataset.pane === 'gallery') setPane('gallery');
+    if (document.body.dataset.pane === 'gallery' && tabbed.matches) setPane('gallery');
     const video = mediaMode === 'video';
     const voice = mediaMode === 'voice';
     const music = mediaMode === 'music';
@@ -977,6 +977,13 @@
     return document.querySelector('music-studio .music-gallery');
   }
   let paneShelf = null;
+  const tabbed = window.matchMedia('(max-width: 900px)');
+  // A wider window has no panes: the layout is the full studio again, and the gallery is
+  // the compact strip unless a person opens it.
+  tabbed.addEventListener('change', function (event) {
+    if (!event.matches) setPane('preview');
+    sizePanes();
+  });
   // The tabs' height decides where a pane starts; it changes with the locale and the
   // workspace set.
   function sizePanes() {
@@ -985,6 +992,8 @@
   }
   window.addEventListener('resize', sizePanes);
   function setPane(pane) {
+    // The panes exist only below the tabbed breakpoint.
+    if (!tabbed.matches) pane = 'preview';
     document.body.dataset.pane = pane;
     for (const button of paneSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
