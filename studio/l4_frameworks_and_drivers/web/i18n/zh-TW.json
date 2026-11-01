@@ -1369,5 +1369,8 @@
   "voice.toast.dropped": "拖放的錄音會用於「複製」。請先切換到「複製」。",
   "voice.toast.operationStopped": "語音操作已停止。已完成的音訊會保留。",
   "page.autoplay.label": "自動播放新的結果",
-  "page.error.autoplayTabOnly": "自動播放設定只套用在這個分頁：{message}"
+  "page.error.autoplayTabOnly": "自動播放設定只套用在這個分頁：{message}",
+  "music.score.play": "播放樂譜",
+  "music.score.stop": "停止播放樂譜",
+  "music.score.unavailable": "無法繪製這份樂譜。"
 }

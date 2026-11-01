@@ -1393,5 +1393,8 @@
   "voice.toast.dropped": "A dropped recording is used by Clone. Switch to Clone first.",
   "voice.toast.operationStopped": "The voice operation stopped. Completed takes remain.",
   "page.autoplay.label": "Play new results automatically",
-  "page.error.autoplayTabOnly": "The autoplay setting applies to this tab only: {message}"
+  "page.error.autoplayTabOnly": "The autoplay setting applies to this tab only: {message}",
+  "music.score.play": "Play the score",
+  "music.score.stop": "Stop the score",
+  "music.score.unavailable": "This score could not be drawn."
 }

@@ -133,7 +133,12 @@ def main():
             page.get_by_role("button", name="Select score 3", exact=True).click()
             score = page.locator('.music-song[data-song-id="inline-2"]')
             expect(score.locator(".music-inline-lyrics")).to_have_count(0)
-            expect(score.locator(".music-song-style")).to_contain_text("Detailed style stays in the metadata")
+            # A score's preview is the sheet now; its style stays in the details bar.
+            expect(score.locator(".music-sheet-notes")).to_be_visible()
+            expect(score.locator(".music-song-style")).to_have_count(0)
+            expect(page.locator('.music-output-details[data-song-id="inline-2"] .prompt-line')).to_contain_text(
+                "Detailed style stays in the metadata"
+            )
             expect(score.get_by_role("button", name="Lyrics", exact=True)).to_have_count(0)
             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth")
             assert not errors, errors

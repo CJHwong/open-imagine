@@ -214,6 +214,40 @@ def verify_failure_restores_inputs(browser, base, audio):
     page.close()
 
 
+def verify_score_sheet(browser, base):
+    """A score previews as the engraved sheet, wears the staff tile and plays."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.locator("#music-style").fill("Warm piano pop")
+    page.locator('label[for="music-mode-plan"]').click()
+    page.locator("#music-generate").click()
+    expect(page.locator(".music-song.is-score")).to_have_count(1, timeout=30000)
+    card = page.locator(".music-song:not([hidden])")
+    # The engraver loads from the CDN, so the sheet arrives after the card.
+    # The engraver writes one SVG per line, so the first is the check.
+    expect(card.locator(".music-sheet-notes svg").first).to_be_visible(timeout=60000)
+    expect(card.locator(".music-song-style")).to_have_count(0)
+    assert page.evaluate(
+        "() => document.querySelector('.music-strip .music-thumb:not(.music-pending-thumb) .music-thumb-note')"
+        ".innerHTML.includes('i-score')"
+    ), "A score tile must wear the staff, not the note glyph"
+    assert page.evaluate(
+        "() => document.querySelector('gallery-browser[workspace=\"music\"]').items.every(item => item.score)"
+    )
+    play = card.locator("[data-music-score-play]")
+    expect(play).to_have_attribute("aria-pressed", "false")
+    play.click()
+    expect(play).to_have_attribute("aria-pressed", "true", timeout=30000)
+    play.click()
+    expect(play).to_have_attribute("aria-pressed", "false")
+    assert errors == [], errors
+    page.close()
+    print("PASS a score previews as the engraved sheet, wears the staff tile and plays")
+
+
 def verify_reload_cancel_restores(browser, base, audio):
     """A reload during a run keeps what the submit emptied, and a cancel puts it back."""
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
@@ -719,6 +753,7 @@ def main():
         assert errors == [], errors
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
+        verify_score_sheet(browser, base)
         verify_failure_restores_inputs(browser, base, audio)
         verify_reload_cancel_restores(browser, base, audio)
         verify_source_across_tabs(browser, base, audio)

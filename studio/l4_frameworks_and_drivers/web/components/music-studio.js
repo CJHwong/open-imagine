@@ -1261,6 +1261,7 @@ class MusicStudio extends HTMLElement {
     this.querySelector('.music-generation').hidden = !previewingGeneration;
     this.querySelector('.music-empty').hidden = this.songs.length > 0 || generating;
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
+    if (!previewingGeneration) this.engraveSheet();
     if (previewingGeneration || this.hidden) { this.closeDetails(false); this.closeScore(false); }
     const scores = this.songs.filter(song => !song.blob).length, recordings = this.songs.length - scores;
     // The head names what the shelf holds, and what happens to it, the way the Image strip
@@ -1437,6 +1438,7 @@ class MusicStudio extends HTMLElement {
     return song;
   }
   pausePlayback() {
+    this.stopScore();
     this.querySelectorAll('audio').forEach(audio => audio.pause());
     this.controls?.querySelectorAll('audio').forEach(audio => audio.pause());
     this.referencePlayer?.pause();
@@ -1454,8 +1456,66 @@ class MusicStudio extends HTMLElement {
       thumb.querySelector('.music-playing-state').hidden = !active;
     }
   }
+  // A score's preview is the engraved sheet, not the sentence that asked for it. The
+  // engraver runs only when the card is the one on screen, and the sheet plays through the
+  // same abcjs module the editor already loads.
+  sheetFor(song) {
+    const wrap = document.createElement('div');
+    wrap.className = 'music-sheet';
+    const actions = document.createElement('div');
+    actions.className = 'music-sheet-actions';
+    const play = document.createElement('button');
+    play.type = 'button'; play.className = 'pill music-sheet-play'; play.dataset.musicScorePlay = '';
+    play.setAttribute('aria-pressed', 'false');
+    play.textContent = t('music.score.play');
+    play.addEventListener('click', () => this.toggleScorePlayback(song, play));
+    actions.append(play);
+    const sheet = document.createElement('div');
+    sheet.className = 'music-sheet-notes music-abc-notation';
+    sheet.dataset.songId = song.id;
+    wrap.append(actions, sheet);
+    return wrap;
+  }
+  engraveSheet() {
+    const sheet = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+    if (!sheet || sheet.dataset.engraved) return;
+    const song = this.songs.find(item => item.id === sheet.dataset.songId);
+    if (!song?.score) return;
+    sheet.dataset.engraved = 'yes';
+    renderNotation(sheet, song.score).catch(() => { sheet.textContent = t('music.score.unavailable'); });
+  }
+  async toggleScorePlayback(song, button) {
+    if (this.scoreSynth) { this.stopScore(); return; }
+    button.disabled = true;
+    try {
+      const abcjs = await import('https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm');
+      const module = abcjs.default || abcjs;
+      const tune = module.renderAbc(document.createElement('div'), song.score)[0];
+      if (!tune) throw new Error(t('music.score.unavailable'));
+      this.scoreContext ||= new AudioContext();
+      const synth = new module.synth.CreateSynth();
+      await synth.init({visualObj: tune, audioContext: this.scoreContext});
+      await synth.prime();
+      // The selection or the card can move while the synth primes.
+      if (this.selectedId !== song.id || !button.isConnected) { synth.stop?.(); return; }
+      this.scoreSynth = synth;
+      if (typeof synth.onEnded === 'function') synth.onEnded(() => this.stopScore());
+      await synth.start();
+      button.setAttribute('aria-pressed', 'true');
+      button.textContent = t('music.score.stop');
+    } catch (error) {
+      this.options.notify('error', error?.message || t('music.score.unavailable'));
+    } finally { button.disabled = false; }
+  }
+  stopScore() {
+    this.scoreSynth?.stop?.();
+    this.scoreSynth = null;
+    const button = this.querySelector('.music-song:not([hidden]) [data-music-score-play]');
+    if (button) { button.setAttribute('aria-pressed', 'false'); button.textContent = t('music.score.play'); }
+  }
   selectSong(id) {
     if (!this.songs.some(song => song.id === id)) return;
+    this.stopScore();
     this.closeDetails(false);
     this.closeScore(false); this.selectedId = id; this.showGeneration = false;
     rememberGalleryView('music', {selected: id}, this.keeping);
@@ -1465,7 +1525,8 @@ class MusicStudio extends HTMLElement {
     const gallery = this.querySelector('gallery-browser');
     gallery.items = this.songs.slice().reverse().map((song, i) => ({id: song.id, number: this.songs.length - i,
       text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name, model: musicModelName(song.model), seed: song.seed,
-      at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id), batch: galleryBatch(song.id)}));
+      at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id),
+      score: Boolean(song.score), batch: galleryBatch(song.id)}));
     gallery.selectedId = this.selectedId; gallery.keeping = this.keeping;
     gallery.pending = this.pending || this.operation?.kind === 'music';
     gallery.pendingSelected = gallery.pending && this.showGeneration !== false;
@@ -1904,7 +1965,6 @@ class MusicStudio extends HTMLElement {
       audio.onpause = audio.onended = syncPlayback;
       card.classList.toggle('is-playing', !audio.paused && !audio.ended);
       if (!audio.paused && !audio.ended) playback.textContent = t('music.playback.playing');
-      const style = document.createElement('p'); style.className = 'music-song-style'; style.textContent = song.settings?.style || t('music.common.song');
       const download = document.createElement('a'); download.className = 'icon-btn';
       download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? t('music.download.wav') : t('music.download.abc')); download.title = hasAudio ? t('music.download.wav') : t('music.download.abc'); download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
       const details = document.createElement('div');
@@ -2015,7 +2075,7 @@ class MusicStudio extends HTMLElement {
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
-      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : style);
+      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : this.sheetFor(song));
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
@@ -2024,7 +2084,13 @@ class MusicStudio extends HTMLElement {
       thumb.setAttribute('aria-label', t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number})); thumb.title = this.songTitle(song);
       const still = document.createElement('span'); still.className = 'still music-thumb-art';
       if (song.coverBlob) { const image = document.createElement('img'); image.src = this.coverUrls.get(song.id); image.alt = ''; still.append(image); }
-      else { const mark = document.createElement('span'); mark.textContent = '♫'; mark.className = 'music-thumb-note'; still.append(mark); }
+      else {
+        const mark = document.createElement('span'); mark.className = 'music-thumb-note';
+        // A score is not a recording: its tile wears a staff, not the note glyph.
+        if (hasAudio) mark.textContent = '♫';
+        else mark.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>';
+        still.append(mark);
+      }
       const playing = document.createElement('span'); playing.className = 'music-playing-state'; playing.hidden = true;
       render(playingMark(), playing); still.append(playing);
       const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});

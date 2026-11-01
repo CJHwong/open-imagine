@@ -213,6 +213,10 @@ class GalleryBrowser extends LitElement {
     if (this.workspace === 'video' && item.video) return html`<video-gallery-preview .source=${item.video}
       .poster=${item.thumbnail} .blocked=${this.pending}></video-gallery-preview>`;
     if (item.thumbnail) return html`<img src=${item.thumbnail} alt="" loading="lazy" decoding="async">`;
+    // A score has no recording to preview, so its tile wears the staff the strip uses.
+    if (this.workspace === 'music' && item.score) {
+      return html`<span class="gallery-no-preview"><svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg></span>`;
+    }
     const maximum = Math.max(0.001, ...(item.peaks || []));
     if (item.peaks?.length) return svg`<svg class="gallery-wave" viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
       ${item.peaks.map((peak, index) => svg`<line x1=${(index + 0.5) * 160 / item.peaks.length}
