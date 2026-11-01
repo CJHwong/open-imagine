@@ -1399,5 +1399,13 @@
   "pane.preview": "Preview",
   "pane.gallery": "Gallery",
   "pane.controls": "Controls",
-  "video.action.play": "Play"
+  "video.action.play": "Play",
+  "label.mode.clone.text.auk_base": "What the voice in the reference clip should say.",
+  "label.mode.design.text.auk_base": "What the voice should say. Describe the voice under voice.",
+  "label.mode.edit.text.auk_base": "What to change in the clip, as an instruction.",
+  "label.mode.clone.text.auk": "What the voice in the reference clip should say.",
+  "label.mode.design.text.auk": "What the voice should say. Describe the voice under voice.",
+  "label.mode.edit.text.auk": "What to change in the clip, as an instruction.",
+  "label.mode.generate.text.drama3": "Write a script. Add delivery cues inline, such as [whispers].",
+  "label.mode.clone.text.drama3": "Write the new words. Inline delivery cues are optional."
 }

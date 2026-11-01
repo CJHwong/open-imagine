@@ -1375,5 +1375,13 @@
   "pane.preview": "預覽",
   "pane.gallery": "圖庫",
   "pane.controls": "控制項",
-  "video.action.play": "播放"
+  "video.action.play": "播放",
+  "label.mode.clone.text.auk_base": "參考音訊中的聲音要說什麼。",
+  "label.mode.design.text.auk_base": "聲音要說什麼。在語音欄描述聲音。",
+  "label.mode.edit.text.auk_base": "要用什麼指示更改這段音訊。",
+  "label.mode.clone.text.auk": "參考音訊中的聲音要說什麼。",
+  "label.mode.design.text.auk": "聲音要說什麼。在語音欄描述聲音。",
+  "label.mode.edit.text.auk": "要用什麼指示更改這段音訊。",
+  "label.mode.generate.text.drama3": "寫一段腳本。在句中加上語氣提示，例如 [whispers]。",
+  "label.mode.clone.text.drama3": "寫下新的台詞。語氣提示可省略。"
 }

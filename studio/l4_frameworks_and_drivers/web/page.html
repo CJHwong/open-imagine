@@ -595,6 +595,11 @@
       if (typeof mode.prompt_hint === 'string' && backend) {
         mode.prompt_hint = label('mode', mode.id + '.hint.' + backend, mode.prompt_hint);
       }
+      // The script placeholder is the mode's text hint. Two backends can offer the same
+      // mode with different words, so the backend id joins the key here too.
+      if (typeof mode.text_hint === 'string' && backend) {
+        mode.text_hint = label('mode', mode.id + '.text.' + backend, mode.text_hint);
+      }
       (mode.templates || []).forEach(translateTemplate);
       (mode.looks || []).forEach(translateLook);
     }
