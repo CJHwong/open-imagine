@@ -1463,6 +1463,7 @@ class MusicStudio extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'music-sheet';
     const score = musicScore(song.score);
+    const timing = this.scoreTiming(song.score);
     const meta = document.createElement('p');
     meta.className = 'music-sheet-meta';
     const tempo = String(score.tempo || '').replace(/^1\/\d+\s*=\s*/, '♩ = ');
@@ -1473,21 +1474,31 @@ class MusicStudio extends HTMLElement {
     sheet.className = 'music-sheet-notes music-abc-notation';
     sheet.dataset.songId = song.id;
     page.append(sheet);
+    // The player is the song player's own: the same track, the same clock line and the same
+    // button, so a score sits in the workspace like any other piece of music.
+    const player = document.createElement('div');
+    player.className = 'music-player music-score-player';
+    player.dataset.songId = song.id;
+    const timeline = document.createElement('div');
+    timeline.className = 'music-timeline';
+    const rail = document.createElement('div');
+    rail.className = 'music-score-rail';
+    const times = document.createElement('div');
+    times.className = 'music-times num';
+    const elapsed = document.createElement('span'); elapsed.className = 'music-time-elapsed'; elapsed.textContent = '0:00';
+    const remaining = document.createElement('span'); remaining.className = 'music-time-remaining';
+    remaining.textContent = '−' + this.clockText(timing.seconds);
+    times.append(elapsed, remaining);
+    timeline.append(rail, times);
     const transport = document.createElement('div');
-    transport.className = 'music-sheet-transport';
+    transport.className = 'music-transport';
     const play = document.createElement('button');
-    play.type = 'button'; play.className = 'music-sheet-play'; play.dataset.musicScorePlay = '';
+    play.type = 'button'; play.className = 'icon-btn music-play'; play.dataset.musicScorePlay = '';
     this.paintScoreButton(play, false);
     play.addEventListener('click', () => this.toggleScorePlayback(song, play));
-    const progress = document.createElement('div');
-    progress.className = 'music-sheet-progress';
-    const fill = document.createElement('i');
-    progress.append(fill);
-    const time = document.createElement('span');
-    time.className = 'music-sheet-time num';
-    time.textContent = '0:00';
-    transport.append(play, progress, time);
-    wrap.append(meta, page, transport);
+    transport.append(play);
+    player.append(timeline, transport);
+    wrap.append(meta, page, player);
     return wrap;
   }
   engraveSheet() {
@@ -1531,12 +1542,15 @@ class MusicStudio extends HTMLElement {
   }
   paintScore(event, button) {
     this.lightScore((event.elements || []).flat());
-    const card = button.closest('.music-sheet');
-    const fill = card?.querySelector('.music-sheet-progress i');
-    const time = card?.querySelector('.music-sheet-time');
+    const player = button.closest('.music-score-player') || button.closest('.music-sheet');
+    const rail = player?.querySelector('.music-score-rail');
+    const elapsedNode = player?.querySelector('.music-time-elapsed');
+    const remainingNode = player?.querySelector('.music-time-remaining');
     const elapsed = Math.max(0, Number(event.milliseconds) || 0) / 1000;
-    if (fill) fill.style.width = `${this.scoreTotal ? Math.min(100, elapsed / this.scoreTotal * 100) : 0}%`;
-    if (time) time.textContent = this.clockText(elapsed) + (this.scoreTotal ? ' / ' + this.clockText(this.scoreTotal) : '');
+    const share = this.scoreTotal ? Math.min(100, elapsed / this.scoreTotal * 100) : 0;
+    if (rail) rail.style.setProperty('--music-progress', `${share}%`);
+    if (elapsedNode) elapsedNode.textContent = this.clockText(elapsed);
+    if (remainingNode) remainingNode.textContent = '−' + this.clockText(Math.max(0, (this.scoreTotal || 0) - elapsed));
   }
   clockText(value) {
     const seconds = Math.floor(Math.max(0, value));
@@ -1585,11 +1599,13 @@ class MusicStudio extends HTMLElement {
     this.scoreButton = null;
     if (button) {
       this.paintScoreButton(button, false);
-      const card = button.closest('.music-sheet');
-      const fill = card?.querySelector('.music-sheet-progress i');
-      const time = card?.querySelector('.music-sheet-time');
-      if (fill) fill.style.width = '0%';
-      if (time) time.textContent = this.scoreTotal ? '0:00 / ' + this.clockText(this.scoreTotal) : '0:00';
+      const player = button.closest('.music-score-player') || button.closest('.music-sheet');
+      const rail = player?.querySelector('.music-score-rail');
+      const elapsedNode = player?.querySelector('.music-time-elapsed');
+      const remainingNode = player?.querySelector('.music-time-remaining');
+      if (rail) rail.style.setProperty('--music-progress', '0%');
+      if (elapsedNode) elapsedNode.textContent = '0:00';
+      if (remainingNode) remainingNode.textContent = '−' + this.clockText(this.scoreTotal || 0);
     }
     this.scoreTotal = null;
   }
