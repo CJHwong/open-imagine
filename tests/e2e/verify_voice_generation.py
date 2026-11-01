@@ -140,7 +140,9 @@ with sync_playwright() as tool:
             "kind": "voice",
             "mode": "design",
             "voice": VOICE,
-            "items": [{"text": f"Independent API recording {index}."} for index in range(16)],
+            # Each stub clip is as long as `seconds`, so the batch outlasts the progress
+            # checks and the cancellation that follows them.
+            "items": [{"text": f"Independent API recording {index}.", "seconds": 30} for index in range(16)],
         },
     )
     check("the external API batch starts", response.status == 202)
@@ -160,11 +162,16 @@ with sync_playwright() as tool:
     def completed_progress(route):
         answer = route.fetch()
         state = answer.json()
-        if state.get("active", {}).get("id") == operation["id"]:
+        # The state names no active operation while the run settles. `active` is present
+        # and null, so a default argument would not stand in for it.
+        if (state.get("active") or {}).get("id") == operation["id"]:
             state["active"]["progress"] = progress_override
         route.fulfill(response=answer, json=state)
 
     observer.route("**/api/v1/state", completed_progress)
+    # An idle page polls every five seconds, and the stub batch lasts about six. Force the
+    # first poll so both progress phases below are read while the run still exists.
+    observer.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
     observer.wait_for_function(
         "document.querySelector('.voice-generation-wave')?.getAttribute('aria-valuenow') === '40'"
     )

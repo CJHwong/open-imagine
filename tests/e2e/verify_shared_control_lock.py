@@ -1,4 +1,8 @@
-"""Check external operations lock the generation form with the active workspace selected."""
+"""Check external operations lock the generation form with the active workspace selected.
+
+Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port <port>`.
+The payloads name step counts, which only a backend with an editable step count accepts.
+"""
 
 import sys
 
@@ -62,7 +66,10 @@ with sync_playwright() as tool:
         data={
             "kind": "image",
             "prompt": "a short external operation",
-            "steps": 2,
+            # The page polls an idle server every five seconds, so the run has to outlast
+            # one poll for the status bar to show it at all. Twenty stub steps is twenty
+            # seconds.
+            "steps": 20,
         },
     ).json()
     page.locator("#shared-operation:not([hidden])").wait_for()
@@ -82,11 +89,14 @@ with sync_playwright() as tool:
     page.route("**/api/v1/operations/*/result", delayed_result)
     next_image = page.request.post(
         URL + "/api/v1/operations",
-        data={"kind": "image", "prompt": "the next image must appear on stage", "steps": 2},
+        # Long enough for the page to observe the operation as running; a result that is
+        # never seen active does not take the stage.
+        data={"kind": "image", "prompt": "the next image must appear on stage", "steps": 20},
     )
     assert next_image.status == 202
     page.wait_for_function("gallery.length === 2 && !sharedOperation")
-    assert page.evaluate("view === gallery[0].id")
+    # The stage moves to the new result on the same poll that imports it.
+    page.wait_for_function("view === gallery[0].id")
     assert page.evaluate("view") != previous_image
     assert not page.title().startswith("(")
     page.unroute("**/api/v1/operations/*/result", delayed_result)

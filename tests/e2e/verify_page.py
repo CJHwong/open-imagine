@@ -906,11 +906,19 @@ with sync_playwright() as playwright:
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
     page.locator("#shared-operation-cancel").click()
-    cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
+    # The status bar owns the stop signal. Its label turns once the poll sees the
+    # operation stopping, and a stop that lands at once ends the run instead.
+    page.wait_for_function(
+        "document.getElementById('shared-operation').hidden "
+        "|| document.getElementById('shared-operation-label').textContent === 'Stopping'"
+    )
+    cancel_state = page.evaluate(
+        "() => ({state: document.getElementById('shared-operation-label').textContent,"
+        " hidden: document.getElementById('shared-operation').hidden})"
+    )
     check(
-        "Cancel reads Stopping while it stops",
-        cancel_state["state"] == "idle"
-        or (cancel_state["state"] == "stopping" and cancel_state["text"].startswith("Stopping")),
+        "the status bar reads Stopping while it stops",
+        cancel_state["hidden"] or cancel_state["state"] == "Stopping",
         str(cancel_state),
     )
     wait_idle(page)
@@ -1372,11 +1380,19 @@ with sync_playwright() as playwright:
     page.wait_for_selector(".card .percent:not(:empty)", timeout=300000)
     page.wait_for_function("Date.now() - Number(document.getElementById('go').dataset.started) >= 750")
     page.locator("#shared-operation-cancel").click()
-    cancel_state = page.locator("#go").evaluate("button => ({state: button.dataset.state, text: button.innerText})")
+    # The status bar owns the stop signal. Its label turns once the poll sees the
+    # operation stopping, and a stop that lands at once ends the run instead.
+    page.wait_for_function(
+        "document.getElementById('shared-operation').hidden "
+        "|| document.getElementById('shared-operation-label').textContent === 'Stopping'"
+    )
+    cancel_state = page.evaluate(
+        "() => ({state: document.getElementById('shared-operation-label').textContent,"
+        " hidden: document.getElementById('shared-operation').hidden})"
+    )
     check(
-        "Cancel reads Stopping while it stops",
-        cancel_state["state"] == "idle"
-        or (cancel_state["state"] == "stopping" and cancel_state["text"].startswith("Stopping")),
+        "the status bar reads Stopping while it stops",
+        cancel_state["hidden"] or cancel_state["state"] == "Stopping",
         str(cancel_state),
     )
     wait_idle(page)
@@ -1426,7 +1442,7 @@ with sync_playwright() as playwright:
     page.emulate_media(color_scheme="dark")
 
     page.click("#theme-toggle")
-    themes = page.locator("#theme-menu [role=menuitemradio]").all_inner_texts()
+    themes = page.locator("#theme-menu [role=menuitemradio][data-theme]").all_inner_texts()
     check(
         "the theme menu offers all eight themes",
         themes

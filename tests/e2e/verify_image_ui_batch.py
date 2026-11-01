@@ -1,4 +1,8 @@
-"""Prepared Image UI batches, recovery, and shared results. Use a fresh all-backends stub."""
+"""Prepared Image UI batches, recovery, and shared results.
+
+Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port <port>`.
+The batches name step counts below the Turbo schedule, which Turbo refuses.
+"""
 
 import io
 import json
@@ -76,7 +80,9 @@ with sync_playwright() as tool:
     first.wait_for_function("gallery.length > 0 && Boolean(sharedOperation)")
     assert first.locator("#prompt").input_value() == ""
     first.locator("#strip .frame.arrive").first.wait_for(state="attached", timeout=10000)
-    assert second.locator("#shared-operation").is_visible()
+    # The second tab polls an idle server every five seconds, so the bar arrives on its
+    # own schedule rather than with the first tab's response.
+    second.locator("#shared-operation:not([hidden])").wait_for(timeout=10000)
     first.reload()
     first.wait_for_function("Boolean(sharedOperation)")
     idle(first)

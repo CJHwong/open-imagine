@@ -1,4 +1,9 @@
-"""Check draft completion, cancellation, marked regions, and model changes."""
+"""Check draft completion, cancellation, marked regions, and model changes.
+
+Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port <port>`.
+The draft check names a step count, which only a backend with an editable step count
+accepts.
+"""
 
 import re
 import sys
