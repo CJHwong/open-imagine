@@ -73,7 +73,9 @@ def main():
             active_card.locator(".music-playing-bars i").first.evaluate("bar => getComputedStyle(bar).animationName")
             == "none"
         )
-        expect(active_card.get_by_text("Playing", exact=True)).to_be_visible()
+        # The bars alone mark a playing tile: a word wrapped inside the narrow tile.
+        expect(active_card.locator(".music-playing-mark")).to_have_text("")
+        expect(active_card.get_by_text("Playing", exact=True)).to_have_count(0)
         page.set_viewport_size({"width": 390, "height": 844})
         assert active_card.locator(".music-playing-mark").evaluate("""mark => {
           const badge = mark.getBoundingClientRect(), frame = mark.closest('.still').getBoundingClientRect();
