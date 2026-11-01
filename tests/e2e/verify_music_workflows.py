@@ -178,8 +178,10 @@ def verify_failure_restores_inputs(browser, base, audio):
     page.locator("#music-generate").click()
     expect(page.locator("#music-style")).to_have_value("")
     expect(page.locator("#music-lyrics")).to_have_value("")
-    # The recording stays through the run, so the next one can reuse it.
-    expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+    # The run empties the recording with the words; the failed run puts it back.
+    expect(page.locator("#music-reference-name")).to_have_text("")
+    expect(page.locator("#music-reference-choose")).to_be_visible()
+    expect(page.locator("#music-mode")).to_have_value("generate")
     expect(page.locator("#music-seed")).to_have_value("")
     expect(page.locator("#music-count")).to_have_value("1")
     expect(page.locator("#music-steps")).to_have_value("32")
@@ -220,6 +222,22 @@ def verify_source_across_tabs(browser, base, audio):
         page.goto(base + "/?workspace=music")
         page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
     try:
+        # A run empties the form before it imports, so the link is the only claimant for a
+        # while. A sweep in any tab must keep that source until the link expires.
+        held = second.evaluate("""async () => {
+          const store = await import('/page/lib/music-store.js');
+          const id = 'held-' + Date.now();
+          await store.putMusicSource({id, blob: new Blob([new Uint8Array(16)], {type: 'audio/wav'}), name: 'held.wav'});
+          await store.putMusicLink({id: 'run-' + id, sourceId: id, name: 'held.wav'});
+          await store.sweepMusicSources();
+          const source = await store.musicSource(id);
+          const link = await store.musicLink('run-' + id);
+          await store.deleteMusicLink('run-' + id);
+          await store.sweepMusicSources();
+          const gone = await store.musicSource(id);
+          return Boolean(source) && Boolean(link) && !gone;
+        }""")
+        assert held, "A sweep removed the recording an unfinished run will claim"
         # The tab that starts the run hands the import to the other one, as a closed tab would.
         first.evaluate("() => { document.querySelector('music-studio').importSong = async () => {}; }")
         with first.expect_file_chooser() as chosen:
@@ -481,8 +499,16 @@ def main():
         assert submitted[-1]["abc"] == ""
         assert submitted[-1]["seed"] is None
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
-        expect(page.locator("#music-reference-choose")).to_be_hidden()
+        # The run emptied the recording with the words. The score it made points at the
+        # recording, so the same one comes back from the card.
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        # No recording, so the engine mode follows the visible choice, which is Compose.
+        expect(page.locator("#music-mode")).to_have_value("plan")
+        bar.get_by_role("button", name="More actions", exact=True).click()
+        bar.get_by_role("menuitem", name="Use the original recording", exact=True).click()
         expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        # Compose is the visible choice, so the recording makes it a transcription.
         expect(page.locator("#music-mode")).to_have_value("transcribe")
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
@@ -518,11 +544,11 @@ def main():
         assert submitted[-1]["mode"] == "cover" and submitted[-1]["reference_name"] == "reference.wav"
         assert submitted[-1]["abc"] == "" and submitted[-1]["steps"] == 16
         expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
-        # The recording stays for the next cover of the same hum.
-        expect(page.locator("#music-reference-choose")).to_be_hidden()
-        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
-        expect(page.locator("#music-mode")).to_have_value("cover")
-        expect(page.locator(".music-reference-scope")).to_be_visible()
+        # The cover run emptied the recording too.
+        expect(page.locator("#music-reference-choose")).to_be_visible()
+        expect(page.locator("#music-reference-name")).to_have_text("")
+        expect(page.locator("#music-mode")).to_have_value("generate")
+        expect(page.locator(".music-reference-scope")).to_be_hidden()
         # The cover run emptied the words, so the form asks for them again.
         page.locator("#music-style").fill("Warm piano pop")
         expect(page.locator("#music-generate")).to_be_enabled()

@@ -113,7 +113,9 @@ export const saveMusicDraft = draft => transaction('state', 'readwrite', store =
 export const musicSource = id => transaction('sources', 'readonly', store => store.get(id));
 export const putMusicSource = source => transaction('sources', 'readwrite', store => store.put(source));
 export const musicLink = id => transaction('links', 'readonly', store => store.get(id));
-export const putMusicLink = link => transaction('links', 'readwrite', store => store.put(link));
+// A link names the source an unfinished run will claim. It carries the time it was
+// written, because the sweep keeps that source alive until the link expires.
+export const putMusicLink = link => transaction('links', 'readwrite', store => store.put({...link, at: Date.now()}));
 export const deleteMusicLink = id => transaction('links', 'readwrite', store => store.delete(id));
 
 // The same bytes always get the same id, so one recording is one record. crypto.subtle
@@ -127,25 +129,27 @@ export async function sourceIdFor(blob) {
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
 }
 
+// A run empties the form before it imports, so its recording has no draft and no song for
+// a while. The link is the user during that window. A link older than this belongs to a
+// tab that never came back, so it and its source go.
+const LINK_LIFETIME = 60 * 60 * 1000;
+
 // One transaction, so no song inserted before it started can lose its source. A write
 // that lands afterwards is re-checked by the tab that made the song. The draft counts as
-// a user of a source: it restores the form after a reload. A link to a source that is
-// going away is removed with it.
+// a user of a source: it restores the form after a reload. The links count too, until
+// they expire. Nothing is deleted before all three reads finish.
 export async function sweepMusicSources() {
   const db = await database();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['songs', 'sources', 'state', 'links'], 'readwrite');
+    const linksStore = tx.objectStore('links');
     const used = new Set();
-    let waiting = 2;
+    let waiting = 3;
     const prune = () => {
       if (--waiting) return;
       const keys = tx.objectStore('sources').getAllKeys();
       keys.onsuccess = () => {
         for (const id of keys.result) if (!used.has(id)) tx.objectStore('sources').delete(id);
-      };
-      const links = tx.objectStore('links').getAll();
-      links.onsuccess = () => {
-        for (const link of links.result) if (!used.has(link.sourceId)) tx.objectStore('links').delete(link.id);
       };
     };
     const draft = tx.objectStore('state').get('draft');
@@ -161,6 +165,16 @@ export async function sweepMusicSources() {
       prune();
     };
     songs.onerror = prune;
+    const links = linksStore.getAll();
+    links.onsuccess = () => {
+      const now = Date.now();
+      for (const link of links.result) {
+        if (now - (link.at || 0) < LINK_LIFETIME) used.add(link.sourceId);
+        else linksStore.delete(link.id);
+      }
+      prune();
+    };
+    links.onerror = prune;
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error || new Error('Music storage cleanup was interrupted.'));

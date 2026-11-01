@@ -665,7 +665,8 @@ class MusicStudio extends HTMLElement {
   }
   // Run empties what it sent, as the Image workspace does: the words, the reference
   // recording and the Advanced settings. A cancelled or failed run puts them back. The
-  // reference recording stays: it is the same hum for the next cover or transcription.
+  // recording is not lost: the song it makes points at it, and that song's menu restores
+  // it. The stored record and the link to it stay until the import claims them.
   clearInputs() {
     const field = id => this.controls.querySelector('#music-' + id);
     const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task'];
@@ -687,6 +688,12 @@ class MusicStudio extends HTMLElement {
     field('style').value = '';
     field('lyrics').value = '';
     for (const [id, value] of Object.entries(defaults)) field(id).value = value;
+    // The form drops the recording; the store keeps it for the song this run makes. No
+    // sweep here: the link and the draft already decided what survives, and the run has
+    // not imported yet.
+    this.releaseReferenceAudio();
+    this.reference = null;
+    this.referenceReady = null;
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
@@ -702,6 +709,9 @@ class MusicStudio extends HTMLElement {
     for (const [id, value] of Object.entries(snapshot.advanced || {})) field(id).value = value;
     this.releaseReferenceAudio();
     this.reference = snapshot.reference || null;
+    // The submit cleared the draft pointer; the restore puts it back so a reload still
+    // finds the recording.
+    this.referenceReady = this.reference ? this.persistReference() : null;
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
