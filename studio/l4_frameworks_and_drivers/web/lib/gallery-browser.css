@@ -12,8 +12,9 @@ gallery-browser { display: contents; color-scheme: dark; }
 .gallery-browse-toggle .icon { width: 13px; height: 13px; }
 .strip-wrap:has(gallery-browser[expanded]) > .strip { display: none; }
 .gallery-browser-panel { order: 4; flex: 1 0 100%; min-width: 0; color: #ddd; padding-top: 8px; }
-.gallery-browser-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.gallery-browser-tools input[type=search] { flex: 1 1 220px; min-width: 100px; width: 100%; }
+/* The words, the sort and the select toggle share one row. */
+.gallery-browser-tools { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; }
+.gallery-browser-tools input[type=search] { flex: 1 1 auto; min-width: 60px; width: auto; }
 .gallery-browser-tools input[type=search], .gallery-browser-tools select {
   height: 32px; min-height: 32px; padding: 4px 9px; margin: 0; border: 1px solid #555;
   border-radius: 5px; background: #252525; color: #eee; font: 11px/1.4 var(--sans);

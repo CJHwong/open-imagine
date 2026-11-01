@@ -273,12 +273,6 @@ class GalleryBrowser extends LitElement {
           <select aria-label=${t('gallery.order')} @change=${event => this.change('order', event.target.value)}>
             <option value="newest" .selected=${this.order === 'newest'}>${t('gallery.orderNewest')}</option>
             <option value="oldest" .selected=${this.order === 'oldest'}>${t('gallery.orderOldest')}</option></select>
-          ${modes.length > 1 ? html`<select aria-label=${t('gallery.filterMode')}
-            @change=${event => this.change('mode', event.target.value)}><option value="" .selected=${!this.mode}>${t('gallery.allModes')}</option>
-            ${modes.map(mode => html`<option value=${mode} .selected=${this.mode === mode}>${mode}</option>`)}</select>` : nothing}
-          ${models.length > 1 ? html`<select aria-label=${t('gallery.filterModel')}
-            @change=${event => this.change('model', event.target.value)}><option value="" .selected=${!this.model}>${t('gallery.allModels')}</option>
-            ${models.map(model => html`<option value=${model} .selected=${this.model === model}>${model}</option>`)}</select>` : nothing}
           ${hasBatch ? html`<label class="gallery-group-toggle"><input type="checkbox" .checked=${this.grouped}
             @change=${event => this.change('grouped', event.target.checked)}>${t('gallery.groupBatches')}</label>` : nothing}
           <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}

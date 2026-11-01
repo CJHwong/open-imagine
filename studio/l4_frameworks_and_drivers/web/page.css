@@ -1390,7 +1390,12 @@
   /* A narrow window shows one pane at a time: the preview, the gallery or the controls.
      The switch floats above all three, and a page opens on the preview. */
   .pane-switch { display: none; }
-  @media (max-width: 760px) {
+  @media (max-width: 900px) {
+    /* Two layouts only: the full studio above this width, and the tabbed view below it.
+       The app takes the visible height, so a pane ends above the switch on a phone. */
+    .app { height: 100dvh; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+    /* The preview ends above the switch, so its last controls stay clear of it. */
+    body[data-pane="preview"] .work { padding-bottom: 64px; }
     /* The workspace tabs stay in place in every pane, so a person can change workspace
        without leaving the pane they are in. */
     .topbar { position: sticky; top: 0; z-index: 55; background: var(--chrome); }
@@ -1415,7 +1420,8 @@
       padding: 16px 14px calc(78px + env(safe-area-inset-bottom)); }
     .pane-gallery-shelf .gallery-browse-toggle { display: none; }
     /* The gallery uses the height it is given instead of keeping its own scroll box. */
-    .pane-gallery-shelf .gallery-browser-grid { max-height: none; }
+    /* The grid no longer scrolls itself, so the wheel must chain to the pane. */
+    .pane-gallery-shelf .gallery-browser-grid { max-height: none; overscroll-behavior: auto; }
     /* The tools share the pane's width: the search takes a row, the filters and the select
        toggle share the next one and shrink instead of running off the edge. */
     .pane-gallery-shelf .gallery-browser-tools input[type=search] { flex: 1 1 100%; }
@@ -1432,7 +1438,8 @@
     .music-studio-shell { height: 100%; min-height: 0; }
     .music-preview-pane { padding: 12px 18px; }
     .music-song { gap: 8px; }
-    .music-artwork { width: min(clamp(80px, calc(100svh - 744px), 116px), 100%); }
+    /* The preview owns the whole pane on a phone, so the album takes the room it has. */
+    .music-artwork { width: clamp(96px, min(64vw, calc(100svh - 560px)), 280px); }
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
     .music-track-text { height: clamp(64px, calc(100svh - 760px), 104px); }

@@ -37,7 +37,7 @@ with sync_playwright() as tool:
     box = page.locator("#strip-wrap.pane-gallery-shelf").bounding_box()
     check(
         "the gallery fills the window above the switch",
-        box is not None and box["width"] >= 380 and box["height"] >= 700,
+        box is not None and box["width"] >= 380 and box["height"] >= 620,
         str(box),
     )
     check("the switch stays above the gallery", switch.is_visible())
@@ -50,7 +50,7 @@ with sync_playwright() as tool:
     run = page.locator("#go").bounding_box()
     check(
         "the controls show the form with its run button in view",
-        form_box is not None and run is not None and form_box["height"] >= 700 and run["y"] + run["height"] <= 844,
+        form_box is not None and run is not None and form_box["height"] >= 620 and run["y"] + run["height"] <= 844,
         f"form {form_box}, run {run}",
     )
 

@@ -989,7 +989,11 @@
     for (const button of paneSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
     }
-    document.querySelectorAll('gallery-browser.pane-gallery').forEach(node => node.classList.remove('pane-gallery'));
+    document.querySelectorAll('gallery-browser.pane-gallery').forEach(node => {
+      // The pane opened this browser; leaving the pane puts it back to the compact strip.
+      node.expanded = false;
+      node.classList.remove('pane-gallery');
+    });
     document.querySelectorAll('.pane-gallery-shelf').forEach(node => node.classList.remove('pane-gallery-shelf'));
     if (paneShelf && pane !== 'gallery') {
       // An empty shelf is hidden by the page; the gallery pane puts it back as it was.
