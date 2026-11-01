@@ -257,8 +257,11 @@ async function submitBatch(parameters, headers) {
   try {
     const answer = await fetch('/image/operations', {method: 'POST',
       headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(batchPayload(parameters))});
+    if (!answer.ok) {
+      const body = await answer.json().catch(() => ({}));
+      throw new Error(body.error || t('form.error.batchStart'));
+    }
     const operation = await answer.json();
-    if (!answer.ok) throw new Error(operation.error || t('form.error.batchStart'));
     nativeOperationId = operation.id;
   } catch (error) {
     armCancelRestore();
@@ -656,7 +659,12 @@ function listen() {
     stopWork();
   }
   });
-  document.body.addEventListener('htmx:responseError', stopWork);
+  document.body.addEventListener('htmx:responseError', function () {
+    stopWork();
+    // An error response from /generate, /progress or /cancel used to take the card away
+    // without a word. The run may still be going on the server, so the copy says so.
+    page.notify('error', t('form.error.requestFailed'));
+  });
   document.body.addEventListener('htmx:sendError', function () {
     stopWork();
     page.notify('error', t('form.error.serverSilent'));

@@ -267,6 +267,7 @@ class VideoStudio extends LitElement {
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
     this.addEventListener('timeupdate', this.onTimeUpdate, true);
+    this.addEventListener('error', this.onMediaError, true);
     document.addEventListener('paste', this.handleDocumentPaste);
     document.addEventListener('keydown', this.handleDocumentKeydown);
     if (this.sourcePanel) {
@@ -288,6 +289,7 @@ class VideoStudio extends LitElement {
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
     this.removeEventListener('timeupdate', this.onTimeUpdate, true);
+    this.removeEventListener('error', this.onMediaError, true);
     document.removeEventListener('paste', this.handleDocumentPaste);
     document.removeEventListener('keydown', this.handleDocumentKeydown);
     if (this.sourcePanel) {
@@ -1543,6 +1545,15 @@ class VideoStudio extends LitElement {
 
   onTimeUpdate(event) {
     this.currentTime = event.target.currentTime || 0;
+  }
+
+  // A clip whose bytes cannot be decoded used to leave a blank monitor with every action
+  // still offered. The failure belongs on the page when the clip is selected, not only
+  // when someone presses Play.
+  onMediaError(event) {
+    const preview = this.querySelector('#video-preview');
+    if (!preview || event.target !== preview) return;
+    this.setError(t('video.error.preview'));
   }
 
   captureFrameForImage() {

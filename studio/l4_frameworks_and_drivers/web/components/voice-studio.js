@@ -632,16 +632,22 @@ class VoiceStudio extends LitElement {
         method: 'POST', headers: {'Content-Type': 'application/json', 'X-Studio-Client': this.options.clientId,
           'X-Studio-Library': this.options.libraryId}, body: JSON.stringify(payload),
       });
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({}));
+        throw new Error(failure.error || t('voice.error.startFailed'));
+      }
       const operation = await response.json();
-      if (!response.ok) throw new Error(operation.error || t('voice.error.startFailed'));
       this.ownOperationId = operation.id;
       this.requestUpdate();
       let state;
       do {
         await new Promise(resolve => setTimeout(resolve, 350));
         const answer = await fetch('/api/v1/operations/' + encodeURIComponent(operation.id), {cache: 'no-store'});
+        if (!answer.ok) {
+          const failure = await answer.json().catch(() => ({}));
+          throw new Error(failure.error || t('voice.error.statusFailed'));
+        }
         state = await answer.json();
-        if (!answer.ok) throw new Error(state.error || t('voice.error.statusFailed'));
         if (state.result_url && state.batch_completed > 0) await this.importOperation(state);
       } while (state.status === 'running' || state.status === 'stopping');
       if (state.result_url) await this.importOperation(state);
@@ -650,7 +656,8 @@ class VoiceStudio extends LitElement {
       if (state.status === 'succeeded') this.clearInputs(submittedDraftId);
       if (state.status === 'cancelled') this.options.notify?.('info', t('voice.toast.operationStopped'));
     } catch (error) {
-      this.fail(error.message);
+      this.fail(error instanceof TypeError ? t('form.error.serverSilent')
+        : error instanceof SyntaxError ? t('voice.error.statusFailed') : (error.message || t('voice.error.statusFailed')));
     } finally {
       this.ownOperationId = null;
       this.busy = false;
@@ -845,7 +852,7 @@ class VoiceStudio extends LitElement {
     }
     if (this.referencePlayer.paused) {
       this.player.pause();
-      this.referencePlayer.play().catch(() => { this.referencePlaying = false; });
+      this.referencePlayer.play().catch(() => { this.referencePlaying = false; this.fail(t('voice.error.playAudio')); });
     } else this.referencePlayer.pause();
   }
   releaseReferenceAudio() {
@@ -906,7 +913,8 @@ class VoiceStudio extends LitElement {
     this.convert = take.convert || 'tw2s';
     this.setScript(segment.text);
     if (this.needsReference) {
-      await this.ensureTake(take);
+      try { await this.ensureTake(take); }
+      catch (error) { this.fail(error.message); return; }
       await this.chooseReference(take.blob, {name: 'voice-reference.wav', transcript: transcriptText(segment.text)});
     }
     this.persist(true);
@@ -915,7 +923,8 @@ class VoiceStudio extends LitElement {
 
   async useForEdit(take) {
     if (this.locked) return;
-    await this.ensureTake(take);
+    try { await this.ensureTake(take); }
+    catch (error) { this.fail(error.message); return; }
     this.referenceVersion += 1;
     this.referencePending = false;
     this.reference = {blob: take.blob, name: 'take.wav', duration: take.duration};
@@ -993,8 +1002,14 @@ class VoiceStudio extends LitElement {
     this.stopping = true;
     try {
       const answer = await fetch('/api/v1/operations/' + encodeURIComponent(id) + '/cancel', {method: 'POST'});
-      if (!answer.ok) throw new Error((await answer.json()).error || t('voice.error.stopFailed'));
-    } catch (error) { this.stopping = false; this.fail(error.message); }
+      if (!answer.ok) {
+        const body = await answer.json().catch(() => ({}));
+        throw new Error(body.error || t('voice.error.stopFailed'));
+      }
+    } catch (error) {
+      this.stopping = false;
+      this.fail(error instanceof TypeError ? t('form.error.serverSilent') : error.message);
+    }
   }
 
   templateFields(template) {
@@ -1205,7 +1220,9 @@ class VoiceStudio extends LitElement {
   // type come from the same place.
   async downloadTakes(clips, ids) {
     for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
-      const blob = await this.ensureTake(take);
+      let blob;
+      try { blob = await this.ensureTake(take); }
+      catch (error) { this.fail(error.message); return; }
       downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
         at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
       await new Promise(resolve => setTimeout(resolve, 300));

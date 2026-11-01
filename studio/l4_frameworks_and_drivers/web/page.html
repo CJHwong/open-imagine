@@ -939,7 +939,7 @@
       applyMediaMode(next);
       if (keeping && !sharedOperation) localStorage.setItem('studio-draft-workspace', next);
     } catch (error) {
-      showToast('info', error.message);
+      showToast('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
     } finally {
       tab.removeAttribute('aria-busy');
       workspaceSwitchPending = false;
@@ -1639,7 +1639,9 @@
   });
 
   async function cancelVideoRun() {
-    if (videoRunState === 'idle' || videoRunState === 'starting' || videoRunState === 'stopping') return;
+    // A run that is still starting already holds a request id, so it can be cancelled.
+    if (videoRunState === 'idle' || videoRunState === 'stopping') return;
+    const previous = videoRunState;
     setVideoRunState('stopping');
     videoStudio.setCancelRequested(true);
     try {
@@ -1651,8 +1653,8 @@
       if (!response.ok) throw new Error(t('page.error.cancelFailed'));
     } catch (error) {
       videoStudio.setCancelRequested(false);
-      setVideoRunState('running');
-      videoStudio.setError(error.message);
+      setVideoRunState(previous);
+      videoStudio.setError(error instanceof TypeError ? t('form.error.serverSilent') : error.message);
     }
   }
 
@@ -1838,6 +1840,7 @@
     setVideoRunState('starting');
     let progressTimer = null;
     let progressRequestPending = false;
+    let progressFailures = 0;
     const requestStarted = performance.now();
     videoStudio.setGenerationProgress(
       {running: true, stage: 'preparing', step: 0, total: 0},
@@ -1862,11 +1865,16 @@
         const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
         if (!progressResponse.ok) throw new Error('The progress request failed.');
         const progressState = await progressResponse.json();
+        progressFailures = 0;
         if (progressState.kind === 'video' && progressState.request_id === videoRunRequestId) {
           videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
           if (progressState.running && videoRunState === 'starting') setVideoRunState('running');
         }
       } catch (error) {
+        // One lost poll is a blip. A run that has lost several is not reporting, and the
+        // person watching it should know before the request itself gives up.
+        progressFailures += 1;
+        if (progressFailures === 5) videoStudio.setError(t('page.error.videoProgress'));
         videoStudio.setGenerationProgress(
           {running: true, stage: 'preparing', step: 0, total: 0, stopping: videoRunState === 'stopping'},
           (performance.now() - requestStarted) / 1000,
@@ -1905,7 +1913,7 @@
       settings.createdAt = Number(response.headers.get('X-Studio-Completed')) * 1000 || Date.now();
       const contentType = response.headers.get('content-type') || '';
       if (!response.ok) {
-        const failure = await response.json();
+        const failure = await response.json().catch(() => ({}));
         throw new Error(failure.error || t('page.error.videoRequestFailed'));
       }
       if (contentType.indexOf('video/mp4') !== -1) {
@@ -1933,7 +1941,7 @@
       videoStudio.clearImageReferences();
       videoStudio.clearAudio();
     } catch (error) {
-      videoStudio.setError(error.message);
+      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed') : error.message);
       status.textContent = t('page.error.videoFailed');
     } finally {
       if (progressTimer !== null) window.clearInterval(progressTimer);
@@ -2238,7 +2246,16 @@
         canvas.replaceChildren(loading); stageBar.hidden = true;
       }
       try { await kept.hydrate(entry); }
-      catch (error) { if (view === entry.id) showToast('error', error.message); return; }
+      catch (error) {
+        // The loading note was already in the stage; leaving it there made a failed read
+        // look like a slow one.
+        if (view === entry.id) {
+          showToast('error', t('page.error.imageRead'));
+          const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = t('page.error.imageRead');
+          canvas.replaceChildren(empty); stageBar.hidden = false;
+        }
+        return;
+      }
       if (view !== entry.id || !gallery.includes(entry)) return;
     }
     if (stage) stage.renderStage();
@@ -2274,7 +2291,13 @@
   // An image made in this tab carries its base64. A kept one reads it from its
   // blob only when it is used, so a long strip does not hold every image twice.
   async function referFrom(entry) {
-    if (!entry.src && entry.loadMedia) await kept.hydrate(entry);
+    if (!entry.src && entry.loadMedia) {
+      try { await kept.hydrate(entry); }
+      catch (error) {
+        showToast('error', t('page.error.imageAsReference', {message: error.message}));
+        return;
+      }
+    }
     const ready = entry.b64 ? Promise.resolve(entry.b64) : kept.blobOf(entry.src).then(function (blob) {
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();

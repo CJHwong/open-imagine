@@ -12,6 +12,46 @@ import wave
 from playwright.sync_api import expect, sync_playwright
 
 
+def stored_sources(page):
+    """The ids in the Music source store. One id means every song shares one recording."""
+    return page.evaluate(
+        """async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('studio-music');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const ids = await new Promise((resolve, reject) => {
+        const request = db.transaction('sources', 'readonly').objectStore('sources').getAllKeys();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return ids;
+    }"""
+    )
+
+
+def stored_draft(page):
+    """The saved form draft, including the reference pointer."""
+    return page.evaluate(
+        """async () => {
+      const db = await new Promise((resolve, reject) => {
+        const request = indexedDB.open('studio-music');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const draft = await new Promise((resolve, reject) => {
+        const request = db.transaction('state', 'readonly').objectStore('state').get('draft');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return draft;
+    }"""
+    )
+
+
 def verify_automatic_instrumental(browser, base):
     """Blank words imply instrumental without hiding the optional lyrics editor."""
     page = browser.new_page()
@@ -168,6 +208,56 @@ def verify_failure_restores_inputs(browser, base, audio):
     )
     assert errors == [], errors
     page.close()
+
+
+def verify_source_across_tabs(browser, base, audio):
+    """A song imported by another tab still points at the recording that made it."""
+    context = browser.new_context(viewport={"width": 1440, "height": 1000})
+    first, second = context.new_page(), context.new_page()
+    errors = []
+    for page in (first, second):
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto(base + "/?workspace=music")
+        page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    try:
+        # The tab that starts the run hands the import to the other one, as a closed tab would.
+        first.evaluate("() => { document.querySelector('music-studio').importSong = async () => {}; }")
+        with first.expect_file_chooser() as chosen:
+            first.locator("#music-reference-choose").click()
+        chosen.value.set_files({"name": "hum.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
+        expect(first.locator("#music-reference-name")).to_have_text("hum.wav")
+        first.locator("#music-style").fill("Warm piano pop")
+        first.locator("#music-generate").click()
+        second.wait_for_function(
+            "() => document.querySelector('music-studio').songs.some(song => song.sourceId)", timeout=20000
+        )
+        song = second.evaluate(
+            """() => {
+          const song = document.querySelector('music-studio').songs.find(item => item.sourceId);
+          return {id: song.id, sourceId: song.sourceId};
+        }"""
+        )
+        second.evaluate(
+            "id => { const studio = document.querySelector('music-studio'); studio.selectedId = id; studio.renderSongs(); }",
+            song["id"],
+        )
+        card = second.locator(f'.music-output-bars [data-song-id="{song["id"]}"]')
+        card.locator("[data-music-more]").click()
+        card.get_by_role("menuitem", name="Use the original recording", exact=True).click()
+        expect(second.locator("#music-reference-name")).to_have_text("hum.wav")
+        restored = second.evaluate(
+            """async () => {
+          const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+          let text = '';
+          for (const byte of bytes) text += String.fromCharCode(byte);
+          return btoa(text);
+        }"""
+        )
+        assert restored == base64.b64encode(audio.getvalue()).decode()
+        assert errors == [], errors
+        print("PASS a tab that did not start the run still restores the original recording")
+    finally:
+        context.close()
 
 
 def main():
@@ -364,6 +454,10 @@ def main():
         expect(page.locator("#music-mode")).to_have_value("cover")
         expect(page.locator("#music-mode-generate")).to_be_checked()
         expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        # The draft points at the one stored record instead of copying the bytes.
+        draft = stored_draft(page)
+        assert draft["reference"]["sourceId"] and "blob" not in draft["reference"], draft["reference"]
+        assert len(stored_sources(page)) == 1
         page.locator("#music-mode-generate").focus()
         page.keyboard.press("ArrowRight")
         expect(page.locator("#music-mode-plan")).to_be_checked()
@@ -452,6 +546,60 @@ def main():
         expect(page.locator("#music-reference-name")).to_have_text("")
         expect(page.get_by_text("Choose an audio recording.", exact=True)).to_be_visible()
 
+        # The recording that made a song comes back from one stored record, not from the
+        # rendered song. Every song made from this file points at that one record.
+        cover = page.evaluate(
+            """() => {
+          const song = document.querySelector('music-studio').songs.filter(item => item.sourceId).at(-1);
+          return song ? {id: song.id, sourceId: song.sourceId} : null;
+        }"""
+        )
+        assert cover, "The cover must point at the recording that made it"
+        page.evaluate(
+            "id => { const studio = document.querySelector('music-studio'); studio.selectedId = id; studio.renderSongs(); }",
+            cover["id"],
+        )
+        card = page.locator(f'.music-output-bars [data-song-id="{cover["id"]}"]')
+        card.locator("[data-music-more]").click()
+        expect(card.get_by_role("menuitem", name="Use the original recording", exact=True)).to_be_visible()
+        expect(card.get_by_role("menuitem", name="Use this song", exact=True)).to_be_visible()
+        card.get_by_role("menuitem", name="Use the original recording", exact=True).click()
+        expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
+        expect(page.locator("#music-mode")).to_have_value("cover")
+        restored = page.evaluate(
+            """async () => {
+          const bytes = new Uint8Array(await document.querySelector('music-studio').reference.blob.arrayBuffer());
+          let text = '';
+          for (const byte of bytes) text += String.fromCharCode(byte);
+          return btoa(text);
+        }"""
+        )
+        assert restored == base64.b64encode(audio.getvalue()).decode()
+        sources = stored_sources(page)
+        assert len(sources) == 1, sources
+        assert sources[0] == cover["sourceId"]
+        # Clearing the songs leaves the record because the form still holds it; removing
+        # the form reference releases the last user.
+        page.once("dialog", lambda dialog: dialog.accept())
+        page.locator("#music-clear-all").click()
+        expect(page.locator(".music-song")).to_have_count(0)
+        assert stored_sources(page) == [cover["sourceId"]]
+        page.locator("#music-reference-remove").click()
+        page.wait_for_function(
+            """() => new Promise(resolve => {
+          const open = indexedDB.open('studio-music');
+          open.onsuccess = () => {
+            const db = open.result;
+            const count = db.transaction('sources', 'readonly').objectStore('sources').count();
+            count.onsuccess = () => { db.close(); resolve(count.result === 0); };
+            count.onerror = () => { db.close(); resolve(false); };
+          };
+          open.onerror = () => resolve(false);
+        })""",
+            timeout=5000,
+        )
+        assert stored_sources(page) == []
+
         # A generated track can go back in the reference door; a score has no audio and
         # offers no such item. The stub writes no audio, so the cards are drawn by hand.
         page.evaluate("""() => {
@@ -470,13 +618,14 @@ def main():
         )
         score = page.locator('.music-output-bars [data-song-id="score-1"]')
         score.locator("[data-music-more]").click()
-        expect(score.get_by_role("menuitem", name="Use as reference", exact=True)).to_have_count(0)
+        expect(score.get_by_role("menuitem", name="Use this song", exact=True)).to_have_count(0)
+        expect(score.get_by_role("menuitem", name="Use the original recording", exact=True)).to_have_count(0)
         page.evaluate(
             "() => { const studio = document.querySelector('music-studio'); studio.selectedId = 'take-1'; studio.renderSongs(); }"
         )
         take = page.locator('.music-output-bars [data-song-id="take-1"]')
         take.locator("[data-music-more]").click()
-        take.get_by_role("menuitem", name="Use as reference", exact=True).click()
+        take.get_by_role("menuitem", name="Use this song", exact=True).click()
         expect(page.locator("#music-reference-name")).to_have_text("music-12.wav")
         expect(page.locator("#music-mode")).to_have_value("cover")
         page.set_viewport_size({"width": 390, "height": 844})
@@ -485,6 +634,7 @@ def main():
         verify_automatic_instrumental(browser, base)
         verify_cancel_restores_words(browser, base)
         verify_failure_restores_inputs(browser, base, audio)
+        verify_source_across_tabs(browser, base, audio)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "

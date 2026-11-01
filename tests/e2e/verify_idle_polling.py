@@ -16,6 +16,11 @@ SHELL = """<!doctype html><html><body>
 <div id="voice-studio"><button id="voice-generate" data-state="idle">Speak</button></div>
 <div id="shared-operation"></div><button id="shared-operation-cancel"><span>Cancel</span></button>
 <script>
+// The modules read UI copy from the page. This shell has no server-inlined table, so it
+// hands them the English source strings the same way the page does.
+window.studioI18n = {t: key => key, plural: (count, forms) => (typeof forms === 'string' ? forms : forms.other),
+  number: value => String(value), date: value => String(value), locale: () => 'en',
+  label: (kind, id, english) => english};
 window.hiddenForCheck = false;
 Object.defineProperty(document, 'hidden', {get: () => window.hiddenForCheck});
 Object.defineProperty(document, 'visibilityState', {get: () => window.hiddenForCheck ? 'hidden' : 'visible'});
