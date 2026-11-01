@@ -1201,6 +1201,7 @@
   gallery-browser[workspace="music"] .gallery-card .still { width: 80px; height: 80px; margin: 0 auto; }
   .music-thumb-art img { width: 100%; height: 100%; object-fit: cover; }
   .music-thumb-note { font: 32px var(--serif); color: #c8b4a1; }
+  .music-thumb-note .icon { width: 32px; height: 32px; }
   .music-thumb .still, gallery-browser[workspace="music"] .gallery-card .still { position: relative; }
   .music-thumb.is-playing .still, gallery-browser[workspace="music"] .gallery-card.is-playing .still {
     opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
@@ -1302,7 +1303,7 @@
   .music-sheet { display: grid; gap: 16px; min-width: 0; }
   .music-sheet-page { position: relative; padding: 18px 20px 16px; border: 1px solid var(--line);
     border-radius: 8px; color: #24211e; background: #fff; box-shadow: 0 16px 36px #0003; }
-  .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); }
+  .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); overflow: auto; }
   .music-sheet-page .music-abc-notation { padding: 0; background: none; color: #24211e;
     max-height: min(46dvh, 420px); }
   .music-sheet-notes svg { display: block; width: 100%; height: auto; margin: 0 auto; max-width: 100%; }
@@ -1539,6 +1540,22 @@
   .music-tag-guide[open] { padding-bottom: 2px; }
   .music-song.is-score { grid-template-columns: minmax(0, 1fr); width: min(900px, 100%); margin: auto; }
   .music-song.is-score .music-artwork { display: none; }
+  /* A score fills the preview. The page takes the height the pane gives it, and the
+     notation scrolls only when the score is longer than that. The old 900px width and
+     420px height caps left a third of a wide stage empty and cut the last system. */
+  .music-preview-pane:has(.music-song.is-score) {
+    align-items: stretch; justify-items: stretch; grid-template-rows: minmax(0, 1fr) auto; }
+  .music-preview-pane:has(.music-song.is-score) .music-songs { width: 100%; height: 100%; }
+  .music-song.is-score { width: 100%; max-width: none; height: 100%; margin: 0; }
+  .music-song.is-score .music-track-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  /* The page is as tall as its notation, up to the height the pane leaves for it. A
+     short score leaves no empty paper; a long one scrolls inside the page. */
+  .music-song.is-score .music-sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    justify-content: center; gap: 16px; }
+  .music-song.is-score .music-sheet-page { flex: 0 1 auto; box-sizing: border-box; display: flex;
+    flex-direction: column; min-height: 0; max-height: calc(100% - 56px); }
+  .music-song.is-score .music-sheet-page .music-abc-notation,
+  .music-song.is-score .music-sheet-notes { flex: 0 1 auto; min-height: 0; max-height: none; overflow: auto; }
   .music-score-downloads { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 10px 0; font-size: 12px; }
   .music-score-downloads:empty { display: none; }
   .music-song-actions .menu { min-width: 200px; }

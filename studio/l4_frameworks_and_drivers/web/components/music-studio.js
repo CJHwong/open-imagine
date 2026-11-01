@@ -9,6 +9,7 @@ import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewr
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {encodeMp3} from '../lib/mp3.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
 import './run-button.js';
@@ -297,6 +298,24 @@ const MUSIC_GENRE_GROUPS = [
 
 function musicModelName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
 
+// The genre picker writes a whole sentence into the style text. A song keeps the
+// short name too, so the MP3 tag and a later reader do not have to parse prose.
+function genreOf(song) {
+  const style = String(song?.settings?.style || '');
+  if (!style) return '';
+  const phrases = style.split(/[,\n]/).map(phrase => phrase.trim().toLowerCase());
+  const option = MUSIC_STYLE_ROWS_EN[0].options.find(([, sentence, legacy]) =>
+    phrases.includes(sentence.toLowerCase()) || phrases.includes(legacy));
+  return option ? option[0] : '';
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function recordPlayer() {
   return `<div class="music-turntable" aria-hidden="true">
     <div class="music-record"><span>♪</span></div>
@@ -369,6 +388,24 @@ class MusicStudio extends HTMLElement {
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
+    // The engraver fixes the staff width when it runs. A window that changes width
+    // gets a fresh engraving at the new width: a wide page carries more bars per line,
+    // so the score needs fewer systems and less scrolling.
+    this.sheetWidth = 0;
+    this.sheetResize = new ResizeObserver(() => {
+      const sheet = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+      if (!sheet || this.scoreSynth) return;
+      const width = Math.round(sheet.clientWidth);
+      if (!width || Math.abs(width - (this.sheetWidth || 0)) < 32) return;
+      clearTimeout(this.sheetTimer);
+      this.sheetTimer = setTimeout(() => {
+        const current = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+        if (!current || current !== sheet) return;
+        delete current.dataset.engraved;
+        this.engraveSheet();
+      }, 220);
+    });
+    this.sheetResize.observe(this.querySelector('.music-preview-pane'));
     this.controls.innerHTML = `<div class="modes" role="radiogroup" aria-label="${t('music.mode.label')}">
         <input type="radio" name="music-workflow" id="music-mode-generate" value="generate" checked>
         <label for="music-mode-generate"><svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg>${t('music.mode.generate')}</label>
@@ -1394,7 +1431,7 @@ class MusicStudio extends HTMLElement {
     const generationSeconds = Number.isFinite(operation.started_at) && Number.isFinite(finished) && finished >= operation.started_at
       ? finished - operation.started_at : null;
     let song = {id: operation.id, blob, ...details, title: t('music.common.untitled'), settings: operation.settings,
-      model: operation.model, createdAt: finished * 1000, generationSeconds};
+      model: operation.model, createdAt: finished * 1000, generationSeconds, genre: genreOf({settings: operation.settings})};
     if (this.keeping) {
       song = await this.store(() => saveMusicSong(song));
       if (!song) return;
@@ -1508,6 +1545,7 @@ class MusicStudio extends HTMLElement {
     const song = this.songs.find(item => item.id === sheet.dataset.songId);
     if (!song?.score) return;
     sheet.dataset.engraved = 'yes';
+    this.sheetWidth = Math.round(sheet.clientWidth);
     renderNotation(sheet, song.score).then(({tunes}) => {
       this.scoreTunes ||= new Map();
       if (tunes[0]) this.scoreTunes.set(song.id, tunes[0]);
@@ -1658,14 +1696,72 @@ class MusicStudio extends HTMLElement {
   }
   // One path for every download, so the strip and the browser panel cannot
   // disagree about a file's name or its type.
-  downloadSongs(ids) {
+  async downloadSongs(ids) {
     for (const song of this.songs.filter(song => ids.includes(song.id))) {
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(song.blob || new Blob([song.score || ''], {type: 'text/vnd.abc'}));
-      link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (song.blob) await this.downloadMp3(song);
+      else saveBlob(new Blob([song.score || ''], {type: 'text/vnd.abc'}), `music-${song.seed}.abc`);
     }
+  }
+  // A song leaves as a tagged MP3. If the encoder cannot load, the WAV is still
+  // the run's own output, so the person gets that file and is told why.
+  async downloadMp3(song, trigger) {
+    if (!song.blob) return;
+    if (trigger) trigger.disabled = true;
+    try {
+      const cover = song.coverBlob
+        ? {type: song.coverBlob.type, bytes: new Uint8Array(await song.coverBlob.arrayBuffer())}
+        : null;
+      const blob = await encodeMp3(song.blob, {
+        title: this.songTitle(song),
+        genre: song.genre || genreOf(song),
+        artist: musicModelName(song.model),
+        year: new Date(song.createdAt || Date.now()).getFullYear(),
+        comment: song.settings?.style || '',
+        lengthMs: (song.seconds || 0) * 1000,
+        cover,
+      });
+      saveBlob(blob, `music-${song.seed}.mp3`);
+    } catch (error) {
+      this.options.notify('error', t('music.error.mp3'));
+      saveBlob(song.blob, `music-${song.seed}.wav`);
+    } finally {
+      if (trigger) trigger.disabled = false;
+    }
+  }
+  // The gallery file carries each song, its cover and its original recording.
+  // An import saves the source first, because the song points at it.
+  async collectBundle() {
+    if (!this.keeping) return [];
+    const items = [];
+    for (const song of await musicSongs()) {
+      const media = [];
+      if (song.blob instanceof Blob) media.push({role: 'audio', blob: song.blob});
+      if (song.coverBlob instanceof Blob) media.push({role: 'cover', blob: song.coverBlob});
+      if (song.sourceId) {
+        const source = await musicSource(song.sourceId).catch(() => null);
+        if (source?.blob instanceof Blob) media.push({role: 'source', blob: source.blob});
+      }
+      const {blob, coverBlob, ...record} = song;
+      items.push({workspace: 'music', id: song.id, at: song.createdAt || 0, record, media});
+    }
+    return items;
+  }
+  async restoreBundle(items) {
+    let imported = 0, skipped = 0;
+    for (const item of items) {
+      const media = Object.fromEntries((item.media || []).map(entry => [entry.role, entry.blob]));
+      if (!(media.audio instanceof Blob)) { skipped += 1; continue; }
+      const song = {...item.record, id: item.id, blob: media.audio};
+      if (media.cover instanceof Blob) song.coverBlob = media.cover;
+      if (song.sourceId && media.source instanceof Blob) {
+        await putMusicSource({id: song.sourceId, blob: media.source,
+          name: song.settings?.reference_name || 'reference'}).catch(() => {});
+      }
+      const saved = await saveMusicSong(song).catch(() => null);
+      if (saved) imported += 1; else skipped += 1;
+    }
+    await this.restoreSongs();
+    return {imported, skipped};
   }
   async clearAllSongs() {
     if (this.busy || !this.songs.length) return;
@@ -2064,14 +2160,26 @@ class MusicStudio extends HTMLElement {
       audio.onpause = audio.onended = syncPlayback;
       card.classList.toggle('is-playing', !audio.paused && !audio.ended);
       if (!audio.paused && !audio.ended) playback.textContent = t('music.playback.playing');
-      const download = document.createElement('a'); download.className = 'icon-btn';
-      download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? t('music.download.wav') : t('music.download.abc')); download.title = hasAudio ? t('music.download.wav') : t('music.download.abc'); download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
+      const download = document.createElement(hasAudio ? 'button' : 'a');
+      download.className = 'icon-btn';
+      if (hasAudio) {
+        // Encoding waits on the CDN and on the decoder, so the control is a button.
+        download.type = 'button';
+        download.setAttribute('aria-label', t('music.download.mp3'));
+        download.title = t('music.download.mp3');
+        download.addEventListener('click', () => this.downloadMp3(song, download));
+      } else {
+        download.href = url; download.download = `music-${song.seed}.abc`;
+        download.setAttribute('aria-label', t('music.download.abc'));
+        download.title = t('music.download.abc');
+      }
+      download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
       const details = document.createElement('div');
       details.className = 'music-details-body';
       const metadata = document.createElement('dl');
       const planning = song.metadata?.config?.cot || song.settings?.cot;
       const planningKey = {full: 'music.planning.full', melody: 'music.planning.melody', off: 'music.planning.off'}[planning];
-      for (const [name, value] of [[t('music.meta.model'), musicModelName(song.model)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
+      for (const [name, value] of [[t('music.meta.model'), musicModelName(song.model)], [t('music.meta.genre'), song.genre || genreOf(song)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
         [t('music.meta.audio_label'), hasAudio ? t('music.meta.audio_value') : t('music.meta.score_value')], [t('music.meta.workflow'), t({generate: 'music.meta.workflow_song', plan: 'music.meta.workflow_plan', transcribe: 'music.meta.workflow_transcribe', cover: 'music.meta.workflow_cover'}[song.settings?.mode || 'generate'])], [t('music.meta.reference'), song.settings?.reference_name], [t('music.meta.instrumental'), song.settings?.instrumental ? t('music.common.yes') : null], [t('music.meta.steps'), hasAudio ? song.settings?.steps || 32 : null], [t('music.meta.guidance'), hasAudio ? song.settings?.cfg_scale ?? 1 : null], [t('music.field.style'), song.settings?.style], [t('music.field.planning'), planningKey ? t(planningKey) : null], [t('music.meta.cover_model'), song.coverModel], [t('music.meta.cover_seed'), song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;

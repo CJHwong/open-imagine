@@ -125,7 +125,7 @@ def main():
         expect(bar.locator(".actions > .menu-anchor")).to_have_count(1)
         expect(bar.locator(".actions > .rule")).to_have_count(1)
         expect(bar.locator(".actions > .icon-btn")).to_have_count(2)
-        expect(bar.get_by_role("link", name="Download WAV")).to_be_visible()
+        expect(bar.get_by_role("button", name="Download MP3")).to_be_visible()
         assert bar.locator(".actions").bounding_box()["y"] < page.locator(".music-gallery").bounding_box()["y"]
         bar.locator(".prompt-line").click()
         sheet = page.get_by_role("dialog", name="Music details", exact=True)
