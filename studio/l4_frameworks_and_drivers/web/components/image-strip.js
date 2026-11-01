@@ -52,9 +52,13 @@ function glyph(name) {
 // width is explicit so a tile keeps its place while its picture is unloaded;
 // gallery-window reads the same number to size its spacers.
 function frameWidth(row) {
-  const entry = row?.entry || {};
-  const ratio = entry.width && entry.height ? entry.width / entry.height : 1;
-  return Math.round(60 * Math.min(2, Math.max(0.5, ratio)));
+  const entry = row?.entry;
+  const ratio = entry && entry.width && entry.height
+    ? Number(entry.width) / Number(entry.height)
+    : page?.pending?.()?.ratio;
+  const base = entry ? 60 : 64;
+  const clamped = Number.isFinite(ratio) && ratio > 0 ? Math.min(2, Math.max(0.5, ratio)) : 1;
+  return Math.round(base * clamped);
 }
 
 class ImageStrip extends LitElement {

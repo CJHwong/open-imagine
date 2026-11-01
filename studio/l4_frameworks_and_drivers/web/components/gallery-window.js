@@ -51,8 +51,8 @@ class GalleryWindow extends LitElement {
   // stays for the strips whose cards are one size.
   sizes() {
     if (this.axis === 'vertical' || typeof this.itemSize !== 'function') return null;
-    const gap = 16;
-    const widths = this.items.map(item => Math.max(1, Number(this.itemSize(item)) || 0));
+    const gap = parseFloat(getComputedStyle(this.target || this).columnGap) || 0;
+    const widths = this.items.map(item => Math.max(1, Math.round(Number(this.itemSize(item)) || 0)));
     const offsets = [];
     let at = 0;
     widths.forEach(width => { offsets.push(at); at += width + gap; });
