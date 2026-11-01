@@ -366,6 +366,11 @@ class VideoStudio extends LitElement {
     this.renderVideoGallery();
   }
 
+  // The page owns the autoplay setting; this element reads it when a clip lands.
+  setAutoplay(read) {
+    this.autoplay = read;
+  }
+
   setKeeping(keeping) {
     this.keepEnabled = keeping;
     rememberGalleryView('video', {}, keeping);
@@ -879,7 +884,18 @@ class VideoStudio extends LitElement {
     const saved = await this.persistVideo(clip);
     this.renderVideoGallery();
     this.createThumbnail(clip);
+    this.playArrival(clip);
     return saved;
+  }
+
+  // A finished clip plays once, when the page's Media menu allows it. A browser that
+  // blocks the sound leaves it paused: the policy is not a failure.
+  async playArrival(clip) {
+    if (!this.autoplay?.() || !clip?.url) return;
+    if (!this.querySelector('#video-preview')?.getAttribute('src')) this.renderPreview();
+    await this.updateComplete;
+    const video = this.querySelector('#video-preview-root video');
+    if (video?.paused) await video.play().catch(() => {});
   }
 
   addStubClip(result, settings) {

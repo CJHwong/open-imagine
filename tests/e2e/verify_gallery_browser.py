@@ -302,6 +302,15 @@ with sync_playwright() as playwright:
             arg={"selector": selector, "target": target},
         )
     print("PASS compact scroll restoration waits for media and workspace visibility", flush=True)
+    page.locator("#theme-toggle").click()
+    autoplay = page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True)
+    assert autoplay.get_attribute("aria-checked") == "true"
+    autoplay.click()
+    assert page.evaluate("localStorage.getItem('studio-autoplay')") == "off"
+    page.locator("#theme-toggle").click()
+    page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True).click()
+    assert page.evaluate("localStorage.getItem('studio-autoplay')") == "on"
+    print("PASS the Media menu turns autoplay off and restores it", flush=True)
     page.once("dialog", lambda dialog: dialog.accept())
     page.locator("#theme-toggle").click()
     page.get_by_role("menuitemcheckbox", name="Keep in this browser", exact=True).click()

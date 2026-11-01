@@ -1385,7 +1385,17 @@ class MusicStudio extends HTMLElement {
     this.selectedId = song.id;
     this.showGeneration = false;
     this.renderSongs();
+    this.playArrival(operation, song);
     localStorage.setItem('studio-music-changed', String(Date.now()));
+  }
+  // A finished song plays once, when the page allows it and this tab started the run.
+  // Every other tab imports the same song and stays silent. A browser that blocks the
+  // sound leaves it paused: the policy is not a failure.
+  playArrival(operation, song) {
+    if (!song.blob || document.hidden) return;
+    if (!this.options.autoplay?.() || operation?.client_id !== this.options.clientId) return;
+    this.pausePlayback();
+    this.querySelector('.music-song:not([hidden]) audio')?.play().catch(() => {});
   }
   // This tab knows the reference from its submit; another tab knows it from the link.
   async sourceFor(id) {

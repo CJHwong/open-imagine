@@ -2346,6 +2346,9 @@
   // allows one run at a time, so two tabs never number two new images at once.
   const KEEP_KEY = 'studio-keep';
   let keeping = readKeep();
+  // Autoplay is a preference, not stored media, so turning keep off leaves it alone.
+  const AUTOPLAY_KEY = 'studio-autoplay';
+  let autoplay = readAutoplay();
 
   function readKeep() {
     try {
@@ -2354,6 +2357,30 @@
       console.warn('The keep setting was not read:', error);
       return true;
     }
+  }
+
+  function readAutoplay() {
+    try {
+      return localStorage.getItem(AUTOPLAY_KEY) !== 'off';
+    } catch (error) {
+      console.warn('The autoplay setting was not read:', error);
+      return true;
+    }
+  }
+
+  function setAutoplay(on) {
+    autoplay = on;
+    try {
+      localStorage.setItem(AUTOPLAY_KEY, on ? 'on' : 'off');
+    } catch (error) {
+      showToast('error', t('page.error.autoplayTabOnly', {message: error.message}));
+    }
+    markAutoplay();
+  }
+
+  function markAutoplay() {
+    const item = document.getElementById('autoplay-toggle');
+    if (item) item.setAttribute('aria-checked', String(autoplay));
   }
 
   // A kept image joins the strip in order, newest first, and moves the frame
@@ -2638,7 +2665,7 @@
           document.getElementById('media-music-mode').hidden = false;
           translateServerLabels(STUDIO);
           musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
-            keeping: () => keeping, notify: showToast, onSendToVideo: sendVoiceToVideo,
+            keeping: () => keeping, autoplay: () => autoplay, notify: showToast, onSendToVideo: sendVoiceToVideo,
             onBusyChange: () => { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
         }
         const voice = state.voice;
@@ -2650,7 +2677,7 @@
           document.getElementById('media-voice-mode').hidden = false;
           translateServerLabels(STUDIO);
           if (voiceStudio.configure) voiceStudio.configure({capabilities: voice.capabilities, clientId: CLIENT_ID,
-            libraryId: LIBRARY_ID, keeping: function () { return keeping; }, notify: showToast,
+            libraryId: LIBRARY_ID, keeping: function () { return keeping; }, autoplay: function () { return autoplay; }, notify: showToast,
             onSendToVideo: sendVoiceToVideo,
             onBusyChange: function () { setWorkspaceControlsDisabled(); renderBackendSelector(); }});
         }
@@ -2999,8 +3026,16 @@
     const keep = menus.menuItem('check', t('page.keep.label'), function () { setKeep(!keeping); });
     keep.setAttribute('role', 'menuitemcheckbox');
     keep.id = 'keep-toggle';
-    menu.append(head, keep);
+    const play = menus.menuItem('check', t('page.autoplay.label'), function () { setAutoplay(!autoplay); });
+    play.setAttribute('role', 'menuitemcheckbox');
+    play.id = 'autoplay-toggle';
+    menu.append(head, keep, play);
     markKeep();
+    markAutoplay();
+    // The clip player arrives with its module, after this script runs.
+    customElements.whenDefined('video-studio').then(function () {
+      videoStudio.setAutoplay(function () { return autoplay; });
+    });
     // The API is the page's other door onto the same use cases, so its document
     // belongs in the menu a reader opens to look something up.
     const apiHead = document.createElement('div');

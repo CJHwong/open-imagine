@@ -1371,5 +1371,7 @@
   "voice.template.writeOwn": "自行撰寫",
   "voice.template.writeOwnScript": "自行撰寫指令稿",
   "voice.toast.dropped": "拖放的錄音會用於「複製」。請先切換到「複製」。",
-  "voice.toast.operationStopped": "語音操作已停止。已完成的音訊會保留。"
+  "voice.toast.operationStopped": "語音操作已停止。已完成的音訊會保留。",
+  "page.autoplay.label": "自動播放新的結果",
+  "page.error.autoplayTabOnly": "自動播放設定只套用在這個分頁：{message}"
 }

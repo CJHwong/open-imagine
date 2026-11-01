@@ -1766,6 +1766,12 @@ with sync_playwright() as playwright:
         }""",
         {"videoBytes": list(video_bytes)},
     )
+    # The Media menu keeps autoplay on, so a finished clip starts by itself. The clip is
+    # short, so check that playback began, not that it runs.
+    page.wait_for_function(
+        "() => { const video = document.querySelector('#video-preview'); return Boolean(video) && video.played.length > 0; }",
+        timeout=15000,
+    )
     # A video clip draws a 16-frame contact sheet in its thumb, not an img
     # (components/video-gallery-preview.js:render). A still poster can appear first.
     thumbnail_ready = False

@@ -1395,5 +1395,7 @@
   "voice.template.writeOwn": "Write your own",
   "voice.template.writeOwnScript": "Write your own script",
   "voice.toast.dropped": "A dropped recording is used by Clone. Switch to Clone first.",
-  "voice.toast.operationStopped": "The voice operation stopped. Completed takes remain."
+  "voice.toast.operationStopped": "The voice operation stopped. Completed takes remain.",
+  "page.autoplay.label": "Play new results automatically",
+  "page.error.autoplayTabOnly": "The autoplay setting applies to this tab only: {message}"
 }

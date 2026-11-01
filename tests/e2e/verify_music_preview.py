@@ -142,6 +142,13 @@ def main():
         page.locator("#music-seed").fill("43")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(2)
+        # The Media menu keeps autoplay on, so the new song starts by itself. The stub's
+        # song is a tenth of a second long, so check that playback began, not that it runs.
+        page.wait_for_function(
+            "() => { const audio = document.querySelector('.music-song:not([hidden]) audio');"
+            " return Boolean(audio) && audio.played.length > 0; }",
+            timeout=10000,
+        )
         expect(page.locator(".music-song:not([hidden])")).to_have_count(1)
         page.get_by_role("button", name="Select song 1", exact=True).click()
         expect(current.locator(".music-artwork > img")).to_be_visible()

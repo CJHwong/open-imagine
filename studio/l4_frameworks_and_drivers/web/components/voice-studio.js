@@ -732,6 +732,17 @@ class VoiceStudio extends LitElement {
       elapsed: settings.finished_at && settings.started_at ? settings.finished_at - settings.started_at : null};
     this.addTake(take, settings.settings?.segment_text || settings.segment_text || settings.text || settings.prompt || t('voice.import.fallbackText'),
       true, settings.settings?.segment_id || settings.segment_id || 'voice-line-' + settings.id);
+    this.playArrival(settings, take.id);
+  }
+
+  // A generated take plays once the page shows it, because the run's own panel stands
+  // where the preview will go. Every other tab imports the same take and stays silent.
+  // A take the user recorded is not a generated result, so it never plays by itself.
+  playArrival(operation, takeId) {
+    if (document.hidden || !this.options.autoplay?.()) return;
+    if (operation?.client_id !== this.options.clientId) return;
+    this.pendingAutoplay = takeId;
+    this.requestUpdate();
   }
 
   addTake(take, text, broadcast = true, segmentId = null) {
@@ -1203,6 +1214,12 @@ class VoiceStudio extends LitElement {
     const controls = document.getElementById('voice-controls');
     const footer = document.getElementById('voice-footer');
     if (controls) render(this.controlsTemplate(), controls);
+    // The run's own panel stands where the preview will go, so a generated take plays on
+    // the update that replaces it.
+    if (this.pendingAutoplay && take?.id === this.pendingAutoplay && this.querySelector('audio-preview')) {
+      this.pendingAutoplay = null;
+      this.togglePreviewPlayback().catch(() => {});
+    }
     // After the render: a take's first paint creates the status line.
     if (changes.has('recording') || changes.has('recordingPending')) this.paintRecordingStatus();
     if (footer) render(this.footerTemplate(), footer);
