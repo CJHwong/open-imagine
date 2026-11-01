@@ -35,6 +35,10 @@ gallery-browser { display: contents; color-scheme: dark; }
 .gallery-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
   gap: 16px; padding: 12px 8px 16px; max-height: clamp(110px, 28dvh, 320px); overflow-y: auto;
   overscroll-behavior: contain; scrollbar-width: thin; --scroll-thumb: #555; }
+/* Music's tile is an 80px square, so the roomier column and gutter only pad the sides of
+   every card. A tighter grid fits more of them without shrinking the cover. */
+gallery-browser[workspace="music"] .gallery-browser-grid {
+  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr)); gap: 10px; padding: 8px 4px 12px; }
 .gallery-card { position: relative; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 5px; }
 .gallery-card.checked { border-color: #bbb; background: #282828; }
 .gallery-card .frame { width: 100%; gap: 6px; }
