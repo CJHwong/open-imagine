@@ -1402,8 +1402,13 @@
     #image-stage, #video-studio, #voice-studio, #music-studio { flex: 1 1 auto; min-height: 0; }
     /* The video shell must fit the pane, not its own tall minimum, or its details bar
        slides under the switch. */
-    .video-studio-shell, #video-studio.has-video-gallery .video-studio-shell { min-height: 0; }
-    .video-preview-area { min-height: 0; }
+    /* One stage row and one details row. The old 126px gallery row left an empty band
+       under the details; the shelf is its own pane now. */
+    .video-studio-shell, #video-studio.has-video-gallery .video-studio-shell {
+      min-height: 0; grid-template-rows: minmax(0, 1fr) auto; }
+    /* The stage fills the pane, as the other three do: the clip centred on one surface
+       with its details at the foot. */
+    .video-preview-area { min-height: 0; height: 100%; align-self: stretch; }
     .work > .strip-wrap, .work > #shared-operation, .work > #shared-rewrite-result { flex: none; }
     /* The preview ends above the switch, so its last controls stay clear of it. */
     body[data-pane="preview"] .work { padding-bottom: 64px; }
