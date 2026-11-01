@@ -103,7 +103,6 @@
   "gallery.downloadSelected": "下載選取的項目",
   "gallery.error.action": "媒體庫動作失敗，請再試一次。",
   "gallery.error.remove": "有 {count} 個結果無法移除，請再試一次。",
-  "gallery.facts.mode": "，{mode}",
   "gallery.filterMode": "依模式篩選",
   "gallery.filterModel": "依模型篩選",
   "gallery.groupBatches": "將批次分組",

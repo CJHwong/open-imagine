@@ -249,7 +249,7 @@ class GalleryBrowser extends LitElement {
         <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
           .checked=${this.checked.has(item.id)} ?disabled=${this.working} @change=${() => this.check(item.id)}></label>` : nothing}
       <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
-      <p class="gallery-card-facts">${item.model || workspaceName(this.workspace)}${item.mode ? t('gallery.facts.mode', {mode: item.mode}) : ''}</p>
+      ${item.mode ? html`<p class="gallery-card-facts">${item.mode}</p>` : nothing}
     </article>`;
   }
   render() {

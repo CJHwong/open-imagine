@@ -107,7 +107,6 @@
   "gallery.downloadSelected": "Download selected",
   "gallery.error.action": "The gallery action failed. Try again.",
   "gallery.error.remove": "{count} results could not be removed. Try again.",
-  "gallery.facts.mode": ", {mode}",
   "gallery.filterMode": "Filter by mode",
   "gallery.filterModel": "Filter by model",
   "gallery.groupBatches": "Group batches",
