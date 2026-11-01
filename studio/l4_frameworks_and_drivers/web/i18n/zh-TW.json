@@ -1128,7 +1128,7 @@
   "video.gallery.downloadSelectedStopped": "下載所選項目已停止：{error}",
   "video.gallery.generated": "已生成的影片",
   "video.gallery.keptAll": {
-    "other": "{count} 部影片，已保存在這個瀏覽器。"
+    "other": "{count} 部影片，保存在這個瀏覽器。"
   },
   "video.gallery.keptHint": "影片會保存在這個瀏覽器。",
   "video.gallery.label": "影片庫",
