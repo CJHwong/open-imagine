@@ -800,15 +800,12 @@
       var(--holes) left bottom 3px / 10px 5px repeat-x local; }
   .frame { position: relative; flex: none; display: flex; flex-direction: column; align-items: center;
     gap: 8px; padding: 0; border: 0; background: none; cursor: pointer; }
-  /* A strip tile follows the picture's ratio: a square picture is a square tile, a wide
-     one keeps its width. A tall picture keeps a square tile and shows its own dark space
-     on both sides. The shared 112px strip width would crop every picture to 2:1, so the
-     image strip drops it. */
+  /* A strip tile takes the picture's own shape, the way the big preview does: a square
+     picture is a square tile, a wide one is wide, a tall one is tall. The shared 112px
+     strip width would crop every picture to 2:1, so the image strip drops it. */
   #strip .frame .still { width: auto; max-width: none; }
   #strip .frame .still gallery-media { grid-template-rows: 100%; }
   #strip .frame .still img { object-fit: contain; }
-  #strip .frame .still.portrait { width: 60px; min-width: 60px; background: #101010; }
-  #strip .frame .still.portrait img { width: 60px; height: 60px; object-fit: contain; }
   .frame .still { position: relative; height: 60px; overflow: hidden; background: var(--plate);
     opacity: .7; transition: opacity .2s; }
   .frame img { height: 100%; width: auto; display: block; }
