@@ -1,6 +1,11 @@
 /* Shared browsing controls. The film stays dark in every theme, like the compact strip. */
+/* One head row for every workspace: a long note truncates instead of pushing the actions
+   onto a second line, so the four shelves keep one height and one padding. The panel still
+   takes a row of its own when it is open. */
 .strip-head:has(gallery-browser) { flex-wrap: wrap; justify-content: flex-start; gap: 8px 16px; }
-.strip-head:has(gallery-browser) > span:first-child { flex: 1; min-width: min(150px, 100%); }
+.strip-head:has(gallery-browser) > span:first-child { flex: 1 1 0; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.strip-head:has(gallery-browser) > gallery-browser, .strip-head:has(gallery-browser) > .strip-actions { flex: none; }
 .strip-head:has(gallery-browser) > .strip-actions { order: 3; margin-left: auto; }
 gallery-browser { display: contents; color-scheme: dark; }
 .gallery-browse-toggle { order: 2; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }

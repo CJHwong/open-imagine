@@ -893,6 +893,7 @@
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
     document.body.dataset.media = mediaMode;
+    sizePanes();
     if (document.body.dataset.pane === 'gallery') setPane('gallery');
     const video = mediaMode === 'video';
     const voice = mediaMode === 'voice';
@@ -976,6 +977,13 @@
     return document.querySelector('music-studio .music-gallery');
   }
   let paneShelf = null;
+  // The tabs' height decides where a pane starts; it changes with the locale and the
+  // workspace set.
+  function sizePanes() {
+    const topbar = document.querySelector('.topbar');
+    if (topbar) document.documentElement.style.setProperty('--topbar-h', Math.round(topbar.getBoundingClientRect().height) + 'px');
+  }
+  window.addEventListener('resize', sizePanes);
   function setPane(pane) {
     document.body.dataset.pane = pane;
     for (const button of paneSwitch.querySelectorAll('button')) {
@@ -1001,6 +1009,7 @@
     const button = event.target.closest('[data-pane]');
     if (button) setPane(button.dataset.pane);
   });
+  sizePanes();
   setPane('preview');
 
   async function sendVoiceToVideo(selection) {
