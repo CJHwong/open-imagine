@@ -263,24 +263,34 @@ def verify_reload_cancel_restores(browser, base, audio):
         page.locator("#music-reference-choose").click()
     chosen.value.set_files({"name": "reference.wav", "mimeType": "audio/wav", "buffer": audio.getvalue()})
     expect(page.locator("#music-reference-name")).to_have_text("reference.wav")
-    page.locator("#music-generate").click()
-    # The submit writes what it emptied, so a reload has something to put back. The
-    # recording travels as its stored id, never as bytes.
+    # A submit waits for the recording's record before it empties the form; this one does too.
+    page.wait_for_function("() => Boolean(document.querySelector('music-studio').reference?.sourceId)", timeout=10000)
+    # The submit is simulated, because a real run can import while the page reloads and
+    # then clears the snapshot for the right reason. The store path is the same one a
+    # submit takes: the form empties and the snapshot keeps the recording's id.
+    page.evaluate("""() => {
+      const studio = document.querySelector('music-studio');
+      studio.setOperation({id: 'reload-test', kind: 'music', status: 'running', client_id: 'another-tab'});
+      studio.clearInputs();
+    }""")
     page.wait_for_function("() => Boolean(sessionStorage.getItem('studio-music-cleared'))", timeout=10000)
     saved = page.evaluate("() => JSON.parse(sessionStorage.getItem('studio-music-cleared'))")
     assert saved["style"] == "Warm piano pop" and saved["lyrics"] == "[Verse]\nA long morning", saved
     assert saved["advanced"]["seed"] == "99", saved["advanced"]
     assert saved["reference"]["sourceId"] and "blob" not in saved["reference"], saved["reference"]
-    assert saved["operationId"], saved
+    assert saved["operationId"] == "reload-test", saved
+    # A real submit leaves the link that keeps the recording alive until its song lands;
+    # without it the startup sweep would rightly remove the unreferenced record.
+    page.evaluate(
+        """async (source) => {
+      const store = await import('/page/lib/music-store.js');
+      await store.putMusicLink({id: 'reload-test', sourceId: source.sourceId, name: source.name});
+    }""",
+        saved["reference"],
+    )
     page.reload()
     page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
     expect(page.locator("#music-style")).to_have_value("")
-    # The snapshot is written back here because the stub run may have finished and cleared
-    # it while the page reloaded. sessionStorage is what carries it across a reload; this
-    # check is about the restore, the ownership match and the stored recording.
-    page.evaluate("saved => sessionStorage.setItem('studio-music-cleared', JSON.stringify(saved))", saved)
-    # A restore arrives after the run has ended; the stub run from before the reload may
-    # still be finishing here.
     page.wait_for_function("() => !document.querySelector('music-studio').busy", timeout=30000)
     page.evaluate(
         """(operation) => document.querySelector('music-studio').restoreAfterFailure(operation)""",

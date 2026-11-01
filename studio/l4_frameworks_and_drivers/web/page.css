@@ -1293,11 +1293,10 @@
   .music-sheet { display: grid; gap: 14px; min-width: 0; }
   .music-sheet-meta { margin: 0; color: var(--text-3); font: 10px/1.4 var(--mono);
     letter-spacing: .12em; text-transform: uppercase; }
-  .music-sheet-page { position: relative; padding: 18px 20px 16px; border: 1px solid var(--line-strong);
-    border-radius: 8px; color: #f4eee8; background: linear-gradient(145deg, #332d28, #161311 75%);
-    box-shadow: 0 16px 36px #0003; }
+  .music-sheet-page { position: relative; padding: 18px 20px 16px; border: 1px solid #00000014;
+    border-radius: 8px; color: #24211e; background: #fff; box-shadow: 0 16px 36px #0003; }
   .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); }
-  .music-sheet-page .music-abc-notation { padding: 0; background: none; color: #f4eee8;
+  .music-sheet-page .music-abc-notation { padding: 0; background: none; color: #24211e;
     max-height: min(46dvh, 420px); }
   .music-sheet-notes svg { display: block; width: 100%; height: auto; margin: 0 auto; max-width: 100%; }
   .music-sheet-notes .score-lit, .music-sheet-notes .score-lit * { fill: var(--marker); }
