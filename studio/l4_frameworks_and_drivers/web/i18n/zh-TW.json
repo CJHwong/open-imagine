@@ -780,7 +780,7 @@
   "music.seed.hint": "留空即使用隨機種子。",
   "music.seed.random": "隨機",
   "music.shelf.both": "{songs}，{scores}",
-  "music.shelf.kept": "{count}，已保存在這個瀏覽器。",
+  "music.shelf.kept": "{count}，保存在這個瀏覽器。",
   "music.shelf.scores": {
     "other": "{count} 首樂譜"
   },
