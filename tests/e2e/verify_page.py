@@ -1619,7 +1619,11 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     rewrite = rewrite_prompt(page, button, typed)
     # The cancelled stress run restored 100 steps and a count of two. These
-    # checks inspect metadata, so sample one small image instead.
+    # checks inspect metadata, so sample one small image instead. The rewrite
+    # path runs in either mode, and the tier sizes below belong to Generate, so
+    # the mode is chosen here rather than left to whatever the draft restored.
+    page.click("label[for=mode-generate]")
+    page.wait_for_function("document.getElementById('mode-generate').checked")
     page.locator("#tier-sizes").get_by_role("button").first.click()
     if not page.locator("#advanced").evaluate("panel => panel.open"):
         page.click("#advanced summary")
