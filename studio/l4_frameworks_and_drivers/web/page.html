@@ -2655,6 +2655,74 @@
     growVideoPrompt();
   }
 
+  function emptyImageDraft(snapshot) {
+    const params = {...snapshot.params};
+    (MODES[snapshot.mode]?.params || []).forEach(function (param) {
+      params[param.id] = String(param.default);
+    });
+    return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params,
+      look: {}, loras: [], references: [], eachReference: '', eachText: {},
+      region: {strokes: null, text: {}}};
+  }
+
+  // The reset clears the settings too, so it is a fuller state than the one a finished run
+  // leaves behind.
+  function resetVideoDraft(snapshot) {
+    const capabilities = videoCapabilities() || {};
+    return {...snapshot, mode: 'generate', adapter: '', adapterSeed: '',
+      prompt: '', seed: '', fastMode: false, includeAudio: true,
+      frames: String(capabilities.default_frames || snapshot.frames || 121),
+      ratio: capabilities.default_shape_ratio || snapshot.ratio, rung: 0,
+      look: {}, loras: [],
+      assets: {imageReferences: [], audio: null, clip: null}};
+  }
+
+  function workspaceHasInput(workspace) {
+    if (workspace === 'image') {
+      return Boolean(promptInput.value.trim()) || Boolean(formApi && formApi.references().length);
+    }
+    if (workspace === 'video') {
+      return Boolean(document.getElementById('video-prompt').value.trim())
+        || videoStudio.imageReferences.length > 0 || Boolean(videoStudio.audio);
+    }
+    if (workspace === 'music') {
+      const controls = musicStudio.controls;
+      return Boolean(musicStudio.reference)
+        || Boolean(controls?.querySelector('#music-style')?.value.trim())
+        || Boolean(controls?.querySelector('#music-lyrics')?.value.trim());
+    }
+    if (workspace === 'voice') {
+      return Boolean(voiceStudio.script?.trim()) || Boolean(voiceStudio.editText?.trim())
+        || Boolean(voiceStudio.reference);
+    }
+    return false;
+  }
+
+  // One workspace at a time, and the confirm only guards a form that holds words or media.
+  // A reset writes the empty state through the draft, so a refresh agrees with the screen.
+  function resetWorkspaceInputs(workspace) {
+    if (busy() || sharedBusy() || videoRunState !== 'idle' || musicStudio.busy || voiceStudio.busy) return;
+    if (!workspaceHasInput(workspace)) return;
+    if (!confirm(t('page.reset.confirm'))) return;
+    if (workspace === 'image') {
+      const empty = emptyImageDraft(imageDraft());
+      empty.mode = STUDIO.modes[0]?.id || empty.mode;
+      restoreImageDraft(empty);
+      if (drafts) drafts.changedNow('image');
+      return;
+    }
+    if (workspace === 'video') {
+      restoreVideoDraft(resetVideoDraft(videoDraft()));
+      if (drafts) drafts.changedNow('video');
+      return;
+    }
+    if (workspace === 'music') {
+      musicStudio.resetInputs?.();
+      return;
+    }
+    if (workspace === 'voice') voiceStudio.resetInputs?.();
+  }
+
   document.addEventListener('drafts-ready', function (event) {
     drafts = event.detail.configure({
       clientId: CLIENT_ID, keeping: function () { return keeping; }, notify: showToast,
@@ -2667,10 +2735,7 @@
       },
       empty: function (workspace, snapshot) {
         if (workspace === 'video') return {...snapshot, prompt: '', assets: {...snapshot.assets, imageReferences: [], audio: null}};
-        const params = {...snapshot.params};
-        (MODES[snapshot.mode]?.params || []).forEach(param => { params[param.id] = String(param.default); });
-        return {...snapshot, view: null, prompt: '', negative: '', seed: '', count: '1', params, look: {}, loras: [], references: [],
-          eachReference: '', eachText: {}, region: {strokes: null, text: {}}};
+        return emptyImageDraft(snapshot);
       },
     });
     const savedWorkspace = keeping && localStorage.getItem('studio-draft-workspace');
@@ -3163,6 +3228,12 @@
     customElements.whenDefined('video-studio').then(function () {
       videoStudio.setAutoplay(function () { return autoplay; });
     });
+    // A reset acts on the form on screen, so it sits in this menu rather than beside Run.
+    const formHead = document.createElement('div');
+    formHead.className = 'menu-head';
+    formHead.textContent = t('page.reset.menu');
+    menu.append(formHead, menus.menuItem('undo', t('page.reset.label'),
+      function () { resetWorkspaceInputs(mediaMode); }, t('page.reset.title')));
     // The API is the page's other door onto the same use cases, so its document
     // belongs in the menu a reader opens to look something up.
     const apiHead = document.createElement('div');

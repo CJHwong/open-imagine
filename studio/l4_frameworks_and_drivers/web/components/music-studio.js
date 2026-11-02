@@ -565,7 +565,7 @@ class MusicStudio extends HTMLElement {
     footer.innerHTML = `<button type="button" id="music-generate" class="run-button" data-state="idle">
       <run-button id="music-run-labels" data-mode="generate" data-state="idle"></run-button>
       <span class="sub num" id="music-go-sub"></span></button>`;
-    this.generateButton = footer.querySelector('button');
+    this.generateButton = footer.querySelector('#music-generate');
     this.generateButton.addEventListener('click', () => this.generate());
     this.querySelector('#music-write').addEventListener('click', () => {
       const target = (EMPTY_COPY[this.draft().mode] || EMPTY_COPY.generate)[2];
@@ -763,17 +763,12 @@ class MusicStudio extends HTMLElement {
   // recording and the Advanced settings. A cancelled or failed run puts them back. The
   // recording is not lost: the song it makes points at it, and that song's menu restores
   // it. The stored record and the link to it stay until the import claims them.
-  clearInputs() {
+  blankInputs(resetMode = false) {
     const field = id => this.controls.querySelector('#music-' + id);
-    const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task',
-      'temperature', 'top-p', 'top-k', 'repetition-penalty', 'penalty-window', 'max-tokens'];
-    this.clearedInputs = {
-      style: field('style').value,
-      lyrics: field('lyrics').value,
-      reference: this.reference,
-      advanced: Object.fromEntries(advanced.map(id => [id, field(id).value])),
-    };
-    this.rememberCleared(this.operation?.id);
+    if (resetMode) {
+      const workflow = this.controls.querySelector('input[name="music-workflow"]');
+      if (workflow) workflow.checked = true;
+    }
     const defaults = {
       seed: '',
       count: '1',
@@ -796,6 +791,25 @@ class MusicStudio extends HTMLElement {
     this.updateReference();
     this.syncEngineMode();
     this.controls.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  clearInputs() {
+    const field = id => this.controls.querySelector('#music-' + id);
+    const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task',
+      'temperature', 'top-p', 'top-k', 'repetition-penalty', 'penalty-window', 'max-tokens'];
+    this.clearedInputs = {
+      style: field('style').value,
+      lyrics: field('lyrics').value,
+      reference: this.reference,
+      advanced: Object.fromEntries(advanced.map(id => [id, field(id).value])),
+    };
+    this.rememberCleared(this.operation?.id);
+    this.blankInputs();
+  }
+  // A reset is the person's own choice, so it keeps nothing to put back.
+  resetInputs() {
+    this.clearedInputs = null;
+    this.forgetCleared();
+    this.blankInputs(true);
   }
   // A reload loses this tab's own copy, so the submit writes one to sessionStorage. It
   // holds the reference's stored id, not its bytes.

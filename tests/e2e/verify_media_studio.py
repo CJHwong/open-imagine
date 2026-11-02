@@ -2946,6 +2946,80 @@ with sync_playwright() as playwright:
             }
         ),
     )
+    # The reset returns one workspace's form to the state it opened in. A confirm guards a
+    # form with words or media, and an empty form resets silently.
+    reset_dialogs = []
+    page.on("dialog", lambda dialog: (reset_dialogs.append(dialog.message), dialog.accept()))
+    if not page.locator("#video-seed").is_visible():
+        page.locator("#video-advanced summary").click()
+    page.wait_for_timeout(150)
+    page.fill("#video-prompt", "video reset probe")
+    page.fill("#video-seed", "88")
+    reset_image = "data:image/png;base64," + base64.b64encode(REFERENCE.read_bytes()).decode()
+    page.evaluate(
+        """src => document.getElementById('video-studio').addImageReference({id: 'reset-ref',
+          name: 'reset.png', src, base64: src.split(',')[1], frameIndex: 10})""",
+        reset_image,
+    )
+    page.wait_for_timeout(500)
+    page.click("#theme-toggle")
+    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    page.wait_for_timeout(500)
+    video_reset = page.evaluate(
+        """() => ({prompt: document.getElementById('video-prompt').value,
+          seed: document.getElementById('video-seed').value,
+          references: document.getElementById('video-studio').imageReferences.length,
+          frames: document.getElementById('video-duration').value})"""
+    )
+    check(
+        "Reset clears every Video input",
+        video_reset == {"prompt": "", "seed": "", "references": 0, "frames": "121"}
+        and reset_dialogs
+        and "Reset this form?" in reset_dialogs[-1],
+        json.dumps(video_reset),
+    )
+    dialogs_before = len(reset_dialogs)
+    page.click("#theme-toggle")
+    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    page.wait_for_timeout(300)
+    check(
+        "an empty form resets without a confirm",
+        len(reset_dialogs) == dialogs_before,
+        str(reset_dialogs),
+    )
+    page.reload()
+    page.wait_for_function("() => customElements.get('video-studio')")
+    page.click("#media-video-mode")
+    page.wait_for_timeout(1200)
+    video_reload = page.evaluate(
+        """() => ({prompt: document.getElementById('video-prompt').value,
+          references: document.getElementById('video-studio').imageReferences.length})"""
+    )
+    check(
+        "a reset Video form stays empty after a refresh",
+        video_reload == {"prompt": "", "references": 0},
+        json.dumps(video_reload),
+    )
+    page.click("#media-image-mode")
+    page.wait_for_timeout(500)
+    page.fill("#prompt", "image reset probe")
+    if not page.locator("#seed").is_visible():
+        page.locator("#advanced summary").click()
+    page.wait_for_timeout(150)
+    page.fill("#seed", "12345")
+    page.wait_for_timeout(500)
+    page.click("#theme-toggle")
+    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    page.wait_for_timeout(400)
+    image_reset = page.evaluate(
+        """() => ({prompt: document.getElementById('prompt').value,
+          seed: document.getElementById('seed').value})"""
+    )
+    check(
+        "Reset clears the Image prompt and its seed",
+        image_reset == {"prompt": "", "seed": ""},
+        json.dumps(image_reset),
+    )
     check("the browser reports no page errors", not errors, str(errors))
     browser.close()
 

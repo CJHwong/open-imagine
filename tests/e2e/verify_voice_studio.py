@@ -86,5 +86,21 @@ with sync_playwright() as tool:
         "reload preserves the cleared form after success",
         page.locator("#voice-text").input_value() == "",
     )
+    # Reset clears the script and leaves the form empty through a refresh.
+    page.fill("#voice-text", "A voice reset probe")
+    page.wait_for_timeout(400)
+    page.once("dialog", lambda dialog: dialog.accept())
+    page.locator("#theme-toggle").click()
+    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    page.wait_for_timeout(400)
+    check("Reset clears the Voice script", page.locator("#voice-text").input_value() == "")
+    page.reload()
+    page.get_by_role("button", name="Voice", exact=True).click()
+    page.wait_for_function("Boolean(document.getElementById('voice-studio'))")
+    page.wait_for_timeout(900)
+    check(
+        "a reset Voice form stays empty after a refresh",
+        page.locator("#voice-text").input_value() == "",
+    )
     check("the browser reports no page errors", not errors)
     browser.close()

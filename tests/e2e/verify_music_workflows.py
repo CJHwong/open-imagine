@@ -382,6 +382,32 @@ def verify_source_across_tabs(browser, base, audio):
         context.close()
 
 
+def verify_reset(browser, base):
+    """Reset clears the words, the reference and the workflow, and a refresh agrees."""
+    page = browser.new_page(viewport={"width": 1440, "height": 1000})
+    dialogs = []
+    page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.accept()))
+    page.goto(base + "/?workspace=music")
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.locator("#music-style").fill("Reset probe")
+    page.locator("#music-lyrics").fill("[Verse]\nA line to reset")
+    page.locator("label[for=music-mode-plan]").click()
+    page.wait_for_timeout(500)
+    page.locator("#theme-toggle").click()
+    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    page.wait_for_timeout(400)
+    assert page.input_value("#music-style") == ""
+    assert page.input_value("#music-lyrics") == ""
+    assert page.locator('input[name="music-workflow"]:checked').get_attribute("value") == "generate"
+    assert dialogs and "Reset this form?" in dialogs[-1]
+    page.reload()
+    page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
+    page.wait_for_timeout(900)
+    assert page.input_value("#music-style") == ""
+    assert page.input_value("#music-lyrics") == ""
+    page.close()
+
+
 def main():
     base = f"http://127.0.0.1:{int(sys.argv[1])}"
     audio = io.BytesIO()
@@ -776,6 +802,7 @@ def main():
         verify_failure_restores_inputs(browser, base, audio)
         verify_reload_cancel_restores(browser, base, audio)
         verify_source_across_tabs(browser, base, audio)
+        verify_reset(browser, base)
         browser.close()
     print(
         "PASS Music workflows: two outputs, score planning, render/edit, instrumental, advanced settings, "

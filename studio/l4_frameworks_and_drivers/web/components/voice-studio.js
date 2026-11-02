@@ -691,6 +691,13 @@ class VoiceStudio extends LitElement {
     }
   }
 
+  // A reset is the person's own choice, so it keeps nothing to put back, and it returns the
+  // mode to the one the form opened on.
+  resetInputs() {
+    this.mode = this.capabilities?.modes?.[0]?.id || this.mode;
+    this.clearInputs();
+  }
+
   clearInputs(expectedDraftId) {
     this.invalidateTrack();
     this.script = '';
