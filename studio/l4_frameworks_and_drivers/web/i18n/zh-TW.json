@@ -118,6 +118,7 @@
   "gallery.playing.aria": "正在播放",
   "gallery.removeSelected": "移除選取的項目",
   "gallery.export": "匯出",
+  "gallery.exportSelected": "匯出選取的 {count} 項",
   "gallery.exported": "已匯出 {count} 個項目。",
   "gallery.exportFailed": "無法匯出相簿：{message}",
   "gallery.import": "匯入",

@@ -3145,11 +3145,13 @@
     };
     input.click();
   }
-  window.collectStudioBundle = async function () {
+  // A selection from one shelf names its workspace and ids, so the other stores
+  // do not open. No selection means the whole shelf, which is the backup path.
+  window.collectStudioBundle = async function (only) {
     const items = [];
-    if (kept) items.push(...await kept.collectBundle());
-    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle());
-    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle());
+    if (kept) items.push(...await kept.collectBundle(only));
+    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle(only));
+    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle(only));
     return items;
   };
   window.restoreStudioBundle = async function (items) {

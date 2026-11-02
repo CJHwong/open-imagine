@@ -261,7 +261,8 @@ class GalleryBrowser extends LitElement {
           <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}
             @click=${() => { this.selecting = !this.selecting; this.checked = new Set(); }}>${icon('check')}${t(this.selecting ? 'gallery.done' : 'gallery.selectMode')}</button>
         </div>
-        <div class="gallery-browser-transfer"><gallery-transfer></gallery-transfer></div>
+        <div class="gallery-browser-transfer"><gallery-transfer workspace=${this.workspace}
+          .selected=${this.checked} ?selecting=${this.selecting}></gallery-transfer></div>
         </div>
         <div class="gallery-browser-summary">
           ${this.group ? html`<button type="button" class="text-btn" @click=${() => this.change('group', '')}>${icon('undo')}${t('gallery.allResults')}</button>` : nothing}

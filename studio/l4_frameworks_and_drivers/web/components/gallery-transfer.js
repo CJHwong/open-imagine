@@ -8,22 +8,25 @@ import {bundleName, decodeBundle, encodeBundle, saveBundle} from '../lib/gallery
 const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-' + name}></use></svg>`;
 
 class GalleryTransfer extends LitElement {
-  static properties = {action: {state: true}};
+  static properties = {action: {state: true}, workspace: {type: String},
+    selected: {attribute: false}, selecting: {type: Boolean}};
 
   createRenderRoot() { return this; }
 
   constructor() {
     super();
-    this.action = '';
+    this.action = ''; this.selected = new Set(); this.selecting = false;
   }
 
   render() {
     const spin = name => this.action === name
       ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : null;
+    const chosen = this.selected ? this.selected.size : 0;
+    const label = chosen ? t('gallery.exportSelected', {count: chosen}) : t('gallery.export');
     return html`<span class="gallery-transfer">
       <button type="button" class="text-btn" ?disabled=${Boolean(this.action)}
         aria-busy=${String(this.action === 'export')} @click=${() => this.exportAll()}>
-        ${spin('export') || icon('download')}${t('gallery.export')}</button>
+        ${spin('export') || icon('download')}${label}</button>
       <button type="button" class="text-btn" ?disabled=${Boolean(this.action)}
         aria-busy=${String(this.action === 'import')} @click=${() => this.pick()}>
         ${spin('import') || icon('plus')}${t('gallery.import')}</button>
@@ -38,7 +41,8 @@ class GalleryTransfer extends LitElement {
     if (typeof collect !== 'function') return;
     this.action = 'export';
     try {
-      const items = await collect();
+      const ids = this.selected ? [...this.selected] : [];
+      const items = await collect(ids.length ? {workspace: this.workspace, ids} : undefined);
       const at = Date.now();
       saveBundle(await encodeBundle(items, at), bundleName(at));
       this.say('info', t('gallery.exported', {count: items.length}));

@@ -374,9 +374,9 @@ class VoiceStudio extends LitElement {
 
   // The gallery file carries every take and its WAV. An import adds each take
   // through the same door a run uses, so the tombstones and the cutoff still rule.
-  async collectBundle() {
+  async collectBundle(only) {
     if (this.options?.keeping?.() === false) return [];
-    return exportVoice();
+    return exportVoice(only);
   }
 
   async restoreBundle(items) {

@@ -213,7 +213,8 @@ writes every stored item and its media as line-delimited JSON, one header line a
 line, gzipped. The writer and the reader work line by line, because a browser caps one string
 near a few hundred megabytes and a large shelf would otherwise fail with an allocation error.
 Version 1 bundles, one JSON object, still load. The transfer control is in the browser and in
-the Media menu, because an import usually starts with no images. Image and Video import through
+the Media menu, because an import usually starts with no images. Export takes the checked
+items, from their own shelf, when there are any; with none it writes the whole gallery. Image and Video import through
 `web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
 its own tombstones and cutoff.
 

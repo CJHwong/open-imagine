@@ -122,7 +122,9 @@ function inStore(access, work) {
     return new Promise(function (resolve, reject) {
       const transaction = store.transaction('images', access);
       const request = work(transaction.objectStore('images'));
-      transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
+      // A read of several keys returns one promise, and the requests it waits on
+      // finish before the transaction commits, so the promise is safe to adopt here.
+      transaction.oncomplete = function () { resolve(settles(request)); };
       transaction.onabort = function () { reject(transaction.error); };
     });
   });
@@ -152,10 +154,15 @@ function inVideoStore(access, work) {
     return new Promise(function (resolve, reject) {
       const transaction = store.transaction('clips', access);
       const request = work(transaction.objectStore('clips'));
-      transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
+      transaction.oncomplete = function () { resolve(settles(request)); };
       transaction.onabort = function () { reject(transaction.error); };
     });
   });
+}
+
+function settles(request) {
+  if (!request) return undefined;
+  return typeof request.then === 'function' ? request : request.result;
 }
 
 function blobOf(url) {
@@ -489,22 +496,49 @@ function askForDurableStorage() {
 // The gallery file. These read and write the records themselves, so an import
 // lands in storage before any tab hears about it. Records carry their media as
 // Blobs; lib/gallery-bundle.js turns those into base64 for the file.
-function collectBundle() {
+function imageItem(record) {
+  return {workspace: 'image', id: record.id, at: record.at || 0,
+    record: withoutMedia(record, ['png', 'before']),
+    media: [{role: 'png', blob: record.png}, ...(record.before ? [{role: 'before', blob: record.before}] : [])]};
+}
+
+function videoItem(record) {
+  return {workspace: 'video', id: record.id, at: record.createdAt || 0,
+    record: withoutMedia(record, ['mp4', 'thumbnail']),
+    media: [{role: 'mp4', blob: record.mp4}, ...(record.thumbnail ? [{role: 'thumbnail', blob: record.thumbnail}] : [])]};
+}
+
+// A selection names one workspace and its item ids, so the other stores never
+// open. The whole shelf, with no selection, reads both stores in one pass.
+function readKeys(store, ids) {
+  // The request is not a promise. Hand its result over when it succeeds, or the
+  // array would hold request objects, not records.
+  return Promise.all(ids.map(function (id) {
+    return new Promise(function (resolve, reject) {
+      const request = store.get(id);
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error); };
+    });
+  }));
+}
+
+function collectBundle(only) {
+  if (only && only.ids && only.ids.length) {
+    if (only.workspace === 'image') {
+      return inStore('readonly', store => readKeys(store, only.ids))
+        .then(function (records) { return records.filter(Boolean).map(imageItem); });
+    }
+    if (only.workspace === 'video') {
+      return inVideoStore('readonly', store => readKeys(store, only.ids))
+        .then(function (records) { return records.filter(Boolean).map(videoItem); });
+    }
+    return Promise.resolve([]);
+  }
   return Promise.all([
     inStore('readonly', images => images.getAll()),
     inVideoStore('readonly', clips => clips.getAll()),
   ]).then(function ([images, clips]) {
-    const items = images.map(function (record) {
-      return {workspace: 'image', id: record.id, at: record.at || 0,
-        record: withoutMedia(record, ['png', 'before']),
-        media: [{role: 'png', blob: record.png}, ...(record.before ? [{role: 'before', blob: record.before}] : [])]};
-    });
-    clips.forEach(function (record) {
-      items.push({workspace: 'video', id: record.id, at: record.createdAt || 0,
-        record: withoutMedia(record, ['mp4', 'thumbnail']),
-        media: [{role: 'mp4', blob: record.mp4}, ...(record.thumbnail ? [{role: 'thumbnail', blob: record.thumbnail}] : [])]});
-    });
-    return items;
+    return images.map(imageItem).concat(clips.map(videoItem));
   });
 }
 

@@ -118,12 +118,16 @@ export async function loadVoiceTake(id) {
 
 // Every take and its bytes, for the gallery file. The project holds the facts;
 // the media store holds the WAVs.
-export async function exportVoice() {
+export async function exportVoice(only) {
+  if (only && only.workspace !== 'voice') return [];
+  const wanted = only && only.ids && only.ids.length
+    ? new Set(only.ids.map(String)) : null;
   const project = await loadVoice();
   if (!project) return [];
   const items = [];
   for (const segment of project.segments || []) {
     for (const take of segment.takes || []) {
+      if (wanted && !wanted.has(String(take.id))) continue;
       const blob = await loadVoiceTake(take.id).catch(() => null);
       if (!blob) continue;
       const {stored, ...record} = take;

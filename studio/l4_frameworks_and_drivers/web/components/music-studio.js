@@ -1,4 +1,4 @@
-import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
+import {musicSongs, musicSong, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
   musicSource, putMusicSource, sourceIdFor, sweepMusicSources, musicLink, putMusicLink, deleteMusicLink} from '../lib/music-store.js';
 import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
@@ -1737,10 +1737,14 @@ class MusicStudio extends HTMLElement {
   }
   // The gallery file carries each song, its cover and its original recording.
   // An import saves the source first, because the song points at it.
-  async collectBundle() {
+  async collectBundle(only) {
     if (!this.keeping) return [];
+    if (only && only.workspace !== 'music') return [];
+    const songs = only && only.ids && only.ids.length
+      ? (await Promise.all(only.ids.map(id => musicSong(id).catch(() => null)))).filter(Boolean)
+      : await musicSongs();
     const items = [];
-    for (const song of await musicSongs()) {
+    for (const song of songs) {
       const media = [];
       if (song.blob instanceof Blob) media.push({role: 'audio', blob: song.blob});
       if (song.coverBlob instanceof Blob) media.push({role: 'cover', blob: song.coverBlob});

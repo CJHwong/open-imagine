@@ -122,6 +122,7 @@
   "gallery.playing.aria": "Now playing",
   "gallery.removeSelected": "Remove selected",
   "gallery.export": "Export",
+  "gallery.exportSelected": "Export {count} selected",
   "gallery.exported": "Exported {count} items.",
   "gallery.exportFailed": "The gallery could not be exported: {message}",
   "gallery.import": "Import",
