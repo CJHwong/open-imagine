@@ -297,6 +297,8 @@ async function download(ids = null) {
   const chosen = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse();
   const befores = new Map();
   const facts = [];
+  const progress = window.studioProgress?.(t('gallery.saving'));
+  let index = 0;
   try {
     const files = [];
     for (const entry of chosen) {
@@ -306,6 +308,8 @@ async function download(ids = null) {
       const fact = {file: name, before: null};
       page.keptFields().forEach(function (field) { fact[field] = entry[field]; });
       facts.push(fact);
+      index += 1;
+      progress?.set({done: index, total: chosen.length, index, count: chosen.length});
       if (!entry.before) continue;
       const known = befores.has(entry.before);
       if (!known) befores.set(entry.before, name.replace(/\.png$/, '-before.png'));
@@ -317,9 +321,11 @@ async function download(ids = null) {
     if (files.length) {
       files.push({name: mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}),
         blob: new Blob([JSON.stringify(facts, null, 2)], {type: 'application/json'})});
-      saveBundle(await encodeFiles(files), filesName('images'));
+      saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('images'));
     }
+    progress?.close();
   } catch (error) {
+    progress?.close();
     page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed',
       {message: error.message}));
   }

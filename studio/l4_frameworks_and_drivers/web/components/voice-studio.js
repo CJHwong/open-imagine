@@ -1245,16 +1245,20 @@ class VoiceStudio extends LitElement {
   // One path for the browser panel and the strip head, so a file's name and its
   // type come from the same place.
   async downloadTakes(clips, ids) {
+    const chosen = clips.filter(({take}) => ids.includes(take.id));
     const files = [];
-    for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
+    const progress = window.studioProgress?.(t('gallery.saving'));
+    for (const [index, {segment, take}] of chosen.entries()) {
       let blob;
       try { blob = await this.ensureTake(take); }
-      catch (error) { this.fail(error.message); return; }
+      catch (error) { progress?.close(); this.fail(error.message); return; }
       files.push({blob, name: mediaDownloadName({kind: 'audio', text: segment.text,
         at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')})});
+      progress?.set({done: index + 1, total: chosen.length, index: index + 1, count: chosen.length});
     }
-    if (!files.length) return;
-    saveBundle(await encodeFiles(files), filesName('takes'));
+    if (!files.length) { progress?.close(); return; }
+    saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('takes'));
+    progress?.close();
   }
 
   async openDetails(event) {

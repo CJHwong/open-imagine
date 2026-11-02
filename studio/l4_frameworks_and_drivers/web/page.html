@@ -2828,6 +2828,9 @@
   let toastHost = null;
   document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
   function showToast(kind, text) { toastHost.notify(kind, text); }
+  // A download packs one archive and can take a while. The same toast the export uses
+  // reports it, so a press never looks stuck.
+  window.studioProgress = function (text) { return toastHost.progress(text); };
 
   setMediaMode(mediaMode);
 

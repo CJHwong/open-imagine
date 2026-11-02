@@ -1757,23 +1757,29 @@ class MusicStudio extends HTMLElement {
   async downloadSongs(ids, trigger) {
     if (trigger?.classList.contains('is-busy')) return;
     if (trigger) { trigger.classList.add('is-busy'); trigger.disabled = true; }
+    const progress = window.studioProgress?.(t('gallery.saving'));
     try {
       const files = [];
-      for (const song of this.songs.filter(song => ids.includes(song.id))) {
-        if (!song.blob) {
+      const chosen = this.songs.filter(song => ids.includes(song.id));
+      for (const [index, song] of chosen.entries()) {
+        if (song.blob) {
+          try {
+            files.push({name: `music-${song.seed}.mp3`, blob: await this.encodeMp3File(song)});
+          } catch (error) {
+            this.options.notify('error', t('music.error.mp3'));
+            files.push({name: `music-${song.seed}.wav`, blob: song.blob});
+          }
+        } else {
           files.push({name: `music-${song.seed}.abc`,
             blob: new Blob([song.score || ''], {type: 'text/vnd.abc'})});
-          continue;
         }
-        try {
-          files.push({name: `music-${song.seed}.mp3`, blob: await this.encodeMp3File(song)});
-        } catch (error) {
-          this.options.notify('error', t('music.error.mp3'));
-          files.push({name: `music-${song.seed}.wav`, blob: song.blob});
-        }
+        progress?.set({done: index + 1, total: chosen.length, index: index + 1, count: chosen.length});
       }
-      if (files.length) saveBundle(await encodeFiles(files), filesName('songs'));
+      if (files.length) {
+        saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('songs'));
+      }
     } finally {
+      progress?.close();
       if (trigger) { trigger.classList.remove('is-busy'); trigger.disabled = false; }
     }
   }

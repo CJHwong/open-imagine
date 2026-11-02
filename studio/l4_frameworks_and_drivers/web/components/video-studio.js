@@ -1486,21 +1486,27 @@ class VideoStudio extends LitElement {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && (clip.url || clip.loadMedia)
       && (!ids || ids.includes(clip.id))).reverse();
     if (!outputs.length) return;
+    const progress = window.studioProgress?.(t('gallery.saving'));
     try {
       const files = [];
       const details = [];
+      let index = 0;
       for (const clip of outputs) {
         await this.ensureClip(clip);
         const name = videoDownloadName(clip);
         files.push({name, blob: await (await fetch(clip.url)).blob()});
         details.push(videoExportMetadata(clip, name));
+        index += 1;
+        progress?.set({done: index, total: outputs.length, index, count: outputs.length});
       }
       if (files.length) {
         files.push({name: mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}),
           blob: new Blob([JSON.stringify(details, null, 2)], {type: 'application/json'})});
-        saveBundle(await encodeFiles(files), filesName('clips'));
+        saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('clips'));
       }
+      progress?.close();
     } catch (error) {
+      progress?.close();
       this.setError(t(ids ? 'video.gallery.downloadSelectedStopped' : 'video.gallery.downloadAllStopped',
         {error: error.message}));
     }

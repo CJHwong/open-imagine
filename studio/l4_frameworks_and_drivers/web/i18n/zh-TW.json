@@ -123,6 +123,7 @@
   "gallery.playing.aria": "正在播放",
   "gallery.removeSelected": "移除 {count} 項",
   "gallery.export": "匯出",
+  "gallery.saving": "正在儲存檔案",
   "gallery.exporting": "正在匯出媒體庫",
   "gallery.exportFiles": "{done} / {total} 個檔案",
   "gallery.export.title": "把整個媒體庫存成一個 ZIP，含記錄與媒體，可在另一個瀏覽器還原。",
