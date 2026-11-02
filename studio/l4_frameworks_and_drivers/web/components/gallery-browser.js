@@ -217,13 +217,13 @@ class GalleryBrowser extends LitElement {
     if (item.thumbnail) return html`<img src=${item.thumbnail} alt="" loading="lazy" decoding="async">`;
     // A score has no recording to preview, so its tile wears the staff the strip uses.
     if (this.workspace === 'music' && item.score) {
-      return html`<span class="gallery-no-preview"><svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg></span>`;
+      return html`<span class="gallery-no-preview gallery-music-note"><svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg></span>`;
     }
     const maximum = Math.max(0.001, ...(item.peaks || []));
     if (item.peaks?.length) return svg`<svg class="gallery-wave" viewBox="0 0 160 60" preserveAspectRatio="none" aria-hidden="true">
       ${item.peaks.map((peak, index) => svg`<line x1=${(index + 0.5) * 160 / item.peaks.length}
         x2=${(index + 0.5) * 160 / item.peaks.length} y1=${30 - Math.max(1, peak / maximum * 25)} y2=${30 + Math.max(1, peak / maximum * 25)} />`)}</svg>`;
-    return html`<span class="gallery-no-preview">${this.workspace === 'music' ? '♫' : this.workspace === 'voice' ? t('gallery.audio') : t('gallery.noPreview')}</span>`;
+    return html`<span class=${'gallery-no-preview' + (this.workspace === 'music' ? ' gallery-music-note' : '')}>${this.workspace === 'music' ? '♫' : this.workspace === 'voice' ? t('gallery.audio') : t('gallery.noPreview')}</span>`;
   }
   card(row) {
     const item = row.item;

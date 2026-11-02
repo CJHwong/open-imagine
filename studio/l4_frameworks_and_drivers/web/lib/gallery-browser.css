@@ -67,6 +67,10 @@ gallery-browser { display: contents; color-scheme: dark; }
 .gallery-batch-count { top: 4px; bottom: auto; }
 .gallery-wave { width: 100%; height: 48px; fill: none; stroke: #ccc; stroke-width: 1.4; }
 .gallery-no-preview { color: #bbb; font: 10px/1.4 var(--mono); }
+/* The expanded music card wears the same note or staff as its strip tile, at the same
+   size, instead of the small text the other shelves use for "no preview". */
+.gallery-no-preview.gallery-music-note { font: 32px/1 var(--serif); color: #c8b4a1; }
+.gallery-no-preview.gallery-music-note .icon { width: 36px; height: 36px; }
 .gallery-check { position: absolute; z-index: 2; top: 4px; left: 4px; display: flex;
   padding: 5px; background: #171717; border: 1px solid #777; border-radius: 4px; cursor: pointer; }
 .gallery-card-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;

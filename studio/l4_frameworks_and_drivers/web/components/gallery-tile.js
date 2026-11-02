@@ -35,7 +35,7 @@ class GalleryTile extends LitElement {
       data-action=${this.action || nothing} data-clip-id=${this.clipId ?? nothing}
       data-take-id=${this.takeId ?? nothing} data-segment-id=${this.segmentId ?? nothing}
       data-song-id=${this.songId ?? nothing}
-      @click=${() => this.onPick?.()}><span class=${"still" + (this.stillClass ? " " + this.stillClass : "") + (this.pending ? " waiting" : "")} style=${this.width ? "width:100%" : nothing}>${this.content?.()}</span>${this.footer ? html`<span class="no">${this.footer()}</span>` : nothing}${this.mark ? this.mark() : this.selected ? pencilLoop(false) : nothing}
+      @click=${() => this.onPick?.()}><span class=${"still" + (this.stillClass ? " " + this.stillClass : "") + (this.pending ? " waiting" : "")} style=${this.width ? "width:100%" : nothing}>${this.content?.()}</span>${this.footer ? html`<span class="no">${this.footer()}</span>` : nothing}${this.selected && this.mark ? this.mark() : nothing}
     </button>`;
   }
 }
