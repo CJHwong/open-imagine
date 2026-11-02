@@ -17,6 +17,7 @@ the studio's child scripts in this same environment.
 
 import runpy
 import sys
+from pathlib import Path
 
 
 def main():
@@ -26,6 +27,9 @@ def main():
         if not rest:
             raise SystemExit("--studio-child needs a script path")
         script, *arguments = rest
+        # `python script.py` puts the script's directory first; `runpy.run_path` on a plain
+        # file does not. A child that imports a module beside it needs the same directory.
+        sys.path.insert(0, str(Path(script).resolve().parent))
         sys.argv = [script, *arguments]
         runpy.run_path(script, run_name="__main__")
         return

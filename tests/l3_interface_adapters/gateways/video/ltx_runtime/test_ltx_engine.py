@@ -33,6 +33,24 @@ def test_a_child_script_runs_in_this_environment(tmp_path, monkeypatch):
     assert result.read_text() == "a|b"
 
 
+def test_a_child_script_imports_a_module_beside_it(tmp_path, monkeypatch):
+    # `runpy.run_path` leaves sys.path alone for a plain file, so the wrapper must add the
+    # child's directory the way `python script.py` does. The enhancer child imports its
+    # sibling this way.
+    (tmp_path / "sibling.py").write_text("VALUE = 'found'\n")
+    script = tmp_path / "child.py"
+    result = tmp_path / "imported.txt"
+    script.write_text(
+        "import sys\nfrom pathlib import Path\nimport sibling\nPath(sys.argv[1]).write_text(sibling.VALUE)\n"
+    )
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setattr(sys, "argv", ["ltx_engine.py", "--studio-child", str(script), str(result)])
+
+    ltx_engine.main()
+
+    assert result.read_text() == "found"
+
+
 def test_a_child_mode_without_a_script_is_refused(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["ltx_engine.py", "--studio-child"])
 
