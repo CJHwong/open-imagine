@@ -370,7 +370,7 @@ class MusicStudio extends HTMLElement {
     this.ready = true;
     this.innerHTML = `<div class="music-studio-shell"><section class="music-preview-area stage" tabindex="0" aria-label="${t('music.preview.label')}">
       <div class="music-preview-pane">
-      <div class="music-generation" hidden role="status" aria-live="polite">
+      <div class="music-generation" hidden tabindex="0" role="status" aria-live="polite">
         ${recordPlayer()}
         <strong class="music-generation-label">${t('music.generation.generating')}</strong>
         <div class="music-timeline music-generation-timeline">
@@ -629,12 +629,22 @@ class MusicStudio extends HTMLElement {
       if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.target.closest('input, textarea, select, button, audio, [contenteditable], .music-track-text, .music-output-details')) return;
       event.preventDefault();
-      // The strip and the browser show the newest song first, while the store keeps the
-      // songs oldest first. Walk the order a person sees, or the keys step backwards.
-      const order = this.songs.slice().reverse();
-      const index = order.findIndex(song => song.id === this.selectedId);
+      // The strip shows the pending preview at its left, then the newest song. Walk that
+      // order, or the keys step away from what the person sees.
+      const generating = Boolean(this.pending || this.operation?.kind === 'music');
+      const order = (generating ? ['__pending__'] : []).concat(this.songs.slice().reverse().map(song => song.id));
+      const current = generating && this.showGeneration !== false ? '__pending__' : this.selectedId;
+      const index = order.indexOf(current);
+      if (index < 0) return;
       const next = Math.max(0, Math.min(order.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
-      if (next !== index && order[next]) this.selectSong(order[next].id);
+      if (next === index) return;
+      if (order[next] === '__pending__') {
+        this.showGeneration = true; this.sync(); this.syncGallery();
+        this.querySelector('.music-generation')?.focus({preventScroll: true});
+      } else {
+        this.selectSong(order[next]);
+        this.querySelector('.music-preview-area')?.focus({preventScroll: true});
+      }
     });
     this.querySelector('.music-strip').addEventListener('keydown', event => {
       const buttons = [...this.querySelectorAll('.music-strip button')];
@@ -1322,7 +1332,17 @@ class MusicStudio extends HTMLElement {
     this.syncRunButton(draft, ready);
     const generating = this.pending || this.operation?.kind === 'music';
     const previewingGeneration = generating && this.showGeneration !== false;
-    this.querySelector('.music-generation').hidden = !previewingGeneration;
+    const generationView = this.querySelector('.music-generation');
+    generationView.hidden = !previewingGeneration;
+    // A run takes the focus as it starts, so the preview a person is watching answers the
+    // arrow keys and the transport without a click.
+    const generationKey = previewingGeneration ? (this.operation?.id || 'pending') : '';
+    if (generationKey && this.focusedGeneration !== generationKey) {
+      this.focusedGeneration = generationKey;
+      generationView.focus({preventScroll: true});
+    } else if (!generationKey) {
+      this.focusedGeneration = '';
+    }
     this.querySelector('.music-empty').hidden = this.songs.length > 0 || generating;
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
     if (!previewingGeneration) this.engraveSheet();

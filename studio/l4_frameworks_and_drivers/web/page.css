@@ -1216,6 +1216,7 @@
   .music-preview-area.stage { display: flex; flex-direction: column; min-height: 0; min-width: 0;
     overflow: hidden; outline: none; }
   .music-preview-area.stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+  .music-generation:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 8px; }
   .music-preview-area.stage > .music-preview-pane { flex: 1 1 auto; }
   .music-preview-area.stage > .music-output-bars { flex: none; }
   /* Flex centers the card the same way in every engine. Grid alignment relied on
