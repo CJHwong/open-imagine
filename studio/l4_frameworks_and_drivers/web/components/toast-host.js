@@ -19,7 +19,7 @@
 // `showToast` off the global scope. The page keeps that one name and forwards
 // it here, on the door below. This door closes when the inline script is gone.
 
-import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html, nothing } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
 import { t } from '../lib/i18n.js';
 
@@ -72,10 +72,11 @@ class ToastHost extends LitElement {
     this.requestUpdate();
     this.updateComplete.then(() => this.present());
     return {
-      set: (done, total) => {
+      set: (step) => {
         const one = this.messages.find((message) => message.id === id);
         if (!one) return;
-        one.done = done; one.total = total;
+        one.done = step.done; one.total = step.total;
+        one.index = step.index; one.count = step.count;
         this.requestUpdate();
       },
       close: () => this.dismiss(id),
@@ -115,7 +116,11 @@ class ToastHost extends LitElement {
   message(one) {
     if (one.kind === 'progress') {
       const percent = one.total ? Math.min(100, Math.round(one.done / one.total * 100)) : 0;
-      return html`<div class="toast progress" role="status">${glyph('download')}<div class="toast-body"><p>${one.text} · ${percent}%</p><div class="toast-bar" role="progressbar" aria-valuenow=${percent} aria-valuemin="0" aria-valuemax="100"><i style=${'width:' + percent + '%'}></i></div></div></div>`;
+      const files = one.count ? t('gallery.exportFiles', {done: one.index, total: one.count}) : '';
+      return html`<div class="toast progress" role="status">
+        <span class="operation-indicator" aria-hidden="true"></span>
+        <div class="toast-body"><p>${one.text}</p>${files ? html`<span class="toast-detail">${files}</span>` : nothing}</div>
+        <span class="toast-percent" aria-label=${percent + '%'}>${percent}%</span></div>`;
     }
     const failure = one.kind === 'error';
     return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title=${t('toast.dismiss')} aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;

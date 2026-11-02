@@ -3128,7 +3128,7 @@
       const items = await window.collectStudioBundle();
       const at = Date.now();
       const blob = await encodeBundle(items, at, function (step) {
-        progress.set(step.done, step.total);
+        progress.set(step);
       });
       saveBundle(blob, bundleName(at));
       progress.close();

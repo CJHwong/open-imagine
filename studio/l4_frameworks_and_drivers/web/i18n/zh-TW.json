@@ -125,6 +125,7 @@
   "gallery.removeSelected": "移除 {count} 項",
   "gallery.export": "匯出",
   "gallery.exporting": "正在匯出媒體庫",
+  "gallery.exportFiles": "{done} / {total} 個檔案",
   "gallery.export.title": "把整個媒體庫存成一個 ZIP，含記錄與媒體，可在另一個瀏覽器還原。",
   "gallery.exported": "已匯出 {count} 個項目。",
   "gallery.exportFailed": "無法匯出相簿：{message}",

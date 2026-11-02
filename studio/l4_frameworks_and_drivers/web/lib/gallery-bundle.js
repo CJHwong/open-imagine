@@ -68,6 +68,7 @@ async function buildZip(files, at, manifest, onProgress) {
     parts.push(header, bytes);
     offset += header.length + bytes.length;
   }
+  let index = 0;
   for (const file of files) {
     const crc = await crc32Blob(file.blob);
     const header = localHeader(file.name, crc, file.blob.size, at);
@@ -76,7 +77,8 @@ async function buildZip(files, at, manifest, onProgress) {
     offset += header.length + file.blob.size;
     if (offset > LIMIT) throw new Error(t('gallery.error.tooLarge'));
     done += file.blob.size;
-    if (onProgress) onProgress({done, total, file: file.name});
+    index += 1;
+    if (onProgress) onProgress({done, total, index, count: files.length, file: file.name});
   }
   const directory = concat(central);
   const end = endRecord(central.length, directory.length, offset);
