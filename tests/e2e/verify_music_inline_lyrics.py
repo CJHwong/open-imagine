@@ -59,11 +59,11 @@ def main():
                 "button=>button.nextElementSibling.matches('.music-lyrics-toggle')"
             )
             if mobile:
-                # The small view opens on the artwork. The switch gives the lyrics the
-                # artwork's and the title's place, and returns it the same way.
+                # The small view opens on the artwork, the name and the style, with the
+                # transport at the bottom. The switch gives the lyrics that whole block.
                 expect(current.locator(".music-artwork")).to_be_visible()
                 expect(current.locator(".music-song-title")).to_be_visible()
-                expect(current.locator(".music-track-text")).to_be_hidden()
+                expect(current.locator(".music-style-panel")).to_be_visible()
                 expect(toggle).to_be_visible()
                 expect(toggle).to_have_attribute("aria-pressed", "false")
                 assert toggle.get_attribute("title") == "Show lyrics"
@@ -141,7 +141,7 @@ def main():
             instrumental = page.locator('.music-song[data-song-id="inline-1"]')
             expect(instrumental.locator(".music-inline-lyrics")).to_have_text("Instrumental")
             if mobile:
-                expect(instrumental.locator(".music-track-text")).to_be_hidden()
+                expect(instrumental.locator(".music-style-panel")).to_be_visible()
                 expect(instrumental.locator(".music-artwork")).to_be_visible()
                 expect(instrumental.get_by_role("button", name="Lyrics", exact=True)).to_be_disabled()
             else:
@@ -157,7 +157,7 @@ def main():
                 empty_song = page.locator(f'.music-song[data-song-id="inline-{song_index}"]')
                 disabled_toggle = empty_song.get_by_role("button", name="Lyrics", exact=True)
                 if mobile:
-                    expect(empty_song.locator(".music-track-text")).to_be_hidden()
+                    expect(empty_song.locator(".music-style-panel")).to_be_visible()
                     expect(empty_song.locator(".music-artwork")).to_be_visible()
                     expect(disabled_toggle).to_be_disabled()
                     expect(disabled_toggle).to_have_attribute("aria-pressed", "false")

@@ -1211,11 +1211,10 @@
   #music-studio[hidden] { display: none; }
   .music-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; }
   .music-preview-area.stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
-  /* Center the card with plainer alignment than `safe center`: an older engine drops
-     the whole declaration it does not know, and the card then stretches and sits at
-     the top of the pane. The pane still scrolls when the card is taller than it. */
-  .music-preview-pane { display: grid; align-items: center; align-content: center;
-    justify-items: center; min-height: 0; overflow: auto; padding: 28px; }
+  /* Flex centers the card the same way in every engine. Grid alignment relied on
+     declarations a browser may drop, and the card then stretched to the pane top. */
+  .music-preview-pane { display: flex; align-items: center; justify-content: center;
+    min-height: 0; overflow: auto; padding: 28px; }
   .music-preview-pane > .music-songs { align-self: center; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-strip:empty { display: none; }
@@ -1420,12 +1419,17 @@
      still has room beside the artwork, and one column there made the card taller
      than the preview pane, which pushed it to the top of that pane. */
   @media (max-width: 900px) {
-    .music-song { grid-template-columns: minmax(0, 1fr); max-width: 560px; margin: auto; }
-    .music-artwork { width: min(300px, 100%); justify-self: center; }
-    .music-track-body { display: block; align-self: center; }
-    .music-track-text { height: 220px; }
-    .music-player { margin-top: 24px; padding-top: 0; }
-    .music-transport { margin-bottom: 14px; }
+    /* One column, and the pane's height is the card's: the words take what the
+       artwork leaves, and the transport sits at the bottom of the pane. */
+    .music-song { display: flex; flex-direction: column; max-width: 560px; margin: 0 auto;
+      height: 100%; min-height: 0; }
+    .music-artwork { width: min(300px, 100%); margin: 0 auto; flex: none; }
+    .music-track-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+      align-self: stretch; }
+    .music-track-text { flex: 1 1 auto; height: auto; max-height: none; }
+    .music-player { margin-top: auto; padding-top: 0; }
+    .music-songs { height: 100%; }
+    .music-transport { margin-bottom: 0; }
   }
   /* A narrow window shows one pane at a time: the preview, the gallery or the controls.
      The switch floats above all three, and a page opens on the preview. */
@@ -1499,21 +1503,11 @@
     .music-artwork { width: clamp(96px, min(46vw, calc(100svh - 660px)), 220px); }
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
-    /* The small view shows the artwork and the name by default. The style paragraph
-       sits in the form and the details sheet; the words switch swaps the artwork and
-       the name for the lyrics, so they get the room instead of a clipped strip. */
-    .music-track-text[data-mode="style"] { display: none; }
-    /* The words take the whole pane above the details bar, not a strip that leaves
-       the rest empty. The row has to be given the pane's height for 100% to resolve. */
-    .music-preview-pane.shows-lyrics { grid-template-rows: minmax(0, 1fr); align-content: stretch;
-      align-items: stretch; }
-    .music-song.shows-lyrics { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    /* The small view shows the artwork, the name and the style by default. The words
+       switch swaps that block for the lyrics, and the lyrics take the same room. */
     .music-song.shows-lyrics .music-artwork,
     .music-song.shows-lyrics .music-song-title { display: none; }
-    .music-song.shows-lyrics .music-track-body { flex: 1 1 auto; min-height: 0; display: flex;
-      flex-direction: column; align-self: stretch; }
-    .music-song.shows-lyrics .music-track-text { flex: 1 1 auto; height: auto; max-height: none; }
-    .music-songs.shows-lyrics { height: 100%; }
+    .music-song.shows-lyrics .music-track-text { padding-top: 10px; }
     .music-output-details .about .prompt-line { display: -webkit-box; -webkit-line-clamp: 1;
       -webkit-box-orient: vertical; overflow: hidden; }
     .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
@@ -1596,8 +1590,7 @@
   /* A score fills the preview. The page takes the height the pane gives it, and the
      notation scrolls only when the score is longer than that. The old 900px width and
      420px height caps left a third of a wide stage empty and cut the last system. */
-  .music-preview-pane:has(.music-song.is-score) {
-    align-items: stretch; justify-items: stretch; grid-template-rows: minmax(0, 1fr) auto; }
+  .music-preview-pane:has(.music-song.is-score) { align-items: stretch; justify-content: flex-start; }
   .music-preview-pane:has(.music-song.is-score) .music-songs { width: 100%; height: 100%; }
   .music-song.is-score { width: 100%; max-width: none; height: 100%; margin: 0; }
   .music-song.is-score .music-track-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
