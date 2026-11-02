@@ -2,7 +2,6 @@ import {LitElement, html, svg, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3
 import './video-gallery-preview.js';
 import './gallery-media.js';
 import './gallery-window.js';
-import './gallery-transfer.js';
 import './gallery-card.js';
 import {pencilLoop} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
@@ -258,25 +257,25 @@ class GalleryBrowser extends LitElement {
             <option value="oldest" .selected=${this.order === 'oldest'}>${t('gallery.orderOldest')}</option></select>
           ${hasBatch ? html`<label class="gallery-group-toggle"><input type="checkbox" .checked=${this.grouped}
             @change=${event => this.change('grouped', event.target.checked)}>${t('gallery.groupBatches')}</label>` : nothing}
-          <button type="button" class="text-btn" aria-pressed=${String(this.selecting)} ?disabled=${this.working}
+          <button type="button" class="text-btn gallery-select-toggle" aria-pressed=${String(this.selecting)}
+            ?disabled=${this.working}
             @click=${() => { this.selecting = !this.selecting; this.checked = new Set(); }}>${icon('check')}${t(this.selecting ? 'gallery.done' : 'gallery.selectMode')}</button>
         </div>
-        <div class="gallery-browser-transfer"><gallery-transfer workspace=${this.workspace}
-          .selected=${this.checked} ?selecting=${this.selecting}></gallery-transfer></div>
         </div>
         <div class="gallery-browser-summary">
           ${this.group ? html`<button type="button" class="text-btn" @click=${() => this.change('group', '')}>${icon('undo')}${t('gallery.allResults')}</button>` : nothing}
           <span role="status" aria-live="polite">${t('gallery.summary', {shown: items.length, total: this.items.length})}${checked.length ? t('gallery.selected', {count: checked.length}) : ''}</span>
           ${this.selecting ? html`<button type="button" class="text-btn" ?disabled=${this.working || !items.length}
-            @click=${() => { this.checked = new Set(items.map(item => item.id)); }}>${t('gallery.selectAll', {count: items.length})}</button>
-            <button type="button" class="text-btn" ?disabled=${this.working || !checked.length}
-              @click=${() => { this.checked = new Set(); }}>${t('gallery.deselect')}</button>
+            @click=${() => { this.checked = items.every(item => this.checked.has(item.id))
+              ? new Set() : new Set(items.map(item => item.id)); }}>${t(items.every(item => this.checked.has(item.id))
+              ? 'gallery.deselect' : 'gallery.selectAll', {count: items.length})}</button>
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.some(item => item.downloadable !== false)}
               aria-busy=${String(this.busyAction === 'download')}
+              title=${t('gallery.downloadSelected.title')}
               @click=${() => this.act('download')}>${this.busyAction === 'download'
-                ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : icon('download')}${t('gallery.downloadSelected')}</button>
+                ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : icon('download')}${t('gallery.downloadSelected', {count: checked.length})}</button>
             <button type="button" class="text-btn gallery-remove" ?disabled=${this.working || !checked.length}
-              @click=${() => this.act('remove')}>${icon('trash')}${t('gallery.removeSelected')}</button>` : nothing}
+              @click=${() => this.act('remove')}>${icon('trash')}${t('gallery.removeSelected', {count: checked.length})}</button>` : nothing}
         </div>
         ${this.error ? html`<p class="gallery-browser-error" role="alert">${this.error}</p>` : nothing}
         <div class="gallery-browser-grid" role="group" aria-label=${t('gallery.results')} @scroll=${event => {

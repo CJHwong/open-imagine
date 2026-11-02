@@ -136,6 +136,12 @@ with sync_playwright() as playwright:
         expect(gallery.locator(".gallery-card")).to_have_count(16)
         expect(gallery.get_by_label("Group batches")).to_have_count(1)
         expect(gallery.get_by_role("searchbox", name="Search gallery")).to_be_visible()
+        # Select and Done are different widths. The field must not move when the
+        # switch flips, or the whole tools row jumps under the pointer.
+        search_width = gallery.get_by_role("searchbox").bounding_box()["width"]
+        gallery.get_by_role("button", name="Select", exact=True).click()
+        assert abs(gallery.get_by_role("searchbox").bounding_box()["width"] - search_width) < 1
+        gallery.get_by_role("button", name="Done", exact=True).click()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         # Search and filters derive solely from the saved prompt/script/model fields.
         gallery.get_by_role("searchbox").fill("red apple")
@@ -232,17 +238,17 @@ with sync_playwright() as playwright:
             results.append(download.suggested_filename)
 
         page.on("download", handler)
-        gallery.get_by_role("button", name="Download selected", exact=True).click()
+        gallery.get_by_role("button", name="Download 2", exact=True).click()
         page.wait_for_function(
             "workspace => !document.querySelector(`gallery-browser[workspace=${workspace}]`).working", arg=workspace
         )
         assert len(downloads) >= 2 and len(set(downloads)) == len(downloads), downloads
         page.remove_listener("download", handler)
         page.once("dialog", lambda dialog: dialog.dismiss())
-        gallery.get_by_role("button", name="Remove selected", exact=True).click()
+        gallery.get_by_role("button", name="Remove 2", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(16)
         page.once("dialog", lambda dialog: dialog.accept())
-        gallery.get_by_role("button", name="Remove selected", exact=True).click()
+        gallery.get_by_role("button", name="Remove 2", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(14)
         other.wait_for_function(
             "workspace => document.querySelector(`gallery-browser[workspace=${workspace}]`).items.length === 14",

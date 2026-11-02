@@ -122,9 +122,7 @@ function inStore(access, work) {
     return new Promise(function (resolve, reject) {
       const transaction = store.transaction('images', access);
       const request = work(transaction.objectStore('images'));
-      // A read of several keys returns one promise, and the requests it waits on
-      // finish before the transaction commits, so the promise is safe to adopt here.
-      transaction.oncomplete = function () { resolve(settles(request)); };
+      transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
       transaction.onabort = function () { reject(transaction.error); };
     });
   });
@@ -154,15 +152,10 @@ function inVideoStore(access, work) {
     return new Promise(function (resolve, reject) {
       const transaction = store.transaction('clips', access);
       const request = work(transaction.objectStore('clips'));
-      transaction.oncomplete = function () { resolve(settles(request)); };
+      transaction.oncomplete = function () { resolve(request ? request.result : undefined); };
       transaction.onabort = function () { reject(transaction.error); };
     });
   });
-}
-
-function settles(request) {
-  if (!request) return undefined;
-  return typeof request.then === 'function' ? request : request.result;
 }
 
 function blobOf(url) {
@@ -508,32 +501,7 @@ function videoItem(record) {
     media: [{role: 'mp4', blob: record.mp4}, ...(record.thumbnail ? [{role: 'thumbnail', blob: record.thumbnail}] : [])]};
 }
 
-// A selection names one workspace and its item ids, so the other stores never
-// open. The whole shelf, with no selection, reads both stores in one pass.
-function readKeys(store, ids) {
-  // The request is not a promise. Hand its result over when it succeeds, or the
-  // array would hold request objects, not records.
-  return Promise.all(ids.map(function (id) {
-    return new Promise(function (resolve, reject) {
-      const request = store.get(id);
-      request.onsuccess = function () { resolve(request.result); };
-      request.onerror = function () { reject(request.error); };
-    });
-  }));
-}
-
-function collectBundle(only) {
-  if (only && only.ids && only.ids.length) {
-    if (only.workspace === 'image') {
-      return inStore('readonly', store => readKeys(store, only.ids))
-        .then(function (records) { return records.filter(Boolean).map(imageItem); });
-    }
-    if (only.workspace === 'video') {
-      return inVideoStore('readonly', store => readKeys(store, only.ids))
-        .then(function (records) { return records.filter(Boolean).map(videoItem); });
-    }
-    return Promise.resolve([]);
-  }
+function collectBundle() {
   return Promise.all([
     inStore('readonly', images => images.getAll()),
     inVideoStore('readonly', clips => clips.getAll()),

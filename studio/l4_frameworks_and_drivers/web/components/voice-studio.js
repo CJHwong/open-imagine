@@ -374,9 +374,9 @@ class VoiceStudio extends LitElement {
 
   // The gallery file carries every take and its WAV. An import adds each take
   // through the same door a run uses, so the tombstones and the cutoff still rule.
-  async collectBundle(only) {
+  async collectBundle() {
     if (this.options?.keeping?.() === false) return [];
-    return exportVoice(only);
+    return exportVoice();
   }
 
   async restoreBundle(items) {
@@ -1367,11 +1367,12 @@ class VoiceStudio extends LitElement {
           .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
           .download=${ids => this.downloadTakes(clips, ids)} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
         <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all"
-          ?disabled=${!this.takesCount}
+          title=${t('gallery.downloadAll.title')} ?disabled=${!this.takesCount}
           @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>${t('voice.action.downloadAll')}</button>
-          <button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
-            if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
-          }}>${t('voice.action.clearAll')}</button></span></div>
+          <button type="button" class="text-btn" title=${t('gallery.clearAll.title')}
+            ?disabled=${!this.takesCount} @click=${() => {
+              if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
+            }}>${t('voice.action.clearAll')}</button></span></div>
       <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
         ${rendering ? html`<button type="button" class=${'frame pending voice-render-pending' + (this.showingGeneration ? ' selected' : '')}
           aria-label=${t('voice.gallery.showGenerationAria')} aria-pressed=${String(this.showingGeneration)}

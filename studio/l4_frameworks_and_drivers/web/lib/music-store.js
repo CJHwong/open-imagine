@@ -43,7 +43,6 @@ async function transaction(store, mode, action) {
   });
 }
 export const musicSongs = () => transaction('songs', 'readonly', store => store.getAll());
-export const musicSong = id => transaction('songs', 'readonly', store => store.get(id));
 // Initial imports are insert-only and return the durable record, including any cover.
 // Saving and deleting share a transaction with permanent per-id tombstones. A late
 // operation importer in another tab cannot bring back a recording the user deleted.

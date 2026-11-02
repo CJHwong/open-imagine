@@ -89,9 +89,8 @@ def seed(page, blobs):
     )
 
 
-def open_gallery(page):
-    page.locator("#image-gallery-browser .gallery-browse-toggle").click()
-    page.locator(".gallery-browser-transfer gallery-transfer").wait_for(state="visible")
+def open_menu(page):
+    page.click("#theme-toggle")
 
 
 def main():
@@ -116,9 +115,25 @@ def main():
             "&& document.querySelector('voice-studio').takesCount === 1 "
             "&& document.querySelector('music-studio').songs.length === 1"
         )
-        open_gallery(page)
+        # The menu names the difference: a download gives files, Export gives the
+        # restorable archive, and the titles say so.
+        assert page.locator("#download-gallery").get_attribute("title") == (
+            "Save every file in this shelf to this computer, one by one. Settings are not included."
+        )
+        page.locator("#image-gallery-browser .gallery-browse-toggle").click()
+        page.get_by_role("button", name="Select", exact=True).click()
+        page.locator(".gallery-check input").first.check()
+        assert page.get_by_role("button", name="Download 1", exact=True).get_attribute("title") == (
+            "Save the checked files to this computer, one by one. Settings are not included."
+        )
+        page.get_by_role("button", name="Done", exact=True).click()
+        page.locator("#image-gallery-browser .gallery-browse-toggle").click()
+        open_menu(page)
+        assert page.get_by_role("menuitem", name="Export", exact=True).get_attribute("title") == (
+            "Save the whole gallery as one ZIP, records and media together, to restore in another browser."
+        )
         with page.expect_download(timeout=60000) as download:
-            page.get_by_role("button", name="Export", exact=True).click()
+            page.get_by_role("menuitem", name="Export", exact=True).click()
         saved = download.value
         assert saved.suggested_filename.startswith("studio-gallery-"), saved.suggested_filename
         assert saved.suggested_filename.endswith(".zip"), saved.suggested_filename
@@ -140,22 +155,6 @@ def main():
             assert archive.testzip() is None
         print("PASS gallery export: one ZIP with a manifest and four workspaces of raw media.", flush=True)
 
-        # A checked item narrows the file to that shelf and those ids, so a large
-        # gallery does not have to leave in one piece.
-        gallery = page.locator("#image-gallery-browser")
-        gallery.get_by_role("button", name="Select", exact=True).click()
-        gallery.locator(".gallery-check input").first.check()
-        expect(gallery.get_by_role("button", name="Export 1 selected", exact=True)).to_be_visible()
-        with page.expect_download(timeout=60000) as chosen:
-            gallery.get_by_role("button", name="Export 1 selected", exact=True).click()
-        with zipfile.ZipFile(chosen.value.path()) as archive:
-            picked = json.loads(archive.read("gallery.json"))["items"]
-            picked_media = archive.read(picked[0]["media"][0]["file"])
-        assert [(item["workspace"], item["id"]) for item in picked] == [("image", 101)], picked
-        assert picked_media, "the selected item carries its picture"
-        print("PASS export takes the checked items, and only theirs.", flush=True)
-        gallery.get_by_role("button", name="Done", exact=True).click()
-
         fresh = browser.new_context(viewport={"width": 1440, "height": 1000})
         target = fresh.new_page()
         target.on("pageerror", lambda error: errors.append(str(error)))
@@ -163,7 +162,7 @@ def main():
         target.wait_for_function("Boolean(document.querySelector('music-studio')?.capabilities)")
         # An import usually starts with no images, so the settings menu carries it
         # as well as the gallery browser does.
-        target.click("#theme-toggle")
+        open_menu(target)
         with target.expect_file_chooser() as chooser:
             target.get_by_role("menuitem", name="Import", exact=True).click()
         chooser.value.set_files(saved.path())
@@ -225,7 +224,7 @@ def main():
         reader.on("pageerror", lambda error: errors.append(str(error)))
         reader.goto(URL)
         reader.wait_for_function("Boolean(document.querySelector('music-studio')?.capabilities)")
-        reader.click("#theme-toggle")
+        open_menu(reader)
         with reader.expect_file_chooser() as chooser:
             reader.get_by_role("menuitem", name="Import", exact=True).click()
         chooser.value.set_files(legacy)
@@ -252,7 +251,7 @@ def main():
                 ).encode()
             )
         )
-        reader.click("#theme-toggle")
+        open_menu(reader)
         with reader.expect_file_chooser() as chooser:
             reader.get_by_role("menuitem", name="Import", exact=True).click()
         chooser.value.set_files(version2)

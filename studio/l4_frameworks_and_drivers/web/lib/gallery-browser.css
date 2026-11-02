@@ -10,6 +10,9 @@
 gallery-browser { display: contents; color-scheme: dark; }
 .gallery-browse-toggle { order: 2; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .gallery-browse-toggle .icon { width: 13px; height: 13px; }
+/* The switch names two words of different length. A fixed floor keeps the search box
+   at one width when the label changes from Select to Done. */
+.gallery-browser-tools .gallery-select-toggle { min-width: 68px; justify-content: center; }
 .strip-wrap:has(gallery-browser[expanded]) > .strip { display: none; }
 .gallery-browser-panel { order: 4; flex: 1 0 100%; min-width: 0; color: #ddd; padding-top: 8px; }
 /* The words, the sort and the select toggle share one row. */
@@ -103,11 +106,8 @@ gallery-media { display: grid; place-items: center; width: 100%; height: 100%; o
 .gallery-card .still gallery-media { grid-template-rows: 100%; }
 gallery-media > img { width: 100%; max-width: 100%; height: 100%; object-fit: contain; }
 
-/* The gallery file keeps its own row: the tools row holds the filters, and a
-   third control there would push them off a narrow overlay. */
-.gallery-browser-transfer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
-.gallery-transfer { display: inline-flex; align-items: center; gap: 4px; }
-.gallery-transfer .text-btn { white-space: nowrap; }
+/* The gallery file lives in the Media menu, once, for every shelf. The browser
+   keeps its own actions: filter, select, download the checked files. */
 /* A press that waits on the disk or the encoder spins in place, so the control does not
    look dead. Reduced motion dims the mark instead of turning it. */
 .gallery-browser-panel .text-btn[aria-busy=true] { opacity: .7; }

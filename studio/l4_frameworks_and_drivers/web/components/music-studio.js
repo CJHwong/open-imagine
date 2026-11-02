@@ -1,4 +1,4 @@
-import {musicSongs, musicSong, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
+import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
   musicSource, putMusicSource, sourceIdFor, sweepMusicSources, musicLink, putMusicLink, deleteMusicLink} from '../lib/music-store.js';
 import {renderNotation} from '../lib/music-notation.js';
 import {renderSongText} from '../lib/music-lyrics.js';
@@ -382,8 +382,10 @@ class MusicStudio extends HTMLElement {
         <div class="strip-head"><span class="music-count">${plural(0, t('music.shelf.songs'))}</span><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="${t('music.audio.pause_label')}" hidden>${t('music.audio.pause')}</button>
           <span class="strip-actions">
-            <button type="button" class="text-btn" id="music-download-all">${t('music.gallery.download_all')}</button>
-            <button type="button" class="text-btn" id="music-clear-all">${t('music.gallery.clear_all')}</button>
+            <button type="button" class="text-btn" id="music-download-all"
+              title=${t('gallery.downloadAll.title')}>${t('music.gallery.download_all')}</button>
+            <button type="button" class="text-btn" id="music-clear-all"
+              title=${t('gallery.clearAll.title')}>${t('music.gallery.clear_all')}</button>
           </span></div>
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
@@ -1737,14 +1739,10 @@ class MusicStudio extends HTMLElement {
   }
   // The gallery file carries each song, its cover and its original recording.
   // An import saves the source first, because the song points at it.
-  async collectBundle(only) {
+  async collectBundle() {
     if (!this.keeping) return [];
-    if (only && only.workspace !== 'music') return [];
-    const songs = only && only.ids && only.ids.length
-      ? (await Promise.all(only.ids.map(id => musicSong(id).catch(() => null)))).filter(Boolean)
-      : await musicSongs();
     const items = [];
-    for (const song of songs) {
+    for (const song of await musicSongs()) {
       const media = [];
       if (song.blob instanceof Blob) media.push({role: 'audio', blob: song.blob});
       if (song.coverBlob instanceof Blob) media.push({role: 'cover', blob: song.coverBlob});

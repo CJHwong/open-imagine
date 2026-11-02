@@ -1929,9 +1929,11 @@ class VideoStudio extends LitElement {
             .download=${ids => this.downloadAllVideos(ids)} .playback=${() => this.togglePlayback()}></gallery-browser>
           <span class="strip-actions">
             <button class="text-btn" type="button" id="video-gallery-download"
-              data-action="download-all-videos" ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
+              data-action="download-all-videos" title=${t('gallery.downloadAll.title')}
+              ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
             <button class="text-btn" type="button" id="video-gallery-clear"
-              data-action="clear-video-gallery" ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
+              data-action="clear-video-gallery" title=${t('gallery.clearAll.title')}
+              ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
           </span>
         </div>
         <div class="strip video-clips" role="group" aria-label=${t('video.gallery.generated')}>

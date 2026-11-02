@@ -146,8 +146,10 @@
         <span id="strip-note"></span>
         <gallery-browser id="image-gallery-browser" workspace="image"></gallery-browser>
         <span class="strip-actions">
-          <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll">Download all</button>
-          <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll">Clear all</button>
+          <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll"
+            data-i18n-attr='{"title":"gallery.downloadAll.title"}'>Download all</button>
+          <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll"
+            data-i18n-attr='{"title":"gallery.clearAll.title"}'>Clear all</button>
         </span>
       </div>
       <!-- The frames are components/image-strip.js, which draws them from the
@@ -3085,14 +3087,16 @@
     play.setAttribute('role', 'menuitemcheckbox');
     play.id = 'autoplay-toggle';
     menu.append(head, keep, play);
-    // The gallery file is reachable with no images too, which is where an import
-    // usually starts. The browser repeats the two controls when a shelf exists.
+    // One place leaves and returns the whole gallery. An import usually starts with
+    // no images, so the menu carries it and the shelves do not.
     const fileHead = document.createElement('div');
     fileHead.className = 'menu-head';
     fileHead.textContent = t('page.gallery.file');
     menu.append(fileHead,
-      menus.menuItem('download', t('gallery.export'), () => exportGalleryFile()),
-      menus.menuItem('plus', t('gallery.import'), () => importGalleryFile()));
+      menus.menuItem('download', t('gallery.export'), () => exportGalleryFile(),
+        t('gallery.export.title')),
+      menus.menuItem('plus', t('gallery.import'), () => importGalleryFile(),
+        t('gallery.import.title')));
     markKeep();
     markAutoplay();
     // The clip player arrives with its module, after this script runs.
@@ -3145,13 +3149,11 @@
     };
     input.click();
   }
-  // A selection from one shelf names its workspace and ids, so the other stores
-  // do not open. No selection means the whole shelf, which is the backup path.
-  window.collectStudioBundle = async function (only) {
+  window.collectStudioBundle = async function () {
     const items = [];
-    if (kept) items.push(...await kept.collectBundle(only));
-    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle(only));
-    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle(only));
+    if (kept) items.push(...await kept.collectBundle());
+    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle());
+    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle());
     return items;
   };
   window.restoreStudioBundle = async function (items) {
