@@ -1221,7 +1221,9 @@
      declarations a browser may drop, and the card then stretched to the pane top. */
   .music-preview-pane { display: flex; align-items: center; justify-content: center;
     min-height: 0; overflow: auto; padding: 28px; }
-  .music-preview-pane > .music-songs { align-self: center; }
+  /* Auto margins center the child on their own, so the card stays centered even in an
+     engine that treats the alignment keywords differently. */
+  .music-preview-pane > .music-songs { align-self: center; margin: auto; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-strip:empty { display: none; }
   /* Every music tile is a square: the stage cover, the strip thumb and the pending tile
