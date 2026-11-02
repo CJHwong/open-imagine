@@ -53,6 +53,7 @@ def test_a_generate_plan_holds_the_settings_the_loras_and_the_time():
         "frame_rate": 24,
         "enhance": False,
         "fast_mode": True,
+        "include_audio": True,
     }
     assert response.loras == (LoraUse("motion", 1.0),)
     assert response.offers_loras is True

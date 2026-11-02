@@ -120,6 +120,7 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         edit=_edit(payload, adapter, capabilities) if adapter else None,
         audio=audio,
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
+        include_audio=_include_audio(payload.get("include_audio", True), mode, audio, capabilities),
         loras=loras,
     )
 
@@ -164,6 +165,7 @@ def plan_request(payload: Mapping, backend_id: str, capabilities: VideoCapabilit
         audio=audio,
         enhance=_enhance(payload.get("enhance", True), mode),
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
+        include_audio=_include_audio(payload.get("include_audio", True), mode, audio, capabilities),
         loras=loras,
         adapter=adapter.id if adapter else "",
         adapter_strength=_adapter_strength(payload.get("adapter_strength"), adapter) if adapter else None,
@@ -227,6 +229,18 @@ def _fast_mode(value, capabilities: VideoCapabilities) -> bool:
         raise InvalidJob("fast_mode must be a boolean")
     if value and not capabilities.fast_mode:
         raise InvalidJob("This video model does not support Fast mode.")
+    return value
+
+
+def _include_audio(value, mode: VideoMode, audio, capabilities: VideoCapabilities) -> bool:
+    """Whether the output keeps its audio track. A clip that follows a track keeps it."""
+    if type(value) is not bool:
+        raise InvalidJob("include_audio must be a boolean")
+    if not value:
+        if not capabilities.can_skip_audio or mode.needs_clip:
+            raise InvalidJob("Only a Generate run on this video model can leave out its audio.")
+        if audio is not None:
+            raise InvalidJob("A clip that follows an audio track keeps that track in its output.")
     return value
 
 

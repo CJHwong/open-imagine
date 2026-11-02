@@ -47,6 +47,41 @@ def test_bad_composition_never_reaches_model(patch):
         music_job({**PAYLOAD, **patch}, CAPS)
 
 
+def test_sampling_overrides_are_carried_and_default_to_the_engine():
+    assert music_job(PAYLOAD, CAPS).sampling == {}
+    values = {
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "top_k": 40,
+        "repetition_penalty": 1.1,
+        "penalty_window": 32,
+        "max_tokens": 4096,
+    }
+    assert music_job({**PAYLOAD, "sampling": values}, CAPS).sampling == values
+
+
+@pytest.mark.parametrize(
+    "sampling",
+    [
+        {"unknown": 1},
+        {"temperature": "1"},
+        {"temperature": True},
+        {"top_k": 1.5},
+        {"top_p": 0},
+        {"top_p": 1.5},
+        {"temperature": 6},
+        {"penalty_window": 0},
+        {"repetition_penalty": 0},
+        {"max_tokens": 0},
+        "1.0",
+        [1],
+    ],
+)
+def test_bad_sampling_never_reaches_model(sampling):
+    with pytest.raises(InvalidJob, match="sampling"):
+        music_job({**PAYLOAD, "sampling": sampling}, CAPS)
+
+
 def test_controller_catalog_and_batch_validation():
     run, catalog, switch = Mock(), Mock(), Mock()
     catalog.active_id.return_value = "yue2"

@@ -185,6 +185,12 @@ class VideoCapabilities:
     the cap leaves room under the request's own 64 MB ceiling."""
     fast_mode: bool = False
     """Whether this backend accepts the optional faster, reduced-precision render path."""
+    can_skip_audio: bool = False
+    """Whether a Generate run can leave its audio track out of the file.
+
+    The clip's audio is generated jointly with the video. The engine can skip the
+    decode and the mux, which saves that work and writes a silent MP4. An Edit has
+    no such choice: its output is the clip it was given, and it takes no audio input."""
     loras: tuple[Lora, ...] = ()
     """The LoRAs a clip can pick, in every mode. A model that offers none hides the picker."""
     max_loras: int = 0

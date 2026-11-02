@@ -81,8 +81,9 @@ function createDrafts(page) {
   function record(inputs, submitted = null) {
     return {id: crypto.randomUUID(), updatedAt: stamp(), inputs: structuredClone(inputs), submitted};
   }
-  function changed(workspace) {
-    if (applying || stateDepth || paused.has(workspace) || !page.keeping() || page.blocked()) return;
+  function changed(workspace, force = false) {
+    if (applying || stateDepth || !page.keeping()) return;
+    if (!force && (paused.has(workspace) || page.blocked())) return;
     const name = key(workspace);
     const next = record(page.snapshot(workspace));
     records[name] = next;
@@ -170,7 +171,7 @@ function createDrafts(page) {
     restore('image');
     restore('video');
   }
-  return {changed, restore, submit, observe, keep,
+  return {changed, changedNow: workspace => changed(workspace, true), restore, submit, observe, keep,
     suspend: () => { stateDepth += 1; }, resume: () => { stateDepth -= 1; }, pause: workspace => paused.add(workspace), flushed: () => writes, loading: () => loading.size > 0};
 }
 

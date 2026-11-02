@@ -119,13 +119,13 @@
      when the thumb comes back. The thumb takes the theme's line colour unless the pane is
      a film surface with its own. */
   :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
-    .video-source-list, .video-references, .video-audios, #voice-preview-pane,
+    .video-source-list, .video-audios, #voice-preview-pane,
     .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
     .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid,
     #form, .pane-gallery-shelf) {
     scrollbar-width: thin; scrollbar-color: transparent transparent; }
   :where(.controls, .sheet-body, .strip, .menu, .video-clips, .video-editing-area,
-    .video-source-list, .video-references, .video-audios, #voice-preview-pane,
+    .video-source-list, .video-audios, #voice-preview-pane,
     .music-preview-pane, .music-track-text, .music-abc-preview, .music-abc-dialog,
     .music-abc-notation, .music-genre-groups, .music-song pre, .gallery-browser-grid,
     #form, .pane-gallery-shelf):is(:hover, .is-scrolling) {
@@ -764,24 +764,42 @@
   .video-reference-head span { color: var(--text-3); }
   /* The image form's `.refs`, border and padding and all: a dashed zone with 12 px inside it,
      so the print lands at the same offset it has in the image workspace. */
-  .video-references { display: flex; flex-direction: column; gap: 8px; max-height: 190px; min-height: 0;
-    overflow-y: auto; padding: 12px; border: 1px dashed var(--line-strong); border-radius: 8px; }
-  .video-reference { position: relative; display: grid; grid-template-columns: 60px minmax(0, 1fr);
-    align-items: center; gap: 14px; width: 100%; padding: 4px 0; border: 0; border-radius: 5px; }
-  /* The remove anchors to the print, not to the row: without this the circle sat at the row's
-     far edge, because the nearest positioned ancestor was the row. */
-  .video-reference-picture { position: relative; width: 60px; height: 60px; }
-  .video-reference.selected { border-radius: 5px; background: var(--accent-soft); }
-  .video-reference-select { width: 60px; height: 60px; padding: 0; border: 3px solid var(--film);
-    border-radius: 3px; background: none; cursor: pointer; }
-  .video-reference-select[aria-pressed=true] { border-color: var(--accent-fill); }
-  .video-reference-select img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 1px; }
-  .video-reference-name { min-width: 0; overflow: hidden; color: var(--text-2); font-size: 10px;
-    text-overflow: ellipsis; white-space: nowrap; }
-  .video-reference-remove { position: absolute; top: -7px; right: -7px; width: 20px; height: 20px;
+  .video-references { display: block; min-height: 0; padding: 12px; border: 1px dashed var(--line-strong);
+    border-radius: 8px; }
+  .video-references.drop-over { border-color: var(--accent); background: var(--accent-soft); }
+  /* The keyframe rail: the clip's length runs left to right, each picture sits at its frame.
+     A picture that would overlap another moves to the other lane; the marker keeps the true
+     frame, so the lane never lies about the time. */
+  .video-keyframe-rail { user-select: none; -webkit-user-select: none; }
+  .video-keyframe-scale { display: flex; justify-content: space-between; color: var(--text-3);
+    font: 9px var(--mono); }
+  .video-keyframe-line { position: relative; height: 9px; margin: 1px 0 4px; }
+  .video-keyframe-line::before { content: ''; position: absolute; left: 0; right: 0; top: 4px;
+    border-top: 1px solid var(--line-strong); }
+  .video-keyframe-marker { position: absolute; top: 0; width: 2px; height: 9px; border-radius: 1px;
+    background: var(--text-3); }
+  .video-keyframe-marker.selected { background: var(--accent-fill); }
+  .video-keyframe-lanes { position: relative; }
+  .video-reference-slot { position: absolute; width: 30px; height: 30px; }
+  .video-reference { position: relative; width: 30px; height: 30px; padding: 0; overflow: hidden;
+    border: 2px solid var(--film); border-radius: 3px; background: none; cursor: grab; }
+  .video-reference img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 1px;
+    pointer-events: none; }
+  .video-reference.selected { border-color: var(--accent-fill); z-index: 2; }
+  .video-reference.dragging { cursor: grabbing; z-index: 3; }
+  .video-keyframe-rail.locked .video-reference { cursor: default; }
+  .video-reference-caption { min-height: 14px; margin: 5px 0 0; overflow: hidden; color: var(--text-2);
+    font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .video-reference-remove { position: absolute; top: -3px; right: -3px; width: 15px; height: 15px;
     padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 50%;
-    border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer; }
-  .video-reference-remove .icon { width: 11px; height: 11px; }
+    border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer;
+    z-index: 4; opacity: 0; transition: opacity .12s; }
+  /* The circle waits until the picture is in hand: eight chips with eight circles read as
+     lace. The selected picture keeps its circle, and a hover or a focus brings the rest back. */
+  .video-reference-slot.selected .video-reference-remove,
+  .video-reference-slot:hover .video-reference-remove,
+  .video-reference-slot:focus-within .video-reference-remove { opacity: 1; }
+  .video-reference-remove .icon { width: 8px; height: 8px; }
   .video-reference-remove:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
   /* The track is the reference row's shape without a picture to show: the same dashed zone,
      the same 60 px tile with the film edge, the same remove circle on its corner. */

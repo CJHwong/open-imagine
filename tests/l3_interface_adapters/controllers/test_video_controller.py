@@ -633,6 +633,43 @@ def test_fast_mode_rejects_an_unsupported_model_and_defaults_to_off():
         video_job(payload(fast_mode=True), fake_video_capabilities())
 
 
+@pytest.mark.parametrize("value", [True, False])
+def test_include_audio_is_validated_and_carried_by_the_video_job(value):
+    capabilities = editing_capabilities(can_skip_audio=True)
+    assert video_job(payload(include_audio=value), capabilities).include_audio is value
+
+
+@pytest.mark.parametrize("value", [None, "false", 0, 1, [], {}])
+def test_include_audio_rejects_non_boolean_values(value):
+    with pytest.raises(InvalidJob, match="boolean"):
+        video_job(payload(include_audio=value), editing_capabilities(can_skip_audio=True))
+
+
+def test_include_audio_defaults_to_on_and_needs_a_model_that_can_skip_it():
+    assert video_job(payload(), editing_capabilities()).include_audio is True
+    with pytest.raises(InvalidJob, match="Only a Generate run"):
+        video_job(payload(include_audio=False), editing_capabilities())
+
+
+def test_include_audio_is_refused_for_an_edit_and_for_a_track_driven_run():
+    capabilities = editing_capabilities(can_skip_audio=True)
+    with pytest.raises(InvalidJob, match="Only a Generate run"):
+        video_job(
+            payload(
+                mode="edit",
+                adapter="relight",
+                clip=clip_payload(),
+                width=768,
+                height=768,
+                num_frames=97,
+                include_audio=False,
+            ),
+            capabilities,
+        )
+    with pytest.raises(InvalidJob, match="keeps that track"):
+        video_job(payload(audio=audio_payload(), include_audio=False), capabilities)
+
+
 def test_video_batch_rejects_mixed_fast_mode_before_running():
     from dataclasses import replace
 
@@ -729,6 +766,7 @@ def test_a_plan_reads_a_run_body_without_its_media_and_switches_nothing():
         "frame_rate": 24,
         "enhance": False,
         "fast_mode": False,
+        "include_audio": True,
     }
     assert response.estimate.reference_count == 2
     assert [pick.id for pick in response.loras] == ["example_warm"]

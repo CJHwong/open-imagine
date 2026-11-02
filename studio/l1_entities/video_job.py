@@ -56,7 +56,6 @@ class VideoJob:
     references: tuple[VideoReference, ...] = field(default=())
     enhance: bool = False
     """Lengthen the prompt again inside the pipeline, with the video model's own enhancer.
-
     The studio's rewriter writes the longer text first, where it can be read and edited, and
     this is the model's own pass over whatever it is given. The pipeline replaces the prompt
     with what that pass writes and logs it as "Enhanced prompt: ...", which the runner reads
@@ -71,6 +70,11 @@ class VideoJob:
     it in the output unchanged, so the run reads it as timing and mood, not as a source."""
     fast_mode: bool = False
     """Use reduced transformer compute precision for this render; weights stay unchanged."""
+    include_audio: bool = True
+    """Write the audio the model generated jointly with the video.
+
+    False writes a silent MP4 and saves the audio decode and mux. A run that follows a
+    track keeps it: that audio is the input, and the controller refuses the pair."""
     loras: tuple[LoraUse, ...] = ()
     """The LoRAs this clip applies, checked against the model, in the order picked. The gateway
     resolves each id to its file; the job carries no path."""

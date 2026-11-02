@@ -11,25 +11,38 @@ Set that directory before starting if you want another disk or already have the 
 
 ## Video: LTX-2.5
 
-Install the separate pinned MLX engine outside the checkout. Install `ffmpeg` as well (`brew install ffmpeg` on Homebrew); its configured path is `/opt/homebrew/bin/ffmpeg`.
+Video builds its own engine environment on the first run. The studio ships a wrapper,
+`studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py`, which declares the
+pinned [ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx) port and its exact package versions.
+`uv` builds and caches that environment, so there is no clone and no `cli_path` to set.
+The first run needs network access for the packages, about 1 GB once.
 
-The two q8 packs run through [ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx), a third-party MIT port. Install it outside this repo:
+Install `ffmpeg` as well (`brew install ffmpeg` on Homebrew); its configured path is `/opt/homebrew/bin/ffmpeg`.
 
-       git clone https://github.com/dgrauet/ltx-2-mlx.git ~/ltx-experiments/ltx-2-mlx
-       cd ~/ltx-experiments/ltx-2-mlx
-       git checkout 5fed9e2a588102c231658d2a2b7be1ef7bf350b4
-       uv sync --all-extras
-       uv pip install --python .venv/bin/python "mlx-vlm==0.4.3" "mlx==0.32.2" "mlx-lm==0.31.1" "transformers==5.3.0"
+The engine keeps its own environment because the port pins `mlx-vlm 0.4.3` and
+`transformers 5.3.0`, and the studio's image rewriters need `mlx-vlm 0.7.3` or newer with
+`transformers` 5.5 or newer. One environment cannot hold both sets.
 
-Set `[mlx_video].cli_path` to the installed executable if you used a different directory.
-The separate environment needs the pinned `mlx-vlm` package for image-aware prompt enhancement.
+An engine checkout you already have still works. Set `[mlx_video].cli_path` to its CLI, and the
+studio runs its child scripts under that environment's `python`.
+
 Accept the model terms at [dgrauet/ltx-2.5-mlx-q8](https://huggingface.co/dgrauet/ltx-2.5-mlx-q8), then authenticate:
 
 ```sh
 uv run hf auth login
 ```
 
-The engine downloads the video pack on first generation (about 72 GB).
+The video pack is about 72 GB. The shipped `model_ltx25` names the same cache the other models
+use, `~/Library/Caches/models/ltx-2.5-q8`. Fill it before the first run:
+
+```sh
+uv run --with huggingface-hub hf download dgrauet/ltx-2.5-mlx-q8 --local-dir ~/Library/Caches/models/ltx-2.5-q8
+```
+
+The `--local-dir` form writes real files. The shared cache form can leave the large weights as Xet
+pointers on a client without Xet support, and a run then fails on the first file it opens.
+LTX-2.3 keeps a repository id, so its pack downloads on first use.
+
 To use Video Edit effects, accept each adapter’s terms and either place its file in `[mlx_video].lora_dir`
 or enable `[mlx_video].fetch_loras`. The default leaves adapter downloads disabled and reports the missing path.
 For **Layout to Render**, accept the [adapter terms](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render), then download to the default adapter directory:

@@ -12,6 +12,7 @@ from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 def enhancer(tmp_path):
     python = tmp_path / "python"
     python.touch()
+    (tmp_path / "ltx-2-mlx").touch()
     return Gemma3PromptEnhancer({"cli_path": str(tmp_path / "ltx-2-mlx")}, SubprocessRunner().execute)
 
 

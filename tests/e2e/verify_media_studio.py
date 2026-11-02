@@ -381,10 +381,167 @@ with sync_playwright() as playwright:
     check(
         "a reference is its print and its name, with no influence dial",
         page.locator("#video-source-panel .video-reference-options").count() == 0
-        and page.locator("#video-source-panel .video-reference-name").inner_text() == "reference.png"
+        and page.locator("#video-source-panel .video-reference-caption").inner_text()
+        == "reference.png at 0.0 s, frame 0"
+        and page.locator("#video-source-panel .video-reference").get_attribute("aria-label")
+        == "Select reference reference.png at 0.0 s"
         and page.locator("#video-source-panel [data-action='reference-frame']").count() == 0,
-        page.locator("#video-source-panel .video-reference").inner_text(),
+        page.locator("#video-source-panel .video-reference-caption").inner_text(),
     )
+    rail_initial = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          return {
+            rail: document.querySelectorAll('#video-reference-rail').length,
+            chips: document.querySelectorAll('.video-reference').length,
+            markers: document.querySelectorAll('.video-keyframe-marker').length,
+            scale: [...document.querySelectorAll('.video-keyframe-scale span')].map(span => span.textContent),
+            caption: document.querySelector('.video-reference-caption').textContent,
+            frame: studio.imageReferences[0].frameIndex,
+            limit: studio.frameLimit,
+          };
+        }"""
+    )
+    check(
+        "an image reference sits on the keyframe rail at its frame",
+        rail_initial
+        == {
+            "rail": 1,
+            "chips": 1,
+            "markers": 1,
+            "scale": ["0.0 s", "2.5 s", "5.0 s"],
+            "caption": "reference.png at 0.0 s, frame 0",
+            "frame": 0,
+            "limit": 121,
+        },
+        json.dumps(rail_initial),
+    )
+    chip = page.locator(".video-reference").first.bounding_box()
+    rail_box = page.locator("#video-reference-rail").bounding_box()
+    page.mouse.move(chip["x"] + chip["width"] / 2, chip["y"] + chip["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(rail_box["x"] + 15 + 0.5 * (rail_box["width"] - 30), chip["y"] + chip["height"] / 2, steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(150)
+    dragged = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          return {frame: studio.imageReferences[0].frameIndex,
+            caption: document.querySelector('.video-reference-caption').textContent,
+            selected: studio.selectedReferenceId, firstId: studio.imageReferences[0].id};
+        }"""
+    )
+    check(
+        "dragging a reference across the rail sets its frame",
+        dragged["frame"] == 60
+        and dragged["caption"] == "reference.png at 2.5 s, frame 60"
+        and dragged["selected"] == dragged["firstId"],
+        json.dumps(dragged),
+    )
+    page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.addImageReference({id: 'rail-second', name: 'second.png',
+            src: studio.imageReferences[0].src, base64: studio.imageReferences[0].base64});
+        }"""
+    )
+    page.wait_for_function("() => document.querySelectorAll('.video-reference').length === 2")
+    second = page.locator(".video-reference").nth(1).bounding_box()
+    first = page.locator(".video-reference").nth(0).bounding_box()
+    page.mouse.move(second["x"] + 15, second["y"] + 15)
+    page.mouse.down()
+    page.mouse.move(first["x"] + 15, first["y"] + 15, steps=10)
+    page.mouse.up()
+    page.wait_for_timeout(150)
+    collision = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const toasts = [...document.querySelectorAll('#toasts .toast.error')];
+          return {frames: studio.imageReferences.map(reference => reference.frameIndex),
+            error: toasts.at(-1)?.innerText || ''};
+        }"""
+    )
+    check(
+        "a reference cannot land on a frame another one holds",
+        collision["frames"] == [60, 0] and "already holds a picture" in collision["error"],
+        json.dumps(collision),
+    )
+    page.locator(".video-reference").nth(1).focus()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_timeout(80)
+    page.keyboard.press("Shift+ArrowRight")
+    page.wait_for_timeout(80)
+    stepped = page.evaluate(
+        "() => document.getElementById('video-studio').imageReferences.map(reference => reference.frameIndex)"
+    )
+    check(
+        "arrow keys move a focused reference by one frame, eight with Shift",
+        stepped == [60, 9],
+        str(stepped),
+    )
+    dropped = page.evaluate(
+        """async (fileBytes) => {
+          const rail = document.querySelector('#video-reference-rail');
+          const rect = rail.getBoundingClientRect();
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([new Uint8Array(fileBytes)], 'rail.png', {type: 'image/png'}));
+          const x = rect.left + rect.width * 0.75;
+          const over = new DragEvent('dragover', {bubbles: true, cancelable: true, clientX: x, dataTransfer: transfer});
+          rail.dispatchEvent(over);
+          const highlighted = document.getElementById('video-references').classList.contains('drop-over');
+          const drop = new DragEvent('drop', {bubbles: true, cancelable: true, clientX: x, dataTransfer: transfer});
+          rail.dispatchEvent(drop);
+          await new Promise(resolve => setTimeout(resolve, 400));
+          const studio = document.getElementById('video-studio');
+          const added = studio.imageReferences.find(reference => reference.name === 'rail.png');
+          return {overPrevented: over.defaultPrevented, dropPrevented: drop.defaultPrevented,
+            highlighted, cleared: !document.getElementById('video-references').classList.contains('drop-over'),
+            frame: added ? added.frameIndex : -1,
+            selected: studio.selectedReferenceId,
+            caption: document.querySelector('.video-reference-caption').textContent};
+        }""",
+        list(REFERENCE.read_bytes()),
+    )
+    check(
+        "a picture dropped on the rail lands at that frame",
+        dropped["overPrevented"]
+        and dropped["dropPrevented"]
+        and dropped["highlighted"]
+        and dropped["cleared"]
+        and 86 <= dropped["frame"] <= 94
+        and dropped["selected"]
+        and dropped["caption"].startswith("rail.png at "),
+        json.dumps(dropped),
+    )
+    locked = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.lockReferenceFrame(0);
+          const rail = document.querySelector('#video-reference-rail');
+          const lockedRail = rail.classList.contains('locked');
+          const frames = studio.imageReferences.map(reference => reference.frameIndex);
+          studio.lockReferenceFrame(null);
+          return {lockedRail, frames, afterUnlock: !document.querySelector('#video-reference-rail').classList.contains('locked')};
+        }"""
+    )
+    check(
+        "a mode that pins its look image holds every reference on that frame",
+        locked == {"lockedRail": True, "frames": [0, 0, 0], "afterUnlock": True},
+        json.dumps(locked),
+    )
+    # The suite's later checks expect one reference at the start; undo this section's work.
+    page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          studio.imageReferences = studio.imageReferences.filter(reference => reference.id !== 'rail-second'
+            && reference.name !== 'rail.png');
+          studio.imageReferences[0].frameIndex = 0;
+          studio.selectedReferenceId = studio.imageReferences[0].id;
+          studio.renderImageReferences();
+          studio.inputsChanged();
+        }"""
+    )
+    page.wait_for_function("() => document.querySelectorAll('.video-reference').length === 1")
     check(
         "Video mode shows its own selected model without a picker",
         page.locator("#backend-toggle .name").inner_text() == "LTX-2.5"
@@ -829,7 +986,7 @@ with sync_playwright() as playwright:
         and video_modes["height"] == 32
         and video_modes["sameStylesAsImage"]
         and page.locator("#video-reference-tray[aria-label='Image references']").count() == 1
-        and page.locator("#video-reference-track").count() == 0,
+        and page.locator("#video-reference-rail").count() == 1,
         json.dumps(video_modes),
     )
     output_controls = page.evaluate(
@@ -851,7 +1008,7 @@ with sync_playwright() as playwright:
           const studio = document.getElementById('video-studio');
           const saved = {...studio.imageReferences[0]};
           studio.clearImageReferences();
-          const timelineCount = document.querySelectorAll('#video-timeline, #video-reference-track').length;
+          const timelineCount = document.querySelectorAll('#video-timeline, #video-reference-rail').length;
           const emptyState = document.querySelector('#video-media-empty');
           const sourceGroup = document.querySelector('.video-source-group');
           const referenceTray = document.querySelector('#video-reference-tray');
@@ -1028,6 +1185,24 @@ with sync_playwright() as playwright:
 
     # Generate takes one audio track, and the run follows it. The door offers the kind, the
     # row shows the track, and a second one is refused rather than replacing it silently.
+    # A Generate clip can also leave its audio track out; an Edit has no such choice.
+    page.locator("#video-advanced summary").click()
+    audio_field, audio_pill = page.locator("#video-audio-field"), page.locator("#video-audio-track")
+    audio_pill.click()
+    silent = audio_pill.get_attribute("aria-pressed") == "false" and audio_field.is_visible()
+    carried = page.evaluate(
+        "() => document.getElementById('video-studio').requestPayload({includeAudio: false}).include_audio"
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    hidden_in_edit = audio_field.is_hidden()
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    page.locator("#video-audio-track").click()
+    check(
+        "a Generate clip can leave its audio out, and an Edit cannot",
+        silent and carried is False and hidden_in_edit and audio_pill.get_attribute("aria-pressed") == "true",
+        f"silent {silent}, carried {carried}, hidden in edit {hidden_in_edit}",
+    )
+    page.locator("#video-advanced summary").click()
     page.locator("#video-media-upload").set_input_files(str(AUDIO))
     page.wait_for_function("() => document.querySelectorAll('#video-audios .video-audio').length === 1")
     track = page.evaluate(
@@ -2700,6 +2875,76 @@ with sync_playwright() as playwright:
         page.evaluate("() => document.getElementById('video-studio').audio") is None
         and page.locator("#video-audios .video-audio").count() == 0
         and page.locator("#video-audio-tray").is_hidden(),
+    )
+    page.locator("#video-advanced summary").click()
+    page.wait_for_timeout(150)
+    if page.locator("#video-audio-track").get_attribute("aria-pressed") == "false":
+        # One on, one off, so the draft sees a change even if the row was already off.
+        page.locator("#video-audio-track").click()
+        page.wait_for_timeout(150)
+    page.locator("#video-audio-track").click()
+    page.wait_for_timeout(600)
+    page.reload()
+    page.wait_for_function("() => customElements.get('video-studio')")
+    page.click("#media-video-mode")
+    page.wait_for_timeout(1200)
+    page.locator("#video-advanced summary").click()
+    page.wait_for_timeout(150)
+    audio_after_reload = page.locator("#video-audio-track").get_attribute("aria-pressed")
+    check(
+        "the draft keeps the Sound choice across a reload",
+        audio_after_reload == "false",
+        str(audio_after_reload),
+    )
+    # A rewrite is its own operation, and that operation blocks the ordinary draft save.
+    # The answer still belongs in the draft: a refresh keeps it and offers no second accept.
+    page.fill("#video-prompt", "a rewrite draft probe")
+    page.wait_for_timeout(300)
+    page.click("#video-rewrite-toggle")
+    page.wait_for_function("() => document.getElementById('video-prompt').value.indexOf('stub') >= 0", timeout=30000)
+    rewritten = page.input_value("#video-prompt")
+    page.wait_for_timeout(900)
+    card_before_reload = page.locator("#shared-rewrite-result").is_hidden()
+    page.reload()
+    page.wait_for_function("() => customElements.get('video-studio')")
+    page.click("#media-video-mode")
+    page.wait_for_timeout(1500)
+    rewrite_draft = page.evaluate(
+        """() => ({prompt: document.getElementById('video-prompt').value,
+          cardHidden: document.getElementById('shared-rewrite-result').hidden,
+          cardText: document.getElementById('shared-rewrite-text').value})"""
+    )
+    check(
+        "a rewritten prompt survives a reload, and its shared card does not come back",
+        card_before_reload
+        and rewrite_draft["prompt"] == rewritten
+        and rewrite_draft["cardHidden"]
+        and rewrite_draft["cardText"] == "",
+        json.dumps({"cardBeforeReload": card_before_reload, **rewrite_draft}),
+    )
+    # A rewrite from another caller is offered until the person moves on. The stub runs it
+    # as an API operation, so the page did not apply it.
+    api_rewrite = page.evaluate(
+        """async () => (await (await fetch('/api/v1/operations', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({kind: 'rewrite', workspace: 'video', prompt: 'a card probe'})})).json())"""
+    )
+    page.wait_for_function("() => !document.getElementById('shared-rewrite-result').hidden", timeout=30000)
+    card_text = page.input_value("#shared-rewrite-text")
+    page.fill("#video-prompt", "typed over the card")
+    page.wait_for_timeout(300)
+    check(
+        "an outside rewrite is offered until the person types",
+        api_rewrite.get("source") == "api"
+        and card_text.startswith("a card probe")
+        and page.locator("#shared-rewrite-result").is_hidden(),
+        json.dumps(
+            {
+                "source": api_rewrite.get("source"),
+                "card": card_text,
+                "hidden": page.locator("#shared-rewrite-result").is_hidden(),
+            }
+        ),
     )
     check("the browser reports no page errors", not errors, str(errors))
     browser.close()

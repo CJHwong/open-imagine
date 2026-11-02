@@ -29,6 +29,7 @@ class PlanVideoRequest:
     audio: bool = False
     enhance: bool = True
     fast_mode: bool = False
+    include_audio: bool = True
     loras: tuple[LoraUse, ...] = ()
     adapter: str = ""  # the effect of an edit
     adapter_strength: float | None = None
@@ -79,6 +80,7 @@ class PlanVideoUseCase:
             "frame_rate": request.frame_rate,
             "enhance": request.enhance,
             "fast_mode": request.fast_mode,
+            "include_audio": request.include_audio,
         }
         if adapter is not None:
             options.update(adapter=adapter.id, adapter_strength=request.adapter_strength)

@@ -464,6 +464,10 @@
                 <div class="field-head"><span data-i18n="page.video.rendering">Rendering</span><button type="button" class="pill" id="video-fast-mode" aria-pressed="false" aria-describedby="video-fast-note" data-i18n="page.video.fastMode">Fast mode</button></div>
                 <span class="caption" id="video-fast-note" data-i18n="page.video.fastModeNote">Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.</span>
               </div>
+              <div class="field" id="video-audio-field" hidden>
+                <div class="field-head"><span data-i18n="page.video.sound">Sound</span><button type="button" class="pill" id="video-audio-track" aria-pressed="true" aria-describedby="video-audio-note" data-i18n="page.video.audioTrack">Audio track</button></div>
+                <span class="caption" id="video-audio-note" data-i18n="page.video.audioTrackNote">Off writes a silent clip and saves the audio pass. A clip that follows a track keeps it.</span>
+              </div>
               <div class="field">
                 <div class="field-head"><label for="video-seed" data-i18n="page.seed.label">Seed</label></div>
                 <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random"
@@ -1179,6 +1183,12 @@
     document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
     videoStudio.needsClip = mode.needs_clip;
     videoStudio.maxReferences = mode.max_references;
+    // An effect can pin its look image to one frame. The rail holds every picture there and
+    // refuses a drag while the mode is on. The method is asked for, because this runs at
+    // startup before the element has upgraded.
+    if (typeof videoStudio.lockReferenceFrame === 'function') {
+      videoStudio.lockReferenceFrame(mode.reference_frame_index ?? null);
+    }
     // The slot draws the edit's target, so a mode change redraws it: a generated clip that the
     // run left selected belongs in the slot, not only in the gallery. This runs at startup
     // too, before `video-studio.js` has upgraded the element, so the method is asked for
@@ -1228,6 +1238,7 @@
     // available rows change, even when none of the saved picks changed.
     document.querySelectorAll('#video-look look-rows, #video-look look-values, #video-look look-adds')
       .forEach(element => element.requestUpdate?.());
+    syncVideoAudioTrack();
     syncVideoGenerateButton();
   }
 
@@ -1524,6 +1535,18 @@
     syncVideoLoras();
   }
 
+  // The audio the model generates with the video. A Generate run can leave it out; an
+  // Edit has no choice, and a run that follows a track keeps that track.
+  function syncVideoAudioTrack() {
+    const button = document.getElementById('video-audio-track');
+    const supported = Boolean(videoCapabilities()?.can_skip_audio) && videoModeInForce().id === 'generate';
+    document.getElementById('video-audio-field').hidden = !supported;
+    if (!supported) return;
+    // A run that follows a track keeps it, so the switch is off the table while one is set.
+    button.disabled = Boolean(videoStudio.audio);
+    if (button.disabled) button.setAttribute('aria-pressed', 'true');
+  }
+
   function applyVideoCapabilities() {
     const capabilities = videoCapabilities();
     if (!capabilities) return;
@@ -1534,6 +1557,7 @@
     videoMode = modes.length && named ? videoMode : (modes.length ? modes[0].id : 'generate');
     syncVideoMode();
     syncVideoFastMode();
+    syncVideoAudioTrack();
     const duration = document.getElementById('video-duration');
     duration.min = String(capabilities.min_frames);
     duration.max = String(capabilities.max_frames);
@@ -1665,15 +1689,22 @@
     syncVideoSeedSummary();
     document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
   });
+  document.getElementById('video-audio-track').addEventListener('click', function () {
+    this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'));
+    document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
+  });
   document.addEventListener('draft-change', function (event) {
     if (event.detail !== 'video') return;
     syncVideoGenerateButton();
-    // An audio track added or taken off holds or frees the picks.
+    // An audio track added or taken off holds or frees the picks, and decides whether the
+    // output can leave its own track out.
     if (videoLoraDoor) videoLoraDoor.refresh('video');
+    syncVideoAudioTrack();
   });
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();
     growVideoPrompt();
+    hideSharedRewrite('video');
   });
   videoTemplatesToggle.addEventListener('click', function () {
     if (videoTemplatesMenu.hidden) renderVideoTemplates();
@@ -1848,6 +1879,7 @@
         // The picks themselves, so a saved clip says which Look made it.
         look: formApi && formApi.videoLookLabels ? formApi.videoLookLabels().join(', ') : '',
         enhance: true,
+        includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
         width: width,
         height: height,
         numFrames: numFrames,
@@ -1959,6 +1991,7 @@
           backend: STUDIO.video.backend.id,
           enhance: true,
           fastMode: settings.fastMode,
+          includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
           loras: settings.loras,
           requestId: videoRunRequestId,
         }), draft_id: submittedDraftId}),
@@ -2033,6 +2066,10 @@
       sharedBusy: sharedBusy,
       clientId: CLIENT_ID,
       libraryId: LIBRARY_ID,
+      // A rewrite is its own operation, and that operation blocks the ordinary draft save.
+      // The box holds the answer, so that one answer is written anyway.
+      rewriteApplied: function (workspace) { if (drafts) drafts.changedNow(workspace); },
+      hideSharedRewrite: hideSharedRewrite,
       syncVideoGenerate: syncVideoGenerateButton,
       region: function () { return region; },
       menus: function () { return menus; },
@@ -2574,6 +2611,7 @@
   function videoDraft() {
     return {mode: videoMode, prompt: document.getElementById('video-prompt').value,
       fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
+      includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
       seed: document.getElementById('video-seed').value, frames: document.getElementById('video-duration').value,
       ratio: videoShapeInFront(), rung: videoResolutionRung, adapter: videoAdapter, adapterSeed: videoAdapterSeed,
       look: formApi.videoLook(), loras: videoLoraDoor ? videoLoraDoor.picks('video') : [],
@@ -2599,6 +2637,8 @@
     document.getElementById('video-prompt').value = snapshot.prompt;
     document.getElementById('video-seed').value = snapshot.seed;
     document.getElementById('video-fast-mode').setAttribute('aria-pressed', String(Boolean(videoCapabilities()?.fast_mode && snapshot.fastMode)));
+    // A draft saved before the Sound row existed keeps the model's own audio.
+    document.getElementById('video-audio-track').setAttribute('aria-pressed', String(snapshot.includeAudio ?? true));
     document.getElementById('video-duration').value = snapshot.frames;
     document.querySelectorAll('.video-ratios button').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.ratio === snapshot.ratio));
@@ -2802,17 +2842,31 @@
         if (musicStudio.isCoverOperation?.(operation)
             || (operation.kind === 'rewrite' && /:music-cover:[^:]+:brief$/.test(operation.client_id || ''))) return;
         if (result.cancelled || !result.prompt) return;
+        // An answer the box already holds was applied here or typed by hand. Offering it
+        // again asks for a second accept of words the person can already see.
+        const box = operation.workspace === 'video'
+          ? document.getElementById('video-prompt') : promptInput;
+        if (box.value.trim() === result.prompt.trim()) return;
         document.getElementById('shared-rewrite-text').value = result.prompt;
         document.getElementById('shared-rewrite-result').hidden = false;
         sharedRewriteWorkspace = operation.workspace;
       },
     });
   });
+  // The card lives until the answer is used or the person moves on. A new rewrite, or words
+  // typed in the card's own workspace, make the offer stale; a press of Use takes it.
+  function hideSharedRewrite(workspace) {
+    const card = document.getElementById('shared-rewrite-result');
+    if (card.hidden) return;
+    if (workspace && workspace !== sharedRewriteWorkspace) return;
+    card.hidden = true;
+    sharedRewriteWorkspace = '';
+  }
   document.getElementById('shared-rewrite-use').addEventListener('click', function () {
     const text = document.getElementById('shared-rewrite-text').value;
     if (sharedRewriteWorkspace === 'video') setVideoPrompt(text);
     else { promptInput.value = text; promptInput.dispatchEvent(new Event('input', {bubbles: true})); }
-    document.getElementById('shared-rewrite-result').hidden = true;
+    hideSharedRewrite();
   });
 
   // ---- Toasts -----------------------------------------------------------------

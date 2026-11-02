@@ -225,6 +225,13 @@ class VideoStudio extends LitElement {
   currentTime = 0;
   duration = 0;
   frameLimit = null;
+  // Set by the page from the mode: a mode that pins its look image to a frame (Layout to
+  // Render pins it to 0) locks the rail, and every reference sits on that frame.
+  lockedFrame = null;
+  referenceDrag = null;
+  railWidth = 0;
+  referencesPanel = null;
+  railResizeObserver = null;
   outputWidth = 16;
   outputHeight = 9;
   outputFrameRate = 24;
@@ -242,6 +249,13 @@ class VideoStudio extends LitElement {
   handleSourceDragOver = (event) => this.onSourceDragOver(event);
   handleSourceDragLeave = (event) => this.onSourceDragLeave(event);
   handleSourceDrop = (event) => this.onSourceDrop(event);
+  handleRailKeydown = (event) => this.onReferenceKeydown(event);
+  handleRailPointerDown = (event) => this.onReferencePointerDown(event);
+  handleRailPointerMove = (event) => this.onReferencePointerMove(event);
+  handleRailPointerUp = (event) => this.onReferencePointerUp(event);
+  handleRailDragOver = (event) => this.onRailDragOver(event);
+  handleRailDragLeave = (event) => this.onRailDragLeave(event);
+  handleRailDrop = (event) => this.onRailDrop(event);
   handleDocumentPaste = (event) => this.onPaste(event);
   handleDocumentKeydown = (event) => this.onShortcutPaste(event);
   handleVideoFullscreenChange = () => this.onVideoFullscreenChange();
@@ -251,6 +265,7 @@ class VideoStudio extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.sourcePanel = document.getElementById('video-source-panel');
+    this.referencesPanel = document.getElementById('video-references');
     this.addEventListener('click', this.onComponentClick);
     this.addEventListener('keydown', this.onOutputKeydown);
     document.addEventListener('fullscreenchange', this.handleVideoFullscreenChange);
@@ -269,6 +284,18 @@ class VideoStudio extends LitElement {
       this.sourcePanel.addEventListener('dragover', this.handleSourceDragOver);
       this.sourcePanel.addEventListener('dragleave', this.handleSourceDragLeave);
       this.sourcePanel.addEventListener('drop', this.handleSourceDrop);
+    }
+    if (this.referencesPanel) {
+      // The tray lives in the page's sidebar, not inside this element, so the rail's own
+      // events are heard where it is.
+      this.referencesPanel.addEventListener('keydown', this.handleRailKeydown);
+      this.referencesPanel.addEventListener('pointerdown', this.handleRailPointerDown);
+      this.referencesPanel.addEventListener('pointermove', this.handleRailPointerMove);
+      this.referencesPanel.addEventListener('pointerup', this.handleRailPointerUp);
+      this.referencesPanel.addEventListener('pointercancel', this.handleRailPointerUp);
+      this.referencesPanel.addEventListener('dragover', this.handleRailDragOver);
+      this.referencesPanel.addEventListener('dragleave', this.handleRailDragLeave);
+      this.referencesPanel.addEventListener('drop', this.handleRailDrop);
     }
   }
 
@@ -292,6 +319,18 @@ class VideoStudio extends LitElement {
       this.sourcePanel.removeEventListener('dragleave', this.handleSourceDragLeave);
       this.sourcePanel.removeEventListener('drop', this.handleSourceDrop);
     }
+    if (this.referencesPanel) {
+      this.referencesPanel.removeEventListener('keydown', this.handleRailKeydown);
+      this.referencesPanel.removeEventListener('pointerdown', this.handleRailPointerDown);
+      this.referencesPanel.removeEventListener('pointermove', this.handleRailPointerMove);
+      this.referencesPanel.removeEventListener('pointerup', this.handleRailPointerUp);
+      this.referencesPanel.removeEventListener('pointercancel', this.handleRailPointerUp);
+      this.referencesPanel.removeEventListener('dragover', this.handleRailDragOver);
+      this.referencesPanel.removeEventListener('dragleave', this.handleRailDragLeave);
+      this.referencesPanel.removeEventListener('drop', this.handleRailDrop);
+    }
+    if (this.railResizeObserver) this.railResizeObserver.disconnect();
+    this.railResizeObserver = null;
     if (this.previewResizeObserver) this.previewResizeObserver.disconnect();
     this.outputPromptResizeObserver.disconnect();
     this.observedOutputPrompt = null;
@@ -310,6 +349,12 @@ class VideoStudio extends LitElement {
     if (preview) {
       this.previewResizeObserver = new ResizeObserver(() => this.fitVideoMonitor());
       this.previewResizeObserver.observe(preview);
+    }
+    // The rail's positions are pixels. A hidden workspace has no width, so the first draw
+    // can be wrong; the rail redraws once its box has a width.
+    if (this.referencesPanel) {
+      this.railResizeObserver = new ResizeObserver(() => this.onRailResize());
+      this.railResizeObserver.observe(this.referencesPanel);
     }
   }
 
@@ -623,6 +668,7 @@ class VideoStudio extends LitElement {
 
   setFrameLimit(frameCount) {
     if (!Number.isInteger(frameCount) || frameCount < 1) return 0;
+    const changed = this.frameLimit !== frameCount;
     this.frameLimit = frameCount;
     const lastFrame = frameCount - 1;
     let movedReferences = 0;
@@ -633,7 +679,8 @@ class VideoStudio extends LitElement {
       movedReferences += 1;
       return {...reference, frameIndex: validFrame};
     });
-    if (movedReferences) this.renderImageReferences();
+    // Every chip's x depends on the length, so a new length redraws even with no clamp.
+    if (movedReferences || changed) this.renderImageReferences();
     return movedReferences;
   }
 
@@ -672,46 +719,438 @@ class VideoStudio extends LitElement {
     count.textContent = plural(this.imageReferences.length, t('video.reference.count'));
     list.replaceChildren();
     if (!this.imageReferences.length) {
+      this.railWidth = 0;
       this.renderMediaEmptyState();
       return;
     }
-    this.imageReferences.forEach((reference) => {
-      const card = document.createElement('div');
-      card.className = 'video-reference';
-      if (reference.id === this.selectedReferenceId) card.classList.add('selected');
-      card.title = reference.name;
-      const image = document.createElement('img');
-      image.src = reference.src;
-      image.alt = reference.name;
-      const select = document.createElement('button');
-      select.type = 'button';
-      select.className = 'video-reference-select';
-      select.dataset.action = 'select-reference';
-      select.dataset.referenceId = reference.id;
-      select.setAttribute('aria-label', t('video.reference.select', {name: reference.name}));
-      select.setAttribute('aria-pressed', String(reference.id === this.selectedReferenceId));
-      select.append(image);
-      const remove = document.createElement('button');
-      remove.className = 'video-reference-remove';
-      remove.type = 'button';
-      remove.dataset.action = 'remove-reference';
-      remove.dataset.referenceId = reference.id;
-      remove.setAttribute('aria-label', t('video.reference.remove', {name: reference.name}));
-      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
-      // The print and its remove travel together, so the circle sits on the picture's own
-      // corner however the row is padded.
-      const picture = document.createElement('div');
-      picture.className = 'video-reference-picture';
-      picture.append(select, remove);
-      const name = document.createElement('span');
-      name.className = 'video-reference-name';
-      name.textContent = reference.name;
-      // No influence dial: every measured run used the model's own reference strength, and a
-      // second knob on each reference read as a form inside a form.
-      card.append(picture, name);
-      list.append(card);
+    // The tray is hidden until it has a picture, and a hidden box has no width. Unhide it
+    // before the rail is measured, or every chip would land on the left edge.
+    const tray = document.getElementById('video-reference-tray');
+    if (tray) tray.hidden = false;
+    const rail = document.createElement('div');
+    rail.className = 'video-keyframe-rail';
+    rail.id = 'video-reference-rail';
+    rail.setAttribute('role', 'group');
+    rail.setAttribute('aria-label', t('video.reference.rail'));
+    if (this.lockedFrame !== null) rail.classList.add('locked');
+    const scale = document.createElement('div');
+    scale.className = 'video-keyframe-scale';
+    scale.setAttribute('aria-hidden', 'true');
+    this.scaleTimes().forEach((seconds) => {
+      const label = document.createElement('span');
+      label.textContent = t('video.reference.seconds', {time: seconds.toFixed(1)});
+      scale.append(label);
     });
+    const line = document.createElement('div');
+    line.className = 'video-keyframe-line';
+    const lanes = document.createElement('div');
+    lanes.className = 'video-keyframe-lanes';
+    const caption = document.createElement('p');
+    caption.className = 'video-reference-caption';
+    rail.append(scale, line, lanes, caption);
+    this.imageReferences.forEach((reference) => lanes.append(this.referenceSlot(reference)));
+    list.append(rail);
+    this.railWidth = rail.clientWidth;
+    this.layoutReferenceRail(rail, line, lanes, caption);
     this.renderMediaEmptyState();
+  }
+
+  // The slot carries the picture and its remove circle. The picture itself stays the
+  // selectable button the old list had, so its action and label are unchanged.
+  referenceSlot(reference) {
+    const slot = document.createElement('div');
+    slot.className = 'video-reference-slot';
+    slot.dataset.referenceId = reference.id;
+    if (reference.id === this.selectedReferenceId) slot.classList.add('selected');
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'video-reference';
+    if (reference.id === this.selectedReferenceId) chip.classList.add('selected');
+    chip.dataset.action = 'select-reference';
+    chip.dataset.referenceId = reference.id;
+    chip.title = reference.name;
+    chip.setAttribute('aria-pressed', String(reference.id === this.selectedReferenceId));
+    chip.setAttribute('aria-label', t('video.reference.selectAt', {
+      name: reference.name,
+      time: this.referenceTime(reference.frameIndex).toFixed(1),
+    }));
+    const image = document.createElement('img');
+    image.src = reference.src;
+    image.alt = '';
+    image.draggable = false;
+    chip.append(image);
+    const remove = document.createElement('button');
+    remove.className = 'video-reference-remove';
+    remove.type = 'button';
+    remove.dataset.action = 'remove-reference';
+    remove.dataset.referenceId = reference.id;
+    remove.setAttribute('aria-label', t('video.reference.remove', {name: reference.name}));
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
+    slot.append(chip, remove);
+    return slot;
+  }
+
+  layoutReferenceRail(rail, line, lanes, caption) {
+    const width = rail.clientWidth;
+    const chip = 30;
+    const laneHeight = chip + 8;
+    line.replaceChildren();
+    this.renderReferenceCaption(caption);
+    if (!width) {
+      // A hidden workspace has no width. Every slot waits at the start until the observer
+      // sees the box and draws again.
+      Array.from(lanes.children).forEach((slot) => {
+        slot.style.left = '0px';
+        slot.style.top = '0px';
+      });
+      lanes.style.height = chip + 'px';
+      return;
+    }
+    const spans = [[], []];
+    const placements = [];
+    this.sortedReferences().forEach((reference) => {
+      const trueX = this.railX(reference.frameIndex, width);
+      const choice = this.nearestLane(spans, trueX, width);
+      if (!choice) return;
+      spans[choice.lane].push({left: choice.x, right: choice.x + chip});
+      placements.push({reference, lane: choice.lane, x: choice.x, trueX});
+    });
+    let laneCount = 1;
+    placements.forEach((placement) => {
+      const slot = Array.from(lanes.children)
+        .find((child) => child.dataset.referenceId === placement.reference.id);
+      if (!slot) return;
+      slot.style.left = placement.x + 'px';
+      slot.style.top = placement.lane * laneHeight + 'px';
+      laneCount = Math.max(laneCount, placement.lane + 1);
+      const marker = document.createElement('span');
+      marker.className = 'video-keyframe-marker';
+      if (placement.reference.id === this.selectedReferenceId) marker.classList.add('selected');
+      marker.style.left = placement.trueX + chip / 2 - 1 + 'px';
+      marker.setAttribute('aria-hidden', 'true');
+      line.append(marker);
+    });
+    lanes.style.height = (laneCount - 1) * laneHeight + chip + 'px';
+  }
+
+  // A chip keeps its true x when that space is free. Otherwise it moves to the closest free
+  // space in either lane, so every picture stays visible and its remove circle stays in reach.
+  nearestLane(spans, trueX, width) {
+    let best = null;
+    spans.forEach((laneSpans, lane) => {
+      const x = this.nearestFreeX(laneSpans, trueX, width);
+      if (x === null) return;
+      const distance = Math.abs(x - trueX);
+      if (!best || distance < best.distance) best = {lane, x, distance};
+    });
+    if (best) return best;
+    return {lane: 0, x: Math.min(Math.max(0, trueX), Math.max(0, width - 30)), distance: 0};
+  }
+
+  nearestFreeX(spans, x, width) {
+    const chip = 30;
+    const gap = 4;
+    const gaps = [];
+    let cursor = 0;
+    [...spans].sort((a, b) => a.left - b.left).forEach((span) => {
+      if (cursor + chip <= span.left) gaps.push([cursor, span.left]);
+      cursor = Math.max(cursor, span.right + gap);
+    });
+    if (cursor + chip <= width) gaps.push([cursor, width]);
+    let best = null;
+    gaps.forEach(([left, right]) => {
+      const position = Math.min(Math.max(x, left), right - chip);
+      if (best === null || Math.abs(position - x) < Math.abs(best - x)) best = position;
+    });
+    return best;
+  }
+
+  sortedReferences() {
+    return this.imageReferences
+      .map((reference, order) => ({reference, order}))
+      .sort((a, b) => a.reference.frameIndex - b.reference.frameIndex || a.order - b.order)
+      .map((entry) => entry.reference);
+  }
+
+  renderReferenceCaption(caption) {
+    const selected = this.imageReferences.find((reference) => reference.id === this.selectedReferenceId);
+    if (!selected) {
+      caption.textContent = this.lockedFrame !== null
+        ? t('video.reference.locked') : t('video.reference.hint');
+      return;
+    }
+    caption.textContent = t('video.reference.caption', {
+      name: selected.name,
+      time: this.referenceTime(selected.frameIndex).toFixed(1),
+      frame: selected.frameIndex,
+    });
+  }
+
+  railLimit() {
+    if (Number.isInteger(this.frameLimit) && this.frameLimit >= 2) return this.frameLimit;
+    const highest = this.imageReferences.reduce(
+      (top, reference) => Math.max(top, Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0), 0);
+    return Math.max(2, highest + 1);
+  }
+
+  referenceTime(frame) {
+    const rate = Number(this.outputFrameRate) > 0 ? Number(this.outputFrameRate) : 24;
+    return frame / rate;
+  }
+
+  scaleTimes() {
+    const last = this.railLimit() - 1;
+    return [0, Math.floor(last / 2), last].map((frame) => this.referenceTime(frame));
+  }
+
+  railX(frame, width) {
+    const last = this.railLimit() - 1;
+    const ratio = last > 0 ? Math.min(1, Math.max(0, frame / last)) : 0;
+    return ratio * Math.max(0, width - 30);
+  }
+
+  frameAtCenter(center, width) {
+    const last = this.railLimit() - 1;
+    const span = width - 30;
+    if (last < 1 || span <= 0) return 0;
+    const ratio = Math.min(1, Math.max(0, (center - 15) / span));
+    return Math.round(ratio * last);
+  }
+
+  referenceSlotFor(id) {
+    return Array.from(this.referencesPanel?.querySelectorAll('.video-reference-slot') || [])
+      .find((slot) => slot.dataset.referenceId === id) || null;
+  }
+
+  focusReference(id) {
+    const chip = Array.from(this.referencesPanel?.querySelectorAll('.video-reference') || [])
+      .find((element) => element.dataset.referenceId === id);
+    chip?.focus();
+  }
+
+  referencesUseFrame(frame, exceptId) {
+    return this.imageReferences.some(
+      (reference) => reference.id !== exceptId && reference.frameIndex === frame);
+  }
+
+  // One door for every move. The rail reports the refusal, and the caller decides whether to
+  // redraw (a refused drag snaps back) or just restore focus (a refused key press).
+  assignReferenceFrame(id, frame) {
+    const reference = this.imageReferences.find((item) => item.id === id);
+    if (!reference) return false;
+    const last = this.railLimit() - 1;
+    const target = Math.min(last, Math.max(0, frame));
+    if (target === reference.frameIndex) return true;
+    if (this.referencesUseFrame(target, id)) {
+      this.setError(t('video.reference.taken', {
+        frame: target, time: this.referenceTime(target).toFixed(1),
+      }));
+      return false;
+    }
+    this.imageReferences = this.imageReferences.map(
+      (item) => (item.id === id ? {...item, frameIndex: target} : item));
+    // Moving a picture picks it, so the caption names the one the person just placed.
+    this.selectedReferenceId = id;
+    this.renderImageReferences();
+    this.inputsChanged();
+    return true;
+  }
+
+  setRailCaption(id, frame) {
+    const caption = this.referencesPanel?.querySelector('.video-reference-caption');
+    const reference = this.imageReferences.find((item) => item.id === id);
+    if (!caption || !reference) return;
+    caption.textContent = t('video.reference.caption', {
+      name: reference.name,
+      time: this.referenceTime(frame).toFixed(1),
+      frame,
+    });
+  }
+
+  freeReferenceFrame(preferred) {
+    const limit = this.railLimit();
+    const used = new Set(this.imageReferences.map((reference) => reference.frameIndex));
+    const start = Math.min(limit - 1, Math.max(0, preferred));
+    for (let distance = 0; distance < limit; distance += 1) {
+      const right = start + distance;
+      const left = start - distance;
+      if (right < limit && !used.has(right)) return right;
+      if (distance && left >= 0 && !used.has(left)) return left;
+    }
+    return null;
+  }
+
+  // A picture dropped on the rail lands at the drop frame, or the nearest free one, and the
+  // files after it take the next free frames to the right.
+  async addImageFilesAtRail(files, startFrame) {
+    const epoch = this.captureInputEpoch();
+    if (!this.canCommitInput(epoch)) return;
+    let next = startFrame;
+    let firstId = null;
+    for (const file of files) {
+      if (!this.canCommitInput(epoch)) return;
+      if (this.maxReferences !== null && this.imageReferences.length >= this.maxReferences) {
+        this.setError(this.maxReferences === 0
+          ? t('video.reference.none')
+          : plural(this.maxReferences, t('video.reference.max')));
+        return;
+      }
+      if (this.lockedFrame !== null && this.referencesUseFrame(this.lockedFrame, null)) {
+        this.setError(t('video.reference.taken', {
+          frame: this.lockedFrame, time: this.referenceTime(this.lockedFrame).toFixed(1),
+        }));
+        return;
+      }
+      const frame = this.lockedFrame !== null ? this.lockedFrame : this.freeReferenceFrame(next);
+      if (frame === null) {
+        this.setError(t('video.reference.noRoom'));
+        return;
+      }
+      try {
+        const src = await readDataUrl(file);
+        if (!this.canCommitInput(epoch)) return;
+        const id = 'video-ref-' + nextClipId++;
+        this.addImageReference({
+          id: id,
+          name: file.name,
+          src: src,
+          base64: src.slice(src.indexOf(',') + 1),
+          frameIndex: frame,
+        }, epoch);
+        if (!this.imageReferences.some((reference) => reference.id === id)) continue;
+        if (firstId === null) firstId = id;
+        next = frame + 1;
+      } catch (error) {
+        if (!this.canCommitInput(epoch)) return;
+        this.setError(t('video.error.imageAdd', {error: error.message}));
+        return;
+      }
+    }
+    if (firstId) {
+      // The picture just dropped is the one in hand, so its frame is on the caption.
+      this.selectedReferenceId = firstId;
+      this.renderImageReferences();
+    }
+  }
+
+  droppedImages(event) {
+    return Array.from(event.dataTransfer?.files || []).filter(isImageFile);
+  }
+
+  onRailDragOver(event) {
+    // A drag carries no file list until the drop, so the claim reads the types.
+    if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    event.preventDefault();
+    this.referencesPanel?.classList.add('drop-over');
+  }
+
+  onRailDragLeave(event) {
+    if (event.relatedTarget instanceof Node && this.referencesPanel?.contains(event.relatedTarget)) return;
+    this.referencesPanel?.classList.remove('drop-over');
+  }
+
+  onRailDrop(event) {
+    const images = this.droppedImages(event);
+    if (!images.length) return;
+    event.preventDefault();
+    this.referencesPanel?.classList.remove('drop-over');
+    const rail = this.referencesPanel?.querySelector('.video-keyframe-rail');
+    if (!rail) return;
+    const rect = rail.getBoundingClientRect();
+    const frame = this.frameAtCenter(event.clientX - rect.left, rect.width);
+    this.addImageFilesAtRail(images, this.lockedFrame !== null ? this.lockedFrame : frame);
+  }
+
+  onRailResize() {
+    if (!this.referencesPanel || !this.imageReferences.length) return;
+    const rail = this.referencesPanel.querySelector('.video-keyframe-rail');
+    if (rail && rail.clientWidth === this.railWidth) return;
+    this.renderImageReferences();
+  }
+
+  onReferencePointerDown(event) {
+    if (event.button !== 0 || this.lockedFrame !== null) return;
+    const chip = event.target instanceof Element ? event.target.closest('.video-reference') : null;
+    if (!chip || event.target.closest('.video-reference-remove')) return;
+    if (!this.canCommitInput(this.captureInputEpoch())) return;
+    const rail = chip.closest('.video-keyframe-rail');
+    const reference = this.imageReferences.find((item) => item.id === chip.dataset.referenceId);
+    if (!rail || !reference) return;
+    const width = rail.clientWidth;
+    const rect = rail.getBoundingClientRect();
+    const center = rect.left + this.railX(reference.frameIndex, width) + 15;
+    event.preventDefault();
+    chip.classList.add('dragging');
+    this.referenceDrag = {
+      id: reference.id,
+      origin: reference.frameIndex,
+      frame: reference.frameIndex,
+      grab: event.clientX - center,
+      left: rect.left,
+      width,
+    };
+    chip.setPointerCapture?.(event.pointerId);
+  }
+
+  onReferencePointerMove(event) {
+    const drag = this.referenceDrag;
+    if (!drag) return;
+    const frame = this.frameAtCenter(event.clientX - drag.left - drag.grab, drag.width);
+    drag.frame = frame;
+    const slot = this.referenceSlotFor(drag.id);
+    if (slot) slot.style.left = this.railX(frame, drag.width) + 'px';
+    this.setRailCaption(drag.id, frame);
+  }
+
+  onReferencePointerUp() {
+    const drag = this.referenceDrag;
+    if (!drag) return;
+    this.referenceDrag = null;
+    const slot = this.referenceSlotFor(drag.id);
+    slot?.querySelector('.video-reference')?.classList.remove('dragging');
+    if (drag.frame === drag.origin) {
+      // A press without a move picks the picture. Doing it here keeps the pick off the
+      // click, which can land on a chip a redraw has already replaced.
+      this.selectReference(drag.id);
+      this.focusReference(drag.id);
+      return;
+    }
+    // A refused move leaves the picture where it was; the rail is redrawn to say so.
+    if (!this.assignReferenceFrame(drag.id, drag.frame)) this.renderImageReferences();
+    this.focusReference(drag.id);
+  }
+
+  // Arrow keys step one frame, eight with Shift. Home and End jump to the ends. The page's
+  // global handler steps the clip on an arrow, so this one must answer before it.
+  onReferenceKeydown(event) {
+    const chip = event.target instanceof Element ? event.target.closest('.video-reference') : null;
+    if (!chip || this.lockedFrame !== null) return;
+    const reference = this.imageReferences.find((item) => item.id === chip.dataset.referenceId);
+    if (!reference) return;
+    const step = event.shiftKey ? 8 : 1;
+    let frame = null;
+    if (event.key === 'ArrowLeft') frame = reference.frameIndex - step;
+    else if (event.key === 'ArrowRight') frame = reference.frameIndex + step;
+    else if (event.key === 'Home') frame = 0;
+    else if (event.key === 'End') frame = this.railLimit() - 1;
+    else return;
+    event.preventDefault();
+    this.assignReferenceFrame(reference.id, frame);
+    this.focusReference(reference.id);
+  }
+
+  // A mode that pins its look image (Layout to Render pins frame 0) holds every picture on
+  // that frame. Leaving such a mode unlocks the rail and keeps the picture where it is.
+  lockReferenceFrame(value) {
+    const locked = Number.isInteger(value) ? value : null;
+    if (locked === this.lockedFrame) return;
+    this.lockedFrame = locked;
+    if (locked !== null) {
+      const last = this.railLimit() - 1;
+      const target = Math.min(last, Math.max(0, locked));
+      this.imageReferences = this.imageReferences.map((reference) => ({...reference, frameIndex: target}));
+    }
+    this.renderImageReferences();
   }
 
   renderSourceVideos() {
@@ -819,6 +1258,7 @@ class VideoStudio extends LitElement {
       // The backend enhances new prompts and recognizes exact native Rewrite outputs.
       enhance: true,
       fast_mode: Boolean(settings.fastMode),
+      include_audio: (settings.mode || 'generate') !== 'generate' || settings.includeAudio !== false,
       loras: Array.isArray(settings.loras) ? settings.loras : [],
       // A mode that takes no image references sends none, whatever the generate form left
       // behind: references are a generate input, and the clip is the edit's.
@@ -1275,8 +1715,12 @@ class VideoStudio extends LitElement {
   }
 
   onSourceDrop(event) {
+    // The rail claims a drop of pictures before it reaches the panel. The panel still
+    // clears its own highlight, then leaves the files where the rail put them.
+    const handled = event.defaultPrevented;
     event.preventDefault();
     this.sourcePanel.classList.remove('drop-over');
+    if (handled) return;
     const files = Array.from(event.dataTransfer?.files || []);
     if (files.length) this.addMediaFiles(files);
   }

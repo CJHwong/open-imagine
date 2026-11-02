@@ -62,6 +62,8 @@ Leaving the references as one composition produces one combined image instead.
 
 Use an Image result as a Video keyframe through its action menu.
 In Video, capture a source clip’s timeline frame for Image or as a new keyframe.
+Each Video image reference sits on a keyframe rail. Drag it along the rail to choose the frame it anchors, or drop a picture on the rail to add it at that frame.
+Focus a reference and press the arrow keys to move it one frame, or hold Shift for eight frames.
 The imported source clip and generated results have separate galleries.
 
 In Voice, choose a completed clip and drag the waveform’s edge handles or enter Start and End times.

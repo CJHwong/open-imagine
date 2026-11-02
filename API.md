@@ -759,6 +759,21 @@ Operation `settings.fast_mode` records an explicitly submitted value. The UI nam
 Fast mode and records it with the result. Watching another client's operation temporarily shows
 its setting while preserving the observer's own setting for the next render.
 
+## Video audio track
+
+A Generate run renders audio with the clip. Send `include_audio: false` to write a silent MP4 and
+skip the audio decode and mux. The model still generates the audio latents, so the picture does not
+change. Check the backend's `can_skip_audio` capability before using it.
+
+```json
+{"kind": "video", "prompt": "A kite over the sea.", "width": 768, "height": 448,
+ "num_frames": 121, "frame_rate": 24, "seed": 7, "include_audio": false}
+```
+
+Default true; it must be a JSON boolean. Generate only: an Edit takes no audio, and a run that
+follows an audio track keeps that track, so the pair is refused. A batch may set it per item.
+The UI names the option Audio track and offers it in Advanced on a Generate run.
+
 ## LoRAs
 
 A model that offers LoRAs lists them in `/api/v1/studio`. For an image model they are on each
@@ -852,6 +867,27 @@ The decoded limit is 32 MiB. Uploaded reference bytes stay out of public operati
 `steps` accepts 8, 16, or 32; `cfg_scale` accepts 0 through 5. The defaults are 32 and 1.
 Duration follows the generated composition; there is no fixed-duration request field.
 Instrumentals and score planning require `cot: full` or `melody`. A token-cap failure does not produce a successful incomplete song.
+
+`sampling` overrides the engine's own sampling for both the score planning stage and the
+synthesis stage. Omit it, or omit a field inside it, to keep that stage's own default.
+
+| Field | Range | What it does |
+|---|---|---|
+| `temperature` | 0 to 5 | Variation between runs |
+| `top_p` | 0.01 to 1 | Probability mass kept at each step |
+| `top_k` | 1 to 1000, integer | Candidate tokens kept at each step |
+| `repetition_penalty` | 0.01 to 10 | Higher repeats less |
+| `penalty_window` | 1 to 100, integer | How far back the penalty looks |
+| `max_tokens` | 1 to 16000, integer | The most tokens one stage may write |
+
+```json
+{"kind": "music", "style": "Warm acoustic piano.", "lyrics": "[Verse]\nQuiet road",
+ "sampling": {"temperature": 0.8, "repetition_penalty": 1.3, "max_tokens": 4096}}
+```
+
+The same values reach both stages. `max_tokens` is a safety limit, not a target length: a song
+that reaches it fails rather than publishing an incomplete file. The page's Advanced section
+carries the same six fields, and a blank field keeps the engine default.
 
 ### Runnable Python client
 

@@ -68,6 +68,7 @@ def test_a_generate_job_builds_the_distilled_command_with_its_keyframes(tmp_path
     assert command[command.index("--model") + 1] == "pack"
     assert command[command.index("--seed") + 1] == "7"
     assert "--distilled" in command
+    assert "--no-audio" not in command
     assert command[command.index("--stage1-steps") + 1] == "8"
     assert command[command.index("--stage2-steps") + 1] == "3"
     images = [index for index, argument in enumerate(command) if argument == "--image"]
@@ -77,6 +78,26 @@ def test_a_generate_job_builds_the_distilled_command_with_its_keyframes(tmp_path
     assert not Path(command[images[0] + 1]).exists()
     assert result.mp4 == b"mp4 bytes"
     assert (result.width, result.height, result.num_frames, result.frame_rate, result.seed) == (768, 448, 121, 24, 7)
+
+
+def test_a_generate_job_can_leave_its_audio_track_out(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    runner = make_runner({"cli_path": cli(tmp_path), "ffmpeg_path": "/usr/bin/ffmpeg"}, "pack", False)
+
+    runner.run(VideoJob("a cat", 768, 448, 121, 24, 7, include_audio=False))
+
+    assert "--no-audio" in commands[0]
+
+
+def test_the_engine_gets_the_ffmpeg_directory_on_its_path(tmp_path):
+    ffmpeg = tmp_path / "bin" / "ffmpeg"
+    ffmpeg.parent.mkdir()
+    ffmpeg.write_text("")
+    runner = make_runner({"cli_path": cli(tmp_path), "ffmpeg_path": str(ffmpeg)}, "pack", False)
+
+    assert runner._environment()["PATH"].startswith(str(ffmpeg.parent) + os.pathsep)
+    assert make_runner({"cli_path": cli(tmp_path)}, "pack", False)._environment() == {}
 
 
 def test_a_model_without_an_enhancer_drops_the_flag_the_job_carries(tmp_path, monkeypatch):
@@ -174,11 +195,27 @@ def test_a_track_that_ffmpeg_cannot_read_is_named(tmp_path, monkeypatch):
         runner.run(VideoJob("she speaks", 384, 384, 121, 24, 7, audio=VideoAudio(b"junk", "voice.wav")))
 
 
-def test_a_missing_port_executable_says_which_setting_to_fill(tmp_path):
-    runner = make_runner({}, "pack", False)
+def test_a_wrong_port_executable_says_which_setting_to_fill(tmp_path):
+    runner = make_runner({"cli_path": str(tmp_path / "missing")}, "pack", False)
 
     with pytest.raises(StudioError, match="cli_path"):
         runner.run(VideoJob("a cat", 384, 384, 121, 24, 7))
+
+
+def test_an_empty_setting_uses_the_wrapper_that_ships_with_the_studio():
+    runner = make_runner({}, "pack", False)
+
+    assert runner._cli.endswith("ltx_runtime/ltx_engine.py")
+    assert Path(runner._cli).is_file()
+
+
+def test_a_model_path_expands_the_home_directory(tmp_path):
+    assert make_runner({"cli_path": cli(tmp_path)}, "~/models/pack", False)._model == os.path.expanduser(
+        "~/models/pack"
+    )
+    assert make_runner({"cli_path": cli(tmp_path)}, "dgrauet/ltx-2.5-mlx-q8", False)._model == (
+        "dgrauet/ltx-2.5-mlx-q8"
+    )
 
 
 def test_a_missing_ffmpeg_says_which_setting_to_fill(tmp_path, monkeypatch):

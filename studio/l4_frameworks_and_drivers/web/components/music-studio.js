@@ -22,6 +22,10 @@ import {t, plural} from '../lib/i18n.js';
 // travels as its stored source id, never as bytes.
 const CLEARED_KEY = 'studio-music-cleared';
 
+// The engine's sampling controls, in the order the form draws them. A blank field keeps
+// the engine's own value for that stage; the request carries only the fields it sets.
+const SAMPLING_FIELDS = ['temperature', 'top_p', 'top_k', 'repetition_penalty', 'penalty_window', 'max_tokens'];
+
 // The run button says Generate in every workflow, as every other workspace's does, and
 // the sub line names what this one makes. The mode picker is the four workflows the
 // engine declares, so a workflow is never hidden behind an Advanced checkbox.
@@ -495,6 +499,24 @@ class MusicStudio extends HTMLElement {
           <div class="field music-synthesis-fields music-sound-fields"><div class="field-head"><label for="music-cfg-scale">${t('music.field.cfg')}</label></div>
               <input id="music-cfg-scale" type="number" min="0" max="5" step="0.1" value="1">
               <span class="caption">${t('music.cfg.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-temperature">${t('music.field.temperature')}</label></div>
+              <input id="music-temperature" type="number" min="0.1" max="2" step="0.05" placeholder="1">
+              <span class="caption">${t('music.temperature.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-top-p">${t('music.field.top_p')}</label></div>
+              <input id="music-top-p" type="number" min="0.1" max="1" step="0.05" placeholder="0.95">
+              <span class="caption">${t('music.top_p.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-top-k">${t('music.field.top_k')}</label></div>
+              <input id="music-top-k" type="number" min="1" max="200" step="1" placeholder="100">
+              <span class="caption">${t('music.top_k.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-repetition-penalty">${t('music.field.repetition')}</label></div>
+              <input id="music-repetition-penalty" type="number" min="1" max="2" step="0.05" placeholder="1.2">
+              <span class="caption">${t('music.repetition.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-penalty-window">${t('music.field.penalty_window')}</label></div>
+              <input id="music-penalty-window" type="number" min="1" max="100" step="1" placeholder="50">
+              <span class="caption">${t('music.penalty_window.hint')}</span></div>
+          <div class="field music-synthesis-fields"><div class="field-head"><label for="music-max-tokens">${t('music.field.max_tokens')}</label></div>
+              <input id="music-max-tokens" type="number" min="512" max="16000" step="256" placeholder="9000">
+              <span class="caption">${t('music.max_tokens.hint')}</span></div>
           <div class="field music-synthesis-fields"><div class="field-head"><label for="music-count">${t('music.field.count')}</label></div>
               <select id="music-count"><option value="1">1</option><option value="2">2</option><option value="4">4</option><option value="8">8</option><option value="16">16</option></select>
               <span class="caption">${t('music.count.hint')}</span></div>
@@ -732,7 +754,8 @@ class MusicStudio extends HTMLElement {
     input.value = next; input.dispatchEvent(new Event('input', {bubbles: true}));
   }
   draft() {
-    const values = Object.fromEntries(['mode', 'style', 'lyrics', 'seed', 'cot', 'abc', 'steps', 'cfg-scale', 'count', 'transcription-task']
+    const values = Object.fromEntries(['mode', 'style', 'lyrics', 'seed', 'cot', 'abc', 'steps', 'cfg-scale', 'count', 'transcription-task',
+      'temperature', 'top-p', 'top-k', 'repetition-penalty', 'penalty-window', 'max-tokens']
       .map(key => [key.replaceAll('-', '_'), this.controls.querySelector('#music-' + key).value]));
     return {...values, instrumental: !values.lyrics.trim()};
   }
@@ -742,7 +765,8 @@ class MusicStudio extends HTMLElement {
   // it. The stored record and the link to it stay until the import claims them.
   clearInputs() {
     const field = id => this.controls.querySelector('#music-' + id);
-    const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task'];
+    const advanced = ['seed', 'count', 'steps', 'cfg-scale', 'cot', 'abc', 'transcription-task',
+      'temperature', 'top-p', 'top-k', 'repetition-penalty', 'penalty-window', 'max-tokens'];
     this.clearedInputs = {
       style: field('style').value,
       lyrics: field('lyrics').value,
@@ -758,6 +782,7 @@ class MusicStudio extends HTMLElement {
       cot: this.capabilities?.default_planning || 'full',
       abc: '',
       'transcription-task': 'melody-full',
+      temperature: '', 'top-p': '', 'top-k': '', 'repetition-penalty': '', 'penalty-window': '', 'max-tokens': '',
     };
     field('style').value = '';
     field('lyrics').value = '';
@@ -1413,7 +1438,14 @@ class MusicStudio extends HTMLElement {
       const reference = sent
         ? {reference_audio: await blobBase64(sent.blob), reference_name: sent.name} : {};
       const scoreOnly = ['plan', 'transcribe'].includes(draft.mode);
-      const payload = {...draft, ...reference, steps: scoreOnly ? 32 : Number(draft.steps), cfg_scale: scoreOnly ? 1 : Number(draft.cfg_scale), count: 1,
+      // The sampling fields travel as one object, and a blank field keeps the engine's
+      // own value for that stage.
+      const sampling = {};
+      for (const name of SAMPLING_FIELDS) {
+        if (draft[name] !== '') sampling[name] = Number(draft[name]);
+        delete draft[name];
+      }
+      const payload = {...draft, ...reference, sampling, steps: scoreOnly ? 32 : Number(draft.steps), cfg_scale: scoreOnly ? 1 : Number(draft.cfg_scale), count: 1,
         abc: ['generate', 'plan'].includes(draft.mode) ? draft.abc : '',
         cot: ['transcribe', 'cover'].includes(draft.mode) ? (draft.transcription_task === 'full' ? 'full' : 'melody') : draft.cot, instrumental: draft.mode === 'transcribe' ? false : draft.instrumental,
         seed: draft.mode === 'transcribe' || draft.seed === '' ? null : Number(draft.seed), kind: 'music',

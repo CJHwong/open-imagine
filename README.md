@@ -23,7 +23,7 @@ uv run studio
 ```
 
 Open **http://127.0.0.1:8765**. Models load on first use. The default Image model downloads about 32.5 GB;
-Video needs [engine setup](docs/how-to/set-up-models.md#video-ltx-25). Use `uv run studio --stub` to explore without models.
+Video builds its engine on the first run and needs [ffmpeg and the model terms](docs/how-to/set-up-models.md#video-ltx-25). Use `uv run studio --stub` to explore without models.
 
 ## Documentation
 
