@@ -216,8 +216,9 @@ browser caps one string near a few hundred megabytes, and the older base64 JSON 
 Version 1 (one JSON object) and version 2 (line-delimited JSON) bundles still load. Export and
 Import live in one place, the Media menu: Export writes the whole gallery, Import restores one.
 The shelves keep their own downloads, because a download gives files: Download all saves each file
-in the shelf, and Download selected saves the checked files. A download does not carry the records,
-so only Export gives an archive another browser can restore. Image and Video import through
+in the shelf, and Download selected saves the checked files. A download leaves as one files-only ZIP
+with its descriptive sidecar, and Import refuses it; only Export gives an archive another browser can
+restore. Export reports its packing as a progress toast with the same bar and percent as a run. Image and Video import through
 `web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
 its own tombstones and cutoff.
 

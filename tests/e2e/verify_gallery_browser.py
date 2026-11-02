@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -232,18 +233,16 @@ with sync_playwright() as playwright:
         gallery.get_by_role("button", name="Deselect", exact=True).click()
         gallery.locator(".gallery-check input").nth(0).check()
         gallery.locator(".gallery-check input").nth(1).check()
-        downloads = []
-
-        def handler(download, results=downloads):
-            results.append(download.suggested_filename)
-
-        page.on("download", handler)
-        gallery.get_by_role("button", name="Download 2", exact=True).click()
+        # A download leaves as one files-only ZIP, so the browser asks once.
+        with page.expect_download() as saved:
+            gallery.get_by_role("button", name="Download 2", exact=True).click()
         page.wait_for_function(
             "workspace => !document.querySelector(`gallery-browser[workspace=${workspace}]`).working", arg=workspace
         )
-        assert len(downloads) >= 2 and len(set(downloads)) == len(downloads), downloads
-        page.remove_listener("download", handler)
+        with zipfile.ZipFile(saved.value.path()) as archive:
+            packed = archive.namelist()
+        media = [name for name in packed if name.endswith((".png", ".mp4", ".wav", ".mp3", ".abc"))]
+        assert len(media) == 2, packed
         page.once("dialog", lambda dialog: dialog.dismiss())
         gallery.get_by_role("button", name="Remove 2", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(16)

@@ -6,6 +6,7 @@ import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
@@ -1244,14 +1245,16 @@ class VoiceStudio extends LitElement {
   // One path for the browser panel and the strip head, so a file's name and its
   // type come from the same place.
   async downloadTakes(clips, ids) {
+    const files = [];
     for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
       let blob;
       try { blob = await this.ensureTake(take); }
       catch (error) { this.fail(error.message); return; }
-      downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
-        at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
-      await new Promise(resolve => setTimeout(resolve, 300));
+      files.push({blob, name: mediaDownloadName({kind: 'audio', text: segment.text,
+        at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')})});
     }
+    if (!files.length) return;
+    saveBundle(await encodeFiles(files), filesName('takes'));
   }
 
   async openDetails(event) {

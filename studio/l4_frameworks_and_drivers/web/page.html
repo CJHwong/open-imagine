@@ -3122,13 +3122,19 @@
   // it for the items, and the file comes back here to be split by workspace.
   window.notifyStudio = showToast;
   async function exportGalleryFile() {
+    const progress = toastHost.progress(t('gallery.exporting'));
     try {
       const {encodeBundle, bundleName, saveBundle} = await import('/page/lib/gallery-bundle.js');
       const items = await window.collectStudioBundle();
       const at = Date.now();
-      saveBundle(await encodeBundle(items, at), bundleName(at));
+      const blob = await encodeBundle(items, at, function (step) {
+        progress.set(step.done, step.total);
+      });
+      saveBundle(blob, bundleName(at));
+      progress.close();
       showToast('info', t('gallery.exported', {count: items.length}));
     } catch (error) {
+      progress.close();
       showToast('error', t('gallery.exportFailed', {message: error.message}));
     }
   }

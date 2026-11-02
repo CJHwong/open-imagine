@@ -14,6 +14,7 @@ import sys
 import tempfile
 import urllib.parse
 import wave
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -1861,7 +1862,7 @@ with sync_playwright() as playwright:
         "video gallery uses the Image filmstrip scale",
         gallery_geometry["cardWidth"] <= 120
         and gallery_geometry["thumbnailHeight"] <= 65
-        and gallery_geometry["galleryHeight"] <= 152
+        and gallery_geometry["galleryHeight"] <= 162
         and page.locator("#video-gallery .video-clips.strip").count() == 1
         and page.locator("#video-gallery .video-clip.frame").count() == 2
         and page.locator("#video-gallery .video-clip-remove").count() == 0,
@@ -2386,10 +2387,10 @@ with sync_playwright() as playwright:
         and page.get_by_role("button", name="Clear all").is_visible(),
         page.locator("#video-gallery-note").inner_text(),
     )
-    download_start = len(downloads)
-    page.get_by_role("button", name="Download all").click()
-    page.wait_for_timeout(1000)
-    video_downloads = downloads[download_start:]
+    with page.expect_download() as video_all:
+        page.get_by_role("button", name="Download all").click()
+    with zipfile.ZipFile(video_all.value.path()) as archive:
+        video_downloads = archive.namelist()
     check(
         "Download all saves each video and its useful metadata",
         any(re.fullmatch(r"video-.+-\d{8}-\d{9}-[a-z0-9]+\.webm", name) for name in video_downloads)

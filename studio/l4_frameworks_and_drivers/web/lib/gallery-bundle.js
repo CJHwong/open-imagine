@@ -16,7 +16,7 @@ const FORMAT = 'studio-gallery';
 const VERSION = 3;
 const LIMIT = 0xffffffff;
 
-export async function encodeBundle(items, at = Date.now()) {
+export async function encodeBundle(items, at = Date.now(), onProgress) {
   const manifest = {format: FORMAT, version: VERSION, exportedAt: at, items: []};
   const files = [];
   const used = new Set();
@@ -32,15 +32,42 @@ export async function encodeBundle(items, at = Date.now()) {
     manifest.items.push({workspace: item.workspace, id: item.id, at: item.at,
       record: item.record, media});
   }
+  return buildZip(files, at, manifest, onProgress);
+}
+
+// The files leave as one archive too, without the manifest: a download gives files,
+// not a backup, and Import must not mistake it for one.
+export async function encodeFiles(files, at = Date.now(), onProgress) {
+  const used = new Set();
+  const named = [];
+  for (const file of files) {
+    if (!(file.blob instanceof Blob)) continue;
+    named.push({name: freeName(used, rootName(file.name)), blob: file.blob});
+  }
+  return buildZip(named, at, null, onProgress);
+}
+
+export function filesName(kind, at = Date.now()) {
+  const when = new Date(at);
+  const two = value => String(value).padStart(2, '0');
+  return 'studio-' + kind + '-' + when.getFullYear() + two(when.getMonth() + 1) + two(when.getDate())
+    + '-' + two(when.getHours()) + two(when.getMinutes()) + two(when.getSeconds()) + '.zip';
+}
+
+async function buildZip(files, at, manifest, onProgress) {
   const parts = [];
   const central = [];
   let offset = 0;
-  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
-  const manifestCrc = crc32(manifestBytes);
-  const manifestHeader = localHeader('gallery.json', manifestCrc, manifestBytes.length, at);
-  central.push(centralHeader('gallery.json', manifestCrc, manifestBytes.length, offset, at));
-  parts.push(manifestHeader, manifestBytes);
-  offset += manifestHeader.length + manifestBytes.length;
+  const total = files.reduce((sum, file) => sum + file.blob.size, 0);
+  let done = 0;
+  if (manifest) {
+    const bytes = new TextEncoder().encode(JSON.stringify(manifest));
+    const crc = crc32(bytes);
+    const header = localHeader('gallery.json', crc, bytes.length, at);
+    central.push(centralHeader('gallery.json', crc, bytes.length, offset, at));
+    parts.push(header, bytes);
+    offset += header.length + bytes.length;
+  }
   for (const file of files) {
     const crc = await crc32Blob(file.blob);
     const header = localHeader(file.name, crc, file.blob.size, at);
@@ -48,6 +75,8 @@ export async function encodeBundle(items, at = Date.now()) {
     parts.push(header, file.blob);
     offset += header.length + file.blob.size;
     if (offset > LIMIT) throw new Error(t('gallery.error.tooLarge'));
+    done += file.blob.size;
+    if (onProgress) onProgress({done, total, file: file.name});
   }
   const directory = concat(central);
   const end = endRecord(central.length, directory.length, offset);
@@ -90,6 +119,11 @@ function fail(key) {
 }
 
 // ---- the archive ----
+
+function rootName(name) {
+  const clean = String(name || '').replace(/[\\/:*?"<>|]+/g, '-').replace(/^\.+/, '').slice(0, 120);
+  return clean || 'file';
+}
 
 function mediaName(item, entry) {
   const safe = String(item.id).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 96) || 'item';

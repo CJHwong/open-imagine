@@ -64,6 +64,24 @@ class ToastHost extends LitElement {
     this.updateComplete.then(() => this.present());
   }
 
+  // A long local job, such as packing the gallery, reports its bytes here. The
+  // toast stays until the job closes it, so the bar never disappears mid-copy.
+  progress(text) {
+    const id = this.counter++;
+    this.messages = this.messages.concat([{ id: id, kind: 'progress', text: text, done: 0, total: 0 }]);
+    this.requestUpdate();
+    this.updateComplete.then(() => this.present());
+    return {
+      set: (done, total) => {
+        const one = this.messages.find((message) => message.id === id);
+        if (!one) return;
+        one.done = done; one.total = total;
+        this.requestUpdate();
+      },
+      close: () => this.dismiss(id),
+    };
+  }
+
   dismiss(id) {
     const left = this.messages.filter((message) => message.id !== id);
     if (left.length === this.messages.length) return;
@@ -95,6 +113,10 @@ class ToastHost extends LitElement {
   }
 
   message(one) {
+    if (one.kind === 'progress') {
+      const percent = one.total ? Math.min(100, Math.round(one.done / one.total * 100)) : 0;
+      return html`<div class="toast progress" role="status">${glyph('download')}<div class="toast-body"><p>${one.text} · ${percent}%</p><div class="toast-bar" role="progressbar" aria-valuenow=${percent} aria-valuemin="0" aria-valuemax="100"><i style=${'width:' + percent + '%'}></i></div></div></div>`;
+    }
     const failure = one.kind === 'error';
     return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title=${t('toast.dismiss')} aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;
   }
@@ -116,6 +138,10 @@ const handle = {
   },
   clear: function () {
     if (host) host.clear();
+  },
+  progress: function (text) {
+    if (!host) return { set: function () {}, close: function () {} };
+    return host.progress(text);
   },
 };
 

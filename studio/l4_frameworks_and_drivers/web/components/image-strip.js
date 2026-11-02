@@ -27,6 +27,7 @@
 import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {mediaDownloadName} from '../lib/download-name.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {t} from '../lib/i18n.js';
@@ -290,47 +291,38 @@ function sweep(range, split) {
 }
 
 // ---- The ways out of the gallery ------------------------------------------------
-function saveFile(url, name) {
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-}
-
-// Every image on the strip, oldest first, then one file with their prompts,
-// since an image file holds no prompt.
-// The files leave one at a time, because a browser drops downloads that come
-// too close together. A batch of edits shares one source, saved once.
-function download(ids = null) {
+// A download gives files. It leaves as one ZIP, so the browser asks once instead of
+// once per picture, and the archive carries no records: Import would refuse it.
+async function download(ids = null) {
+  const chosen = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse();
   const befores = new Map();
   const facts = [];
-  const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
-  const saving = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse().reduce(function (previous, entry) {
-    return previous.then(async function () {
+  try {
+    const files = [];
+    for (const entry of chosen) {
       if (!entry.src && entry.loadMedia) await page.hydrate(entry);
-      const file = page.fileName(entry);
-      saveFile(entry.src, file);
-      const fact = { file: file, before: null };
+      const name = page.fileName(entry);
+      files.push({name, blob: await (await fetch(entry.src)).blob()});
+      const fact = {file: name, before: null};
       page.keptFields().forEach(function (field) { fact[field] = entry[field]; });
       facts.push(fact);
-      if (!entry.before) return pause();
+      if (!entry.before) continue;
       const known = befores.has(entry.before);
-      if (!known) befores.set(entry.before, file.replace(/\.png$/, '-before.png'));
+      if (!known) befores.set(entry.before, name.replace(/\.png$/, '-before.png'));
       fact.before = befores.get(entry.before);
-      if (known) return pause();
-      return pause().then(function () {
-        saveFile(entry.before, fact.before);
-        return pause();
-      });
-    });
-  }, Promise.resolve());
-  return saving.then(function () {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
-    saveFile(url, mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}));
-    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
-  }).catch(function (error) {
-    page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed', {message: error.message}));
-  });
+      if (!known) {
+        files.push({name: fact.before, blob: await (await fetch(entry.before)).blob()});
+      }
+    }
+    if (files.length) {
+      files.push({name: mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}),
+        blob: new Blob([JSON.stringify(facts, null, 2)], {type: 'application/json'})});
+      saveBundle(await encodeFiles(files), filesName('images'));
+    }
+  } catch (error) {
+    page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed',
+      {message: error.message}));
+  }
 }
 
 // The shown image gives way to its neighbour. Another tab's removal leaves this

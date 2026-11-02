@@ -1,6 +1,7 @@
 import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-media.js';
@@ -152,22 +153,6 @@ function releaseClipUrls(clip) {
   if (clip.thumbnailUrl) URL.revokeObjectURL(clip.thumbnailUrl);
 }
 
-function videoDownloadName(clip) {
-  return mediaDownloadName({kind: 'video', text: clip.metadata?.prompt || clip.name,
-    at: clip.createdAt, id: clip.id, extension: mediaExtension(clip.mp4Blob?.type, 'mp4')});
-}
-
-function saveFile(url, name) {
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-}
-
-function waitBetweenDownloads() {
-  return new Promise((resolve) => setTimeout(resolve, 300));
-}
-
 function videoExportMetadata(clip, file) {
   const metadata = clip.metadata || {};
   return {
@@ -193,6 +178,11 @@ function videoExportMetadata(clip, file) {
     seed: Number.isInteger(metadata.seed) ? metadata.seed : null,
     elapsedSeconds: metadata.elapsedSeconds || null,
   };
+}
+
+function videoDownloadName(clip) {
+  return mediaDownloadName({kind: 'video', text: clip.metadata?.prompt || clip.name,
+    at: clip.createdAt, id: clip.id, extension: mediaExtension(clip.mp4Blob?.type, 'mp4')});
 }
 
 class VideoStudio extends LitElement {
@@ -1496,20 +1486,20 @@ class VideoStudio extends LitElement {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && (clip.url || clip.loadMedia)
       && (!ids || ids.includes(clip.id))).reverse();
     if (!outputs.length) return;
-    const details = [];
     try {
+      const files = [];
+      const details = [];
       for (const clip of outputs) {
         await this.ensureClip(clip);
-        const file = videoDownloadName(clip);
-        saveFile(clip.url, file);
-        details.push(videoExportMetadata(clip, file));
-        await waitBetweenDownloads();
+        const name = videoDownloadName(clip);
+        files.push({name, blob: await (await fetch(clip.url)).blob()});
+        details.push(videoExportMetadata(clip, name));
       }
-      const metadataUrl = URL.createObjectURL(new Blob([JSON.stringify(details, null, 2)], {
-        type: 'application/json',
-      }));
-      saveFile(metadataUrl, mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}));
-      setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000);
+      if (files.length) {
+        files.push({name: mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}),
+          blob: new Blob([JSON.stringify(details, null, 2)], {type: 'application/json'})});
+        saveBundle(await encodeFiles(files), filesName('clips'));
+      }
     } catch (error) {
       this.setError(t(ids ? 'video.gallery.downloadSelectedStopped' : 'video.gallery.downloadAllStopped',
         {error: error.message}));

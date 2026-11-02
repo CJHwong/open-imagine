@@ -128,6 +128,7 @@
   "gallery.playing.aria": "Now playing",
   "gallery.removeSelected": "Remove {count}",
   "gallery.export": "Export",
+  "gallery.exporting": "Exporting the gallery",
   "gallery.export.title": "Save the whole gallery as one ZIP, records and media together, to restore in another browser.",
   "gallery.exported": "Exported {count} items.",
   "gallery.exportFailed": "The gallery could not be exported: {message}",

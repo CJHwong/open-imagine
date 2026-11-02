@@ -10,6 +10,7 @@ import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gall
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
 import {encodeMp3} from '../lib/mp3.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
 import './run-button.js';
@@ -1703,33 +1704,46 @@ class MusicStudio extends HTMLElement {
     if (trigger?.classList.contains('is-busy')) return;
     if (trigger) { trigger.classList.add('is-busy'); trigger.disabled = true; }
     try {
+      const files = [];
       for (const song of this.songs.filter(song => ids.includes(song.id))) {
-        if (song.blob) await this.downloadMp3(song);
-        else saveBlob(new Blob([song.score || ''], {type: 'text/vnd.abc'}), `music-${song.seed}.abc`);
+        if (!song.blob) {
+          files.push({name: `music-${song.seed}.abc`,
+            blob: new Blob([song.score || ''], {type: 'text/vnd.abc'})});
+          continue;
+        }
+        try {
+          files.push({name: `music-${song.seed}.mp3`, blob: await this.encodeMp3File(song)});
+        } catch (error) {
+          this.options.notify('error', t('music.error.mp3'));
+          files.push({name: `music-${song.seed}.wav`, blob: song.blob});
+        }
       }
+      if (files.length) saveBundle(await encodeFiles(files), filesName('songs'));
     } finally {
       if (trigger) { trigger.classList.remove('is-busy'); trigger.disabled = false; }
     }
   }
   // A song leaves as a tagged MP3. If the encoder cannot load, the WAV is still
   // the run's own output, so the person gets that file and is told why.
+  async encodeMp3File(song) {
+    const cover = song.coverBlob
+      ? {type: song.coverBlob.type, bytes: new Uint8Array(await song.coverBlob.arrayBuffer())}
+      : null;
+    return encodeMp3(song.blob, {
+      title: this.songTitle(song),
+      genre: song.genre || genreOf(song),
+      artist: musicModelName(song.model),
+      year: new Date(song.createdAt || Date.now()).getFullYear(),
+      comment: song.settings?.style || '',
+      lengthMs: (song.seconds || 0) * 1000,
+      cover,
+    });
+  }
   async downloadMp3(song, trigger) {
     if (!song.blob) return;
     if (trigger) { trigger.disabled = true; trigger.classList.add('is-busy'); trigger.setAttribute('aria-busy', 'true'); }
     try {
-      const cover = song.coverBlob
-        ? {type: song.coverBlob.type, bytes: new Uint8Array(await song.coverBlob.arrayBuffer())}
-        : null;
-      const blob = await encodeMp3(song.blob, {
-        title: this.songTitle(song),
-        genre: song.genre || genreOf(song),
-        artist: musicModelName(song.model),
-        year: new Date(song.createdAt || Date.now()).getFullYear(),
-        comment: song.settings?.style || '',
-        lengthMs: (song.seconds || 0) * 1000,
-        cover,
-      });
-      saveBlob(blob, `music-${song.seed}.mp3`);
+      saveBlob(await this.encodeMp3File(song), `music-${song.seed}.mp3`);
     } catch (error) {
       this.options.notify('error', t('music.error.mp3'));
       saveBlob(song.blob, `music-${song.seed}.wav`);
