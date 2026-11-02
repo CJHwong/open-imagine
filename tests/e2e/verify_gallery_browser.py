@@ -261,6 +261,32 @@ with sync_playwright() as playwright:
             page.screenshot(path=str(SHOTS / (workspace + "-grid.png")), animations="disabled")
         gallery.get_by_role("searchbox").press("Escape")
         expect(gallery.locator(".gallery-browser-panel")).to_have_count(0)
+        # The Browse/Compact switch sits outside the strip's own key handling. A person
+        # who presses it still expects the arrow keys to step the results that are shown.
+        strip_selector = {"image": "#strip", "video": "#video-gallery .strip", "voice": "#voice-gallery .strip"}[
+            workspace
+        ]
+        toggle = gallery.locator(".gallery-browse-toggle")
+        for expanded in ("true", "false"):
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-expanded", expanded)
+            expect(toggle).to_be_focused()
+            before = gallery.evaluate("element => String(element.selectedId)")
+            key = page.evaluate(
+                """selector => {
+                  const tiles = [...document.querySelectorAll(selector + ' .frame:not(.pending)')];
+                  const index = tiles.findIndex(tile => tile.classList.contains('selected'));
+                  return index >= 0 && index < tiles.length - 1 ? 'ArrowRight' : 'ArrowLeft';
+                }""",
+                strip_selector,
+            )
+            toggle.press(key)
+            page.wait_for_function(
+                "([workspace, before]) => String(document.querySelector("
+                "`gallery-browser[workspace=${workspace}]`).selectedId) !== before",
+                arg=[workspace, before],
+            )
+        print(f"PASS {name}: the arrow keys step the strip from the Browse/Compact switch", flush=True)
         print(
             f"PASS {name}: grid, search, filters, sorting, batches, keys, restoration, bulk actions and two tabs",
             flush=True,

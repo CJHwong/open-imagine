@@ -122,10 +122,19 @@ def main():
         page.keyboard.press("ArrowRight")
         page.wait_for_function("id => document.querySelector('music-studio').selectedId === id", arg=before_id)
         print("PASS the preview steps songs with the arrow keys, left to left", flush=True)
-        page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
+        browse = page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle')
+        browse.click()
         expect(page.locator(".gallery-card .gallery-no-preview")).to_have_text(["♫", "♫"])
         expect(page.locator(".gallery-wave")).to_have_count(0)
-        page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
+        # The switch sits outside the strip's own keys, and the arrows still step the
+        # songs from it, keeping focus on the switch so Escape still closes the shelf.
+        stepped = page.evaluate("document.querySelector('music-studio').selectedId")
+        browse.press("ArrowLeft")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId !== id", arg=stepped)
+        assert page.evaluate("document.activeElement.classList.contains('gallery-browse-toggle')")
+        browse.click()
+        browse.press("ArrowRight")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId === id", arg=stepped)
         # Visibility alone misses controls clipped by the preview pane's scrolling box.
         current.locator(".music-track-text").evaluate(
             "node=>node.textContent='Evening lights across the water\\nMorning follows every quiet dream\\nFootsteps fade along the shore'"

@@ -629,23 +629,17 @@ class MusicStudio extends HTMLElement {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.target.closest('input, textarea, select, button, audio, [contenteditable], .music-track-text, .music-output-details')) return;
+      if (!this.stepSong(event.key === 'ArrowRight' ? 1 : -1)) return;
       event.preventDefault();
-      // The strip shows the pending preview at its left, then the newest song. Walk that
-      // order, or the keys step away from what the person sees.
-      const generating = Boolean(this.pending || this.operation?.kind === 'music');
-      const order = (generating ? ['__pending__'] : []).concat(this.songs.slice().reverse().map(song => song.id));
-      const current = generating && this.showGeneration !== false ? '__pending__' : this.selectedId;
-      const index = order.indexOf(current);
-      if (index < 0) return;
-      const next = Math.max(0, Math.min(order.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
-      if (next === index) return;
-      if (order[next] === '__pending__') {
-        this.showGeneration = true; this.sync(); this.syncGallery();
-        this.querySelector('.music-generation')?.focus({preventScroll: true});
-      } else {
-        this.selectSong(order[next]);
-        this.querySelector('.music-preview-area')?.focus({preventScroll: true});
-      }
+    });
+    // The Browse/Compact switch sits in the shelf's head, outside the strip's own keys.
+    // A person who presses it still expects the arrow keys to step the songs.
+    this.querySelector('gallery-browser').addEventListener('keydown', event => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      if (!event.target.closest('.gallery-browse-toggle')) return;
+      if (!this.stepSong(event.key === 'ArrowRight' ? 1 : -1, false)) return;
+      event.preventDefault();
     });
     this.querySelector('.music-strip').addEventListener('keydown', event => {
       const buttons = [...this.querySelectorAll('.music-strip button')];
@@ -1700,6 +1694,26 @@ class MusicStudio extends HTMLElement {
     rememberGalleryView('music', {selected: id}, this.keeping);
     this.sync(); this.syncGallery();
     this.revealSong(id);
+  }
+  // One step for the preview and the shelf, so both keys walk the order a person sees:
+  // the strip shows the pending preview at its left, then the newest song. A step from
+  // the shelf keeps focus on its switch, which still owns Escape.
+  stepSong(delta, focusPane = true) {
+    const generating = Boolean(this.pending || this.operation?.kind === 'music');
+    const order = (generating ? ['__pending__'] : []).concat(this.songs.slice().reverse().map(song => song.id));
+    const current = generating && this.showGeneration !== false ? '__pending__' : this.selectedId;
+    const index = order.indexOf(current);
+    if (index < 0) return false;
+    const next = Math.max(0, Math.min(order.length - 1, index + delta));
+    if (next === index) return false;
+    if (order[next] === '__pending__') {
+      this.showGeneration = true; this.sync(); this.syncGallery();
+      if (focusPane) this.querySelector('.music-generation')?.focus({preventScroll: true});
+    } else {
+      this.selectSong(order[next]);
+      if (focusPane) this.querySelector('.music-preview-area')?.focus({preventScroll: true});
+    }
+    return true;
   }
   // The strip scrolls. A song chosen from the keyboard or the browser brings its tile
   // into view, or the circled tile sits off screen while the preview changes.
