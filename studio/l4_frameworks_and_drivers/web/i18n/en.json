@@ -111,7 +111,6 @@
   "gallery.error.action": "The gallery action failed. Try again.",
   "gallery.error.notBundle": "This file is not a Studio gallery bundle.",
   "gallery.error.newer": "This bundle was made by a newer Studio. Update the page first.",
-  "gallery.error.tooLarge": "This gallery is larger than one 4 GB archive. Remove some media and export again.",
   "gallery.error.remove": "{count} results could not be removed. Try again.",
   "gallery.filterMode": "Filter by mode",
   "gallery.filterModel": "Filter by model",

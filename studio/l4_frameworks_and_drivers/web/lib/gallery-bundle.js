@@ -14,7 +14,8 @@ import {t} from './i18n.js';
 
 const FORMAT = 'studio-gallery';
 const VERSION = 3;
-const LIMIT = 0xffffffff;
+const MAX32 = 0xffffffff;
+const MAX16 = 0xffff;
 
 export async function encodeBundle(items, at = Date.now(), onProgress) {
   const manifest = {format: FORMAT, version: VERSION, exportedAt: at, items: []};
@@ -56,33 +57,34 @@ export function filesName(kind, at = Date.now()) {
 
 async function buildZip(files, at, manifest, onProgress) {
   const parts = [];
-  const central = [];
+  const records = [];
   let offset = 0;
   const total = files.reduce((sum, file) => sum + file.blob.size, 0);
   let done = 0;
+  const put = (name, blob, size) => {
+    const header = localHeader(name, blob, at);
+    parts.push(header.bytes, blob);
+    records.push({name, crc: header.crc, size, offset});
+    offset += header.bytes.length + size;
+  };
   if (manifest) {
     const bytes = new TextEncoder().encode(JSON.stringify(manifest));
-    const crc = crc32(bytes);
-    const header = localHeader('gallery.json', crc, bytes.length, at);
-    central.push(centralHeader('gallery.json', crc, bytes.length, offset, at));
-    parts.push(header, bytes);
-    offset += header.length + bytes.length;
+    put('gallery.json', bytes, bytes.length);
   }
   let index = 0;
   for (const file of files) {
     const crc = await crc32Blob(file.blob);
-    const header = localHeader(file.name, crc, file.blob.size, at);
-    central.push(centralHeader(file.name, crc, file.blob.size, offset, at));
-    parts.push(header, file.blob);
-    offset += header.length + file.blob.size;
-    if (offset > LIMIT) throw new Error(t('gallery.error.tooLarge'));
+    const header = localHeader(file.name, file.blob, at, crc);
+    parts.push(header.bytes, file.blob);
+    records.push({name: file.name, crc, size: file.blob.size, offset});
+    offset += header.bytes.length + file.blob.size;
     done += file.blob.size;
     index += 1;
     if (onProgress) onProgress({done, total, index, count: files.length, file: file.name});
   }
+  const central = records.map(record => centralHeader(record, at));
   const directory = concat(central);
-  const end = endRecord(central.length, directory.length, offset);
-  if (offset + directory.length + end.length > LIMIT) throw new Error(t('gallery.error.tooLarge'));
+  const end = endRecord(records.length, directory.length, offset);
   parts.push(directory, end);
   return new Blob(parts, {type: 'application/zip'});
 }
@@ -158,61 +160,106 @@ function dosTime(at) {
   };
 }
 
-function localHeader(name, crc, size, at) {
+function zip64Extra(values) {
+  const bytes = new Uint8Array(4 + values.length * 8);
+  const view = new DataView(bytes.buffer);
+  view.setUint16(0, 0x0001, true);
+  view.setUint16(2, values.length * 8, true);
+  values.forEach((value, index) => view.setBigUint64(4 + index * 8, BigInt(value), true));
+  return bytes;
+}
+
+// The header returns its own bytes and the CRC the central directory needs. A file
+// above 4 GB takes the ZIP64 extra: the 32-bit fields hold the marker, and the sizes
+// follow in the extra field.
+function localHeader(name, source, at, knownCrc) {
   const nameBytes = new TextEncoder().encode(name);
-  const bytes = new Uint8Array(30 + nameBytes.length);
+  const size = source.length === undefined ? source.size : source.length;
+  const crc = knownCrc === undefined ? crc32(source) : knownCrc;
+  const zip64 = size > MAX32;
+  const extra = zip64 ? zip64Extra([size, size]) : new Uint8Array(0);
+  const bytes = new Uint8Array(30 + nameBytes.length + extra.length);
   const view = new DataView(bytes.buffer);
   const stamp = dosTime(at);
   view.setUint32(0, 0x04034b50, true);
-  view.setUint16(4, 20, true);
+  view.setUint16(4, zip64 ? 45 : 20, true);
   view.setUint16(6, 0x0800, true);  // names are UTF-8
   view.setUint16(8, 0, true);       // stored, not deflated
   view.setUint16(10, stamp.time, true);
   view.setUint16(12, stamp.date, true);
   view.setUint32(14, crc, true);
-  view.setUint32(18, size, true);
-  view.setUint32(22, size, true);
+  view.setUint32(18, zip64 ? MAX32 : size, true);
+  view.setUint32(22, zip64 ? MAX32 : size, true);
   view.setUint16(26, nameBytes.length, true);
-  view.setUint16(28, 0, true);
+  view.setUint16(28, extra.length, true);
   bytes.set(nameBytes, 30);
-  return bytes;
+  bytes.set(extra, 30 + nameBytes.length);
+  return {bytes, crc};
 }
 
-function centralHeader(name, crc, size, offset, at) {
-  const nameBytes = new TextEncoder().encode(name);
-  const bytes = new Uint8Array(46 + nameBytes.length);
+// A central entry names the values the 32-bit fields cannot hold in a ZIP64 extra,
+// in the order uncompressed size, compressed size, local header offset.
+function centralHeader(record, at) {
+  const nameBytes = new TextEncoder().encode(record.name);
+  const values = [];
+  if (record.size > MAX32) values.push(record.size, record.size);
+  if (record.offset > MAX32) values.push(record.offset);
+  const zip64 = values.length > 0;
+  const extra = zip64 ? zip64Extra(values) : new Uint8Array(0);
+  const bytes = new Uint8Array(46 + nameBytes.length + extra.length);
   const view = new DataView(bytes.buffer);
   const stamp = dosTime(at);
   view.setUint32(0, 0x02014b50, true);
-  view.setUint16(4, 20, true);
-  view.setUint16(6, 20, true);
+  view.setUint16(4, zip64 ? 45 : 20, true);
+  view.setUint16(6, zip64 ? 45 : 20, true);
   view.setUint16(8, 0x0800, true);
   view.setUint16(10, 0, true);
   view.setUint16(12, stamp.time, true);
   view.setUint16(14, stamp.date, true);
-  view.setUint32(16, crc, true);
-  view.setUint32(20, size, true);
-  view.setUint32(24, size, true);
+  view.setUint32(16, record.crc, true);
+  view.setUint32(20, record.size > MAX32 ? MAX32 : record.size, true);
+  view.setUint32(24, record.size > MAX32 ? MAX32 : record.size, true);
   view.setUint16(28, nameBytes.length, true);
-  view.setUint16(30, 0, true);
+  view.setUint16(30, extra.length, true);
   view.setUint16(32, 0, true);
   view.setUint16(34, 0, true);
   view.setUint16(36, 0, true);
   view.setUint32(38, 0, true);
-  view.setUint32(42, offset, true);
+  view.setUint32(42, record.offset > MAX32 ? MAX32 : record.offset, true);
   bytes.set(nameBytes, 46);
+  bytes.set(extra, 46 + nameBytes.length);
   return bytes;
 }
 
+// The classic end record is 22 bytes and stops at 4 GB and 65535 entries. Above
+// either, a ZIP64 end record and its locator come first, and the classic fields
+// hold their markers.
 function endRecord(count, size, offset) {
-  const bytes = new Uint8Array(22);
-  const view = new DataView(bytes.buffer);
+  const zip64 = count > MAX16 || size > MAX32 || offset > MAX32;
+  const classic = new Uint8Array(22);
+  const view = new DataView(classic.buffer);
   view.setUint32(0, 0x06054b50, true);
-  view.setUint16(8, count, true);
-  view.setUint16(10, count, true);
-  view.setUint32(12, size, true);
-  view.setUint32(16, offset, true);
-  return bytes;
+  view.setUint16(8, Math.min(count, MAX16), true);
+  view.setUint16(10, Math.min(count, MAX16), true);
+  view.setUint32(12, size > MAX32 ? MAX32 : size, true);
+  view.setUint32(16, offset > MAX32 ? MAX32 : offset, true);
+  if (!zip64) return classic;
+  const end = new Uint8Array(56);
+  const e = new DataView(end.buffer);
+  e.setUint32(0, 0x06064b50, true);
+  e.setBigUint64(4, 44n, true);
+  e.setUint16(12, 45, true);
+  e.setUint16(14, 45, true);
+  e.setBigUint64(24, BigInt(count), true);
+  e.setBigUint64(32, BigInt(count), true);
+  e.setBigUint64(40, BigInt(size), true);
+  e.setBigUint64(48, BigInt(offset), true);
+  const locator = new Uint8Array(20);
+  const l = new DataView(locator.buffer);
+  l.setUint32(0, 0x07064b50, true);
+  l.setBigUint64(8, BigInt(offset + size), true);
+  l.setUint32(16, 1, true);
+  return concat([end, locator, classic]);
 }
 
 function concat(parts) {
@@ -250,6 +297,27 @@ async function decodeZip(file) {
   return items.filter(item => typeof item.id !== 'undefined');
 }
 
+function zip64Values(extra, view, at, length, wanted) {
+  const values = [];
+  let offset = 0;
+  while (offset + 4 <= length) {
+    const tag = view.getUint16(at + offset, true);
+    const size = view.getUint16(at + offset + 2, true);
+    if (tag === 0x0001) {
+      let inner = at + offset + 4;
+      const end = inner + size;
+      for (const _ of wanted) {
+        if (values.length >= wanted.length || inner + 8 > end) break;
+        values.push(Number(view.getBigUint64(inner, true)));
+        inner += 8;
+      }
+      return values;
+    }
+    offset += 4 + size;
+  }
+  return values;
+}
+
 async function readDirectory(file) {
   const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 66560)).arrayBuffer());
   const view = new DataView(tail.buffer);
@@ -258,10 +326,19 @@ async function readDirectory(file) {
     if (view.getUint32(at, true) === 0x06054b50) { end = at; break; }
   }
   if (end < 0) throw fail('gallery.error.notBundle');
-  const count = view.getUint16(end + 10, true);
-  const size = view.getUint32(end + 12, true);
-  const offset = view.getUint32(end + 16, true);
-  if (count === 0xffff || size === LIMIT || offset === LIMIT) throw new Error(t('gallery.error.tooLarge'));
+  let count = view.getUint16(end + 10, true);
+  let size = view.getUint32(end + 12, true);
+  let offset = view.getUint32(end + 16, true);
+  if (count === MAX16 || size === MAX32 || offset === MAX32) {
+    const locator = end - 20;
+    if (locator < 0 || view.getUint32(locator, true) !== 0x07064b50) throw fail('gallery.error.notBundle');
+    const z64 = Number(view.getBigUint64(locator + 8, true));
+    const z = new DataView(await file.slice(z64, z64 + 56).arrayBuffer());
+    if (z.getUint32(0, true) !== 0x06064b50) throw fail('gallery.error.notBundle');
+    count = Number(z.getBigUint64(32, true));
+    size = Number(z.getBigUint64(40, true));
+    offset = Number(z.getBigUint64(48, true));
+  }
   const directory = new DataView(await file.slice(offset, offset + size).arrayBuffer());
   const entries = new Map();
   let at = 0;
@@ -271,10 +348,21 @@ async function readDirectory(file) {
     const extraLength = directory.getUint16(at + 30, true);
     const commentLength = directory.getUint16(at + 32, true);
     const name = new TextDecoder().decode(new Uint8Array(directory.buffer, at + 46, nameLength));
-    entries.set(name, {method: directory.getUint16(at + 10, true),
-      compressed: directory.getUint32(at + 20, true),
-      size: directory.getUint32(at + 24, true),
-      local: directory.getUint32(at + 42, true)});
+    let compressed = directory.getUint32(at + 20, true);
+    let stored = directory.getUint32(at + 24, true);
+    let local = directory.getUint32(at + 42, true);
+    if (compressed === MAX32 || stored === MAX32 || local === MAX32) {
+      const wanted = [];
+      if (stored === MAX32) wanted.push('size');
+      if (compressed === MAX32) wanted.push('compressed');
+      if (local === MAX32) wanted.push('offset');
+      const values = zip64Values(null, directory, at + 46 + nameLength, extraLength, wanted);
+      const take = name => values[wanted.indexOf(name)];
+      stored = stored === MAX32 ? take('size') : stored;
+      compressed = compressed === MAX32 ? take('compressed') : compressed;
+      local = local === MAX32 ? take('offset') : local;
+    }
+    entries.set(name, {method: directory.getUint16(at + 10, true), compressed, size: stored, local});
     at += 46 + nameLength + extraLength + commentLength;
   }
   return entries;

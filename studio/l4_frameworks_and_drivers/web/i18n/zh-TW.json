@@ -107,7 +107,6 @@
   "gallery.error.action": "媒體庫動作失敗，請再試一次。",
   "gallery.error.notBundle": "這個檔案不是 Studio 的媒體庫備份。",
   "gallery.error.newer": "這個檔案來自更新版的 Studio，請先重新載入頁面。",
-  "gallery.error.tooLarge": "媒體庫超過單一 4 GB 封裝的上限。請先移除部分媒體再匯出。",
   "gallery.error.remove": "有 {count} 個結果無法移除，請再試一次。",
   "gallery.filterMode": "依模式篩選",
   "gallery.filterModel": "依模型篩選",

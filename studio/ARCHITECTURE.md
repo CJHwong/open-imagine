@@ -213,6 +213,7 @@ writes every stored item and its media as a ZIP. `gallery.json` holds the record
 holds each file as it was stored. Each entry is a header plus the media Blob itself, with a CRC
 per file, so no media passes through a JavaScript string and nothing is compressed twice. A
 browser caps one string near a few hundred megabytes, and the older base64 JSON failed there.
+The archive turns to ZIP64 when a file or the directory passes 4 GB or the entries pass 65535.
 Version 1 (one JSON object) and version 2 (line-delimited JSON) bundles still load. Export and
 Import live in one place, the Media menu: Export writes the whole gallery, Import restores one.
 The shelves keep their own downloads, because a download gives files: Download all saves each file
