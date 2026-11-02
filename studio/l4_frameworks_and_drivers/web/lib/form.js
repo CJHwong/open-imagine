@@ -1184,6 +1184,8 @@ function stopRewritePoll() {
 async function startRewrite() {
   const items = rewriteItems();
   if (!items.length) return;
+  // A second press supersedes the answer the first one left on offer.
+  page.hideSharedRewrite?.();
   rewriteQueue = items;
   rewriteStage = 'preparing';
   rewriteDone = 0;
@@ -1274,6 +1276,7 @@ async function rewritePrompt() {
     // The page syncs the video's run button and its frame count off this event, so the
     // box is asked for one rather than the page being reached into.
     promptInput.dispatchEvent(new Event('input', { bubbles: true }));
+    page.rewriteApplied?.('video');
     return result;
   }
   rewrittenFrom = typed;
@@ -1283,6 +1286,7 @@ async function rewritePrompt() {
   // described. It arrives as one of this mode's own sizes, or as nothing.
   if (result.size) setSelect(page.el.sizeSelect, result.size);
   refreshForm();
+  page.rewriteApplied?.('image');
   return result;
 }
 
@@ -1642,6 +1646,7 @@ function wire() {
   // refreshed as it is typed. refreshForm already runs on input for other reasons.
   el.promptInput.addEventListener('input', function () {
     rewrittenFrom = null;   // typing again is your own words, not the rewrite's
+    page.hideSharedRewrite?.('image');
     renderRewriteButton();
   });
 

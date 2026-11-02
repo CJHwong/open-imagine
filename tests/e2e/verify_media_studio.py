@@ -2896,6 +2896,56 @@ with sync_playwright() as playwright:
         audio_after_reload == "false",
         str(audio_after_reload),
     )
+    # A rewrite is its own operation, and that operation blocks the ordinary draft save.
+    # The answer still belongs in the draft: a refresh keeps it and offers no second accept.
+    page.fill("#video-prompt", "a rewrite draft probe")
+    page.wait_for_timeout(300)
+    page.click("#video-rewrite-toggle")
+    page.wait_for_function("() => document.getElementById('video-prompt').value.indexOf('stub') >= 0", timeout=30000)
+    rewritten = page.input_value("#video-prompt")
+    page.wait_for_timeout(900)
+    card_before_reload = page.locator("#shared-rewrite-result").is_hidden()
+    page.reload()
+    page.wait_for_function("() => customElements.get('video-studio')")
+    page.click("#media-video-mode")
+    page.wait_for_timeout(1500)
+    rewrite_draft = page.evaluate(
+        """() => ({prompt: document.getElementById('video-prompt').value,
+          cardHidden: document.getElementById('shared-rewrite-result').hidden,
+          cardText: document.getElementById('shared-rewrite-text').value})"""
+    )
+    check(
+        "a rewritten prompt survives a reload, and its shared card does not come back",
+        card_before_reload
+        and rewrite_draft["prompt"] == rewritten
+        and rewrite_draft["cardHidden"]
+        and rewrite_draft["cardText"] == "",
+        json.dumps({"cardBeforeReload": card_before_reload, **rewrite_draft}),
+    )
+    # A rewrite from another caller is offered until the person moves on. The stub runs it
+    # as an API operation, so the page did not apply it.
+    api_rewrite = page.evaluate(
+        """async () => (await (await fetch('/api/v1/operations', {method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({kind: 'rewrite', workspace: 'video', prompt: 'a card probe'})})).json())"""
+    )
+    page.wait_for_function("() => !document.getElementById('shared-rewrite-result').hidden", timeout=30000)
+    card_text = page.input_value("#shared-rewrite-text")
+    page.fill("#video-prompt", "typed over the card")
+    page.wait_for_timeout(300)
+    check(
+        "an outside rewrite is offered until the person types",
+        api_rewrite.get("source") == "api"
+        and card_text.startswith("a card probe")
+        and page.locator("#shared-rewrite-result").is_hidden(),
+        json.dumps(
+            {
+                "source": api_rewrite.get("source"),
+                "card": card_text,
+                "hidden": page.locator("#shared-rewrite-result").is_hidden(),
+            }
+        ),
+    )
     check("the browser reports no page errors", not errors, str(errors))
     browser.close()
 

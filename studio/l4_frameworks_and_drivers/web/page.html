@@ -1704,6 +1704,7 @@
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();
     growVideoPrompt();
+    hideSharedRewrite('video');
   });
   videoTemplatesToggle.addEventListener('click', function () {
     if (videoTemplatesMenu.hidden) renderVideoTemplates();
@@ -2065,6 +2066,10 @@
       sharedBusy: sharedBusy,
       clientId: CLIENT_ID,
       libraryId: LIBRARY_ID,
+      // A rewrite is its own operation, and that operation blocks the ordinary draft save.
+      // The box holds the answer, so that one answer is written anyway.
+      rewriteApplied: function (workspace) { if (drafts) drafts.changedNow(workspace); },
+      hideSharedRewrite: hideSharedRewrite,
       syncVideoGenerate: syncVideoGenerateButton,
       region: function () { return region; },
       menus: function () { return menus; },
@@ -2837,17 +2842,31 @@
         if (musicStudio.isCoverOperation?.(operation)
             || (operation.kind === 'rewrite' && /:music-cover:[^:]+:brief$/.test(operation.client_id || ''))) return;
         if (result.cancelled || !result.prompt) return;
+        // An answer the box already holds was applied here or typed by hand. Offering it
+        // again asks for a second accept of words the person can already see.
+        const box = operation.workspace === 'video'
+          ? document.getElementById('video-prompt') : promptInput;
+        if (box.value.trim() === result.prompt.trim()) return;
         document.getElementById('shared-rewrite-text').value = result.prompt;
         document.getElementById('shared-rewrite-result').hidden = false;
         sharedRewriteWorkspace = operation.workspace;
       },
     });
   });
+  // The card lives until the answer is used or the person moves on. A new rewrite, or words
+  // typed in the card's own workspace, make the offer stale; a press of Use takes it.
+  function hideSharedRewrite(workspace) {
+    const card = document.getElementById('shared-rewrite-result');
+    if (card.hidden) return;
+    if (workspace && workspace !== sharedRewriteWorkspace) return;
+    card.hidden = true;
+    sharedRewriteWorkspace = '';
+  }
   document.getElementById('shared-rewrite-use').addEventListener('click', function () {
     const text = document.getElementById('shared-rewrite-text').value;
     if (sharedRewriteWorkspace === 'video') setVideoPrompt(text);
     else { promptInput.value = text; promptInput.dispatchEvent(new Event('input', {bubbles: true})); }
-    document.getElementById('shared-rewrite-result').hidden = true;
+    hideSharedRewrite();
   });
 
   // ---- Toasts -----------------------------------------------------------------

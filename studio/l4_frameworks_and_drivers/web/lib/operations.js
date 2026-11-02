@@ -136,7 +136,12 @@ async function importBatch(operation, answer) {
 }
 
 async function importResult(operation) {
-  if (imported.has(operation.id) || (operation.client_id === page.clientId && !['voice', 'music'].includes(operation.kind)
+  // A rewrite this tab made before this page opened is already in the box and the draft.
+  // A refresh gives the page a new client id, so the tab's saved owners carry it.
+  const appliedRewrite = operation.kind === 'rewrite' && operation.source === 'ui'
+    && owners.has(operation.client_id) && (operation.finished_at || 0) < openedAt;
+  if (imported.has(operation.id) || appliedRewrite || (operation.client_id === page.clientId
+      && !['voice', 'music'].includes(operation.kind)
       && !(operation.kind === 'image' && operation.batch_total))) return;
   if (operation.source === 'ui' && operation.library_id !== page.libraryId && !owners.has(operation.client_id)) return;
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
