@@ -202,6 +202,32 @@ def test_plan_returns_full_exact_planner_tokens_without_audio():
     assert child.answer(engine, {**job(), "mode": "plan"})["score"] == ""
 
 
+def test_sampling_reaches_both_stages_and_a_blank_map_keeps_the_defaults():
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Config:
+        ode_steps: int = 32
+
+    values = {"temperature": 0.8, "max_tokens": 4096}
+    engine = Mock(return_value=song())
+    child.answer(engine, {**job(), "sampling": values})
+    assert engine.call_args.kwargs["abc_sampling"] == values
+    assert engine.call_args.kwargs["semantic_sampling"] == values
+
+    engine = Mock(return_value=song())
+    child.answer(engine, job())
+    assert "abc_sampling" not in engine.call_args.kwargs
+    assert "semantic_sampling" not in engine.call_args.kwargs
+
+    engine = Mock(generation_config=Config(), weights={})
+    engine.plan.return_value = plan()
+    child.answer(engine, {**job(), "mode": "plan", "sampling": values})
+    assert engine.plan.call_args.kwargs["abc_sampling"] == values
+    assert "semantic_sampling" not in engine.plan.call_args.kwargs
+    assert engine.effective_config.call_args.args[1:] == (values, values)
+
+
 def test_worker_retains_only_one_generator_and_releases_it_before_transcribing(monkeypatch):
     engine = Mock()
     load = Mock(return_value=engine)

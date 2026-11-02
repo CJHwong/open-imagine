@@ -1739,6 +1739,24 @@ def music_schemas() -> dict[str, Any]:
                     "default": 1,
                     "description": "Style guidance. Higher values follow the style more closely. 1 is the model default.",
                 },
+                "sampling": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "description": "Engine sampling overrides. The same values reach score planning and synthesis, and a field left out keeps that stage's own default.",
+                    "properties": {
+                        "temperature": {"type": "number", "minimum": 0, "maximum": 5},
+                        "top_p": {"type": "number", "minimum": 0.01, "maximum": 1},
+                        "top_k": {"type": "integer", "minimum": 1, "maximum": 1000},
+                        "repetition_penalty": {"type": "number", "minimum": 0.01, "maximum": 10},
+                        "penalty_window": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "max_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 16000,
+                            "description": "The most tokens one stage may write. A song that reaches it fails.",
+                        },
+                    },
+                },
                 "transcription_task": {
                     "enum": ["full", "melody-full", "melody-vocal"],
                     "default": "melody-full",

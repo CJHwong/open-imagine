@@ -10,6 +10,18 @@ from dataclasses import asdict
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.music_job import MusicJob
 
+# The engine's Sampling fields, with the bounds its own constructor checks. A field the
+# map does not name keeps that stage's default.
+SAMPLING_BOUNDS = {
+    "temperature": (0.0, 5.0),
+    "top_p": (0.01, 1.0),
+    "top_k": (1, 1000),
+    "repetition_penalty": (0.01, 10.0),
+    "penalty_window": (1, 100),
+    "max_tokens": (1, 16000),
+}
+SAMPLING_INTEGERS = {"top_k", "penalty_window", "max_tokens"}
+
 
 class MusicController:
     def __init__(self, run, catalog, switch):
@@ -110,8 +122,32 @@ def music_job(payload: Mapping, capabilities) -> MusicJob:
         transcription_task=task,
         reference_audio=reference,
         reference_name=reference_name,
+        sampling=_sampling(payload),
         **values,
     )
+
+
+def _sampling(payload):
+    """The engine's sampling overrides, checked before any model memory is taken."""
+    value = payload.get("sampling")
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, Mapping):
+        raise InvalidJob("sampling must be an object")
+    unknown = sorted(set(value) - set(SAMPLING_BOUNDS))
+    if unknown:
+        raise InvalidJob(f"sampling has no field named {unknown[0]}")
+    result = {}
+    for name, raw in value.items():
+        if type(raw) is bool or type(raw) not in (int, float) or not math.isfinite(raw):
+            raise InvalidJob(f"sampling.{name} must be a number")
+        if name in SAMPLING_INTEGERS and type(raw) is not int:
+            raise InvalidJob(f"sampling.{name} must be a whole number")
+        low, high = SAMPLING_BOUNDS[name]
+        if not low <= raw <= high:
+            raise InvalidJob(f"sampling.{name} must be between {low:g} and {high:g}")
+        result[name] = raw
+    return result
 
 
 def _reference(payload, mode, limit):

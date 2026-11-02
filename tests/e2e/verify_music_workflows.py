@@ -469,6 +469,11 @@ def main():
         page.locator("#music-seed").fill("42")
         page.locator("#music-cfg-scale").fill("9")
         page.locator("#music-steps").select_option("8")
+        # Sampling is the engine's own recipe until a field names a value.
+        expect(page.locator("#music-temperature")).to_have_value("")
+        page.locator("#music-temperature").fill("0.8")
+        page.locator("#music-penalty-window").fill("32")
+        page.locator("#music-max-tokens").fill("4096")
         page.locator('label[for="music-mode-plan"]').click()
         expect(page.locator("#music-mode")).to_have_value("plan")
         expect(page.locator("#music-go-sub")).to_have_text("Sheet music only")
@@ -485,6 +490,8 @@ def main():
         page.keyboard.press("Escape")
         assert submitted[-1]["mode"] == "plan"
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
+        assert submitted[-1]["sampling"] == {"temperature": 0.8, "penalty_window": 32, "max_tokens": 4096}
+        assert "temperature" not in submitted[-1]
         score = page.locator("#music-studio").evaluate("node=>node.songs[0].score")
         assert score.startswith("X:")
         page.reload()

@@ -868,6 +868,27 @@ The decoded limit is 32 MiB. Uploaded reference bytes stay out of public operati
 Duration follows the generated composition; there is no fixed-duration request field.
 Instrumentals and score planning require `cot: full` or `melody`. A token-cap failure does not produce a successful incomplete song.
 
+`sampling` overrides the engine's own sampling for both the score planning stage and the
+synthesis stage. Omit it, or omit a field inside it, to keep that stage's own default.
+
+| Field | Range | What it does |
+|---|---|---|
+| `temperature` | 0 to 5 | Variation between runs |
+| `top_p` | 0.01 to 1 | Probability mass kept at each step |
+| `top_k` | 1 to 1000, integer | Candidate tokens kept at each step |
+| `repetition_penalty` | 0.01 to 10 | Higher repeats less |
+| `penalty_window` | 1 to 100, integer | How far back the penalty looks |
+| `max_tokens` | 1 to 16000, integer | The most tokens one stage may write |
+
+```json
+{"kind": "music", "style": "Warm acoustic piano.", "lyrics": "[Verse]\nQuiet road",
+ "sampling": {"temperature": 0.8, "repetition_penalty": 1.3, "max_tokens": 4096}}
+```
+
+The same values reach both stages. `max_tokens` is a safety limit, not a target length: a song
+that reaches it fails rather than publishing an incomplete file. The page's Advanced section
+carries the same six fields, and a blank field keeps the engine default.
+
 ### Runnable Python client
 
 Save this standard-library example as `music_api.py`. It submits one operation, polls its own ID, and saves retained results under `music-api-output`.

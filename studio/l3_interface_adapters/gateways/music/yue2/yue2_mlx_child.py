@@ -255,6 +255,12 @@ def answer(worker, job):
         cfg_scale=job.get("cfg_scale", 1.0),
         on_token=on_token,
     )
+    # One override map serves both stages. The engine merges it over each stage's own
+    # recipe, so a field the map does not name keeps that stage's default. The calls read
+    # `params` when they run, because instrumental transfer rewrites its score and words.
+    sampling = job.get("sampling") or {}
+    plan_sampling = {"abc_sampling": sampling} if sampling else {}
+    song_sampling = {**plan_sampling, "semantic_sampling": sampling} if sampling else {}
     planned = None
     if job.get("instrumental"):
         if not params["style"].lower().startswith("instrumental"):
@@ -262,7 +268,7 @@ def answer(worker, job):
         if params["cot"] == "off":
             raise ValueError("Instrumental music requires melody or full score planning.")
         if not score:
-            planned = engine.plan(**params)
+            planned = engine.plan(**params, **plan_sampling)
             if planned.truncated:
                 return {
                     "error": "YuE2 reached a generation limit. Shorten the lyrics or try another seed.",
@@ -271,7 +277,7 @@ def answer(worker, job):
             score = planned.abc
         params["abc"], params["lyrics"], extra["instrumental_transfer"] = instrumental_score(score)
     if mode == "plan":
-        plan = engine.plan(**params)
+        plan = engine.plan(**params, **plan_sampling)
         if plan.truncated:
             return {
                 "error": "YuE2 reached a generation limit. Shorten the lyrics or try another seed.",
@@ -283,14 +289,14 @@ def answer(worker, job):
             "metadata": {
                 **extra,
                 "engine": "mlx-q8",
-                "config": engine.effective_config(plan.request),
+                "config": engine.effective_config(plan.request, sampling or None, sampling or None),
                 "weights": engine.weights,
                 "timing": {"abc": plan.timing},
                 "generated_tokens": tokens,
                 "plan": {"request": plan.request.to_dict(), "abc_ids": plan.abc_ids, "prefix": plan.prefix},
             },
         }
-    result = engine(**params)
+    result = engine(**params, **song_sampling)
     if any(result.truncated.values()):
         return {"error": "YuE2 reached a generation limit. Shorten the lyrics or try another seed.", "kind": "input"}
     if (
