@@ -209,6 +209,15 @@ def test_an_empty_setting_uses_the_wrapper_that_ships_with_the_studio():
     assert Path(runner._cli).is_file()
 
 
+def test_a_model_path_expands_the_home_directory(tmp_path):
+    assert make_runner({"cli_path": cli(tmp_path)}, "~/models/pack", False)._model == os.path.expanduser(
+        "~/models/pack"
+    )
+    assert make_runner({"cli_path": cli(tmp_path)}, "dgrauet/ltx-2.5-mlx-q8", False)._model == (
+        "dgrauet/ltx-2.5-mlx-q8"
+    )
+
+
 def test_a_missing_ffmpeg_says_which_setting_to_fill(tmp_path, monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda name: None)
     runner = make_runner({"cli_path": cli(tmp_path)}, "pack", False)

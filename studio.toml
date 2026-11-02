@@ -24,11 +24,12 @@ visible_music_backends = ["yue2"]
 batch_policy = "auto"
 # LTX-2.5 Fast mode is selected per request in Video Advanced or with API fast_mode=true.
 # It uses float16 transformer computation with the same q8 weights; generated details can differ.
-# The 8-bit pack and ffmpeg for padding a short track. Video's engine builds itself from
-# the wrapper the studio ships, so cli_path stays empty. A machine that runs only the
-# stub never reads any of this.
+# The 8-bit pack in the cache the other models use, and ffmpeg for padding a short track.
+# docs/how-to/set-up-models.md names the download that fills the pack directory. Video's
+# engine builds itself from the wrapper the studio ships, so cli_path stays empty. A
+# machine that runs only the stub never reads any of this.
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
-model_ltx25 = "dgrauet/ltx-2.5-mlx-q8"
+model_ltx25 = "~/Library/Caches/models/ltx-2.5-q8"
 model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
 # LTX-2.5 effects, including Layout to Render, each use their own adapter file.
 # Layout to Render also requires the pack's v1_0 spatial upscaler weights and config.

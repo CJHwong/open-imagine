@@ -32,8 +32,8 @@ Accept the model terms at [dgrauet/ltx-2.5-mlx-q8](https://huggingface.co/dgraue
 uv run hf auth login
 ```
 
-The engine downloads the video pack on first generation (about 72 GB). To share one copy between installs,
-download it to a directory and point `model_ltx25` at that directory:
+The video pack is about 72 GB. The shipped `model_ltx25` names the same cache the other models
+use, `~/Library/Caches/models/ltx-2.5-q8`. Fill it before the first run:
 
 ```sh
 uv run --with huggingface-hub hf download dgrauet/ltx-2.5-mlx-q8 --local-dir ~/Library/Caches/models/ltx-2.5-q8
@@ -41,6 +41,7 @@ uv run --with huggingface-hub hf download dgrauet/ltx-2.5-mlx-q8 --local-dir ~/L
 
 The `--local-dir` form writes real files. The shared cache form can leave the large weights as Xet
 pointers on a client without Xet support, and a run then fails on the first file it opens.
+LTX-2.3 keeps a repository id, so its pack downloads on first use.
 
 To use Video Edit effects, accept each adapter’s terms and either place its file in `[mlx_video].lora_dir`
 or enable `[mlx_video].fetch_loras`. The default leaves adapter downloads disabled and reports the missing path.

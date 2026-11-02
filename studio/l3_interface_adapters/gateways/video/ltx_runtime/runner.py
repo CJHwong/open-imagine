@@ -64,7 +64,7 @@ class MlxVideoRunner:
         self._cli = engine_executable(settings)
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._ffmpeg_configured = bool(settings.get("ffmpeg_path"))
-        self._model = model
+        self._model = os.path.expanduser(model)
         self._batch_policy = settings.get("batch_policy", "auto")
         if self._batch_policy not in ("auto", "enhance_only", "sequential"):
             raise StudioError("Set batch_policy under [mlx_video] to auto, enhance_only or sequential.")
