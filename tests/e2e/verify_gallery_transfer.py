@@ -10,7 +10,9 @@ import gzip
 import io
 import json
 import sys
+import tempfile
 import wave
+from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
@@ -118,11 +120,15 @@ def main():
             page.get_by_role("button", name="Export", exact=True).click()
         saved = download.value
         assert saved.suggested_filename.startswith("studio-gallery-"), saved.suggested_filename
-        bundle = json.loads(gzip.decompress(saved.path().read_bytes()).decode())
-        assert bundle["format"] == "studio-gallery" and bundle["version"] == 1, bundle.get("format")
-        workspaces = sorted(item["workspace"] for item in bundle["items"])
+        # Version 2 is line-delimited JSON: a header, then one item per line, so a
+        # large shelf never becomes one string the browser refuses to allocate.
+        lines = [line for line in gzip.decompress(saved.path().read_bytes()).decode().splitlines() if line.strip()]
+        header = json.loads(lines[0])
+        assert header["format"] == "studio-gallery" and header["version"] == 2, header
+        bundle_items = [json.loads(line) for line in lines[1:]]
+        workspaces = sorted(item["workspace"] for item in bundle_items)
         assert workspaces == ["image", "music", "video", "voice"], workspaces
-        roles = {item["workspace"]: sorted(entry["role"] for entry in item["media"]) for item in bundle["items"]}
+        roles = {item["workspace"]: sorted(entry["role"] for entry in item["media"]) for item in bundle_items}
         assert roles == {"image": ["png"], "video": ["mp4"], "music": ["audio"], "voice": ["audio"]}, roles
         print("PASS gallery export: one gzipped bundle with four workspaces and their media.", flush=True)
 
@@ -152,7 +158,58 @@ def main():
             "&& document.querySelector('music-studio').songs.length === 1"
         )
         print("PASS gallery import survives a reload from the stores.", flush=True)
+
+        # Version 1 wrote one JSON object. A file from that build must still land.
+        legacy = Path(tempfile.mkdtemp()) / "legacy-v1.json.gz"
+        legacy.write_bytes(
+            gzip.compress(
+                json.dumps(
+                    {
+                        "format": "studio-gallery",
+                        "version": 1,
+                        "exportedAt": 0,
+                        "items": [
+                            {
+                                "workspace": "image",
+                                "id": 901,
+                                "at": 0,
+                                "record": {
+                                    "id": 901,
+                                    "number": 1,
+                                    "mode": "generate",
+                                    "prompt": "Legacy image",
+                                    "seed": 1,
+                                    "width": 8,
+                                    "height": 8,
+                                    "steps": 1,
+                                    "at": 0,
+                                    "backend": "Stub",
+                                    "backendId": "stub",
+                                    "precision": "",
+                                },
+                                "media": [
+                                    {"role": "png", "mime": "image/png", "data": base64.b64encode(png_bytes()).decode()}
+                                ],
+                            }
+                        ],
+                    }
+                ).encode()
+            )
+        )
+        older = browser.new_context(viewport={"width": 1440, "height": 1000})
+        reader = older.new_page()
+        reader.on("pageerror", lambda error: errors.append(str(error)))
+        reader.goto(URL)
+        reader.wait_for_function("Boolean(document.querySelector('music-studio')?.capabilities)")
+        reader.click("#theme-toggle")
+        with reader.expect_file_chooser() as chooser:
+            reader.get_by_role("menuitem", name="Import", exact=True).click()
+        chooser.value.set_files(legacy)
+        expect(reader.locator("#toasts")).to_contain_text("Imported 1 items")
+        reader.wait_for_function("gallery.length === 1")
+        print("PASS a version 1 bundle still imports.", flush=True)
         assert errors == [], errors
+        older.close()
         fresh.close()
         browser.close()
 
