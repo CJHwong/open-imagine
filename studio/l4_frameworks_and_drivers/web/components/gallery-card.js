@@ -1,7 +1,7 @@
 // One card for every workspace's gallery browser. The owner still draws the
 // thumbnail, because a still, a waveform, a cover and a staff are different
 // pictures; everything around it is the same card.
-import {LitElement, html, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {LitElement, html, nothing} from '/page/vendor/lit.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import {t} from '../lib/i18n.js';
 

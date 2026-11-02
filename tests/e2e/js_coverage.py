@@ -77,11 +77,14 @@ def _source_of(url, document, origin):
 
     The document's own url is what V8 reports for the document's inline scripts
     and for nothing else, and the studio serves its modules under `/page/` on
-    the origin it serves the document from.
+    the origin it serves the document from. The libraries in `/page/vendor/`
+    are third-party code, so they stay out of the count.
     """
     if url == document:
         return INLINE
-    return MODULES if url.startswith(origin + "/page/") else None
+    if not url.startswith(origin + "/page/"):
+        return None
+    return None if url.removeprefix(origin + "/page/").startswith("vendor/") else MODULES
 
 
 def measure(session):

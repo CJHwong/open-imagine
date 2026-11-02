@@ -1,4 +1,4 @@
-import {LitElement, html, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {LitElement, html, nothing} from '/page/vendor/lit.js';
 import './video-gallery-preview.js';
 const thumbnails = new Map();
 let queue = Promise.resolve();

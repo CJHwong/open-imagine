@@ -8,7 +8,7 @@ import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
-import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {render} from '/page/vendor/lit.js';
 import {encodeMp3} from '../lib/mp3.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
@@ -1644,7 +1644,7 @@ class MusicStudio extends HTMLElement {
     if (this.scoreSynth) { this.stopScore(); return; }
     button.disabled = true;
     try {
-      const abcjs = await import('https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm');
+      const abcjs = await import('/page/vendor/abcjs.js');
       const module = abcjs.default || abcjs;
       // The tune comes from the sheet on the page, so the notes it lights are the ones a
       // person sees.

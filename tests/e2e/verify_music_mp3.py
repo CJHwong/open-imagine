@@ -94,7 +94,7 @@ def main():
 
         offline = browser.new_context()
         offline_page = offline.new_page()
-        offline_page.route("**/lamejs@1.2.1/**", lambda route: route.abort())
+        offline_page.route("**/vendor/lame.min.js", lambda route: route.abort())
         offline_page.goto(base + "/?workspace=music")
         offline_page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
         add_song(offline_page, blob)

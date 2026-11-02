@@ -6,7 +6,7 @@
 // throws `MPEGMode is not defined`, so the UMD file is loaded as a script and
 // read from the global. If the network is down the page keeps the WAV; the
 // caller decides what to do with the failure.
-const LAME = 'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js';
+const LAME = '/page/vendor/lame.min.js';
 const RATE = 48000;
 const BITRATE = 192;
 

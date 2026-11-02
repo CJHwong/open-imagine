@@ -19,8 +19,8 @@
 // `showToast` off the global scope. The page keeps that one name and forwards
 // it here, on the door below. This door closes when the inline script is gone.
 
-import { LitElement, html, nothing } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
-import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
+import { LitElement, html, nothing } from '/page/vendor/lit.js';
+import { repeat } from '/page/vendor/lit.js';
 import { t } from '../lib/i18n.js';
 
 // How long a message that is not a failure stays. A failure waits for a person.

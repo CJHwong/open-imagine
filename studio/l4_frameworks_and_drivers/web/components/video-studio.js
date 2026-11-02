@@ -1,4 +1,4 @@
-import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html, nothing, render as renderTemplate } from '/page/vendor/lit.js';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';

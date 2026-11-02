@@ -196,7 +196,7 @@ def main():
         fallback = browser.new_page(viewport={"width": 1280, "height": 900})
         fallback_errors = []
         fallback.on("pageerror", lambda error: fallback_errors.append(str(error)))
-        fallback.route("**/abcjs@*/**", lambda route: route.abort())
+        fallback.route("**/vendor/abcjs.js", lambda route: route.abort())
         fallback.route("**/operations/*/metadata", metadata)
         fallback.goto(base + "/?workspace=music")
         fallback.locator("#music-style").fill("Piano")
@@ -212,7 +212,7 @@ def main():
         browser.close()
     print(
         "PASS Music layout: edit entry, live two-voice sheet, scrolling, focus, details source and "
-        "download, mobile dialog and CDN fallback."
+        "download, mobile dialog and engraver fallback."
     )
 
 

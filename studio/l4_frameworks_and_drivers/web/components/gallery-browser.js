@@ -1,4 +1,4 @@
-import {LitElement, html, svg, nothing} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {LitElement, html, svg, nothing} from '/page/vendor/lit.js';
 import './video-gallery-preview.js';
 import './gallery-media.js';
 import './gallery-window.js';

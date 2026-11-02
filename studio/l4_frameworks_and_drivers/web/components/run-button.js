@@ -15,7 +15,7 @@
 // by the page, because `stopping` is a class on the body and not a store field.
 // The verb arrives from the store's `mode`.
 
-import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html } from '/page/vendor/lit.js';
 import { get, subscribe } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
 
