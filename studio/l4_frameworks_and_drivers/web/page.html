@@ -1183,6 +1183,12 @@
     document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
     videoStudio.needsClip = mode.needs_clip;
     videoStudio.maxReferences = mode.max_references;
+    // An effect can pin its look image to one frame. The rail holds every picture there and
+    // refuses a drag while the mode is on. The method is asked for, because this runs at
+    // startup before the element has upgraded.
+    if (typeof videoStudio.lockReferenceFrame === 'function') {
+      videoStudio.lockReferenceFrame(mode.reference_frame_index ?? null);
+    }
     // The slot draws the edit's target, so a mode change redraws it: a generated clip that the
     // run left selected belongs in the slot, not only in the gallery. This runs at startup
     // too, before `video-studio.js` has upgraded the element, so the method is asked for
@@ -2600,6 +2606,7 @@
   function videoDraft() {
     return {mode: videoMode, prompt: document.getElementById('video-prompt').value,
       fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
+      includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
       seed: document.getElementById('video-seed').value, frames: document.getElementById('video-duration').value,
       ratio: videoShapeInFront(), rung: videoResolutionRung, adapter: videoAdapter, adapterSeed: videoAdapterSeed,
       look: formApi.videoLook(), loras: videoLoraDoor ? videoLoraDoor.picks('video') : [],
@@ -2625,6 +2632,8 @@
     document.getElementById('video-prompt').value = snapshot.prompt;
     document.getElementById('video-seed').value = snapshot.seed;
     document.getElementById('video-fast-mode').setAttribute('aria-pressed', String(Boolean(videoCapabilities()?.fast_mode && snapshot.fastMode)));
+    // A draft saved before the Sound row existed keeps the model's own audio.
+    document.getElementById('video-audio-track').setAttribute('aria-pressed', String(snapshot.includeAudio ?? true));
     document.getElementById('video-duration').value = snapshot.frames;
     document.querySelectorAll('.video-ratios button').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.ratio === snapshot.ratio));

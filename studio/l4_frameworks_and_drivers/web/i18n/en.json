@@ -1253,18 +1253,25 @@
   "video.reference.add": "Add reference",
   "video.reference.addFrame": "Add this frame as a reference",
   "video.reference.addTitle": "Add this frame as an image reference",
+  "video.reference.caption": "{name} at {time} s, frame {frame}",
   "video.reference.count": {
     "one": "{count} image",
     "other": "{count} images"
   },
   "video.reference.duplicate": "That frame is already a reference.",
+  "video.reference.hint": "Drag a picture to set its frame. Drop a picture on the rail to add it there.",
+  "video.reference.locked": "This effect pins its picture to the first frame.",
   "video.reference.max": {
     "one": "This video model accepts at most {count} image reference.",
     "other": "This video model accepts at most {count} image references."
   },
+  "video.reference.noRoom": "No free frame is left for another picture.",
   "video.reference.none": "This mode takes no image references.",
+  "video.reference.rail": "Keyframe positions",
   "video.reference.remove": "Remove video reference {name}",
-  "video.reference.select": "Select reference {name}",
+  "video.reference.seconds": "{time} s",
+  "video.reference.selectAt": "Select reference {name} at {time} s",
+  "video.reference.taken": "Frame {frame} ({time} s) already holds a picture.",
   "video.sheet.prompt": "Prompt",
   "video.sheet.title": "The whole prompt",
   "video.source.count": {

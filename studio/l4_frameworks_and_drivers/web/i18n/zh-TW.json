@@ -1234,16 +1234,23 @@
   "video.reference.add": "加入參考",
   "video.reference.addFrame": "把這個影格加為參考",
   "video.reference.addTitle": "把這個影格加為參考圖片",
+  "video.reference.caption": "{name}，{time} 秒，第 {frame} 格",
   "video.reference.count": {
     "other": "{count} 張圖片"
   },
   "video.reference.duplicate": "這個影格已經是參考。",
+  "video.reference.hint": "拖曳圖片設定影格。把圖片拖到時間軸上，就會加在該影格。",
+  "video.reference.locked": "這個效果會把圖片固定在第 0 格。",
   "video.reference.max": {
     "other": "這個影片模型最多接受 {count} 張參考圖片。"
   },
+  "video.reference.noRoom": "沒有空的影格可以放圖片。",
   "video.reference.none": "這個模式不接受參考圖片。",
+  "video.reference.rail": "關鍵影格位置",
   "video.reference.remove": "移除影片參考 {name}",
-  "video.reference.select": "選取參考 {name}",
+  "video.reference.seconds": "{time} 秒",
+  "video.reference.selectAt": "選取參考 {name}，{time} 秒",
+  "video.reference.taken": "第 {frame} 格（{time} 秒）已經有圖片。",
   "video.sheet.prompt": "提示詞",
   "video.sheet.title": "完整提示詞",
   "video.source.count": {
