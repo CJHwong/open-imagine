@@ -1306,7 +1306,7 @@ class MusicStudio extends HTMLElement {
     const ready = !this.recording && !this.recordingPending
       && (transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference));
     this.controls.disabled = this.busy || this.hidden;
-    this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
+    this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true'; });
     this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
     // A control that cannot act is off and says why, rather than taking the press
     // and returning in silence.
@@ -2337,11 +2337,11 @@ class MusicStudio extends HTMLElement {
         downloads.prepend(abc);
       }
       const send = menuItem('music', t('music.menu.send_video'), () => {
-        if (this.busy || song.stub || !hasAudio) return;
+        if (this.busy || song.stub) return;
         this.options.onSendToVideo({blob: song.blob, name: `music-${song.seed}.wav`}).catch(error => this.options.notify('error', error.message));
       });
-      send.dataset.musicSend = ''; send.dataset.stub = String(song.stub); send.dataset.scoreOnly = String(!hasAudio);
-      send.disabled = this.busy || song.stub || !hasAudio;
+      send.dataset.musicSend = ''; send.dataset.stub = String(song.stub);
+      send.disabled = this.busy || song.stub;
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger'; remove.setAttribute('aria-label', t('music.common.delete')); remove.title = t('music.delete.title');
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>';
       remove.addEventListener('click', () => this.removeSong(song.id));
@@ -2376,8 +2376,9 @@ class MusicStudio extends HTMLElement {
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more')); toggle.title = t('music.actions.more');
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', t('music.actions.menu_label'));
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
+      // A score has no recording, so it never offers Send to Video.
       menu.append(...(song.score ? [useScore] : []), ...(song.sourceId ? [useOriginal] : []),
-        ...(hasAudio ? [useReference] : []), send);
+        ...(hasAudio ? [useReference, send] : []));
       const reuse = menuItem('text', t('music.menu.reuse'), () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
