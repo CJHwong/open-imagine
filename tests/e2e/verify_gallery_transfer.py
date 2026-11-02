@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import wave
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -120,17 +121,24 @@ def main():
             page.get_by_role("button", name="Export", exact=True).click()
         saved = download.value
         assert saved.suggested_filename.startswith("studio-gallery-"), saved.suggested_filename
-        # Version 2 is line-delimited JSON: a header, then one item per line, so a
-        # large shelf never becomes one string the browser refuses to allocate.
-        lines = [line for line in gzip.decompress(saved.path().read_bytes()).decode().splitlines() if line.strip()]
-        header = json.loads(lines[0])
-        assert header["format"] == "studio-gallery" and header["version"] == 2, header
-        bundle_items = [json.loads(line) for line in lines[1:]]
-        workspaces = sorted(item["workspace"] for item in bundle_items)
-        assert workspaces == ["image", "music", "video", "voice"], workspaces
-        roles = {item["workspace"]: sorted(entry["role"] for entry in item["media"]) for item in bundle_items}
-        assert roles == {"image": ["png"], "video": ["mp4"], "music": ["audio"], "voice": ["audio"]}, roles
-        print("PASS gallery export: one gzipped bundle with four workspaces and their media.", flush=True)
+        assert saved.suggested_filename.endswith(".zip"), saved.suggested_filename
+        # Version 3 is a ZIP: gallery.json holds the records, media/ holds the raw
+        # files. Nothing is base64, and each file opens on its own.
+        with zipfile.ZipFile(saved.path()) as archive:
+            manifest = json.loads(archive.read("gallery.json"))
+            assert manifest["format"] == "studio-gallery" and manifest["version"] == 3, manifest
+            bundle_items = manifest["items"]
+            workspaces = sorted(item["workspace"] for item in bundle_items)
+            assert workspaces == ["image", "music", "video", "voice"], workspaces
+            roles = {item["workspace"]: sorted(entry["role"] for entry in item["media"]) for item in bundle_items}
+            assert roles == {"image": ["png"], "video": ["mp4"], "music": ["audio"], "voice": ["audio"]}, roles
+            for item in bundle_items:
+                for entry in item["media"]:
+                    assert entry["file"].startswith("media/"), entry
+                    body = archive.read(entry["file"])
+                    assert body and len(body) == entry["size"], (entry, len(body))
+            assert archive.testzip() is None
+        print("PASS gallery export: one ZIP with a manifest and four workspaces of raw media.", flush=True)
 
         # A checked item narrows the file to that shelf and those ids, so a large
         # gallery does not have to leave in one piece.
@@ -140,12 +148,11 @@ def main():
         expect(gallery.get_by_role("button", name="Export 1 selected", exact=True)).to_be_visible()
         with page.expect_download(timeout=60000) as chosen:
             gallery.get_by_role("button", name="Export 1 selected", exact=True).click()
-        picked = [
-            json.loads(line)
-            for line in gzip.decompress(chosen.value.path().read_bytes()).decode().splitlines()
-            if line.strip()
-        ][1:]
+        with zipfile.ZipFile(chosen.value.path()) as archive:
+            picked = json.loads(archive.read("gallery.json"))["items"]
+            picked_media = archive.read(picked[0]["media"][0]["file"])
         assert [(item["workspace"], item["id"]) for item in picked] == [("image", 101)], picked
+        assert picked_media, "the selected item carries its picture"
         print("PASS export takes the checked items, and only theirs.", flush=True)
         gallery.get_by_role("button", name="Done", exact=True).click()
 
@@ -225,6 +232,32 @@ def main():
         expect(reader.locator("#toasts")).to_contain_text("Imported 1 items")
         reader.wait_for_function("gallery.length === 1")
         print("PASS a version 1 bundle still imports.", flush=True)
+
+        # Version 2 wrote line-delimited JSON. It must still land as well.
+        version2 = Path(tempfile.mkdtemp()) / "legacy-v2.json.gz"
+        item = {
+            "workspace": "image",
+            "id": 902,
+            "at": 0,
+            "record": {"id": 902, "number": 2, "at": 0},
+            "media": [{"role": "png", "mime": "image/png", "data": base64.b64encode(png_bytes()).decode()}],
+        }
+        version2.write_bytes(
+            gzip.compress(
+                (
+                    json.dumps({"format": "studio-gallery", "version": 2, "exportedAt": 0})
+                    + "\n"
+                    + json.dumps(item)
+                    + "\n"
+                ).encode()
+            )
+        )
+        reader.click("#theme-toggle")
+        with reader.expect_file_chooser() as chooser:
+            reader.get_by_role("menuitem", name="Import", exact=True).click()
+        chooser.value.set_files(version2)
+        reader.wait_for_function("gallery.length === 2")
+        print("PASS a version 2 bundle still imports.", flush=True)
         assert errors == [], errors
         older.close()
         fresh.close()
