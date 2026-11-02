@@ -1267,9 +1267,14 @@
   .music-songs { width: min(1020px, 100%); min-width: 0; }
   .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr); gap: 24px 32px; min-width: 0; animation: arrive .3s ease-out; }
   .music-song[hidden] { display: none; }
-  .music-track-body { min-width: 0; align-self: stretch; display: flex; flex-direction: column; }
+  .music-track-body { min-width: 0; align-self: stretch; display: flex; flex-direction: column;
+    justify-content: center; }
   /* Long text scrolls inside the cover height instead of moving the transport. */
-  .music-track-text { flex: 1 1 0; min-height: 0; contain: size; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  /* The words, the title and the transport read as one block against the square
+     artwork, so the block centers in the column instead of pinning the player
+     to the bottom and leaving a gap above it. */
+  .music-track-text { flex: 0 1 auto; min-height: 0; max-height: 220px; overflow: auto;
+    overscroll-behavior: contain; scrollbar-gutter: stable; }
   .music-track-text:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
   .music-track-facts { margin: 0 0 20px; color: var(--text-3); font: 11px/1.6 var(--mono); overflow-wrap: anywhere; }
   .music-song-title .music-title-button { font: inherit; letter-spacing: inherit; text-align: left; color: inherit; padding: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -1290,7 +1295,7 @@
   .music-song.is-playing .music-tonearm, .music-generation .music-tonearm { transform: rotate(35deg); }
   .music-song.is-playing .music-power, .music-generation .music-power { background: #ffd478; box-shadow: 0 0 7px #ffd47880; }
   .music-song audio[hidden] { display: none; }
-  .music-player { width: 100%; max-width: 520px; margin: auto auto 0; padding-top: 12px; order: 1; }
+  .music-player { width: 100%; max-width: 520px; margin: 14px 0 0; padding-top: 12px; order: 1; }
   .music-timeline input[type="range"] { display: block; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; appearance: none; cursor: pointer; background: transparent; }
   .music-timeline input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
   .music-timeline input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
@@ -1299,7 +1304,12 @@
   .music-timeline input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
   .music-timeline input[type="range"]:disabled { opacity: .4; cursor: default; }
   .music-times { display: flex; justify-content: space-between; color: var(--text-2); font-size: 11px; }
-  .music-transport { display: flex; align-items: center; justify-content: center; gap: 28px; margin: 14px 0 0; }
+  .music-transport { position: relative; display: flex; align-items: center; justify-content: center;
+    gap: 28px; margin: 14px 0 0; }
+  /* The words switch rides at the right edge. In the row it would push the three
+     playback buttons off center, and the play button is the one thing that must
+     sit on the axis. */
+  .music-transport .music-lyrics-toggle { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
   .music-transport .icon { width: 22px; height: 22px; fill: currentColor; stroke: none; }
   .music-transport .music-play { width: 52px; height: 52px; border-radius: 50%; color: var(--chrome); background: var(--text); }
   .music-transport .music-play .icon { width: 28px; height: 28px; }
@@ -1479,10 +1489,18 @@
     .music-preview-pane { padding: 12px 18px; }
     .music-song { gap: 8px; }
     /* The preview owns the whole pane on a phone, so the album takes the room it has. */
-    .music-artwork { width: clamp(96px, min(64vw, calc(100svh - 560px)), 280px); }
+    .music-artwork { width: clamp(96px, min(46vw, calc(100svh - 660px)), 220px); }
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
-    .music-track-text { height: clamp(64px, calc(100svh - 760px), 104px); }
+    .music-track-text { height: clamp(120px, calc(100svh - 700px), 220px); }
+    /* The small view has no room for the style paragraph. It sits in the form and in
+       the details sheet; the preview keeps the lyrics, which is what is read there. */
+    .music-track-text[data-mode="style"] { display: none; }
+    /* The small view opens on the lyrics and has no second text to switch to, so the
+       switch would only hide what it names. The details bar still opens the sheet. */
+    .music-transport .music-lyrics-toggle { display: none; }
+    .music-output-details .about .prompt-line { display: -webkit-box; -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical; overflow: hidden; }
     .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
     .music-stub-note { margin-bottom: 8px; }
     .music-player { margin-top: 6px; }
@@ -1582,7 +1600,6 @@
 
   @media (max-width: 900px) { .music-output-details { flex-wrap: wrap; } .music-output-details .actions { max-width: none; } }
 
-  .music-transport { position: relative; }
   .music-lyrics-section { margin: 32px 0 16px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); }
   .music-lyrics-section:first-child { margin-top: 0; }
   .music-lyrics-line { margin: 0 0 12px; font: 500 15px/1.6 var(--sans); letter-spacing: normal; overflow-wrap: anywhere; }

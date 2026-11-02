@@ -2062,7 +2062,7 @@ class MusicStudio extends HTMLElement {
     }
     return links;
   }
-  renderPlayer(audio, song) {
+  renderPlayer(audio, song, showingLyrics = false) {
     const player = document.createElement('div'); player.className = 'music-player';
     const timeline = document.createElement('div'); timeline.className = 'music-timeline';
     const seek = document.createElement('input'); seek.type = 'range'; seek.min = '0'; seek.max = '0'; seek.step = '0.1'; seek.value = '0';
@@ -2083,13 +2083,18 @@ class MusicStudio extends HTMLElement {
     const forward = control(t('music.player.forward'), '<path d="M18 7a8 8 0 1 0 1 10M18 3v5h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="sans-serif">5</text>');
     transport.append(back, toggle, forward);
     const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
-    const lyricsShown = hasLyrics && this.lyricsShown?.has(song.id);
+    const lyricsShown = hasLyrics && showingLyrics;
     const lyrics = document.createElement('button'); lyrics.type = 'button'; lyrics.className = 'icon-btn music-lyrics-toggle';
     lyrics.setAttribute('aria-label', t('music.field.lyrics')); lyrics.dataset.musicTextMode = 'lyrics'; lyrics.disabled = !hasLyrics;
     lyrics.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>';
     lyrics.setAttribute('aria-pressed', String(Boolean(lyricsShown))); lyrics.setAttribute('aria-controls', 'music-text-' + song.id);
     lyrics.title = lyricsShown ? t('music.text.show_style') : t('music.text.show_lyrics');
-    lyrics.addEventListener('click', () => this.setTextView(song.id, this.lyricsShown?.has(song.id) ? 'style' : 'lyrics'));
+    // The mode lives in the region, not only in this set: the small view opens on the
+    // lyrics without recording a choice, and the first press must still flip them.
+    lyrics.addEventListener('click', () => {
+      const region = this.querySelector('.music-song[data-song-id="' + CSS.escape(song.id) + '"] .music-track-text');
+      this.setTextView(song.id, region?.dataset.mode === 'lyrics' ? 'style' : 'lyrics');
+    });
     transport.append(lyrics);
     const error = document.createElement('p'); error.className = 'music-error music-player-error'; error.setAttribute('role', 'status'); error.hidden = true;
     const clock = value => { const seconds = Math.floor(Math.max(0, value)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
@@ -2306,8 +2311,14 @@ class MusicStudio extends HTMLElement {
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
-      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : this.sheetFor(song));
-      if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song), audio);
+      // The small view has no room for two texts, and the lyrics are what a person
+      // reads there. It opens on them when the song has them; the switch can still
+      // bring the style back, or take it away.
+      const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
+      const showingLyrics = Boolean(this.lyricsShown?.has(song.id)
+        || (hasLyrics && matchMedia('(max-width: 760px)').matches));
+      body.append(hasAudio ? renderSongText(song, showingLyrics) : this.sheetFor(song));
+      if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
       const thumb = document.createElement('button'); thumb.type = 'button'; thumb.className = 'frame music-thumb'; thumb.dataset.songId = song.id;

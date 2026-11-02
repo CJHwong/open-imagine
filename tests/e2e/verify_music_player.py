@@ -122,7 +122,12 @@ def main():
             assert page.locator("#music-studio").evaluate("node=>node.scrollWidth<=node.clientWidth")
             assert current.evaluate("""card=>{
               const pane=card.closest('.music-preview-pane').getBoundingClientRect();
-              return ['.music-song-title','.music-track-text','.music-timeline','.music-transport'].every(selector=>{
+              // A phone hides the style block when the song has no lyrics, so the
+              // text joins the check only when it is on screen.
+              const selectors=['.music-song-title','.music-timeline','.music-transport'];
+              const text=card.querySelector('.music-track-text');
+              if (text && text.getClientRects().length) selectors.push('.music-track-text');
+              return selectors.every(selector=>{
                 const rect=card.querySelector(selector).getBoundingClientRect();
                 return rect.top>=pane.top && rect.bottom<=Math.min(pane.bottom,innerHeight) && rect.left>=pane.left && rect.right<=pane.right;
               });
