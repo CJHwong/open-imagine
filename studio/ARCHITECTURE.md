@@ -209,12 +209,14 @@ The guide retains the existing toggle, sheet, keyboard and focus contracts and l
 The gallery browser has one card element, `web/components/gallery-card.js`, in all four
 workspaces; the owner still draws the thumbnail, because a still, a waveform, a cover and a
 staff are different pictures. The page also carries a gallery file: `web/lib/gallery-bundle.js`
-writes every stored item and its media as line-delimited JSON, one header line and one item per
-line, gzipped. The writer and the reader work line by line, because a browser caps one string
-near a few hundred megabytes and a large shelf would otherwise fail with an allocation error.
-Version 1 bundles, one JSON object, still load. The transfer control is in the browser and in
-the Media menu, because an import usually starts with no images. Export takes the checked
-items, from their own shelf, when there are any; with none it writes the whole gallery. Image and Video import through
+writes every stored item and its media as a ZIP. `gallery.json` holds the records and `media/`
+holds each file as it was stored. Each entry is a header plus the media Blob itself, with a CRC
+per file, so no media passes through a JavaScript string and nothing is compressed twice. A
+browser caps one string near a few hundred megabytes, and the older base64 JSON failed there.
+Version 1 (one JSON object) and version 2 (line-delimited JSON) bundles still load. The transfer
+control is in the browser and in the Media menu, because an import usually starts with no images.
+Export takes the checked items, from their own shelf, when there are any; with none it writes the
+whole gallery. Image and Video import through
 `web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
 its own tombstones and cutoff.
 

@@ -3131,7 +3131,7 @@
   function importGalleryFile() {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.gz,.json,application/gzip,application/json';
+    input.accept = '.zip,.gz,.json,application/zip,application/gzip,application/json';
     input.onchange = async function () {
       const file = input.files?.[0];
       if (!file) return;

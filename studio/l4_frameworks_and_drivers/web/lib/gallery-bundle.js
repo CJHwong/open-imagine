@@ -1,76 +1,77 @@
-// The gallery leaves and returns as one file. The bundle holds every workspace's
-// records and their media, so a second browser gets the same shelf.
+// The gallery leaves and returns as one ZIP. gallery.json holds the records;
+// media/ holds each picture, clip and track as its own file. Nothing is base64
+// and nothing is gzipped a second time, so the file opens in Finder and the media
+// is usable without Studio.
 //
-// Version 2 is line-delimited JSON: one header line, then one line per item. A
-// browser caps the length of one JavaScript string (WebKit and Firefox raise
-// "allocation size overflow" near 256 MB), so the writer never builds the file as
-// one string. It pushes small parts into a Blob and lets the gzip stream read them.
-// The reader parses one line at a time for the same reason. Version 1 files still
-// load: they are one JSON object, and one line is all they have.
+// The archive is written with stored entries (method 0): PNG, MP4 and WAV are
+// already compressed. Each entry is a header plus the media Blob itself, so the
+// writer never copies a file through a string. A JavaScript string caps near a few
+// hundred megabytes in WebKit and Firefox; the old base64 JSON hit that cap.
+//
+// Older files still load: version 1 is one JSON object, version 2 is line-delimited
+// JSON. Both are gzipped.
+import {t} from './i18n.js';
+
 const FORMAT = 'studio-gallery';
-const VERSION = 2;
-// Base64 takes 3 bytes to 4 characters, so a chunk that is a multiple of 3 keeps
-// every chunk decodable on its own.
-const CHUNK = 3 * 1024 * 1024;
-const GZIP_PART = 4 * 1024 * 1024;
+const VERSION = 3;
+const LIMIT = 0xffffffff;
 
 export async function encodeBundle(items, at = Date.now()) {
-  const parts = [JSON.stringify({format: FORMAT, version: VERSION, exportedAt: at}) + '\n'];
+  const manifest = {format: FORMAT, version: VERSION, exportedAt: at, items: []};
+  const files = [];
+  const used = new Set();
   for (const item of items) {
-    const media = (item.media || []).filter(entry => entry.blob instanceof Blob);
-    parts.push(JSON.stringify({workspace: item.workspace, id: item.id, at: item.at,
-      record: item.record}).slice(0, -1) + ',"media":[');
-    for (let index = 0; index < media.length; index += 1) {
-      const entry = media[index];
-      if (index) parts.push(',');
-      parts.push(JSON.stringify({role: entry.role, mime: entry.blob.type || entry.mime || ''}).slice(0, -1)
-        + ',"data":"');
-      for (let offset = 0; offset < entry.blob.size; offset += CHUNK) {
-        const bytes = new Uint8Array(await entry.blob.slice(offset, offset + CHUNK).arrayBuffer());
-        parts.push(base64(bytes));
-      }
-      parts.push('"}');
+    const media = [];
+    for (const entry of item.media || []) {
+      if (!(entry.blob instanceof Blob)) continue;
+      const name = freeName(used, mediaName(item, entry));
+      files.push({name, blob: entry.blob});
+      media.push({role: entry.role, mime: entry.blob.type || entry.mime || '',
+        file: name, size: entry.blob.size});
     }
-    parts.push(']}\n');
+    manifest.items.push({workspace: item.workspace, id: item.id, at: item.at,
+      record: item.record, media});
   }
-  return gzip(new Blob(parts));
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+  const manifestCrc = crc32(manifestBytes);
+  const manifestHeader = localHeader('gallery.json', manifestCrc, manifestBytes.length, at);
+  central.push(centralHeader('gallery.json', manifestCrc, manifestBytes.length, offset, at));
+  parts.push(manifestHeader, manifestBytes);
+  offset += manifestHeader.length + manifestBytes.length;
+  for (const file of files) {
+    const crc = await crc32Blob(file.blob);
+    const header = localHeader(file.name, crc, file.blob.size, at);
+    central.push(centralHeader(file.name, crc, file.blob.size, offset, at));
+    parts.push(header, file.blob);
+    offset += header.length + file.blob.size;
+    if (offset > LIMIT) throw new Error(t('gallery.error.tooLarge'));
+  }
+  const directory = concat(central);
+  const end = endRecord(central.length, directory.length, offset);
+  if (offset + directory.length + end.length > LIMIT) throw new Error(t('gallery.error.tooLarge'));
+  parts.push(directory, end);
+  return new Blob(parts, {type: 'application/zip'});
 }
 
 export async function decodeBundle(file) {
-  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+  if (head[0] === 0x50 && head[1] === 0x4b) return decodeZip(file);
   const plain = head[0] === 0x7b;  // `{`: a bundle that is not gzipped
   if (!plain && (head[0] !== 0x1f || head[1] !== 0x8b)) {
-    throw new Error('This file is not a Studio gallery bundle.');
+    throw fail('gallery.error.notBundle');
   }
   const stream = plain ? file.stream() : file.stream().pipeThrough(new DecompressionStream('gzip'));
-  let header = null;
-  const items = [];
-  try {
-    await eachLine(stream, line => {
-      const parsed = JSON.parse(line);
-      if (header) { items.push(restore(parsed)); return; }
-      if (parsed.format !== FORMAT) throw new Error('This file is not a Studio gallery bundle.');
-      // Version 2 writes a header line, then one item per line. Version 1 wrote the
-      // whole file as one object, so its only line is the bundle itself.
-      if (parsed.version === 1) {
-        header = parsed;
-        for (const item of parsed.items || []) if (item && Array.isArray(item.media)) items.push(restore(item));
-      } else if (parsed.version === VERSION) header = parsed;
-      else throw new Error('This bundle was made by a newer Studio. Update the page first.');
-    });
-  } catch (error) {
-    if (error.message.startsWith('This bundle') || error.message.startsWith('This file')) throw error;
-    throw new Error('This file is not a Studio gallery bundle.');
-  }
-  if (!header) throw new Error('This file is not a Studio gallery bundle.');
-  return items.filter(item => typeof item.id !== 'undefined');
+  return decodeLines(stream);
 }
 
 export function bundleName(at = Date.now()) {
   const when = new Date(at);
   const two = value => String(value).padStart(2, '0');
   return 'studio-gallery-' + when.getFullYear() + two(when.getMonth() + 1) + two(when.getDate())
-    + '-' + two(when.getHours()) + two(when.getMinutes()) + two(when.getSeconds()) + '.json.gz';
+    + '-' + two(when.getHours()) + two(when.getMinutes()) + two(when.getSeconds()) + '.zip';
 }
 
 export function saveBundle(blob, name) {
@@ -80,10 +81,210 @@ export function saveBundle(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// A line can be empty at the end of the file, and a file that gzip cut short should
-// fail as a bad bundle, not as a JSON parser error with no home. Pieces wait in an
-// array and join once per line: growing one string chunk by chunk, then searching
-// it again, copies the whole line on every read and turns a big item quadratic.
+// A failed read is a bundle error, not a parser error, and the toast should show
+// the translated sentence rather than a JSON parser's English.
+function fail(key) {
+  const error = new Error(t(key));
+  error.bundle = true;
+  return error;
+}
+
+// ---- the archive ----
+
+function mediaName(item, entry) {
+  const safe = String(item.id).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 96) || 'item';
+  const role = String(entry.role || 'media').replace(/[^A-Za-z0-9._-]+/g, '_');
+  return `media/${item.workspace}-${safe}-${role}.${extension(entry.blob.type || entry.mime)}`;
+}
+
+function extension(mime) {
+  const known = {'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+    'video/mp4': 'mp4', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3'};
+  return known[String(mime || '').toLowerCase()] || 'bin';
+}
+
+function freeName(used, name) {
+  if (!used.has(name)) { used.add(name); return name; }
+  const dot = name.lastIndexOf('.');
+  const base = dot < 0 ? name : name.slice(0, dot);
+  const tail = dot < 0 ? '' : name.slice(dot);
+  let index = 2;
+  while (used.has(`${base}-${index}${tail}`)) index += 1;
+  used.add(`${base}-${index}${tail}`);
+  return `${base}-${index}${tail}`;
+}
+
+function dosTime(at) {
+  const when = new Date(at);
+  return {
+    time: (when.getHours() << 11) | (when.getMinutes() << 5) | (when.getSeconds() >> 1),
+    date: ((when.getFullYear() - 1980) << 9) | ((when.getMonth() + 1) << 5) | when.getDate(),
+  };
+}
+
+function localHeader(name, crc, size, at) {
+  const nameBytes = new TextEncoder().encode(name);
+  const bytes = new Uint8Array(30 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  const stamp = dosTime(at);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 0x0800, true);  // names are UTF-8
+  view.setUint16(8, 0, true);       // stored, not deflated
+  view.setUint16(10, stamp.time, true);
+  view.setUint16(12, stamp.date, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, size, true);
+  view.setUint32(22, size, true);
+  view.setUint16(26, nameBytes.length, true);
+  view.setUint16(28, 0, true);
+  bytes.set(nameBytes, 30);
+  return bytes;
+}
+
+function centralHeader(name, crc, size, offset, at) {
+  const nameBytes = new TextEncoder().encode(name);
+  const bytes = new Uint8Array(46 + nameBytes.length);
+  const view = new DataView(bytes.buffer);
+  const stamp = dosTime(at);
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint16(8, 0x0800, true);
+  view.setUint16(10, 0, true);
+  view.setUint16(12, stamp.time, true);
+  view.setUint16(14, stamp.date, true);
+  view.setUint32(16, crc, true);
+  view.setUint32(20, size, true);
+  view.setUint32(24, size, true);
+  view.setUint16(28, nameBytes.length, true);
+  view.setUint16(30, 0, true);
+  view.setUint16(32, 0, true);
+  view.setUint16(34, 0, true);
+  view.setUint16(36, 0, true);
+  view.setUint32(38, 0, true);
+  view.setUint32(42, offset, true);
+  bytes.set(nameBytes, 46);
+  return bytes;
+}
+
+function endRecord(count, size, offset) {
+  const bytes = new Uint8Array(22);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, count, true);
+  view.setUint16(10, count, true);
+  view.setUint32(12, size, true);
+  view.setUint32(16, offset, true);
+  return bytes;
+}
+
+function concat(parts) {
+  const size = parts.reduce((total, part) => total + part.length, 0);
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { bytes.set(part, at); at += part.length; }
+  return bytes;
+}
+
+// ---- reading ----
+
+async function decodeZip(file) {
+  const entries = await readDirectory(file);
+  const manifestEntry = entries.get('gallery.json');
+  if (!manifestEntry) throw fail('gallery.error.notBundle');
+  let manifest;
+  try { manifest = JSON.parse(await (await entryBlob(file, manifestEntry)).text()); }
+  catch (error) { throw fail('gallery.error.notBundle'); }
+  if (manifest.format !== FORMAT) throw fail('gallery.error.notBundle');
+  if (manifest.version !== VERSION) throw fail('gallery.error.newer');
+  const items = [];
+  for (const item of manifest.items || []) {
+    const media = [];
+    let complete = true;
+    for (const ref of item.media || []) {
+      const entry = entries.get(ref.file);
+      // A file the archive names but does not hold is corruption. Drop the whole
+      // item, or a restored record would point at a picture it never had.
+      if (!entry) { complete = false; break; }
+      media.push({role: ref.role, mime: ref.mime || '', blob: await entryBlob(file, entry, ref.mime)});
+    }
+    if (complete) items.push({...item, media});
+  }
+  return items.filter(item => typeof item.id !== 'undefined');
+}
+
+async function readDirectory(file) {
+  const tail = new Uint8Array(await file.slice(Math.max(0, file.size - 66560)).arrayBuffer());
+  const view = new DataView(tail.buffer);
+  let end = -1;
+  for (let at = tail.length - 22; at >= 0; at -= 1) {
+    if (view.getUint32(at, true) === 0x06054b50) { end = at; break; }
+  }
+  if (end < 0) throw fail('gallery.error.notBundle');
+  const count = view.getUint16(end + 10, true);
+  const size = view.getUint32(end + 12, true);
+  const offset = view.getUint32(end + 16, true);
+  if (count === 0xffff || size === LIMIT || offset === LIMIT) throw new Error(t('gallery.error.tooLarge'));
+  const directory = new DataView(await file.slice(offset, offset + size).arrayBuffer());
+  const entries = new Map();
+  let at = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (directory.getUint32(at, true) !== 0x02014b50) throw fail('gallery.error.notBundle');
+    const nameLength = directory.getUint16(at + 28, true);
+    const extraLength = directory.getUint16(at + 30, true);
+    const commentLength = directory.getUint16(at + 32, true);
+    const name = new TextDecoder().decode(new Uint8Array(directory.buffer, at + 46, nameLength));
+    entries.set(name, {method: directory.getUint16(at + 10, true),
+      compressed: directory.getUint32(at + 20, true),
+      size: directory.getUint32(at + 24, true),
+      local: directory.getUint32(at + 42, true)});
+    at += 46 + nameLength + extraLength + commentLength;
+  }
+  return entries;
+}
+
+async function entryBlob(file, entry, mime) {
+  const local = new DataView(await file.slice(entry.local, entry.local + 30).arrayBuffer());
+  const start = entry.local + 30 + local.getUint16(26, true) + local.getUint16(28, true);
+  const slice = file.slice(start, start + entry.compressed);
+  if (entry.method === 0) return mime ? new Blob([slice], {type: mime}) : slice;
+  if (entry.method === 8) {
+    const plain = await new Response(slice.stream().pipeThrough(new DecompressionStream('deflate-raw')))
+      .arrayBuffer();
+    return new Blob([plain], {type: mime || 'application/octet-stream'});
+  }
+  throw fail('gallery.error.notBundle');
+}
+
+// ---- version 1 and 2 ----
+
+async function decodeLines(stream) {
+  let header = null;
+  const items = [];
+  try {
+    await eachLine(stream, line => {
+      const parsed = JSON.parse(line);
+      if (header) { items.push(restore(parsed)); return; }
+      if (parsed.format !== FORMAT) throw fail('gallery.error.notBundle');
+      // Version 2 wrote a header line, then one item per line. Version 1 wrote the
+      // whole file as one object, so its only line is the bundle itself.
+      if (parsed.version === 1) {
+        header = parsed;
+        for (const item of parsed.items || []) if (item && Array.isArray(item.media)) items.push(restore(item));
+      } else if (parsed.version === 2) header = parsed;
+      else throw fail('gallery.error.newer');
+    });
+  } catch (error) {
+    if (error.bundle) throw error;
+    throw fail('gallery.error.notBundle');
+  }
+  if (!header) throw fail('gallery.error.notBundle');
+  return items.filter(item => typeof item.id !== 'undefined');
+}
+
+// Pieces wait in an array and join once per line. Growing one string chunk by
+// chunk, then searching it again, copies the whole line on every read.
 async function eachLine(stream, onLine) {
   const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
   let pieces = [];
@@ -106,39 +307,8 @@ async function eachLine(stream, onLine) {
 }
 
 function restore(item) {
-  // The base64 text has done its job once the Blob exists. Drop it, or a large
-  // import keeps every character of the file in memory a second time.
   return {...item, media: (item.media || []).map(entry => ({role: entry.role, mime: entry.mime,
     blob: unbase64(entry.data || '', entry.mime)}))};
-}
-
-async function gzip(blob) {
-  const reader = blob.stream().pipeThrough(new CompressionStream('gzip')).getReader();
-  const parts = [];
-  let pending = [], size = 0;
-  const flush = () => {
-    if (!size) return;
-    const merged = new Uint8Array(size);
-    let at = 0;
-    for (const chunk of pending) { merged.set(chunk, at); at += chunk.length; }
-    parts.push(merged); pending = []; size = 0;
-  };
-  for (;;) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    pending.push(value); size += value.length;
-    if (size >= GZIP_PART) flush();
-  }
-  flush();
-  return new Blob(parts, {type: 'application/gzip'});
-}
-
-function base64(bytes) {
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  }
-  return btoa(binary);
 }
 
 function unbase64(data, mime) {
@@ -146,4 +316,39 @@ function unbase64(data, mime) {
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return new Blob([bytes], {type: mime || 'application/octet-stream'});
+}
+
+// ---- CRC ----
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let step = 0; step < 8; step += 1) {
+      value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (let index = 0; index < bytes.length; index += 1) {
+    crc = CRC_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+async function crc32Blob(blob) {
+  let crc = 0xffffffff;
+  const reader = blob.stream().getReader();
+  for (;;) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    for (let index = 0; index < value.length; index += 1) {
+      crc = CRC_TABLE[(crc ^ value[index]) & 0xff] ^ (crc >>> 8);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }

@@ -30,7 +30,7 @@ class GalleryTransfer extends LitElement {
       <button type="button" class="text-btn" ?disabled=${Boolean(this.action)}
         aria-busy=${String(this.action === 'import')} @click=${() => this.pick()}>
         ${spin('import') || icon('plus')}${t('gallery.import')}</button>
-      <input type="file" accept=".gz,.json,application/gzip,application/json" hidden
+      <input type="file" accept=".zip,.gz,.json,application/zip,application/gzip,application/json" hidden
         @change=${event => this.importFile(event)}>
     </span>`;
   }
