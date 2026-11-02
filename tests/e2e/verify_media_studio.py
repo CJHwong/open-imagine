@@ -1028,6 +1028,24 @@ with sync_playwright() as playwright:
 
     # Generate takes one audio track, and the run follows it. The door offers the kind, the
     # row shows the track, and a second one is refused rather than replacing it silently.
+    # A Generate clip can also leave its audio track out; an Edit has no such choice.
+    page.locator("#video-advanced summary").click()
+    audio_field, audio_pill = page.locator("#video-audio-field"), page.locator("#video-audio-track")
+    audio_pill.click()
+    silent = audio_pill.get_attribute("aria-pressed") == "false" and audio_field.is_visible()
+    carried = page.evaluate(
+        "() => document.getElementById('video-studio').requestPayload({includeAudio: false}).include_audio"
+    )
+    page.evaluate("() => document.querySelector('#video-modes input[value=edit]').click()")
+    hidden_in_edit = audio_field.is_hidden()
+    page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
+    page.locator("#video-audio-track").click()
+    check(
+        "a Generate clip can leave its audio out, and an Edit cannot",
+        silent and carried is False and hidden_in_edit and audio_pill.get_attribute("aria-pressed") == "true",
+        f"silent {silent}, carried {carried}, hidden in edit {hidden_in_edit}",
+    )
+    page.locator("#video-advanced summary").click()
     page.locator("#video-media-upload").set_input_files(str(AUDIO))
     page.wait_for_function("() => document.querySelectorAll('#video-audios .video-audio').length === 1")
     track = page.evaluate(

@@ -221,6 +221,10 @@ def discovery_schemas() -> dict[str, Any]:
                     "type": "boolean",
                     "description": "Supports optional Fast mode; reduced compute precision can change generated details and motion.",
                 },
+                "can_skip_audio": {
+                    "type": "boolean",
+                    "description": "A Generate run can write a silent clip and skip the audio decode and mux.",
+                },
                 "max_audio_megabytes": number,
                 "loras": {"type": "array", "items": {"$ref": "#/components/schemas/Lora"}},
                 "max_loras": {"type": "integer", "description": "How many LoRAs one request can pick."},

@@ -1002,6 +1002,9 @@
   "page.video.fastMode": "快速模式",
   "page.video.fastModeNote": "算圖較快，但生成的細節與動態可能不同。使用較低的運算精度，模型權重不變。速度依尺寸與輸入而異。",
   "page.video.fastModeSummary": " · 快速模式",
+  "page.video.sound": "聲音",
+  "page.video.audioTrack": "音軌",
+  "page.video.audioTrackNote": "關閉後輸出無聲影片，並省下音訊處理。跟隨音軌的影片會保留原音軌。",
   "page.video.frameShape": "畫面比例",
   "page.video.frameShapeControl": "影片畫面比例",
   "page.video.frames": {

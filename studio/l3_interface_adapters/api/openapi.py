@@ -396,6 +396,11 @@ def openapi_document() -> dict[str, Any]:
                             "default": False,
                             "description": "Fast mode: optional LTX-2.5 rendering with float16 transformer computation and unchanged q8 weights. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
                         },
+                        "include_audio": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Write the audio the model generated with the video. False writes a silent MP4 and skips the audio decode and mux, which is faster; the model still generates the audio latents. Generate only, and only when the backend declares can_skip_audio. A run that follows an audio track keeps that track and refuses false.",
+                        },
                         "enhance": {
                             "type": "boolean",
                             "default": True,
@@ -1368,6 +1373,7 @@ def plan_schemas() -> dict[str, Any]:
                 "has_audio": {"type": "boolean"},
                 "enhance": {"type": "boolean", "default": True},
                 "fast_mode": {"type": "boolean", "default": False},
+                "include_audio": {"type": "boolean", "default": True},
                 "loras": LORA_PICKS,
             },
             "additionalProperties": True,

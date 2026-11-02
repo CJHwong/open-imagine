@@ -1013,6 +1013,9 @@
   "page.video.fastMode": "Fast mode",
   "page.video.fastModeNote": "Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.",
   "page.video.fastModeSummary": " · Fast mode",
+  "page.video.sound": "Sound",
+  "page.video.audioTrack": "Audio track",
+  "page.video.audioTrackNote": "Off writes a silent clip and saves the audio pass. A clip that follows a track keeps it.",
   "page.video.frameShape": "Frame shape",
   "page.video.frameShapeControl": "Video frame shape",
   "page.video.frames": {

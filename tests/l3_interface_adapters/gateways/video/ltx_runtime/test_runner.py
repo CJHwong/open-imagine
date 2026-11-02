@@ -68,6 +68,7 @@ def test_a_generate_job_builds_the_distilled_command_with_its_keyframes(tmp_path
     assert command[command.index("--model") + 1] == "pack"
     assert command[command.index("--seed") + 1] == "7"
     assert "--distilled" in command
+    assert "--no-audio" not in command
     assert command[command.index("--stage1-steps") + 1] == "8"
     assert command[command.index("--stage2-steps") + 1] == "3"
     images = [index for index, argument in enumerate(command) if argument == "--image"]
@@ -77,6 +78,16 @@ def test_a_generate_job_builds_the_distilled_command_with_its_keyframes(tmp_path
     assert not Path(command[images[0] + 1]).exists()
     assert result.mp4 == b"mp4 bytes"
     assert (result.width, result.height, result.num_frames, result.frame_rate, result.seed) == (768, 448, 121, 24, 7)
+
+
+def test_a_generate_job_can_leave_its_audio_track_out(tmp_path, monkeypatch):
+    commands = []
+    capture_execute(monkeypatch, commands)
+    runner = make_runner({"cli_path": cli(tmp_path), "ffmpeg_path": "/usr/bin/ffmpeg"}, "pack", False)
+
+    runner.run(VideoJob("a cat", 768, 448, 121, 24, 7, include_audio=False))
+
+    assert "--no-audio" in commands[0]
 
 
 def test_a_model_without_an_enhancer_drops_the_flag_the_job_carries(tmp_path, monkeypatch):

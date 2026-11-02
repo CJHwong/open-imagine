@@ -251,6 +251,10 @@ class MlxVideoRunner:
             command.append("--two-stage")
         else:
             command.append("--distilled")
+        # The audio latents are generated either way; this skips their decode and mux, so
+        # the file is silent and the run saves that work.
+        if not job.include_audio:
+            command.append("--no-audio")
         # Pin the existing schedules so the progress total describes this invocation,
         # even if a later engine release changes its defaults.
         stage1 = 8 if "--distilled" in command else 30

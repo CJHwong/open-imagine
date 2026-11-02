@@ -464,6 +464,10 @@
                 <div class="field-head"><span data-i18n="page.video.rendering">Rendering</span><button type="button" class="pill" id="video-fast-mode" aria-pressed="false" aria-describedby="video-fast-note" data-i18n="page.video.fastMode">Fast mode</button></div>
                 <span class="caption" id="video-fast-note" data-i18n="page.video.fastModeNote">Faster rendering; generated details and motion may differ. Uses reduced compute precision with the same model weights. Speed varies by size and input.</span>
               </div>
+              <div class="field" id="video-audio-field" hidden>
+                <div class="field-head"><span data-i18n="page.video.sound">Sound</span><button type="button" class="pill" id="video-audio-track" aria-pressed="true" aria-describedby="video-audio-note" data-i18n="page.video.audioTrack">Audio track</button></div>
+                <span class="caption" id="video-audio-note" data-i18n="page.video.audioTrackNote">Off writes a silent clip and saves the audio pass. A clip that follows a track keeps it.</span>
+              </div>
               <div class="field">
                 <div class="field-head"><label for="video-seed" data-i18n="page.seed.label">Seed</label></div>
                 <input id="video-seed" type="number" step="1" inputmode="numeric" placeholder="Random"
@@ -1228,6 +1232,7 @@
     // available rows change, even when none of the saved picks changed.
     document.querySelectorAll('#video-look look-rows, #video-look look-values, #video-look look-adds')
       .forEach(element => element.requestUpdate?.());
+    syncVideoAudioTrack();
     syncVideoGenerateButton();
   }
 
@@ -1524,6 +1529,18 @@
     syncVideoLoras();
   }
 
+  // The audio the model generates with the video. A Generate run can leave it out; an
+  // Edit has no choice, and a run that follows a track keeps that track.
+  function syncVideoAudioTrack() {
+    const button = document.getElementById('video-audio-track');
+    const supported = Boolean(videoCapabilities()?.can_skip_audio) && videoModeInForce().id === 'generate';
+    document.getElementById('video-audio-field').hidden = !supported;
+    if (!supported) return;
+    // A run that follows a track keeps it, so the switch is off the table while one is set.
+    button.disabled = Boolean(videoStudio.audio);
+    if (button.disabled) button.setAttribute('aria-pressed', 'true');
+  }
+
   function applyVideoCapabilities() {
     const capabilities = videoCapabilities();
     if (!capabilities) return;
@@ -1534,6 +1551,7 @@
     videoMode = modes.length && named ? videoMode : (modes.length ? modes[0].id : 'generate');
     syncVideoMode();
     syncVideoFastMode();
+    syncVideoAudioTrack();
     const duration = document.getElementById('video-duration');
     duration.min = String(capabilities.min_frames);
     duration.max = String(capabilities.max_frames);
@@ -1665,11 +1683,17 @@
     syncVideoSeedSummary();
     document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
   });
+  document.getElementById('video-audio-track').addEventListener('click', function () {
+    this.setAttribute('aria-pressed', String(this.getAttribute('aria-pressed') !== 'true'));
+    document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
+  });
   document.addEventListener('draft-change', function (event) {
     if (event.detail !== 'video') return;
     syncVideoGenerateButton();
-    // An audio track added or taken off holds or frees the picks.
+    // An audio track added or taken off holds or frees the picks, and decides whether the
+    // output can leave its own track out.
     if (videoLoraDoor) videoLoraDoor.refresh('video');
+    syncVideoAudioTrack();
   });
   document.getElementById('video-prompt').addEventListener('input', function () {
     syncVideoGenerateButton();
@@ -1848,6 +1872,7 @@
         // The picks themselves, so a saved clip says which Look made it.
         look: formApi && formApi.videoLookLabels ? formApi.videoLookLabels().join(', ') : '',
         enhance: true,
+        includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
         width: width,
         height: height,
         numFrames: numFrames,
@@ -1959,6 +1984,7 @@
           backend: STUDIO.video.backend.id,
           enhance: true,
           fastMode: settings.fastMode,
+          includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
           loras: settings.loras,
           requestId: videoRunRequestId,
         }), draft_id: submittedDraftId}),

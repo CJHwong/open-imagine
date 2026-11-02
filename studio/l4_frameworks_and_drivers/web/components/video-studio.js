@@ -819,6 +819,7 @@ class VideoStudio extends LitElement {
       // The backend enhances new prompts and recognizes exact native Rewrite outputs.
       enhance: true,
       fast_mode: Boolean(settings.fastMode),
+      include_audio: (settings.mode || 'generate') !== 'generate' || settings.includeAudio !== false,
       loras: Array.isArray(settings.loras) ? settings.loras : [],
       // A mode that takes no image references sends none, whatever the generate form left
       // behind: references are a generate input, and the clip is the edit's.

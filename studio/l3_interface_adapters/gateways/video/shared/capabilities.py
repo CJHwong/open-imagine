@@ -341,6 +341,8 @@ def _capabilities(
         description=description,
         precision=precision,
         fast_mode=fast_mode,
+        # The MLX CLI can skip the audio decode and the mux on a Generate run.
+        can_skip_audio=True,
         shapes=SHAPES,
         default_shape_ratio="1:1",
         min_frames=9,

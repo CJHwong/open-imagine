@@ -759,6 +759,21 @@ Operation `settings.fast_mode` records an explicitly submitted value. The UI nam
 Fast mode and records it with the result. Watching another client's operation temporarily shows
 its setting while preserving the observer's own setting for the next render.
 
+## Video audio track
+
+A Generate run renders audio with the clip. Send `include_audio: false` to write a silent MP4 and
+skip the audio decode and mux. The model still generates the audio latents, so the picture does not
+change. Check the backend's `can_skip_audio` capability before using it.
+
+```json
+{"kind": "video", "prompt": "A kite over the sea.", "width": 768, "height": 448,
+ "num_frames": 121, "frame_rate": 24, "seed": 7, "include_audio": false}
+```
+
+Default true; it must be a JSON boolean. Generate only: an Edit takes no audio, and a run that
+follows an audio track keeps that track, so the pair is refused. A batch may set it per item.
+The UI names the option Audio track and offers it in Advanced on a Generate run.
+
 ## LoRAs
 
 A model that offers LoRAs lists them in `/api/v1/studio`. For an image model they are on each
