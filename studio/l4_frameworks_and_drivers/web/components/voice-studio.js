@@ -10,6 +10,7 @@ import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {t, plural, label} from '../lib/i18n.js';
 
@@ -1381,19 +1382,21 @@ class VoiceStudio extends LitElement {
               if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
             }}>${t('voice.action.clearAll')}</button></span></div>
       <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
-        ${rendering ? html`<button type="button" class=${'frame pending voice-render-pending' + (this.showingGeneration ? ' selected' : '')}
-          aria-label=${t('voice.gallery.showGenerationAria')} aria-pressed=${String(this.showingGeneration)}
-          @click=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}>
-          <span class="still voice-clip-thumb"><span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span></span>
-          <span class="no">${String(this.takesCount + 1).padStart(2, '0')}</span>${this.showingGeneration ? pencilLoop() : nothing}
-        </button>` : nothing}
+        ${rendering ? html`<gallery-tile extra="voice-render-pending" ?pending=${true}
+          ?selected=${this.showingGeneration} label=${t('voice.gallery.showGenerationAria')}
+          .footer=${() => String(this.takesCount + 1).padStart(2, '0')}
+          .mark=${() => pencilLoop()}
+          .onPick=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
+          .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span>`}></gallery-tile>` : nothing}
         <gallery-window .items=${clips} .selected=${item?.take?.id} .renderItem=${({segment, take}) => html`
-          <button type="button" class=${'frame voice-clip' + (item?.take?.id === take.id && !this.showingGeneration ? ' selected' : '')}
-            data-take-id=${take.id} data-segment-id=${segment.id} aria-pressed=${String(item?.take?.id === take.id && !this.showingGeneration)}
-            aria-label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
-            @click=${() => this.selectTake(segment.id, take.id)}>
-            <span class="still voice-clip-thumb">${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span></span>
-            <span class="no">${String(this.clipNumber(take)).padStart(2, '0')}</span>${item?.take?.id === take.id && !this.showingGeneration ? pencilLoop(true) : nothing}</button>`}></gallery-window>
+          <gallery-tile extra="voice-clip" stillClass="voice-clip-thumb"
+            ?selected=${item?.take?.id === take.id && !this.showingGeneration}
+            label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
+            .takeId=${take.id} .segmentId=${segment.id}
+            .footer=${() => String(this.clipNumber(take)).padStart(2, '0')}
+            .mark=${() => pencilLoop(true)}
+            .onPick=${() => this.selectTake(segment.id, take.id)}
+            .content=${() => html`${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span>`}></gallery-tile>`}></gallery-window>
       </div>
     </section>`;
   }

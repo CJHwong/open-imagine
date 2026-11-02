@@ -6,6 +6,7 @@ import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {t, plural} from '../lib/i18n.js';
@@ -1934,31 +1935,27 @@ class VideoStudio extends LitElement {
         </div>
         <div class="strip video-clips" role="group" aria-label=${t('video.gallery.generated')}>
           ${this.pendingRender ? html`
-            <button class="video-gallery-item video-gallery-pending frame pending${renderOnScreen ? ' selected' : ''}"
-              type="button" aria-label=${t('video.gallery.showRender')} aria-pressed=${renderOnScreen}
-              data-action="show-render">
-              <span class="still video-clip-thumb pending-thumb">
-                <span class="video-pending-indicator" aria-hidden="true"></span>
-                <span>${t('video.gallery.rendering')}</span>
-              </span>
-              <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
-              ${renderOnScreen ? pencilLoop() : nothing}
-            </button>` : ''}
+            <div class="video-gallery-item pending">
+              <gallery-tile extra="video-gallery-item video-gallery-pending" ?pending=${true}
+                ?selected=${renderOnScreen} label=${t('video.gallery.showRender')}
+                .footer=${() => String(outputs.length + 1).padStart(2, '0')}
+                .mark=${() => pencilLoop()}
+                .onPick=${() => this.showRenderMonitor()}
+                .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('video.gallery.rendering')}</span>`}></gallery-tile>
+            </div>` : ''}
           <gallery-window .items=${newestFirst} .selected=${this.selectedClipId} .renderItem=${(clip, position) => html`
             <div class="video-gallery-item">
-              <button class="frame video-clip${clip.id === this.selectedClipId && !renderOnScreen ? ' selected' : ''}"
-                type="button" aria-label=${t('video.gallery.select', {name: clip.name})}
-                aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
-                data-action="select-clip" data-clip-id=${clip.id}>
-                <span class="still video-clip-thumb">
-                  ${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
+              <gallery-tile extra="video-clip" stillClass="video-clip-thumb"
+                ?selected=${clip.id === this.selectedClipId && !renderOnScreen}
+                label=${t('video.gallery.select', {name: clip.name})}
+                action="select-clip" .clipId=${clip.id}
+                .footer=${() => String(outputs.length - position).padStart(2, '0')}
+                .mark=${() => pencilLoop(true)}
+                .onPick=${() => this.selectClip(clip.id)}
+                .content=${() => html`${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
                     .blocked=${Boolean(this.pendingRender)} .load=${async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob})}></gallery-media>`
                     : html`<span class="video-clip-placeholder">${t('video.mark.stub')}</span>`}
-                  <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
-                </span>
-                <span class="no">${String(outputs.length - position).padStart(2, '0')}</span>
-                ${clip.id === this.selectedClipId && !renderOnScreen ? pencilLoop(true) : nothing}
-              </button>
+                  <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>`}></gallery-tile>
             </div>`}></gallery-window>
         </div>
       </section>`;

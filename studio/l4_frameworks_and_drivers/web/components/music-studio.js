@@ -8,11 +8,12 @@ import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
-import {render} from '/page/vendor/lit.js';
+import {html, render} from '/page/vendor/lit.js';
 import {encodeMp3} from '../lib/mp3.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
+import './gallery-tile.js';
 import './run-button.js';
 import {configureLookRows} from './look-rows.js';
 import {t, plural} from '../lib/i18n.js';
@@ -1731,11 +1732,15 @@ class MusicStudio extends HTMLElement {
     const strip = this.querySelector('.music-strip');
     let pending = strip.querySelector('.music-pending-thumb');
     if (gallery.pending && !pending) {
-      pending = document.createElement('button'); pending.type = 'button'; pending.className = 'frame music-pending-thumb pending';
-      pending.innerHTML = `<span class="still music-thumb-art"><span class="video-pending-indicator"></span><span>${t('music.common.generating')}</span></span><span class="no">NEW</span>`;
-      pending.setAttribute('aria-label', t('music.generation.show_label')); pending.addEventListener('click', () => gallery.showPending()); strip.prepend(pending);
+      const tile = document.createElement('gallery-tile');
+      tile.extra = 'music-pending-thumb'; tile.pending = true; tile.stillClass = 'music-thumb-art';
+      tile.label = t('music.generation.show_label'); tile.onPick = () => gallery.showPending();
+      tile.footer = () => 'NEW';
+      tile.content = () => html`<span class="video-pending-indicator"></span><span>${t('music.common.generating')}</span>`;
+      strip.prepend(tile);
+      pending = tile.querySelector('.music-pending-thumb');
     }
-    if (!gallery.pending && pending) pending.remove();
+    if (!gallery.pending && pending) (pending.closest('gallery-tile') || pending).remove();
     else if (pending) { pending.classList.toggle('selected', gallery.pendingSelected); pending.setAttribute('aria-pressed', String(Boolean(gallery.pendingSelected))); }
     gallery.choose = id => this.selectSong(id);
     gallery.removeItem = id => this.removeSong(id);
@@ -2383,22 +2388,18 @@ class MusicStudio extends HTMLElement {
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
-      const thumb = document.createElement('button'); thumb.type = 'button'; thumb.className = 'frame music-thumb'; thumb.dataset.songId = song.id;
       const number = this.songs.indexOf(song) + 1;
-      thumb.setAttribute('aria-label', t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number})); thumb.title = this.songTitle(song);
-      const still = document.createElement('span'); still.className = 'still music-thumb-art';
-      if (song.coverBlob) { const image = document.createElement('img'); image.src = this.coverUrls.get(song.id); image.alt = ''; still.append(image); }
-      else {
-        const mark = document.createElement('span'); mark.className = 'music-thumb-note';
-        // A score is not a recording: its tile wears a staff, not the note glyph.
-        if (hasAudio) mark.textContent = '♫';
-        else mark.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>';
-        still.append(mark);
-      }
-      const playing = document.createElement('span'); playing.className = 'music-playing-state'; playing.hidden = true;
-      render(playingMark(), playing); still.append(playing);
-      const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
-      thumb.append(still, label); thumb.addEventListener('click', () => this.selectSong(song.id)); strip.append(thumb);
+      const thumb = document.createElement('gallery-tile');
+      thumb.extra = 'music-thumb'; thumb.songId = song.id; thumb.stillClass = 'music-thumb-art';
+      thumb.label = t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number});
+      thumb.title = this.songTitle(song);
+      thumb.onPick = () => this.selectSong(song.id);
+      thumb.footer = () => t('music.thumb.meta', {number: String(number).padStart(2, '0'),
+        value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
+      thumb.content = () => html`${song.coverBlob
+          ? html`<img src=${this.coverUrls.get(song.id)} alt="">`
+          : html`<span class="music-thumb-note">${hasAudio ? '♫' : html`<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>`}</span>`}<span class="music-playing-state" hidden>${playingMark()}</span>`;
+      strip.append(thumb);
     }
     this.revealSong(this.selectedId);
     const selected = this.songs.find(song => song.id === this.selectedId);

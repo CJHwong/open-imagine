@@ -707,7 +707,7 @@
      `display: inline`, where width and height do nothing and the ring collapsed
      to its borders. Four classes beat that rule, so the tile is a grid again and
      the ring is blockified into its 16px box. */
-  .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
+  .video-gallery-pending .still { display: grid; align-content: center;
     justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
   .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--marker);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
@@ -834,7 +834,7 @@
      strip rule pins both the frame and its picture, which centres a narrow picture in a
      wide empty frame and makes the gaps between pictures look uneven; the image strip
      drops it so one gutter runs the whole way. */
-  #strip gallery-window > .frame { flex: 0 0 auto; width: auto; }
+  #strip gallery-window > gallery-tile { flex: 0 0 auto; width: auto; }
   #strip .frame .still { width: auto; max-width: none; }
   #strip .frame .still gallery-media { grid-template-rows: 100%; }
   #strip .frame .still img { object-fit: contain; }
@@ -1228,6 +1228,7 @@
   .music-preview-pane > .music-songs { align-self: center; margin: auto; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-strip:empty { display: none; }
+  .music-strip gallery-tile { display: block; flex: none; }
   /* Every music tile is a square: the stage cover, the strip thumb and the pending tile
      all keep one 1:1 shape. The browser card keeps the shared card box, so the cover
      centers in it like every other shelf's artwork. */

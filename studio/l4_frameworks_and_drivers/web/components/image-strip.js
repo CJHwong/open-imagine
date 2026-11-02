@@ -34,6 +34,7 @@ import {t} from '../lib/i18n.js';
 import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 
 // The page's helpers, on `image-strip-ready`.
 let page = null;
@@ -179,11 +180,22 @@ class ImageStrip extends LitElement {
     const entry = row.entry;
     const mode = entry.mode === 'edit' ? t('image.frame.mode.edit') : entry.mode === 'generate' ? t('image.frame.mode.generate') : entry.mode;
     // The tile takes the picture's own shape, the way the big preview does.
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still" style=${'width:' + frameWidth(row) + 'px'}><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    return html`<gallery-tile extra=${row.arrive ? 'arrive' : ''}
+      style=${'width:' + frameWidth(row) + 'px'} .width=${frameWidth(row)} ?selected=${row.selected}
+      title=${t('image.frame.seed_title', {seed: entry.seed})}
+      label=${t('image.frame.aria', {mode, seed: entry.seed})}
+      .footer=${() => row.number} .mark=${() => pencilLoop(row.draw)}
+      .onPick=${() => page.show(entry.id)}
+      .content=${() => html`<gallery-media .identity=${'image-' + entry.id}
+        .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}`}></gallery-tile>`;
   }
 
   waiting(row) {
-    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} aria-label=${t('image.frame.pending')} @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
+    return html`<gallery-tile ?pending=${true} ?selected=${row.selected}
+      style=${'width:' + frameWidth(row) + 'px'} .width=${frameWidth(row)}
+      label=${t('image.frame.pending')} .footer=${() => row.number} .mark=${() => pencilLoop(false)}
+      .onPick=${() => page.show('progress')}
+      .content=${() => html`<span class="exposure"></span>`}></gallery-tile>`;
   }
 
   render() {
