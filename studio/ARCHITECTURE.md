@@ -209,10 +209,13 @@ The guide retains the existing toggle, sheet, keyboard and focus contracts and l
 The gallery browser has one card element, `web/components/gallery-card.js`, in all four
 workspaces; the owner still draws the thumbnail, because a still, a waveform, a cover and a
 staff are different pictures. The page also carries a gallery file: `web/lib/gallery-bundle.js`
-gzip-encodes every stored item and its media into one JSON bundle, and decodes it back. The
-transfer control is in the browser and in the Media menu, because an import usually starts with
-no images. Image and Video import through `web/lib/store.js`, Voice through `addTake`, and Music
-through `saveMusicSong`; each store keeps its own tombstones and cutoff.
+writes every stored item and its media as line-delimited JSON, one header line and one item per
+line, gzipped. The writer and the reader work line by line, because a browser caps one string
+near a few hundred megabytes and a large shelf would otherwise fail with an allocation error.
+Version 1 bundles, one JSON object, still load. The transfer control is in the browser and in
+the Media menu, because an import usually starts with no images. Image and Video import through
+`web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
+its own tombstones and cutoff.
 
 ## Copy and locales
 
