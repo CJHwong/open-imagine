@@ -132,6 +132,23 @@ def main():
         assert roles == {"image": ["png"], "video": ["mp4"], "music": ["audio"], "voice": ["audio"]}, roles
         print("PASS gallery export: one gzipped bundle with four workspaces and their media.", flush=True)
 
+        # A checked item narrows the file to that shelf and those ids, so a large
+        # gallery does not have to leave in one piece.
+        gallery = page.locator("#image-gallery-browser")
+        gallery.get_by_role("button", name="Select", exact=True).click()
+        gallery.locator(".gallery-check input").first.check()
+        expect(gallery.get_by_role("button", name="Export 1 selected", exact=True)).to_be_visible()
+        with page.expect_download(timeout=60000) as chosen:
+            gallery.get_by_role("button", name="Export 1 selected", exact=True).click()
+        picked = [
+            json.loads(line)
+            for line in gzip.decompress(chosen.value.path().read_bytes()).decode().splitlines()
+            if line.strip()
+        ][1:]
+        assert [(item["workspace"], item["id"]) for item in picked] == [("image", 101)], picked
+        print("PASS export takes the checked items, and only theirs.", flush=True)
+        gallery.get_by_role("button", name="Done", exact=True).click()
+
         fresh = browser.new_context(viewport={"width": 1440, "height": 1000})
         target = fresh.new_page()
         target.on("pageerror", lambda error: errors.append(str(error)))
