@@ -6,6 +6,7 @@ sampling path, and the lines its progress bar prints.
 """
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -18,7 +19,11 @@ from pathlib import Path
 from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
 from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
-from studio.l3_interface_adapters.gateways.video.shared.engine_paths import checked_executable
+from studio.l3_interface_adapters.gateways.video.shared.engine_paths import (
+    checked_executable,
+    child_command,
+    engine_executable,
+)
 from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report as _crash_report
 
 RUN_TIMEOUT_SECONDS = 60 * 60
@@ -56,8 +61,9 @@ class MlxVideoRunner:
         # was measured fused.
         self._lora_files = lora_files or LoraFiles()
         self._enhanced_prompt = enhanced_prompt or (lambda prompt, image: False)
-        self._cli = str(settings.get("cli_path", ""))
+        self._cli = engine_executable(settings)
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
+        self._ffmpeg_configured = bool(settings.get("ffmpeg_path"))
         self._model = model
         self._batch_policy = settings.get("batch_policy", "auto")
         if self._batch_policy not in ("auto", "enhance_only", "sequential"):
@@ -90,10 +96,12 @@ class MlxVideoRunner:
         job = self._prepared_job(job)
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
-        self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
+        self._checked(
+            self._cli, "The bundled Video engine is missing. Reinstall the studio, or set cli_path under [mlx_video]."
+        )
         # Before any work: a missing file is refused here, and never reaches the engine as a name.
         loras = self._lora_files.paths(job.loras)
-        environment = {}
+        environment = self._environment()
         with tempfile.TemporaryDirectory(prefix="studio-mlx-") as scratch:
             root = Path(scratch)
             output = root / "output.mp4"
@@ -109,11 +117,8 @@ class MlxVideoRunner:
                     # after the enhancer: a rewrite could drop them, and the LoRA needs them.
                     environment["STUDIO_LORA_TRIGGERS"] = json.dumps(triggers)
                 if (audio is not None or images or triggers) and self._will_enhance(job):
-                    python = self._checked(
-                        str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
-                    )
                     child = Path(__file__).with_name("mlx_video_generation_child.py")
-                    command = [python, str(child), *command[1:]]
+                    command = child_command(self._cli, child, *command[1:])
             if loras and not (job.edit is not None and job.edit.lora_file):
                 environment["LTX2_LORA_MODE"] = "unfused"
             with self._lora_files.hidden():
@@ -137,7 +142,6 @@ class MlxVideoRunner:
             return self._sequential_batch(jobs, completed, started, progress, cancelled)
         if self._batch_policy == "auto" and self._enhances and prefer_sequential(jobs, self._model):
             return self._sequential_batch(jobs, completed, started, progress, cancelled)
-        python = Path(self._cli).parent / "python"
         enhancing = (
             self._batch_policy != "sequential"
             and self._enhances
@@ -146,11 +150,13 @@ class MlxVideoRunner:
             and any(job.enhance for job in jobs)
         )
         policy = reuse_policy(jobs, self._model) if self._batch_policy == "auto" else None
-        if (policy is None and not enhancing) or not python.is_file():
+        if policy is None and not enhancing:
             return self._sequential_batch(jobs, completed, started, progress, cancelled)
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
-        self._checked(self._cli, "Set cli_path under [mlx_video] to the MLX port's executable.")
+        self._checked(
+            self._cli, "The bundled Video engine is missing. Reinstall the studio, or set cli_path under [mlx_video]."
+        )
         # One pipeline serves the whole batch, and its LoRAs attach when it loads, so the
         # controller lets a batch through only with one set.
         loras = self._lora_files.paths(jobs[0].loras)
@@ -173,7 +179,7 @@ class MlxVideoRunner:
             manifest.write_text(json.dumps(commands))
             if enhancing:
                 child = Path(__file__).with_name("mlx_video_batch_enhancement.py")
-                self._execute([str(python), str(child), str(manifest)], None, cancelled)
+                self._execute(child_command(self._cli, child, str(manifest)), None, cancelled)
                 commands = json.loads(manifest.read_text())
             # The enhancer has run by now, so the trigger words go after what it wrote.
             for job, command in zip(jobs, commands, strict=True):
@@ -185,13 +191,13 @@ class MlxVideoRunner:
             child = Path(__file__).with_name("mlx_video_batch_child.py")
             with self._lora_files.hidden():
                 self._execute(
-                    [str(python), str(child), policy or "sequential", str(manifest)],
+                    child_command(self._cli, child, policy or "sequential", str(manifest)),
                     None,
                     cancelled,
                     records.feed,
                     lambda: records.item_started_at,
                     fast_mode=jobs[0].fast_mode,
-                    environment={"LTX2_LORA_MODE": "unfused"} if loras else None,
+                    environment=self._environment() | ({"LTX2_LORA_MODE": "unfused"} if loras else {}),
                 )
             if len(records.results) != len(jobs):
                 raise StudioError("The MLX video batch ended before every item finished.")
@@ -288,16 +294,10 @@ class MlxVideoRunner:
             lora = self._lora(edit, cancelled)
             entrypoint = [self._cli, "ic-lora", "--lora", str(lora), f"{edit.strength:g}"]
             if edit.stage_2_conditioning:
-                python = self._checked(
-                    str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
-                )
                 child = Path(__file__).with_name("mlx_layout_to_render_child.py")
-                entrypoint = [python, str(child), *entrypoint[1:]]
+                entrypoint = child_command(self._cli, child, *entrypoint[1:])
         else:
-            python = self._checked(
-                str(Path(self._cli).parent / "python"), "The MLX CLI needs its environment's python."
-            )
-            entrypoint = [python, str(Path(__file__).with_name("mlx_video_edit_child.py"))]
+            entrypoint = child_command(self._cli, Path(__file__).with_name("mlx_video_edit_child.py"))
         command = [
             *entrypoint,
             "-p",
@@ -416,6 +416,17 @@ class MlxVideoRunner:
         return target
 
     _checked = staticmethod(checked_executable)
+
+    def _environment(self) -> dict:
+        """Give the engine the directory of the ffmpeg the studio resolved.
+
+        The port finds ffmpeg on PATH when it muxes the MP4. A configured ffmpeg may sit
+        outside the studio's PATH, so its directory goes first. One the studio found on
+        its own PATH needs nothing.
+        """
+        if not self._ffmpeg or not self._ffmpeg_configured:
+            return {}
+        return {"PATH": str(Path(self._ffmpeg).parent) + os.pathsep + os.environ.get("PATH", "")}
 
     def _execute(
         self,

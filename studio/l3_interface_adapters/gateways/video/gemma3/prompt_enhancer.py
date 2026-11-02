@@ -7,19 +7,23 @@ from collections import OrderedDict
 from pathlib import Path
 
 from studio.l1_entities.errors import StudioError
-from studio.l3_interface_adapters.gateways.video.shared.engine_paths import checked_executable
+from studio.l3_interface_adapters.gateways.video.shared.engine_paths import (
+    checked_executable,
+    child_command,
+    engine_executable,
+)
 from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report
 
 
 class Gemma3PromptEnhancer:
     def __init__(self, settings, execute_process):
-        self._cli = str(settings.get("cli_path", ""))
+        self._cli = engine_executable(settings)
         self._execute_process = execute_process
         self._enhanced = OrderedDict()
 
     def __call__(self, prompt, references, on_writing, should_stop):
-        python = checked_executable(
-            str(Path(self._cli).parent / "python"), "Set cli_path under [mlx_video] to the installed MLX engine."
+        engine = checked_executable(
+            self._cli, "The bundled Video engine is missing. Reinstall the studio, or set cli_path under [mlx_video]."
         )
         with tempfile.TemporaryDirectory(prefix="studio-ltx-rewrite-") as scratch:
             root = Path(scratch)
@@ -42,7 +46,7 @@ class Gemma3PromptEnhancer:
                     on_writing()
 
             self._execute_process(
-                [python, str(child), str(source), str(destination)],
+                child_command(engine, child, str(source), str(destination)),
                 should_stop,
                 consume,
                 failure_message=crash_report,

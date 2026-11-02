@@ -90,6 +90,16 @@ def test_a_generate_job_can_leave_its_audio_track_out(tmp_path, monkeypatch):
     assert "--no-audio" in commands[0]
 
 
+def test_the_engine_gets_the_ffmpeg_directory_on_its_path(tmp_path):
+    ffmpeg = tmp_path / "bin" / "ffmpeg"
+    ffmpeg.parent.mkdir()
+    ffmpeg.write_text("")
+    runner = make_runner({"cli_path": cli(tmp_path), "ffmpeg_path": str(ffmpeg)}, "pack", False)
+
+    assert runner._environment()["PATH"].startswith(str(ffmpeg.parent) + os.pathsep)
+    assert make_runner({"cli_path": cli(tmp_path)}, "pack", False)._environment() == {}
+
+
 def test_a_model_without_an_enhancer_drops_the_flag_the_job_carries(tmp_path, monkeypatch):
     commands = []
     capture_execute(monkeypatch, commands)
@@ -185,11 +195,18 @@ def test_a_track_that_ffmpeg_cannot_read_is_named(tmp_path, monkeypatch):
         runner.run(VideoJob("she speaks", 384, 384, 121, 24, 7, audio=VideoAudio(b"junk", "voice.wav")))
 
 
-def test_a_missing_port_executable_says_which_setting_to_fill(tmp_path):
-    runner = make_runner({}, "pack", False)
+def test_a_wrong_port_executable_says_which_setting_to_fill(tmp_path):
+    runner = make_runner({"cli_path": str(tmp_path / "missing")}, "pack", False)
 
     with pytest.raises(StudioError, match="cli_path"):
         runner.run(VideoJob("a cat", 384, 384, 121, 24, 7))
+
+
+def test_an_empty_setting_uses_the_wrapper_that_ships_with_the_studio():
+    runner = make_runner({}, "pack", False)
+
+    assert runner._cli.endswith("ltx_runtime/ltx_engine.py")
+    assert Path(runner._cli).is_file()
 
 
 def test_a_missing_ffmpeg_says_which_setting_to_fill(tmp_path, monkeypatch):
