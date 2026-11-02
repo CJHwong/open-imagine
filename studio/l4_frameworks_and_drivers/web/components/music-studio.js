@@ -629,9 +629,12 @@ class MusicStudio extends HTMLElement {
       if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
       if (event.target.closest('input, textarea, select, button, audio, [contenteditable], .music-track-text, .music-output-details')) return;
       event.preventDefault();
-      const index = this.songs.findIndex(song => song.id === this.selectedId);
-      const next = Math.max(0, Math.min(this.songs.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
-      if (next !== index && this.songs[next]) this.selectSong(this.songs[next].id);
+      // The strip and the browser show the newest song first, while the store keeps the
+      // songs oldest first. Walk the order a person sees, or the keys step backwards.
+      const order = this.songs.slice().reverse();
+      const index = order.findIndex(song => song.id === this.selectedId);
+      const next = Math.max(0, Math.min(order.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
+      if (next !== index && order[next]) this.selectSong(order[next].id);
     });
     this.querySelector('.music-strip').addEventListener('keydown', event => {
       const buttons = [...this.querySelectorAll('.music-strip button')];
@@ -1675,6 +1678,17 @@ class MusicStudio extends HTMLElement {
     this.closeScore(false); this.selectedId = id; this.showGeneration = false;
     rememberGalleryView('music', {selected: id}, this.keeping);
     this.sync(); this.syncGallery();
+    this.revealSong(id);
+  }
+  // The strip scrolls. A song chosen from the keyboard or the browser brings its tile
+  // into view, or the circled tile sits off screen while the preview changes.
+  revealSong(id) {
+    const strip = this.querySelector('.music-strip');
+    const thumb = strip?.querySelector('[data-song-id="' + CSS.escape(String(id)) + '"]');
+    if (!strip || !thumb) return;
+    const frame = strip.getBoundingClientRect(), tile = thumb.getBoundingClientRect();
+    const delta = (tile.left + tile.width / 2) - (frame.left + frame.width / 2);
+    if (Math.abs(delta) > 2) strip.scrollLeft += delta;
   }
   syncGallery() {
     const gallery = this.querySelector('gallery-browser');
@@ -2360,6 +2374,7 @@ class MusicStudio extends HTMLElement {
       const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
       thumb.append(still, label); thumb.addEventListener('click', () => this.selectSong(song.id)); strip.append(thumb);
     }
+    this.revealSong(this.selectedId);
     const selected = this.songs.find(song => song.id === this.selectedId);
     const showingLyrics = Boolean(selected && this.lyricsShown?.has(selected.id));
     list.classList.toggle('shows-lyrics', showingLyrics);
