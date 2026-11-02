@@ -1210,7 +1210,13 @@
   #music-studio { grid-column: 1; grid-row: 3 / span 2; min-height: 0; min-width: 0; overflow: hidden; }
   #music-studio[hidden] { display: none; }
   .music-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; }
-  .music-preview-area.stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
+  /* The pane takes every pixel above the details bar. A grid row can size to content
+     in some engines, which leaves the card centered in a short pane and the rest of
+     the stage empty; a flex column gives the pane the remaining height everywhere. */
+  .music-preview-area.stage { display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    overflow: hidden; }
+  .music-preview-area.stage > .music-preview-pane { flex: 1 1 auto; }
+  .music-preview-area.stage > .music-output-bars { flex: none; }
   /* Flex centers the card the same way in every engine. Grid alignment relied on
      declarations a browser may drop, and the card then stretched to the pane top. */
   .music-preview-pane { display: flex; align-items: center; justify-content: center;
