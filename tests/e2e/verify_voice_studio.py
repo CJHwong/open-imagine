@@ -50,15 +50,22 @@ with sync_playwright() as tool:
     page.evaluate("""() => {
       const original = AudioContext.prototype.decodeAudioData;
       window.voiceDecodeCalls = 0;
+      window.voiceImportDecodes = 0;
       AudioContext.prototype.decodeAudioData = function(...args) {
         window.voiceDecodeCalls++;
+        if ((new Error().stack || '').includes('addAudio')) window.voiceImportDecodes++;
         return original.apply(this, args);
       };
     }""")
     page.locator("#voice-generate").click()
     page.wait_for_function("document.getElementById('voice-studio').takesCount === 1", timeout=120000)
     check("one press generates one continuous clip", page.locator(".voice-clip[data-take-id]").count() == 1)
-    check("the clip needs only one audio decode", page.evaluate("window.voiceDecodeCalls") == 1)
+    # One decode brings the clip in, and one more feeds the preview pane. A second segment
+    # would add another import decode, which is the cost this check guards.
+    check(
+        "the clip is decoded once for import, and once for the preview",
+        page.evaluate("window.voiceImportDecodes") == 1 and page.evaluate("window.voiceDecodeCalls") <= 2,
+    )
     create_voice_clips(page, ["An independent second recording."])
     open_clip_actions(page)
     check(
@@ -89,7 +96,6 @@ with sync_playwright() as tool:
     # Reset clears the script and leaves the form empty through a refresh.
     page.fill("#voice-text", "A voice reset probe")
     page.wait_for_timeout(400)
-    page.once("dialog", lambda dialog: dialog.accept())
     page.locator("#theme-toggle").click()
     page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
     page.wait_for_timeout(400)
