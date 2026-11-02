@@ -25,14 +25,15 @@ class GalleryBrowser extends LitElement {
     showPending: {attribute: false}, playback: {attribute: false},
     expanded: {type: Boolean, reflect: true}, query: {state: true}, order: {state: true},
     mode: {state: true}, model: {state: true}, grouped: {state: true}, group: {state: true},
-    selecting: {state: true}, checked: {state: true}, working: {state: true}, error: {state: true},
+    selecting: {state: true}, checked: {state: true}, working: {state: true},
+    busyAction: {state: true}, error: {state: true},
   };
   constructor() {
     super();
     this.items = []; this.keeping = true; this.expanded = false;
     this.query = ''; this.order = 'newest'; this.mode = ''; this.model = '';
     this.grouped = false; this.group = ''; this.selecting = false;
-    this.checked = new Set(); this.working = false; this.error = '';
+    this.checked = new Set(); this.working = false; this.busyAction = ''; this.error = '';
     this.restored = false; this.gridScroll = 0;
     this.waitingImages = new WeakSet();
     this.stripScroll = event => {
@@ -159,7 +160,7 @@ class GalleryBrowser extends LitElement {
     if (action === 'remove' && !confirm(t(
       this.keeping ? 'gallery.confirm.remove.browser' : 'gallery.confirm.remove.tab',
       {count: selected.length, workspace: workspaceName(this.workspace)}))) return;
-    this.working = true; this.error = '';
+    this.working = true; this.busyAction = action; this.error = '';
     try {
       if (action === 'download') await this.download?.(selected.filter(item => item.downloadable !== false).map(item => item.id));
       else {
@@ -169,7 +170,7 @@ class GalleryBrowser extends LitElement {
         if (failed) this.error = t('gallery.error.remove', {count: failed});
       }
     } catch (error) { this.error = error.message || t('gallery.error.action'); }
-    finally { this.working = false; }
+    finally { this.working = false; this.busyAction = ''; }
   }
   async key(event) {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -270,7 +271,9 @@ class GalleryBrowser extends LitElement {
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.length}
               @click=${() => { this.checked = new Set(); }}>${t('gallery.deselect')}</button>
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.some(item => item.downloadable !== false)}
-              @click=${() => this.act('download')}>${icon('download')}${t('gallery.downloadSelected')}</button>
+              aria-busy=${String(this.busyAction === 'download')}
+              @click=${() => this.act('download')}>${this.busyAction === 'download'
+                ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : icon('download')}${t('gallery.downloadSelected')}</button>
             <button type="button" class="text-btn gallery-remove" ?disabled=${this.working || !checked.length}
               @click=${() => this.act('remove')}>${icon('trash')}${t('gallery.removeSelected')}</button>` : nothing}
         </div>

@@ -43,10 +43,8 @@ gallery-browser { display: contents; color-scheme: dark; }
 .gallery-browser-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
   gap: 16px; padding: 12px 8px 16px; max-height: clamp(110px, 28dvh, 320px); overflow-y: auto;
   overscroll-behavior: contain; scrollbar-width: thin; --scroll-thumb: #555; }
-/* Music's tile is an 80px square, so the roomier column and gutter only pad the sides of
-   every card. A tighter grid fits more of them without shrinking the cover. */
-gallery-browser[workspace="music"] .gallery-browser-grid {
-  grid-template-columns: repeat(auto-fill, minmax(98px, 1fr)); gap: 10px; padding: 8px 4px 12px; }
+/* The four shelves share one card box. Only the artwork inside it differs, so a cover,
+   a wave, a frame and a still all sit in the same 80px strip of the card. */
 .gallery-card { position: relative; min-width: 0; padding: 8px; border: 1px solid transparent; border-radius: 5px; }
 .gallery-card.checked { border-color: #bbb; background: #282828; }
 .gallery-card .frame { width: 100%; gap: 6px; }
@@ -107,6 +105,13 @@ gallery-media > img { width: 100%; max-width: 100%; height: 100%; object-fit: co
 
 /* The gallery file keeps its own row: the tools row holds the filters, and a
    third control there would push them off a narrow overlay. */
-.gallery-browser-transfer { display: flex; justify-content: flex-end; gap: 8px; }
+.gallery-browser-transfer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 8px; }
 .gallery-transfer { display: inline-flex; align-items: center; gap: 4px; }
 .gallery-transfer .text-btn { white-space: nowrap; }
+/* A press that waits on the disk or the encoder spins in place, so the control does not
+   look dead. Reduced motion dims the mark instead of turning it. */
+.gallery-browser-panel .text-btn[aria-busy=true] { opacity: .7; }
+.gallery-spinner { width: 11px; height: 11px; flex: none; border: 1.5px solid currentColor;
+  border-right-color: transparent; border-radius: 50%; animation: gallery-spin .8s linear infinite; }
+@keyframes gallery-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .gallery-spinner { animation: none; opacity: .5; } }

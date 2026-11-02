@@ -8,31 +8,35 @@ import {bundleName, decodeBundle, encodeBundle, saveBundle} from '../lib/gallery
 const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-' + name}></use></svg>`;
 
 class GalleryTransfer extends LitElement {
-  static properties = {working: {state: true}};
+  static properties = {action: {state: true}};
 
   createRenderRoot() { return this; }
 
   constructor() {
     super();
-    this.working = false;
+    this.action = '';
   }
 
   render() {
+    const spin = name => this.action === name
+      ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : null;
     return html`<span class="gallery-transfer">
-      <button type="button" class="text-btn" ?disabled=${this.working} @click=${() => this.exportAll()}>
-        ${icon('download')}${t('gallery.export')}</button>
-      <button type="button" class="text-btn" ?disabled=${this.working} @click=${() => this.pick()}>
-        ${icon('plus')}${t('gallery.import')}</button>
+      <button type="button" class="text-btn" ?disabled=${Boolean(this.action)}
+        aria-busy=${String(this.action === 'export')} @click=${() => this.exportAll()}>
+        ${spin('export') || icon('download')}${t('gallery.export')}</button>
+      <button type="button" class="text-btn" ?disabled=${Boolean(this.action)}
+        aria-busy=${String(this.action === 'import')} @click=${() => this.pick()}>
+        ${spin('import') || icon('plus')}${t('gallery.import')}</button>
       <input type="file" accept=".gz,.json,application/gzip,application/json" hidden
         @change=${event => this.importFile(event)}>
     </span>`;
   }
 
   async exportAll() {
-    if (this.working) return;
+    if (this.action) return;
     const collect = window.collectStudioBundle;
     if (typeof collect !== 'function') return;
-    this.working = true;
+    this.action = 'export';
     try {
       const items = await collect();
       const at = Date.now();
@@ -41,20 +45,20 @@ class GalleryTransfer extends LitElement {
     } catch (error) {
       this.say('error', t('gallery.exportFailed', {message: error.message}));
     } finally {
-      this.working = false;
+      this.action = '';
     }
   }
 
   pick() {
-    if (this.working) return;
+    if (this.action) return;
     this.querySelector('input[type=file]').click();
   }
 
   async importFile(event) {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (!file || this.working) return;
-    this.working = true;
+    if (!file || this.action) return;
+    this.action = 'import';
     try {
       const items = await decodeBundle(file);
       const result = await window.restoreStudioBundle(items);
@@ -62,7 +66,7 @@ class GalleryTransfer extends LitElement {
     } catch (error) {
       this.say('error', t('gallery.importFailed', {message: error.message}));
     } finally {
-      this.working = false;
+      this.action = '';
     }
   }
 

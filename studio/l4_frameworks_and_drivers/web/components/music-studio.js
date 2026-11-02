@@ -601,7 +601,8 @@ class MusicStudio extends HTMLElement {
       if (!this.busy && file) this.setReference(file, file.name || 'reference.wav');
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
-    this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
+    this.querySelector('#music-download-all').addEventListener('click', event =>
+      this.downloadSongs(this.songs.map(song => song.id), event.currentTarget));
     this.querySelector('#music-clear-all').addEventListener('click', () => this.clearAllSongs());
     window.addEventListener('pagehide', () => this.pausePlayback());
     window.addEventListener('keydown', event => {
@@ -1696,17 +1697,23 @@ class MusicStudio extends HTMLElement {
   }
   // One path for every download, so the strip and the browser panel cannot
   // disagree about a file's name or its type.
-  async downloadSongs(ids) {
-    for (const song of this.songs.filter(song => ids.includes(song.id))) {
-      if (song.blob) await this.downloadMp3(song);
-      else saveBlob(new Blob([song.score || ''], {type: 'text/vnd.abc'}), `music-${song.seed}.abc`);
+  async downloadSongs(ids, trigger) {
+    if (trigger?.classList.contains('is-busy')) return;
+    if (trigger) { trigger.classList.add('is-busy'); trigger.disabled = true; }
+    try {
+      for (const song of this.songs.filter(song => ids.includes(song.id))) {
+        if (song.blob) await this.downloadMp3(song);
+        else saveBlob(new Blob([song.score || ''], {type: 'text/vnd.abc'}), `music-${song.seed}.abc`);
+      }
+    } finally {
+      if (trigger) { trigger.classList.remove('is-busy'); trigger.disabled = false; }
     }
   }
   // A song leaves as a tagged MP3. If the encoder cannot load, the WAV is still
   // the run's own output, so the person gets that file and is told why.
   async downloadMp3(song, trigger) {
     if (!song.blob) return;
-    if (trigger) trigger.disabled = true;
+    if (trigger) { trigger.disabled = true; trigger.classList.add('is-busy'); trigger.setAttribute('aria-busy', 'true'); }
     try {
       const cover = song.coverBlob
         ? {type: song.coverBlob.type, bytes: new Uint8Array(await song.coverBlob.arrayBuffer())}
@@ -1725,7 +1732,7 @@ class MusicStudio extends HTMLElement {
       this.options.notify('error', t('music.error.mp3'));
       saveBlob(song.blob, `music-${song.seed}.wav`);
     } finally {
-      if (trigger) trigger.disabled = false;
+      if (trigger) { trigger.disabled = false; trigger.classList.remove('is-busy'); trigger.removeAttribute('aria-busy'); }
     }
   }
   // The gallery file carries each song, its cover and its original recording.
