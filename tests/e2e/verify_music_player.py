@@ -25,6 +25,10 @@ def main():
             "**/operations/*/result", lambda route: route.fulfill(content_type="audio/wav", body=fixture.getvalue())
         )
         page.goto(base + "/?workspace=music")
+        # A song this tab started plays on arrival by design. This suite drives the
+        # transport from a stopped song, so the preference starts off.
+        page.evaluate("localStorage.setItem('studio-autoplay', 'off')")
+        page.reload()
         page.locator("#music-style").fill("Warm piano instrumental")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(1)
