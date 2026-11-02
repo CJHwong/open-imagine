@@ -368,7 +368,7 @@ class MusicStudio extends HTMLElement {
   connectedCallback() {
     if (this.ready) return;
     this.ready = true;
-    this.innerHTML = `<div class="music-studio-shell"><section class="music-preview-area stage" aria-label="${t('music.preview.label')}">
+    this.innerHTML = `<div class="music-studio-shell"><section class="music-preview-area stage" tabindex="0" aria-label="${t('music.preview.label')}">
       <div class="music-preview-pane">
       <div class="music-generation" hidden role="status" aria-live="polite">
         ${recordPlayer()}
@@ -620,6 +620,18 @@ class MusicStudio extends HTMLElement {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
       if (song && !this.busy) { event.preventDefault(); this.generateCover(song); }
+    });
+    // The preview takes the arrow keys too, so a person can step through the songs
+    // while looking at the one that is open. A control or the scrolling words keep
+    // their own arrow keys.
+    this.querySelector('.music-preview-area').addEventListener('keydown', event => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      if (event.target.closest('input, textarea, select, button, audio, [contenteditable], .music-track-text, .music-output-details')) return;
+      event.preventDefault();
+      const index = this.songs.findIndex(song => song.id === this.selectedId);
+      const next = Math.max(0, Math.min(this.songs.length - 1, index + (event.key === 'ArrowRight' ? 1 : -1)));
+      if (next !== index && this.songs[next]) this.selectSong(this.songs[next].id);
     });
     this.querySelector('.music-strip').addEventListener('keydown', event => {
       const buttons = [...this.querySelectorAll('.music-strip button')];

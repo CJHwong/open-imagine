@@ -107,6 +107,16 @@ def main():
         page.get_by_role("button", name="Select song 1", exact=True).click()
         assert second.evaluate("audio=>!audio.paused")
         expect(play).to_be_visible()
+        # The preview takes the arrow keys too, so a person can step through the songs
+        # while looking at the one that is open.
+        before_id = page.evaluate("document.querySelector('music-studio').selectedId")
+        page.locator(".music-preview-area").focus()
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId !== id", arg=before_id)
+        assert page.evaluate("document.activeElement.classList.contains('music-preview-area')")
+        page.keyboard.press("ArrowLeft")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId === id", arg=before_id)
+        print("PASS the preview steps songs with the arrow keys", flush=True)
         page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
         expect(page.locator(".gallery-card .gallery-no-preview")).to_have_text(["♫", "♫"])
         expect(page.locator(".gallery-wave")).to_have_count(0)
