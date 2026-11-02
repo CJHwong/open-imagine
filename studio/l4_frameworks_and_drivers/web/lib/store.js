@@ -271,8 +271,7 @@ function keepVideo(clip, mp4, thumbnail) {
   });
 }
 
-function keepVideoThumbnail(id, thumbnail) {
-  if (!page.keeping()) return Promise.resolve(false);
+function keepVideoThumbnail(id, thumbnail) {  if (!page.keeping()) return Promise.resolve(false);
   return inVideoStore('readwrite', function (clips) {
     const request = clips.get(id);
     request.onsuccess = function () {
@@ -487,6 +486,71 @@ function askForDurableStorage() {
     .catch(function () { durable = false; return false; });
 }
 
+// The gallery file. These read and write the records themselves, so an import
+// lands in storage before any tab hears about it. Records carry their media as
+// Blobs; lib/gallery-bundle.js turns those into base64 for the file.
+function imageItem(record) {
+  return {workspace: 'image', id: record.id, at: record.at || 0,
+    record: withoutMedia(record, ['png', 'before']),
+    media: [{role: 'png', blob: record.png}, ...(record.before ? [{role: 'before', blob: record.before}] : [])]};
+}
+
+function videoItem(record) {
+  return {workspace: 'video', id: record.id, at: record.createdAt || 0,
+    record: withoutMedia(record, ['mp4', 'thumbnail']),
+    media: [{role: 'mp4', blob: record.mp4}, ...(record.thumbnail ? [{role: 'thumbnail', blob: record.thumbnail}] : [])]};
+}
+
+function collectBundle() {
+  return Promise.all([
+    inStore('readonly', images => images.getAll()),
+    inVideoStore('readonly', clips => clips.getAll()),
+  ]).then(function ([images, clips]) {
+    return images.map(imageItem).concat(clips.map(videoItem));
+  });
+}
+
+function restoreBundle(items) {
+  if (!page.keeping()) return Promise.resolve({imported: 0, skipped: items.length});
+  const images = items.filter(item => item.workspace === 'image').map(rebuildImage).filter(record => !wasRemoved(record));
+  const clips = items.filter(item => item.workspace === 'video').map(rebuildVideo).filter(record => !videoWasRemoved(record));
+  return Promise.all([
+    inStore('readwrite', store => { images.forEach(record => store.put(record)); }),
+    inVideoStore('readwrite', store => { clips.forEach(record => store.put(record)); }),
+  ]).then(function () {
+    return load();
+  }).then(function () {
+    if (clips.length) page.heard({kind: 'video-add'});
+    return {imported: images.length + clips.length, skipped: items.length - images.length - clips.length};
+  });
+}
+
+function withoutMedia(record, fields) {
+  const copy = {...record};
+  fields.forEach(field => delete copy[field]);
+  return copy;
+}
+
+function restoreMedia(item) {
+  const media = {};
+  for (const entry of item.media || []) if (entry.blob instanceof Blob) media[entry.role] = entry.blob;
+  return media;
+}
+
+function rebuildImage(item) {
+  const media = restoreMedia(item);
+  const record = {...item.record, png: media.png};
+  if (media.before) record.before = media.before;
+  return record;
+}
+
+function rebuildVideo(item) {
+  const media = restoreMedia(item);
+  const record = {...item.record, mp4: media.mp4};
+  if (media.thumbnail) record.thumbnail = media.thumbnail;
+  return record;
+}
+
 const handle = {
   prepareForget, retainImages,
   hydrate: hydrate,
@@ -494,6 +558,8 @@ const handle = {
   keep: keep,
   keepVideo: keepVideo,
   keepVideoThumbnail: keepVideoThumbnail,
+  collectBundle: collectBundle,
+  restoreBundle: restoreBundle,
   forget: forget,
   load: load,
   loadVideos: loadVideos,

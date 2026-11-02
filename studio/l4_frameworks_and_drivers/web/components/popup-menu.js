@@ -34,10 +34,11 @@ function toggleOf(menu) {
 // One item of a menu. `name` is the glyph, or empty for a menu that reads as
 // text only, as a template does. The caller sets `menuitemradio` or
 // `menuitemcheckbox` and `aria-checked` on what this returns.
-export function menuItem(name, label, onPick) {
+export function menuItem(name, label, onPick, title = '') {
   const button = document.createElement('button');
   button.type = 'button';
   button.setAttribute('role', 'menuitem');
+  if (title) button.title = title;
   button.innerHTML = (name ? glyph(name) : '') + '<span class="item-text"></span>';
   button.querySelector('.item-text').textContent = label;
   button.addEventListener('click', function () {

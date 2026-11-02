@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import wave
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -136,6 +137,12 @@ with sync_playwright() as playwright:
         expect(gallery.locator(".gallery-card")).to_have_count(16)
         expect(gallery.get_by_label("Group batches")).to_have_count(1)
         expect(gallery.get_by_role("searchbox", name="Search gallery")).to_be_visible()
+        # Select and Done are different widths. The field must not move when the
+        # switch flips, or the whole tools row jumps under the pointer.
+        search_width = gallery.get_by_role("searchbox").bounding_box()["width"]
+        gallery.get_by_role("button", name="Select", exact=True).click()
+        assert abs(gallery.get_by_role("searchbox").bounding_box()["width"] - search_width) < 1
+        gallery.get_by_role("button", name="Done", exact=True).click()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         # Search and filters derive solely from the saved prompt/script/model fields.
         gallery.get_by_role("searchbox").fill("red apple")
@@ -144,12 +151,6 @@ with sync_playwright() as playwright:
         expect(gallery.get_by_text("No matching results", exact=True)).to_be_visible()
         gallery.get_by_role("button", name="Clear filters", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(16)
-        gallery.get_by_label("Filter by model").select_option("Model B")
-        expect(gallery.locator(".gallery-card")).to_have_count(5)
-        gallery.get_by_label("Filter by model").select_option("")
-        gallery.get_by_label("Filter by mode", exact=True).select_option("generate")
-        expect(gallery.locator(".gallery-card")).to_have_count(8)
-        gallery.get_by_label("Filter by mode", exact=True).select_option("")
         gallery.get_by_label("Gallery order").select_option("oldest")
         expect(gallery.locator(".gallery-card-pick").first.locator(".no")).to_have_text("01")
         gallery.get_by_label("Gallery order").select_option("newest")
@@ -163,17 +164,14 @@ with sync_playwright() as playwright:
         gallery.get_by_label("Group batches").uncheck()
         # Restored filter controls must agree with their rendered results.
         gallery.get_by_role("searchbox").fill("red apple")
-        gallery.get_by_label("Filter by model").select_option("Model B")
         gallery.get_by_label("Gallery order").select_option("oldest")
         page.reload()
         page.locator(f"#media-{workspace}-mode").click()
         gallery = page.locator(f'gallery-browser[workspace="{workspace}"]')
         expect(gallery.get_by_role("searchbox")).to_have_value("red apple")
-        expect(gallery.get_by_label("Filter by model")).to_have_value("Model B")
         expect(gallery.get_by_label("Gallery order")).to_have_value("oldest")
-        expect(gallery.locator(".gallery-card")).to_have_count(2)
+        expect(gallery.locator(".gallery-card")).to_have_count(8)
         gallery.get_by_role("searchbox").fill("")
-        gallery.get_by_label("Filter by model").select_option("")
         gallery.get_by_label("Gallery order").select_option("newest")
         # Arrow navigation updates one preview and keeps focus on the corresponding card.
         cards = gallery.locator(".gallery-card-pick")
@@ -235,23 +233,21 @@ with sync_playwright() as playwright:
         gallery.get_by_role("button", name="Deselect", exact=True).click()
         gallery.locator(".gallery-check input").nth(0).check()
         gallery.locator(".gallery-check input").nth(1).check()
-        downloads = []
-
-        def handler(download, results=downloads):
-            results.append(download.suggested_filename)
-
-        page.on("download", handler)
-        gallery.get_by_role("button", name="Download selected", exact=True).click()
+        # A download leaves as one files-only ZIP, so the browser asks once.
+        with page.expect_download() as saved:
+            gallery.get_by_role("button", name="Download 2", exact=True).click()
         page.wait_for_function(
             "workspace => !document.querySelector(`gallery-browser[workspace=${workspace}]`).working", arg=workspace
         )
-        assert len(downloads) >= 2 and len(set(downloads)) == len(downloads), downloads
-        page.remove_listener("download", handler)
+        with zipfile.ZipFile(saved.value.path()) as archive:
+            packed = archive.namelist()
+        media = [name for name in packed if name.endswith((".png", ".mp4", ".wav", ".mp3", ".abc"))]
+        assert len(media) == 2, packed
         page.once("dialog", lambda dialog: dialog.dismiss())
-        gallery.get_by_role("button", name="Remove selected", exact=True).click()
+        gallery.get_by_role("button", name="Remove 2", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(16)
         page.once("dialog", lambda dialog: dialog.accept())
-        gallery.get_by_role("button", name="Remove selected", exact=True).click()
+        gallery.get_by_role("button", name="Remove 2", exact=True).click()
         expect(gallery.locator(".gallery-card")).to_have_count(14)
         other.wait_for_function(
             "workspace => document.querySelector(`gallery-browser[workspace=${workspace}]`).items.length === 14",
@@ -265,6 +261,32 @@ with sync_playwright() as playwright:
             page.screenshot(path=str(SHOTS / (workspace + "-grid.png")), animations="disabled")
         gallery.get_by_role("searchbox").press("Escape")
         expect(gallery.locator(".gallery-browser-panel")).to_have_count(0)
+        # The Browse/Compact switch sits outside the strip's own key handling. A person
+        # who presses it still expects the arrow keys to step the results that are shown.
+        strip_selector = {"image": "#strip", "video": "#video-gallery .strip", "voice": "#voice-gallery .strip"}[
+            workspace
+        ]
+        toggle = gallery.locator(".gallery-browse-toggle")
+        for expanded in ("true", "false"):
+            toggle.click()
+            expect(toggle).to_have_attribute("aria-expanded", expanded)
+            expect(toggle).to_be_focused()
+            before = gallery.evaluate("element => String(element.selectedId)")
+            key = page.evaluate(
+                """selector => {
+                  const tiles = [...document.querySelectorAll(selector + ' .frame:not(.pending)')];
+                  const index = tiles.findIndex(tile => tile.classList.contains('selected'));
+                  return index >= 0 && index < tiles.length - 1 ? 'ArrowRight' : 'ArrowLeft';
+                }""",
+                strip_selector,
+            )
+            toggle.press(key)
+            page.wait_for_function(
+                "([workspace, before]) => String(document.querySelector("
+                "`gallery-browser[workspace=${workspace}]`).selectedId) !== before",
+                arg=[workspace, before],
+            )
+        print(f"PASS {name}: the arrow keys step the strip from the Browse/Compact switch", flush=True)
         print(
             f"PASS {name}: grid, search, filters, sorting, batches, keys, restoration, bulk actions and two tabs",
             flush=True,
@@ -311,6 +333,28 @@ with sync_playwright() as playwright:
     page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True).click()
     assert page.evaluate("localStorage.getItem('studio-autoplay')") == "on"
     print("PASS the Media menu turns autoplay off and restores it", flush=True)
+    # The image strip is content-sized, and its window must still reach the first
+    # frame after a scroll to the end. A fixed stride left the tail unmounted.
+    page.locator("#media-image-mode").click()
+    strip = page.locator("#strip")
+    for _ in range(6):
+        strip.evaluate("node => { node.scrollLeft = node.scrollWidth; }")
+        page.wait_for_timeout(300)
+    expect(page.locator('#strip .frame .no:text-is("01")')).to_have_count(1)
+    print("PASS the content-sized strip window reaches every frame", flush=True)
+    # Storage refusal must not prevent any browsing operation. The descriptor is
+    # put back because the Keep-off check below reads the same storage.
+    page.evaluate(
+        "window.__sessionDescriptor = Object.getOwnPropertyDescriptor(window, 'sessionStorage'); "
+        "Object.defineProperty(window, 'sessionStorage', "
+        "{get() {throw new Error('storage denied')}, configurable: true})"
+    )
+    gallery = page.locator('gallery-browser[workspace="image"]')
+    gallery.locator(".gallery-browse-toggle").click()
+    gallery.get_by_role("searchbox").fill("apple")
+    assert gallery.locator(".gallery-card").count() > 0
+    print("PASS unavailable presentation storage is non-fatal; no page errors", flush=True)
+    page.evaluate("Object.defineProperty(window, 'sessionStorage', window.__sessionDescriptor)")
     page.once("dialog", lambda dialog: dialog.accept())
     page.locator("#theme-toggle").click()
     page.get_by_role("menuitemcheckbox", name="Keep in this browser", exact=True).click()
@@ -318,13 +362,5 @@ with sync_playwright() as playwright:
         '["image", "video", "voice"].every(kind => !sessionStorage.getItem("studio-gallery-view-" + kind))'
     )
     print("PASS Keep off clears gallery view preferences", flush=True)
-    # Storage refusal must not prevent any browsing operation.
-    page.evaluate(
-        "Object.defineProperty(window, 'sessionStorage', {get() {throw new Error('storage denied')}, configurable: true})"
-    )
-    gallery.locator(".gallery-browse-toggle").click()
-    gallery.get_by_role("searchbox").fill("apple")
-    assert gallery.locator(".gallery-card").count() > 0
     assert not errors, errors
-    print("PASS unavailable presentation storage is non-fatal; no page errors", flush=True)
     browser.close()

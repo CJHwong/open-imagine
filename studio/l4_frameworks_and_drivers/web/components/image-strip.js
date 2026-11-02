@@ -24,15 +24,17 @@
 // the region asks for the reference list, and never keeps a second copy that
 // could disagree with it.
 
-import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html } from '/page/vendor/lit.js';
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {mediaDownloadName} from '../lib/download-name.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {t} from '../lib/i18n.js';
 import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 
 // The page's helpers, on `image-strip-ready`.
 let page = null;
@@ -46,6 +48,19 @@ const FIELDS = ['gallery', 'view', 'busy'];
 // on the three lines, so this draws a glyph exactly as `popup-menu.js` does.
 function glyph(name) {
   return html`<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+}
+
+// A tile is as wide as the picture's own shape, at the strip's 60px height. The
+// width is explicit so a tile keeps its place while its picture is unloaded;
+// gallery-window reads the same number to size its spacers.
+function frameWidth(row) {
+  const entry = row?.entry;
+  const ratio = entry && entry.width && entry.height
+    ? Number(entry.width) / Number(entry.height)
+    : page?.pending?.()?.ratio;
+  const base = entry ? 60 : 64;
+  const clamped = Number.isFinite(ratio) && ratio > 0 ? Math.min(2, Math.max(0.5, ratio)) : 1;
+  return Math.round(base * clamped);
 }
 
 class ImageStrip extends LitElement {
@@ -165,16 +180,27 @@ class ImageStrip extends LitElement {
     const entry = row.entry;
     const mode = entry.mode === 'edit' ? t('image.frame.mode.edit') : entry.mode === 'generate' ? t('image.frame.mode.generate') : entry.mode;
     // The tile takes the picture's own shape, the way the big preview does.
-    return html`<button type="button" class="frame${row.arrive ? ' arrive' : ''}${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} title=${t('image.frame.seed_title', {seed: entry.seed})} aria-label=${t('image.frame.aria', {mode, seed: entry.seed})} @click=${() => page.show(entry.id)}><span class="still"><gallery-media .identity=${'image-' + entry.id} .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}</span><span class="no">${row.number}</span>${row.selected ? pencilLoop(row.draw) : ''}</button>`;
+    return html`<gallery-tile extra=${row.arrive ? 'arrive' : ''}
+      style=${'width:' + frameWidth(row) + 'px'} .width=${frameWidth(row)} ?selected=${row.selected}
+      title=${t('image.frame.seed_title', {seed: entry.seed})}
+      label=${t('image.frame.aria', {mode, seed: entry.seed})}
+      .footer=${() => row.number} .mark=${() => pencilLoop(row.draw)}
+      .onPick=${() => page.show(entry.id)}
+      .content=${() => html`<gallery-media .identity=${'image-' + entry.id}
+        .load=${async () => ({blob: entry.loadMedia ? (await entry.loadMedia())?.png : await (await fetch(entry.src)).blob()})}></gallery-media>${entry.mode === 'edit' ? html`<span class="corner">${glyph('brush')}</span>` : ''}`}></gallery-tile>`;
   }
 
   waiting(row) {
-    return html`<button type="button" class="frame pending${row.selected ? ' selected' : ''}" aria-pressed=${String(row.selected)} aria-label=${t('image.frame.pending')} @click=${() => page.show('progress')}><span class="still waiting"><span class="exposure"></span></span><span class="no">${row.number}</span>${row.selected ? pencilLoop(false) : ''}</button>`;
+    return html`<gallery-tile ?pending=${true} ?selected=${row.selected}
+      style=${'width:' + frameWidth(row) + 'px'} .width=${frameWidth(row)}
+      label=${t('image.frame.pending')} .footer=${() => row.number} .mark=${() => pencilLoop(false)}
+      .onPick=${() => page.show('progress')}
+      .content=${() => html`<span class="exposure"></span>`}></gallery-tile>`;
   }
 
   render() {
     if (!page) return html``;
-    return html`<gallery-window .items=${this.rows()} .selected=${get('view')} .renderItem=${row => row.pending ? this.waiting(row) : this.frame(row)}></gallery-window>`;
+    return html`<gallery-window .items=${this.rows()} .selected=${get('view')} .itemSize=${row => frameWidth(row)} .renderItem=${row => row.pending ? this.waiting(row) : this.frame(row)}></gallery-window>`;
   }
 }
 
@@ -277,47 +303,44 @@ function sweep(range, split) {
 }
 
 // ---- The ways out of the gallery ------------------------------------------------
-function saveFile(url, name) {
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-}
-
-// Every image on the strip, oldest first, then one file with their prompts,
-// since an image file holds no prompt.
-// The files leave one at a time, because a browser drops downloads that come
-// too close together. A batch of edits shares one source, saved once.
-function download(ids = null) {
+// A download gives files. It leaves as one ZIP, so the browser asks once instead of
+// once per picture, and the archive carries no records: Import would refuse it.
+async function download(ids = null) {
+  const chosen = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse();
   const befores = new Map();
   const facts = [];
-  const pause = function () { return new Promise(function (resolve) { setTimeout(resolve, 300); }); };
-  const saving = page.gallery().filter(entry => !ids || ids.includes(entry.id)).slice().reverse().reduce(function (previous, entry) {
-    return previous.then(async function () {
+  const progress = window.studioProgress?.(t('gallery.saving'));
+  let index = 0;
+  try {
+    const files = [];
+    for (const entry of chosen) {
       if (!entry.src && entry.loadMedia) await page.hydrate(entry);
-      const file = page.fileName(entry);
-      saveFile(entry.src, file);
-      const fact = { file: file, before: null };
+      const name = page.fileName(entry);
+      files.push({name, blob: await (await fetch(entry.src)).blob()});
+      const fact = {file: name, before: null};
       page.keptFields().forEach(function (field) { fact[field] = entry[field]; });
       facts.push(fact);
-      if (!entry.before) return pause();
+      index += 1;
+      progress?.set({done: index, total: chosen.length, index, count: chosen.length});
+      if (!entry.before) continue;
       const known = befores.has(entry.before);
-      if (!known) befores.set(entry.before, file.replace(/\.png$/, '-before.png'));
+      if (!known) befores.set(entry.before, name.replace(/\.png$/, '-before.png'));
       fact.before = befores.get(entry.before);
-      if (known) return pause();
-      return pause().then(function () {
-        saveFile(entry.before, fact.before);
-        return pause();
-      });
-    });
-  }, Promise.resolve());
-  return saving.then(function () {
-    const url = URL.createObjectURL(new Blob([JSON.stringify(facts, null, 2)], { type: 'application/json' }));
-    saveFile(url, mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}));
-    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
-  }).catch(function (error) {
-    page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed', {message: error.message}));
-  });
+      if (!known) {
+        files.push({name: fact.before, blob: await (await fetch(entry.before)).blob()});
+      }
+    }
+    if (files.length) {
+      files.push({name: mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}),
+        blob: new Blob([JSON.stringify(facts, null, 2)], {type: 'application/json'})});
+      saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('images'));
+    }
+    progress?.close();
+  } catch (error) {
+    progress?.close();
+    page.notify('error', t(ids ? 'image.download.selected_failed' : 'image.download.all_failed',
+      {message: error.message}));
+  }
 }
 
 // The shown image gives way to its neighbour. Another tab's removal leaves this

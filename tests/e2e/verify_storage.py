@@ -9,8 +9,7 @@ Then:
 import json
 import re
 import sys
-import tempfile
-from pathlib import Path
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -87,27 +86,21 @@ with sync_playwright() as playwright:
     numbers = first.locator("#strip .frame .no").all_inner_texts()
     check("the frame numbers come back", numbers == ["02", "01"], str(numbers))
 
-    saved = []
-    first.on("download", lambda download: saved.append(download))
-    first.click("#download-gallery")
-    deadline = 20
-    while len(saved) < 3 and deadline:
-        first.wait_for_timeout(500)
-        deadline -= 1
-    folder = Path(tempfile.mkdtemp(prefix="studio-download-"))
-    names = [download.suggested_filename for download in saved]
-    for download in saved:
-        download.save_as(folder / download.suggested_filename)
-    images = [name for name in names if name.endswith(".png")]
-    check(
-        "Download all saves each image and the prompts",
-        len(images) == 2
-        and all(re.fullmatch(r"image-.+-\d{8}-\d{9}-[a-z0-9]+\.png", name) for name in images)
-        and all((folder / name).read_bytes()[:4] == b"\x89PNG" for name in images)
-        and re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", names[-1]),
-        str(names),
-    )
-    facts = json.loads((folder / names[-1]).read_text()) if names and names[-1].endswith(".json") else []
+    with first.expect_download() as saved:
+        first.click("#download-gallery")
+    with zipfile.ZipFile(saved.value.path()) as archive:
+        names = archive.namelist()
+        images = [name for name in names if name.endswith(".png")]
+        metadata = [name for name in names if re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", name)]
+        check(
+            "Download all saves each image and the prompts",
+            len(images) == 2
+            and all(re.fullmatch(r"image-.+-\d{8}-\d{9}-[a-z0-9]+\.png", name) for name in images)
+            and all(archive.read(name)[:4] == b"\x89PNG" for name in images)
+            and len(metadata) == 1,
+            str(names),
+        )
+        facts = json.loads(archive.read(metadata[0])) if metadata else []
     check(
         "the prompts come oldest first, each with its file",
         [fact["prompt"] for fact in facts] == ["A red apple on a wooden table.", "A green pear on a plate."]

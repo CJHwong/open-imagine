@@ -8,9 +8,12 @@ import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
-import {render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {html, render} from '/page/vendor/lit.js';
+import {encodeMp3} from '../lib/mp3.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop, playingMark} from './gallery-marker.js';
 import './gallery-browser.js';
+import './gallery-tile.js';
 import './run-button.js';
 import {configureLookRows} from './look-rows.js';
 import {t, plural} from '../lib/i18n.js';
@@ -297,12 +300,38 @@ const MUSIC_GENRE_GROUPS = [
 
 function musicModelName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
 
+// The genre picker writes a whole sentence into the style text. A song keeps the
+// short name too, so the MP3 tag and a later reader do not have to parse prose.
+function genreOf(song) {
+  const style = String(song?.settings?.style || '');
+  if (!style) return '';
+  const phrases = style.split(/[,\n]/).map(phrase => phrase.trim().toLowerCase());
+  const option = MUSIC_STYLE_ROWS_EN[0].options.find(([, sentence, legacy]) =>
+    phrases.includes(sentence.toLowerCase()) || phrases.includes(legacy));
+  return option ? option[0] : '';
+}
+
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function recordPlayer() {
   return `<div class="music-turntable" aria-hidden="true">
     <div class="music-record"><span>♪</span></div>
     <span class="music-tonearm"><i></i></span>
     <span class="music-power"></span><span class="music-rpm">33⅓ RPM</span>
   </div>`;
+}
+
+// A phone gives the words the artwork's place, so the switch there returns to the
+// cover rather than to the style. Above that width both texts share the column.
+function lyricsTitle(shown) {
+  if (!shown) return t('music.text.show_lyrics');
+  return matchMedia('(max-width: 760px)').matches
+    ? t('music.text.show_artwork') : t('music.text.show_style');
 }
 
 class MusicStudio extends HTMLElement {
@@ -340,9 +369,9 @@ class MusicStudio extends HTMLElement {
   connectedCallback() {
     if (this.ready) return;
     this.ready = true;
-    this.innerHTML = `<div class="music-studio-shell"><section class="music-preview-area stage" aria-label="${t('music.preview.label')}">
+    this.innerHTML = `<div class="music-studio-shell"><section class="music-preview-area stage" tabindex="0" aria-label="${t('music.preview.label')}">
       <div class="music-preview-pane">
-      <div class="music-generation" hidden role="status" aria-live="polite">
+      <div class="music-generation" hidden tabindex="0" role="status" aria-live="polite">
         ${recordPlayer()}
         <strong class="music-generation-label">${t('music.generation.generating')}</strong>
         <div class="music-timeline music-generation-timeline">
@@ -363,12 +392,32 @@ class MusicStudio extends HTMLElement {
         <div class="strip-head"><span class="music-count">${plural(0, t('music.shelf.songs'))}</span><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="${t('music.audio.pause_label')}" hidden>${t('music.audio.pause')}</button>
           <span class="strip-actions">
-            <button type="button" class="text-btn" id="music-download-all">${t('music.gallery.download_all')}</button>
-            <button type="button" class="text-btn" id="music-clear-all">${t('music.gallery.clear_all')}</button>
+            <button type="button" class="text-btn" id="music-download-all"
+              title=${t('gallery.downloadAll.title')}>${t('music.gallery.download_all')}</button>
+            <button type="button" class="text-btn" id="music-clear-all"
+              title=${t('gallery.clearAll.title')}>${t('music.gallery.clear_all')}</button>
           </span></div>
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
+    // The engraver fixes the staff width when it runs. A window that changes width
+    // gets a fresh engraving at the new width: a wide page carries more bars per line,
+    // so the score needs fewer systems and less scrolling.
+    this.sheetWidth = 0;
+    this.sheetResize = new ResizeObserver(() => {
+      const sheet = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+      if (!sheet || this.scoreSynth) return;
+      const width = Math.round(sheet.clientWidth);
+      if (!width || Math.abs(width - (this.sheetWidth || 0)) < 32) return;
+      clearTimeout(this.sheetTimer);
+      this.sheetTimer = setTimeout(() => {
+        const current = this.querySelector('.music-song:not([hidden]) .music-sheet-notes');
+        if (!current || current !== sheet) return;
+        delete current.dataset.engraved;
+        this.engraveSheet();
+      }, 220);
+    });
+    this.sheetResize.observe(this.querySelector('.music-preview-pane'));
     this.controls.innerHTML = `<div class="modes" role="radiogroup" aria-label="${t('music.mode.label')}">
         <input type="radio" name="music-workflow" id="music-mode-generate" value="generate" checked>
         <label for="music-mode-generate"><svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg>${t('music.mode.generate')}</label>
@@ -564,13 +613,33 @@ class MusicStudio extends HTMLElement {
       if (!this.busy && file) this.setReference(file, file.name || 'reference.wav');
     });
     this.querySelector('.music-background-pause').addEventListener('click', () => this.pausePlayback());
-    this.querySelector('#music-download-all').addEventListener('click', () => this.downloadSongs(this.songs.map(song => song.id)));
+    this.querySelector('#music-download-all').addEventListener('click', event =>
+      this.downloadSongs(this.songs.map(song => song.id), event.currentTarget));
     this.querySelector('#music-clear-all').addEventListener('click', () => this.clearAllSongs());
     window.addEventListener('pagehide', () => this.pausePlayback());
     window.addEventListener('keydown', event => {
       if (this.hidden || !event.altKey || event.code !== 'KeyC' || event.target.closest?.('input, textarea, select, [contenteditable]')) return;
       const song = this.songs.find(item => item.id === this.selectedId);
       if (song && !this.busy) { event.preventDefault(); this.generateCover(song); }
+    });
+    // The preview takes the arrow keys too, so a person can step through the songs
+    // while looking at the one that is open. A control or the scrolling words keep
+    // their own arrow keys.
+    this.querySelector('.music-preview-area').addEventListener('keydown', event => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      if (event.target.closest('input, textarea, select, button, audio, [contenteditable], .music-track-text, .music-output-details')) return;
+      if (!this.stepSong(event.key === 'ArrowRight' ? 1 : -1)) return;
+      event.preventDefault();
+    });
+    // The Browse/Compact switch sits in the shelf's head, outside the strip's own keys.
+    // A person who presses it still expects the arrow keys to step the songs.
+    this.querySelector('gallery-browser').addEventListener('keydown', event => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      if (!event.target.closest('.gallery-browse-toggle')) return;
+      if (!this.stepSong(event.key === 'ArrowRight' ? 1 : -1, false)) return;
+      event.preventDefault();
     });
     this.querySelector('.music-strip').addEventListener('keydown', event => {
       const buttons = [...this.querySelectorAll('.music-strip button')];
@@ -1237,7 +1306,7 @@ class MusicStudio extends HTMLElement {
     const ready = !this.recording && !this.recordingPending
       && (transcribe ? Boolean(this.reference) : draft.style.trim() && (draft.instrumental || draft.lyrics.trim()) && (!needsReference || this.reference));
     this.controls.disabled = this.busy || this.hidden;
-    this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true' || button.dataset.scoreOnly === 'true'; });
+    this.querySelectorAll('[data-music-send]').forEach(button => { button.disabled = this.busy || button.dataset.stub === 'true'; });
     this.querySelectorAll('[data-music-reuse]').forEach(button => { button.disabled = this.busy; });
     // A control that cannot act is off and says why, rather than taking the press
     // and returning in silence.
@@ -1258,7 +1327,17 @@ class MusicStudio extends HTMLElement {
     this.syncRunButton(draft, ready);
     const generating = this.pending || this.operation?.kind === 'music';
     const previewingGeneration = generating && this.showGeneration !== false;
-    this.querySelector('.music-generation').hidden = !previewingGeneration;
+    const generationView = this.querySelector('.music-generation');
+    generationView.hidden = !previewingGeneration;
+    // A run takes the focus as it starts, so the preview a person is watching answers the
+    // arrow keys and the transport without a click.
+    const generationKey = previewingGeneration ? (this.operation?.id || 'pending') : '';
+    if (generationKey && this.focusedGeneration !== generationKey) {
+      this.focusedGeneration = generationKey;
+      generationView.focus({preventScroll: true});
+    } else if (!generationKey) {
+      this.focusedGeneration = '';
+    }
     this.querySelector('.music-empty').hidden = this.songs.length > 0 || generating;
     for (const card of this.querySelectorAll('.music-song, .music-output-details')) card.hidden = previewingGeneration || card.dataset.songId !== this.selectedId;
     if (!previewingGeneration) this.engraveSheet();
@@ -1394,7 +1473,7 @@ class MusicStudio extends HTMLElement {
     const generationSeconds = Number.isFinite(operation.started_at) && Number.isFinite(finished) && finished >= operation.started_at
       ? finished - operation.started_at : null;
     let song = {id: operation.id, blob, ...details, title: t('music.common.untitled'), settings: operation.settings,
-      model: operation.model, createdAt: finished * 1000, generationSeconds};
+      model: operation.model, createdAt: finished * 1000, generationSeconds, genre: genreOf({settings: operation.settings})};
     if (this.keeping) {
       song = await this.store(() => saveMusicSong(song));
       if (!song) return;
@@ -1508,6 +1587,7 @@ class MusicStudio extends HTMLElement {
     const song = this.songs.find(item => item.id === sheet.dataset.songId);
     if (!song?.score) return;
     sheet.dataset.engraved = 'yes';
+    this.sheetWidth = Math.round(sheet.clientWidth);
     renderNotation(sheet, song.score).then(({tunes}) => {
       this.scoreTunes ||= new Map();
       if (tunes[0]) this.scoreTunes.set(song.id, tunes[0]);
@@ -1559,7 +1639,7 @@ class MusicStudio extends HTMLElement {
     if (this.scoreSynth) { this.stopScore(); return; }
     button.disabled = true;
     try {
-      const abcjs = await import('https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm');
+      const abcjs = await import('/page/vendor/abcjs.js');
       const module = abcjs.default || abcjs;
       // The tune comes from the sheet on the page, so the notes it lights are the ones a
       // person sees.
@@ -1613,6 +1693,37 @@ class MusicStudio extends HTMLElement {
     this.closeScore(false); this.selectedId = id; this.showGeneration = false;
     rememberGalleryView('music', {selected: id}, this.keeping);
     this.sync(); this.syncGallery();
+    this.revealSong(id);
+  }
+  // One step for the preview and the shelf, so both keys walk the order a person sees:
+  // the strip shows the pending preview at its left, then the newest song. A step from
+  // the shelf keeps focus on its switch, which still owns Escape.
+  stepSong(delta, focusPane = true) {
+    const generating = Boolean(this.pending || this.operation?.kind === 'music');
+    const order = (generating ? ['__pending__'] : []).concat(this.songs.slice().reverse().map(song => song.id));
+    const current = generating && this.showGeneration !== false ? '__pending__' : this.selectedId;
+    const index = order.indexOf(current);
+    if (index < 0) return false;
+    const next = Math.max(0, Math.min(order.length - 1, index + delta));
+    if (next === index) return false;
+    if (order[next] === '__pending__') {
+      this.showGeneration = true; this.sync(); this.syncGallery();
+      if (focusPane) this.querySelector('.music-generation')?.focus({preventScroll: true});
+    } else {
+      this.selectSong(order[next]);
+      if (focusPane) this.querySelector('.music-preview-area')?.focus({preventScroll: true});
+    }
+    return true;
+  }
+  // The strip scrolls. A song chosen from the keyboard or the browser brings its tile
+  // into view, or the circled tile sits off screen while the preview changes.
+  revealSong(id) {
+    const strip = this.querySelector('.music-strip');
+    const thumb = strip?.querySelector('[data-song-id="' + CSS.escape(String(id)) + '"]');
+    if (!strip || !thumb) return;
+    const frame = strip.getBoundingClientRect(), tile = thumb.getBoundingClientRect();
+    const delta = (tile.left + tile.width / 2) - (frame.left + frame.width / 2);
+    if (Math.abs(delta) > 2) strip.scrollLeft += delta;
   }
   syncGallery() {
     const gallery = this.querySelector('gallery-browser');
@@ -1635,11 +1746,15 @@ class MusicStudio extends HTMLElement {
     const strip = this.querySelector('.music-strip');
     let pending = strip.querySelector('.music-pending-thumb');
     if (gallery.pending && !pending) {
-      pending = document.createElement('button'); pending.type = 'button'; pending.className = 'frame music-pending-thumb pending';
-      pending.innerHTML = `<span class="still music-thumb-art"><span class="video-pending-indicator"></span><span>${t('music.common.generating')}</span></span><span class="no">NEW</span>`;
-      pending.setAttribute('aria-label', t('music.generation.show_label')); pending.addEventListener('click', () => gallery.showPending()); strip.prepend(pending);
+      const tile = document.createElement('gallery-tile');
+      tile.extra = 'music-pending-thumb'; tile.pending = true; tile.stillClass = 'music-thumb-art';
+      tile.label = t('music.generation.show_label'); tile.onPick = () => gallery.showPending();
+      tile.footer = () => 'NEW';
+      tile.content = () => html`<span class="video-pending-indicator"></span><span>${t('music.common.generating')}</span>`;
+      strip.prepend(tile);
+      pending = tile.querySelector('.music-pending-thumb');
     }
-    if (!gallery.pending && pending) pending.remove();
+    if (!gallery.pending && pending) (pending.closest('gallery-tile') || pending).remove();
     else if (pending) { pending.classList.toggle('selected', gallery.pendingSelected); pending.setAttribute('aria-pressed', String(Boolean(gallery.pendingSelected))); }
     gallery.choose = id => this.selectSong(id);
     gallery.removeItem = id => this.removeSong(id);
@@ -1658,14 +1773,97 @@ class MusicStudio extends HTMLElement {
   }
   // One path for every download, so the strip and the browser panel cannot
   // disagree about a file's name or its type.
-  downloadSongs(ids) {
-    for (const song of this.songs.filter(song => ids.includes(song.id))) {
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(song.blob || new Blob([song.score || ''], {type: 'text/vnd.abc'}));
-      link.href = url; link.download = `music-${song.seed}.${song.blob ? 'wav' : 'abc'}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+  async downloadSongs(ids, trigger) {
+    if (trigger?.classList.contains('is-busy')) return;
+    if (trigger) { trigger.classList.add('is-busy'); trigger.disabled = true; }
+    const progress = window.studioProgress?.(t('gallery.saving'));
+    try {
+      const files = [];
+      const chosen = this.songs.filter(song => ids.includes(song.id));
+      for (const [index, song] of chosen.entries()) {
+        if (song.blob) {
+          try {
+            files.push({name: `music-${song.seed}.mp3`, blob: await this.encodeMp3File(song)});
+          } catch (error) {
+            this.options.notify('error', t('music.error.mp3'));
+            files.push({name: `music-${song.seed}.wav`, blob: song.blob});
+          }
+        } else {
+          files.push({name: `music-${song.seed}.abc`,
+            blob: new Blob([song.score || ''], {type: 'text/vnd.abc'})});
+        }
+        progress?.set({done: index + 1, total: chosen.length, index: index + 1, count: chosen.length});
+      }
+      if (files.length) {
+        saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('songs'));
+      }
+    } finally {
+      progress?.close();
+      if (trigger) { trigger.classList.remove('is-busy'); trigger.disabled = false; }
     }
+  }
+  // A song leaves as a tagged MP3. If the encoder cannot load, the WAV is still
+  // the run's own output, so the person gets that file and is told why.
+  async encodeMp3File(song) {
+    const cover = song.coverBlob
+      ? {type: song.coverBlob.type, bytes: new Uint8Array(await song.coverBlob.arrayBuffer())}
+      : null;
+    return encodeMp3(song.blob, {
+      title: this.songTitle(song),
+      genre: song.genre || genreOf(song),
+      artist: musicModelName(song.model),
+      year: new Date(song.createdAt || Date.now()).getFullYear(),
+      comment: song.settings?.style || '',
+      lengthMs: (song.seconds || 0) * 1000,
+      cover,
+    });
+  }
+  async downloadMp3(song, trigger) {
+    if (!song.blob) return;
+    if (trigger) { trigger.disabled = true; trigger.classList.add('is-busy'); trigger.setAttribute('aria-busy', 'true'); }
+    try {
+      saveBlob(await this.encodeMp3File(song), `music-${song.seed}.mp3`);
+    } catch (error) {
+      this.options.notify('error', t('music.error.mp3'));
+      saveBlob(song.blob, `music-${song.seed}.wav`);
+    } finally {
+      if (trigger) { trigger.disabled = false; trigger.classList.remove('is-busy'); trigger.removeAttribute('aria-busy'); }
+    }
+  }
+  // The gallery file carries each song, its cover and its original recording.
+  // An import saves the source first, because the song points at it.
+  async collectBundle() {
+    if (!this.keeping) return [];
+    const items = [];
+    for (const song of await musicSongs()) {
+      const media = [];
+      if (song.blob instanceof Blob) media.push({role: 'audio', blob: song.blob});
+      if (song.coverBlob instanceof Blob) media.push({role: 'cover', blob: song.coverBlob});
+      if (song.sourceId) {
+        const source = await musicSource(song.sourceId).catch(() => null);
+        if (source?.blob instanceof Blob) media.push({role: 'source', blob: source.blob});
+      }
+      const {blob, coverBlob, ...record} = song;
+      items.push({workspace: 'music', id: song.id, at: song.createdAt || 0, record, media});
+    }
+    return items;
+  }
+  async restoreBundle(items) {
+    let imported = 0, skipped = 0;
+    for (const item of items) {
+      const media = Object.fromEntries((item.media || []).map(entry => [entry.role, entry.blob]));
+      if (!(media.audio instanceof Blob)) { skipped += 1; continue; }
+      const song = {...item.record, id: item.id, blob: media.audio};
+      if (media.cover instanceof Blob) song.coverBlob = media.cover;
+      if (song.sourceId && media.source instanceof Blob) {
+        await putMusicSource({id: song.sourceId, blob: media.source,
+          name: song.settings?.reference_name || 'reference'}).catch(() => {});
+      }
+      const saved = await saveMusicSong(song).catch(() => null);
+      if (saved) imported += 1; else skipped += 1;
+    }
+    await this.restoreSongs();
+    return {imported, skipped};
   }
   async clearAllSongs() {
     if (this.busy || !this.songs.length) return;
@@ -1879,12 +2077,17 @@ class MusicStudio extends HTMLElement {
     if (lyrics) this.lyricsShown.add(id); else this.lyricsShown.delete(id);
     const content = card.querySelector('.music-track-text');
     content.dataset.mode = lyrics ? 'lyrics' : 'style';
+    const list = this.querySelector('.music-songs');
+    if (list) list.classList.toggle('shows-lyrics', lyrics);
+    const pane = this.querySelector('.music-preview-pane');
+    if (pane) pane.classList.toggle('shows-lyrics', lyrics);
+    card.classList.toggle('shows-lyrics', lyrics);
     content.setAttribute('aria-label', lyrics ? t('music.text.lyrics_label') : t('music.text.style_label'));
     content.querySelector('.music-style-panel').hidden = lyrics;
     content.querySelector('.music-inline-lyrics').hidden = !lyrics;
     content.scrollTop = 0;
     card.querySelectorAll('[data-music-text-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.musicTextMode === content.dataset.mode)));
-    card.querySelector('.music-lyrics-toggle').title = lyrics ? t('music.text.show_style') : t('music.text.show_lyrics');
+    card.querySelector('.music-lyrics-toggle').title = lyricsTitle(lyrics);
   }
   closeDetails(focus = true) {
     this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
@@ -1943,7 +2146,7 @@ class MusicStudio extends HTMLElement {
     }
     return links;
   }
-  renderPlayer(audio, song) {
+  renderPlayer(audio, song, showingLyrics = false) {
     const player = document.createElement('div'); player.className = 'music-player';
     const timeline = document.createElement('div'); timeline.className = 'music-timeline';
     const seek = document.createElement('input'); seek.type = 'range'; seek.min = '0'; seek.max = '0'; seek.step = '0.1'; seek.value = '0';
@@ -1964,13 +2167,18 @@ class MusicStudio extends HTMLElement {
     const forward = control(t('music.player.forward'), '<path d="M18 7a8 8 0 1 0 1 10M18 3v5h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="sans-serif">5</text>');
     transport.append(back, toggle, forward);
     const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
-    const lyricsShown = hasLyrics && this.lyricsShown?.has(song.id);
+    const lyricsShown = hasLyrics && showingLyrics;
     const lyrics = document.createElement('button'); lyrics.type = 'button'; lyrics.className = 'icon-btn music-lyrics-toggle';
     lyrics.setAttribute('aria-label', t('music.field.lyrics')); lyrics.dataset.musicTextMode = 'lyrics'; lyrics.disabled = !hasLyrics;
     lyrics.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>';
     lyrics.setAttribute('aria-pressed', String(Boolean(lyricsShown))); lyrics.setAttribute('aria-controls', 'music-text-' + song.id);
-    lyrics.title = lyricsShown ? t('music.text.show_style') : t('music.text.show_lyrics');
-    lyrics.addEventListener('click', () => this.setTextView(song.id, this.lyricsShown?.has(song.id) ? 'style' : 'lyrics'));
+    lyrics.title = lyricsTitle(lyricsShown);
+    // The mode lives in the region, not only in this set: the small view opens on the
+    // lyrics without recording a choice, and the first press must still flip them.
+    lyrics.addEventListener('click', () => {
+      const region = this.querySelector('.music-song[data-song-id="' + CSS.escape(song.id) + '"] .music-track-text');
+      this.setTextView(song.id, region?.dataset.mode === 'lyrics' ? 'style' : 'lyrics');
+    });
     transport.append(lyrics);
     const error = document.createElement('p'); error.className = 'music-error music-player-error'; error.setAttribute('role', 'status'); error.hidden = true;
     const clock = value => { const seconds = Math.floor(Math.max(0, value)); return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`; };
@@ -2064,14 +2272,26 @@ class MusicStudio extends HTMLElement {
       audio.onpause = audio.onended = syncPlayback;
       card.classList.toggle('is-playing', !audio.paused && !audio.ended);
       if (!audio.paused && !audio.ended) playback.textContent = t('music.playback.playing');
-      const download = document.createElement('a'); download.className = 'icon-btn';
-      download.href = url; download.download = `music-${song.seed}.${hasAudio ? 'wav' : 'abc'}`; download.setAttribute('aria-label', hasAudio ? t('music.download.wav') : t('music.download.abc')); download.title = hasAudio ? t('music.download.wav') : t('music.download.abc'); download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
+      const download = document.createElement(hasAudio ? 'button' : 'a');
+      download.className = 'icon-btn';
+      if (hasAudio) {
+        // Encoding waits on the CDN and on the decoder, so the control is a button.
+        download.type = 'button';
+        download.setAttribute('aria-label', t('music.download.mp3'));
+        download.title = t('music.download.mp3');
+        download.addEventListener('click', () => this.downloadMp3(song, download));
+      } else {
+        download.href = url; download.download = `music-${song.seed}.abc`;
+        download.setAttribute('aria-label', t('music.download.abc'));
+        download.title = t('music.download.abc');
+      }
+      download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
       const details = document.createElement('div');
       details.className = 'music-details-body';
       const metadata = document.createElement('dl');
       const planning = song.metadata?.config?.cot || song.settings?.cot;
       const planningKey = {full: 'music.planning.full', melody: 'music.planning.melody', off: 'music.planning.off'}[planning];
-      for (const [name, value] of [[t('music.meta.model'), musicModelName(song.model)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
+      for (const [name, value] of [[t('music.meta.model'), musicModelName(song.model)], [t('music.meta.genre'), song.genre || genreOf(song)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
         [t('music.meta.audio_label'), hasAudio ? t('music.meta.audio_value') : t('music.meta.score_value')], [t('music.meta.workflow'), t({generate: 'music.meta.workflow_song', plan: 'music.meta.workflow_plan', transcribe: 'music.meta.workflow_transcribe', cover: 'music.meta.workflow_cover'}[song.settings?.mode || 'generate'])], [t('music.meta.reference'), song.settings?.reference_name], [t('music.meta.instrumental'), song.settings?.instrumental ? t('music.common.yes') : null], [t('music.meta.steps'), hasAudio ? song.settings?.steps || 32 : null], [t('music.meta.guidance'), hasAudio ? song.settings?.cfg_scale ?? 1 : null], [t('music.field.style'), song.settings?.style], [t('music.field.planning'), planningKey ? t(planningKey) : null], [t('music.meta.cover_model'), song.coverModel], [t('music.meta.cover_seed'), song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;
@@ -2117,11 +2337,11 @@ class MusicStudio extends HTMLElement {
         downloads.prepend(abc);
       }
       const send = menuItem('music', t('music.menu.send_video'), () => {
-        if (this.busy || song.stub || !hasAudio) return;
+        if (this.busy || song.stub) return;
         this.options.onSendToVideo({blob: song.blob, name: `music-${song.seed}.wav`}).catch(error => this.options.notify('error', error.message));
       });
-      send.dataset.musicSend = ''; send.dataset.stub = String(song.stub); send.dataset.scoreOnly = String(!hasAudio);
-      send.disabled = this.busy || song.stub || !hasAudio;
+      send.dataset.musicSend = ''; send.dataset.stub = String(song.stub);
+      send.disabled = this.busy || song.stub;
       const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger'; remove.setAttribute('aria-label', t('music.common.delete')); remove.title = t('music.delete.title');
       remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>';
       remove.addEventListener('click', () => this.removeSong(song.id));
@@ -2156,8 +2376,9 @@ class MusicStudio extends HTMLElement {
       const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more')); toggle.title = t('music.actions.more');
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', t('music.actions.menu_label'));
       toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
+      // A score has no recording, so it never offers Send to Video.
       menu.append(...(song.score ? [useScore] : []), ...(song.sourceId ? [useOriginal] : []),
-        ...(hasAudio ? [useReference] : []), send);
+        ...(hasAudio ? [useReference, send] : []));
       const reuse = menuItem('text', t('music.menu.reuse'), () => {
         if (this.busy) return;
         for (const key of ['style', 'lyrics']) this.controls.querySelector('#music-' + key).value = song.settings?.[key] || '';
@@ -2175,27 +2396,31 @@ class MusicStudio extends HTMLElement {
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
-      body.append(hasAudio ? renderSongText(song, this.lyricsShown?.has(song.id)) : this.sheetFor(song));
-      if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song), audio);
+      const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
+      const showingLyrics = Boolean(hasLyrics && this.lyricsShown?.has(song.id));
+      card.classList.toggle('shows-lyrics', showingLyrics);
+      body.append(hasAudio ? renderSongText(song, showingLyrics) : this.sheetFor(song));
+      if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
       card.append(artwork, body); list.append(card);
-      const thumb = document.createElement('button'); thumb.type = 'button'; thumb.className = 'frame music-thumb'; thumb.dataset.songId = song.id;
       const number = this.songs.indexOf(song) + 1;
-      thumb.setAttribute('aria-label', t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number})); thumb.title = this.songTitle(song);
-      const still = document.createElement('span'); still.className = 'still music-thumb-art';
-      if (song.coverBlob) { const image = document.createElement('img'); image.src = this.coverUrls.get(song.id); image.alt = ''; still.append(image); }
-      else {
-        const mark = document.createElement('span'); mark.className = 'music-thumb-note';
-        // A score is not a recording: its tile wears a staff, not the note glyph.
-        if (hasAudio) mark.textContent = '♫';
-        else mark.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>';
-        still.append(mark);
-      }
-      const playing = document.createElement('span'); playing.className = 'music-playing-state'; playing.hidden = true;
-      render(playingMark(), playing); still.append(playing);
-      const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
-      thumb.append(still, label); thumb.addEventListener('click', () => this.selectSong(song.id)); strip.append(thumb);
+      const thumb = document.createElement('gallery-tile');
+      thumb.extra = 'music-thumb'; thumb.songId = song.id; thumb.stillClass = 'music-thumb-art';
+      thumb.label = t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number});
+      thumb.title = this.songTitle(song);
+      thumb.onPick = () => this.selectSong(song.id);
+      thumb.footer = () => t('music.thumb.meta', {number: String(number).padStart(2, '0'),
+        value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
+      thumb.content = () => html`${song.coverBlob
+          ? html`<img src=${this.coverUrls.get(song.id)} alt="">`
+          : html`<span class="music-thumb-note">${hasAudio ? '♫' : html`<svg class="icon" aria-hidden="true"><use href="#i-score"></use></svg>`}</span>`}<span class="music-playing-state" hidden>${playingMark()}</span>`;
+      strip.append(thumb);
     }
+    this.revealSong(this.selectedId);
+    const selected = this.songs.find(song => song.id === this.selectedId);
+    const showingLyrics = Boolean(selected && this.lyricsShown?.has(selected.id));
+    list.classList.toggle('shows-lyrics', showingLyrics);
+    this.querySelector('.music-preview-pane')?.classList.toggle('shows-lyrics', showingLyrics);
     this.sync(); this.syncGallery();
   }
 }

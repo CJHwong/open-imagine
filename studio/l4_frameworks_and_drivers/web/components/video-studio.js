@@ -1,10 +1,12 @@
-import { LitElement, html, nothing, render as renderTemplate } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html, nothing, render as renderTemplate } from '/page/vendor/lit.js';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {t, plural} from '../lib/i18n.js';
@@ -152,22 +154,6 @@ function releaseClipUrls(clip) {
   if (clip.thumbnailUrl) URL.revokeObjectURL(clip.thumbnailUrl);
 }
 
-function videoDownloadName(clip) {
-  return mediaDownloadName({kind: 'video', text: clip.metadata?.prompt || clip.name,
-    at: clip.createdAt, id: clip.id, extension: mediaExtension(clip.mp4Blob?.type, 'mp4')});
-}
-
-function saveFile(url, name) {
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = name;
-  link.click();
-}
-
-function waitBetweenDownloads() {
-  return new Promise((resolve) => setTimeout(resolve, 300));
-}
-
 function videoExportMetadata(clip, file) {
   const metadata = clip.metadata || {};
   return {
@@ -193,6 +179,11 @@ function videoExportMetadata(clip, file) {
     seed: Number.isInteger(metadata.seed) ? metadata.seed : null,
     elapsedSeconds: metadata.elapsedSeconds || null,
   };
+}
+
+function videoDownloadName(clip) {
+  return mediaDownloadName({kind: 'video', text: clip.metadata?.prompt || clip.name,
+    at: clip.createdAt, id: clip.id, extension: mediaExtension(clip.mp4Blob?.type, 'mp4')});
 }
 
 class VideoStudio extends LitElement {
@@ -1496,21 +1487,27 @@ class VideoStudio extends LitElement {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated' && !clip.stub && (clip.url || clip.loadMedia)
       && (!ids || ids.includes(clip.id))).reverse();
     if (!outputs.length) return;
-    const details = [];
+    const progress = window.studioProgress?.(t('gallery.saving'));
     try {
+      const files = [];
+      const details = [];
+      let index = 0;
       for (const clip of outputs) {
         await this.ensureClip(clip);
-        const file = videoDownloadName(clip);
-        saveFile(clip.url, file);
-        details.push(videoExportMetadata(clip, file));
-        await waitBetweenDownloads();
+        const name = videoDownloadName(clip);
+        files.push({name, blob: await (await fetch(clip.url)).blob()});
+        details.push(videoExportMetadata(clip, name));
+        index += 1;
+        progress?.set({done: index, total: outputs.length, index, count: outputs.length});
       }
-      const metadataUrl = URL.createObjectURL(new Blob([JSON.stringify(details, null, 2)], {
-        type: 'application/json',
-      }));
-      saveFile(metadataUrl, mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}));
-      setTimeout(() => URL.revokeObjectURL(metadataUrl), 10000);
+      if (files.length) {
+        files.push({name: mediaDownloadName({kind: 'video', text: 'metadata', at: Date.now(), extension: 'json'}),
+          blob: new Blob([JSON.stringify(details, null, 2)], {type: 'application/json'})});
+        saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('clips'));
+      }
+      progress?.close();
     } catch (error) {
+      progress?.close();
       this.setError(t(ids ? 'video.gallery.downloadSelectedStopped' : 'video.gallery.downloadAllStopped',
         {error: error.message}));
     }
@@ -1929,38 +1926,36 @@ class VideoStudio extends LitElement {
             .download=${ids => this.downloadAllVideos(ids)} .playback=${() => this.togglePlayback()}></gallery-browser>
           <span class="strip-actions">
             <button class="text-btn" type="button" id="video-gallery-download"
-              data-action="download-all-videos" ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
+              data-action="download-all-videos" title=${t('gallery.downloadAll.title')}
+              ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
             <button class="text-btn" type="button" id="video-gallery-clear"
-              data-action="clear-video-gallery" ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
+              data-action="clear-video-gallery" title=${t('gallery.clearAll.title')}
+              ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
           </span>
         </div>
         <div class="strip video-clips" role="group" aria-label=${t('video.gallery.generated')}>
           ${this.pendingRender ? html`
-            <button class="video-gallery-item video-gallery-pending frame pending${renderOnScreen ? ' selected' : ''}"
-              type="button" aria-label=${t('video.gallery.showRender')} aria-pressed=${renderOnScreen}
-              data-action="show-render">
-              <span class="still video-clip-thumb pending-thumb">
-                <span class="video-pending-indicator" aria-hidden="true"></span>
-                <span>${t('video.gallery.rendering')}</span>
-              </span>
-              <span class="no">${String(outputs.length + 1).padStart(2, '0')}</span>
-              ${renderOnScreen ? pencilLoop() : nothing}
-            </button>` : ''}
+            <div class="video-gallery-item pending">
+              <gallery-tile extra="video-gallery-item video-gallery-pending" ?pending=${true}
+                ?selected=${renderOnScreen} label=${t('video.gallery.showRender')}
+                .footer=${() => String(outputs.length + 1).padStart(2, '0')}
+                .mark=${() => pencilLoop()}
+                .onPick=${() => this.showRenderMonitor()}
+                .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('video.gallery.rendering')}</span>`}></gallery-tile>
+            </div>` : ''}
           <gallery-window .items=${newestFirst} .selected=${this.selectedClipId} .renderItem=${(clip, position) => html`
             <div class="video-gallery-item">
-              <button class="frame video-clip${clip.id === this.selectedClipId && !renderOnScreen ? ' selected' : ''}"
-                type="button" aria-label=${t('video.gallery.select', {name: clip.name})}
-                aria-pressed=${clip.id === this.selectedClipId && !renderOnScreen}
-                data-action="select-clip" data-clip-id=${clip.id}>
-                <span class="still video-clip-thumb">
-                  ${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
+              <gallery-tile extra="video-clip" stillClass="video-clip-thumb"
+                ?selected=${clip.id === this.selectedClipId && !renderOnScreen}
+                label=${t('video.gallery.select', {name: clip.name})}
+                action="select-clip" .clipId=${clip.id}
+                .footer=${() => String(outputs.length - position).padStart(2, '0')}
+                .mark=${() => pencilLoop(true)}
+                .onPick=${() => this.selectClip(clip.id)}
+                .content=${() => html`${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
                     .blocked=${Boolean(this.pendingRender)} .load=${async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob})}></gallery-media>`
                     : html`<span class="video-clip-placeholder">${t('video.mark.stub')}</span>`}
-                  <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>
-                </span>
-                <span class="no">${String(outputs.length - position).padStart(2, '0')}</span>
-                ${clip.id === this.selectedClipId && !renderOnScreen ? pencilLoop(true) : nothing}
-              </button>
+                  <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>`}></gallery-tile>
             </div>`}></gallery-window>
         </div>
       </section>`;

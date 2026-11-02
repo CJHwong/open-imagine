@@ -226,7 +226,7 @@ def verify_score_sheet(browser, base):
     page.locator("#music-generate").click()
     expect(page.locator(".music-song.is-score")).to_have_count(1, timeout=30000)
     card = page.locator(".music-song:not([hidden])")
-    # The engraver loads from the CDN, so the sheet arrives after the card.
+    # The engraver loads as a module, so the sheet arrives after the card.
     # The engraver writes one SVG per line, so the first is the check.
     expect(card.locator(".music-sheet-notes svg").first).to_be_visible(timeout=60000)
     expect(card.locator(".music-song-style")).to_have_count(0)
@@ -480,7 +480,8 @@ def main():
         bar = page.locator(".music-output-details:not([hidden])")
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Use this score", exact=True)).to_be_enabled()
-        expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_be_disabled()
+        # A score has no recording to send, so the item is absent, not disabled.
+        expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_have_count(0)
         page.keyboard.press("Escape")
         assert submitted[-1]["mode"] == "plan"
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1

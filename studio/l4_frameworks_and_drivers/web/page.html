@@ -43,7 +43,7 @@
 <script type="module" src="/page/lib/store.js"></script>
 <script type="module" src="/page/lib/drafts.js"></script>
 <script type="module" src="/page/lib/operations.js"></script>
-<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+<script src="/page/vendor/htmx.min.js"></script>
 <link rel="stylesheet" href="/page/page.css">
 <link rel="stylesheet" href="/page/lib/audio-preview.css">
 <link rel="stylesheet" href="/page/lib/themes.css">
@@ -146,8 +146,10 @@
         <span id="strip-note"></span>
         <gallery-browser id="image-gallery-browser" workspace="image"></gallery-browser>
         <span class="strip-actions">
-          <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll">Download all</button>
-          <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll">Clear all</button>
+          <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll"
+            data-i18n-attr='{"title":"gallery.downloadAll.title"}'>Download all</button>
+          <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll"
+            data-i18n-attr='{"title":"gallery.clearAll.title"}'>Clear all</button>
         </span>
       </div>
       <!-- The frames are components/image-strip.js, which draws them from the
@@ -2826,6 +2828,9 @@
   let toastHost = null;
   document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
   function showToast(kind, text) { toastHost.notify(kind, text); }
+  // A download packs one archive and can take a while. The same toast the export uses
+  // reports it, so a press never looks stuck.
+  window.studioProgress = function (text) { return toastHost.progress(text); };
 
   setMediaMode(mediaMode);
 
@@ -2941,7 +2946,10 @@
     // A key event dispatched from a script can carry the document itself as its target.
     // Treat that as the body: the key still acts, and `.closest` cannot throw.
     const target = event.target instanceof Element ? event.target : document.body;
-    if (event.defaultPrevented || target.closest('gallery-browser, dialog, [role="dialog"]')) return;
+    // The browser keeps its own keys, except the Browse/Compact switch. That switch sits
+    // in the strip's head, and a person who presses it still expects the strip to step.
+    const ownKeys = target.closest('gallery-browser, dialog, [role="dialog"]');
+    if (event.defaultPrevented || (ownKeys && !target.closest('.gallery-browse-toggle'))) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (target.closest('input, textarea, select, [contenteditable]')) return;
     if (document.querySelector('.menu:not([hidden])')) return;
@@ -3085,6 +3093,16 @@
     play.setAttribute('role', 'menuitemcheckbox');
     play.id = 'autoplay-toggle';
     menu.append(head, keep, play);
+    // One place leaves and returns the whole gallery. An import usually starts with
+    // no images, so the menu carries it and the shelves do not.
+    const fileHead = document.createElement('div');
+    fileHead.className = 'menu-head';
+    fileHead.textContent = t('page.gallery.file');
+    menu.append(fileHead,
+      menus.menuItem('download', t('gallery.export'), () => exportGalleryFile(),
+        t('gallery.export.title')),
+      menus.menuItem('plus', t('gallery.import'), () => importGalleryFile(),
+        t('gallery.import.title')));
     markKeep();
     markAutoplay();
     // The clip player arrives with its module, after this script runs.
@@ -3105,6 +3123,64 @@
 
   // The kept images are asked for on the store's own door: that module owns the
   // database, and reading it back is the first thing it does.
+
+  // The gallery file. The page owns the four stores, so the transfer control asks
+  // it for the items, and the file comes back here to be split by workspace.
+  window.notifyStudio = showToast;
+  async function exportGalleryFile() {
+    const progress = toastHost.progress(t('gallery.exporting'));
+    try {
+      const {encodeBundle, bundleName, saveBundle} = await import('/page/lib/gallery-bundle.js');
+      const items = await window.collectStudioBundle();
+      const at = Date.now();
+      const blob = await encodeBundle(items, at, function (step) {
+        progress.set(step);
+      });
+      saveBundle(blob, bundleName(at));
+      progress.close();
+      showToast('info', t('gallery.exported', {count: items.length}));
+    } catch (error) {
+      progress.close();
+      showToast('error', t('gallery.exportFailed', {message: error.message}));
+    }
+  }
+  function importGalleryFile() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip,.gz,.json,application/zip,application/gzip,application/json';
+    input.onchange = async function () {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const {decodeBundle} = await import('/page/lib/gallery-bundle.js');
+        const result = await window.restoreStudioBundle(await decodeBundle(file));
+        showToast('info', t('gallery.imported', {count: result.imported, skipped: result.skipped}));
+      } catch (error) {
+        showToast('error', t('gallery.importFailed', {message: error.message}));
+      }
+    };
+    input.click();
+  }
+  window.collectStudioBundle = async function () {
+    const items = [];
+    if (kept) items.push(...await kept.collectBundle());
+    if (typeof voiceStudio.collectBundle === 'function') items.push(...await voiceStudio.collectBundle());
+    if (typeof musicStudio.collectBundle === 'function') items.push(...await musicStudio.collectBundle());
+    return items;
+  };
+  window.restoreStudioBundle = async function (items) {
+    const media = items.filter(item => item.workspace === 'image' || item.workspace === 'video');
+    const result = kept ? await kept.restoreBundle(media) : {imported: 0, skipped: media.length};
+    let imported = result.imported, skipped = result.skipped;
+    for (const [studio, workspace] of [[voiceStudio, 'voice'], [musicStudio, 'music']]) {
+      const own = items.filter(item => item.workspace === workspace);
+      if (!own.length || typeof studio.restoreBundle !== 'function') continue;
+      const count = await studio.restoreBundle(own);
+      imported += count.imported;
+      skipped += count.skipped;
+    }
+    return {imported, skipped};
+  };
 </script>
 </body>
 </html>
