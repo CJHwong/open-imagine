@@ -325,6 +325,14 @@ function recordPlayer() {
   </div>`;
 }
 
+// A phone gives the words the artwork's place, so the switch there returns to the
+// cover rather than to the style. Above that width both texts share the column.
+function lyricsTitle(shown) {
+  if (!shown) return t('music.text.show_lyrics');
+  return matchMedia('(max-width: 760px)').matches
+    ? t('music.text.show_artwork') : t('music.text.show_style');
+}
+
 class MusicStudio extends HTMLElement {
   constructor() {
     super();
@@ -2003,7 +2011,7 @@ class MusicStudio extends HTMLElement {
     content.querySelector('.music-inline-lyrics').hidden = !lyrics;
     content.scrollTop = 0;
     card.querySelectorAll('[data-music-text-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.musicTextMode === content.dataset.mode)));
-    card.querySelector('.music-lyrics-toggle').title = lyrics ? t('music.text.show_style') : t('music.text.show_lyrics');
+    card.querySelector('.music-lyrics-toggle').title = lyricsTitle(lyrics);
   }
   closeDetails(focus = true) {
     this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
@@ -2088,7 +2096,7 @@ class MusicStudio extends HTMLElement {
     lyrics.setAttribute('aria-label', t('music.field.lyrics')); lyrics.dataset.musicTextMode = 'lyrics'; lyrics.disabled = !hasLyrics;
     lyrics.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>';
     lyrics.setAttribute('aria-pressed', String(Boolean(lyricsShown))); lyrics.setAttribute('aria-controls', 'music-text-' + song.id);
-    lyrics.title = lyricsShown ? t('music.text.show_style') : t('music.text.show_lyrics');
+    lyrics.title = lyricsTitle(lyricsShown);
     // The mode lives in the region, not only in this set: the small view opens on the
     // lyrics without recording a choice, and the first press must still flip them.
     lyrics.addEventListener('click', () => {
@@ -2311,12 +2319,8 @@ class MusicStudio extends HTMLElement {
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
-      // The small view has no room for two texts, and the lyrics are what a person
-      // reads there. It opens on them when the song has them; the switch can still
-      // bring the style back, or take it away.
       const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
-      const showingLyrics = Boolean(this.lyricsShown?.has(song.id)
-        || (hasLyrics && matchMedia('(max-width: 760px)').matches));
+      const showingLyrics = Boolean(hasLyrics && this.lyricsShown?.has(song.id));
       body.append(hasAudio ? renderSongText(song, showingLyrics) : this.sheetFor(song));
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }

@@ -850,6 +850,7 @@
   "music.text.lyrics_label": "Song lyrics",
   "music.text.show_lyrics": "Show lyrics",
   "music.text.show_style": "Show style",
+  "music.text.show_artwork": "Show artwork",
   "music.text.style_label": "Song style",
   "music.thumb.meta": "{number}: {value}",
   "music.thumb.score": "score",

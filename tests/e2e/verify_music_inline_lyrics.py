@@ -59,10 +59,20 @@ def main():
                 "button=>button.nextElementSibling.matches('.music-lyrics-toggle')"
             )
             if mobile:
-                # The small view opens on the lyrics and carries no switch.
+                # The small view opens on the artwork. The switch gives the lyrics the
+                # artwork's and the title's place, and returns it the same way.
+                expect(current.locator(".music-artwork")).to_be_visible()
+                expect(current.locator(".music-song-title")).to_be_visible()
+                expect(current.locator(".music-track-text")).to_be_hidden()
+                expect(toggle).to_be_visible()
+                expect(toggle).to_have_attribute("aria-pressed", "false")
+                assert toggle.get_attribute("title") == "Show lyrics"
+                toggle.click()
                 expect(inline).to_be_visible()
-                expect(current.locator(".music-style-panel")).to_be_hidden()
-                expect(current.locator(".music-lyrics-toggle")).to_be_hidden()
+                expect(current.locator(".music-artwork")).to_be_hidden()
+                expect(current.locator(".music-song-title")).to_be_hidden()
+                expect(toggle).to_have_attribute("aria-pressed", "true")
+                assert toggle.get_attribute("title") == "Show artwork"
                 assert current.locator(".music-track-text").evaluate("node=>node.scrollHeight>node.clientHeight")
                 expect(inline.get_by_role("heading", name="Verse", exact=True)).to_be_visible()
                 expect(inline.locator(".music-lyrics-line")).to_have_count(33)
@@ -132,7 +142,8 @@ def main():
             expect(instrumental.locator(".music-inline-lyrics")).to_have_text("Instrumental")
             if mobile:
                 expect(instrumental.locator(".music-track-text")).to_be_hidden()
-                expect(instrumental.locator(".music-lyrics-toggle")).to_be_hidden()
+                expect(instrumental.locator(".music-artwork")).to_be_visible()
+                expect(instrumental.get_by_role("button", name="Lyrics", exact=True)).to_be_disabled()
             else:
                 expect(instrumental.get_by_role("button", name="Lyrics", exact=True)).to_be_disabled()
             assert page.evaluate("!window.inlineAudio.paused")
@@ -147,8 +158,9 @@ def main():
                 disabled_toggle = empty_song.get_by_role("button", name="Lyrics", exact=True)
                 if mobile:
                     expect(empty_song.locator(".music-track-text")).to_be_hidden()
-                    expect(empty_song.locator(".music-lyrics-toggle")).to_be_hidden()
-                    expect(empty_song.locator(".music-lyrics-toggle")).to_have_attribute("aria-pressed", "false")
+                    expect(empty_song.locator(".music-artwork")).to_be_visible()
+                    expect(disabled_toggle).to_be_disabled()
+                    expect(disabled_toggle).to_have_attribute("aria-pressed", "false")
                 else:
                     expect(disabled_toggle).to_be_visible()
                     expect(disabled_toggle).to_be_disabled()

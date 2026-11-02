@@ -841,6 +841,7 @@
   "music.text.lyrics_label": "歌詞",
   "music.text.show_lyrics": "顯示歌詞",
   "music.text.show_style": "顯示曲風",
+  "music.text.show_artwork": "顯示封面",
   "music.text.style_label": "歌曲曲風",
   "music.thumb.meta": "{number}：{value}",
   "music.thumb.score": "樂譜",

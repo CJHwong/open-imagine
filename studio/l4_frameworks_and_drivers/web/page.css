@@ -1412,7 +1412,10 @@
     .music-song, .music-record { animation: none !important; }
     .music-tonearm { transition: none; }
   }
-  @media (max-width: 1050px) {
+  /* The card keeps its two columns until the tabbed view starts. A 1024 wide window
+     still has room beside the artwork, and one column there made the card taller
+     than the preview pane, which pushed it to the top of that pane. */
+  @media (max-width: 900px) {
     .music-song { grid-template-columns: minmax(0, 1fr); max-width: 560px; margin: auto; }
     .music-artwork { width: min(300px, 100%); justify-self: center; }
     .music-track-body { display: block; align-self: center; }
@@ -1492,13 +1495,14 @@
     .music-artwork { width: clamp(96px, min(46vw, calc(100svh - 660px)), 220px); }
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
-    .music-track-text { height: clamp(120px, calc(100svh - 700px), 220px); }
-    /* The small view has no room for the style paragraph. It sits in the form and in
-       the details sheet; the preview keeps the lyrics, which is what is read there. */
+    /* The small view shows the artwork and the name by default. The style paragraph
+       sits in the form and the details sheet; the words switch swaps the artwork and
+       the name for the lyrics, so they get the room instead of a clipped strip. */
     .music-track-text[data-mode="style"] { display: none; }
-    /* The small view opens on the lyrics and has no second text to switch to, so the
-       switch would only hide what it names. The details bar still opens the sheet. */
-    .music-transport .music-lyrics-toggle { display: none; }
+    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-artwork,
+    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-song-title { display: none; }
+    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-track-text {
+      height: clamp(180px, calc(100svh - 540px), 360px); }
     .music-output-details .about .prompt-line { display: -webkit-box; -webkit-line-clamp: 1;
       -webkit-box-orient: vertical; overflow: hidden; }
     .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
