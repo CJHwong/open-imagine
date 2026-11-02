@@ -1598,8 +1598,10 @@
   /* A score fills the preview. The page takes the height the pane gives it, and the
      notation scrolls only when the score is longer than that. The old 900px width and
      420px height caps left a third of a wide stage empty and cut the last system. */
-  .music-preview-pane:has(.music-song.is-score) { align-items: stretch; justify-content: flex-start; }
-  .music-preview-pane:has(.music-song.is-score) .music-songs { width: 100%; height: 100%; }
+  /* Only the score on screen takes the whole pane. Every song card stays in the pane,
+     hidden or not, so a hidden score must not stretch the pane for a song beside it. */
+  .music-preview-pane:has(.music-song.is-score:not([hidden])) { align-items: stretch; justify-content: flex-start; }
+  .music-preview-pane:has(.music-song.is-score:not([hidden])) .music-songs { width: 100%; height: 100%; }
   .music-song.is-score { width: 100%; max-width: none; height: 100%; margin: 0; }
   .music-song.is-score .music-track-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
   /* The page is as tall as its notation, up to the height the pane leaves for it. A
