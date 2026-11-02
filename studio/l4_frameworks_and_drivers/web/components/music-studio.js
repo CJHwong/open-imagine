@@ -2006,6 +2006,11 @@ class MusicStudio extends HTMLElement {
     if (lyrics) this.lyricsShown.add(id); else this.lyricsShown.delete(id);
     const content = card.querySelector('.music-track-text');
     content.dataset.mode = lyrics ? 'lyrics' : 'style';
+    const list = this.querySelector('.music-songs');
+    if (list) list.classList.toggle('shows-lyrics', lyrics);
+    const pane = this.querySelector('.music-preview-pane');
+    if (pane) pane.classList.toggle('shows-lyrics', lyrics);
+    card.classList.toggle('shows-lyrics', lyrics);
     content.setAttribute('aria-label', lyrics ? t('music.text.lyrics_label') : t('music.text.style_label'));
     content.querySelector('.music-style-panel').hidden = lyrics;
     content.querySelector('.music-inline-lyrics').hidden = !lyrics;
@@ -2321,6 +2326,7 @@ class MusicStudio extends HTMLElement {
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
       const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
       const showingLyrics = Boolean(hasLyrics && this.lyricsShown?.has(song.id));
+      card.classList.toggle('shows-lyrics', showingLyrics);
       body.append(hasAudio ? renderSongText(song, showingLyrics) : this.sheetFor(song));
       if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
@@ -2342,6 +2348,10 @@ class MusicStudio extends HTMLElement {
       const label = document.createElement('span'); label.className = 'no'; label.textContent = t('music.thumb.meta', {number: String(number).padStart(2, '0'), value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});
       thumb.append(still, label); thumb.addEventListener('click', () => this.selectSong(song.id)); strip.append(thumb);
     }
+    const selected = this.songs.find(song => song.id === this.selectedId);
+    const showingLyrics = Boolean(selected && this.lyricsShown?.has(selected.id));
+    list.classList.toggle('shows-lyrics', showingLyrics);
+    this.querySelector('.music-preview-pane')?.classList.toggle('shows-lyrics', showingLyrics);
     this.sync(); this.syncGallery();
   }
 }

@@ -1211,8 +1211,12 @@
   #music-studio[hidden] { display: none; }
   .music-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; }
   .music-preview-area.stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
-  .music-preview-pane { display: grid; align-items: safe center; justify-items: center; min-height: 0;
-    overflow: auto; padding: 28px; }
+  /* Center the card with plainer alignment than `safe center`: an older engine drops
+     the whole declaration it does not know, and the card then stretches and sits at
+     the top of the pane. The pane still scrolls when the card is taller than it. */
+  .music-preview-pane { display: grid; align-items: center; align-content: center;
+    justify-items: center; min-height: 0; overflow: auto; padding: 28px; }
+  .music-preview-pane > .music-songs { align-self: center; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-strip:empty { display: none; }
   /* Every music tile is a square: the stage cover, the strip thumb and the pending tile
@@ -1499,10 +1503,17 @@
        sits in the form and the details sheet; the words switch swaps the artwork and
        the name for the lyrics, so they get the room instead of a clipped strip. */
     .music-track-text[data-mode="style"] { display: none; }
-    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-artwork,
-    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-song-title { display: none; }
-    .music-song:has(.music-track-text[data-mode="lyrics"]) .music-track-text {
-      height: clamp(180px, calc(100svh - 540px), 360px); }
+    /* The words take the whole pane above the details bar, not a strip that leaves
+       the rest empty. The row has to be given the pane's height for 100% to resolve. */
+    .music-preview-pane.shows-lyrics { grid-template-rows: minmax(0, 1fr); align-content: stretch;
+      align-items: stretch; }
+    .music-song.shows-lyrics { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+    .music-song.shows-lyrics .music-artwork,
+    .music-song.shows-lyrics .music-song-title { display: none; }
+    .music-song.shows-lyrics .music-track-body { flex: 1 1 auto; min-height: 0; display: flex;
+      flex-direction: column; align-self: stretch; }
+    .music-song.shows-lyrics .music-track-text { flex: 1 1 auto; height: auto; max-height: none; }
+    .music-songs.shows-lyrics { height: 100%; }
     .music-output-details .about .prompt-line { display: -webkit-box; -webkit-line-clamp: 1;
       -webkit-box-orient: vertical; overflow: hidden; }
     .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
