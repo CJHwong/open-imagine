@@ -1,14 +1,16 @@
-import {LitElement, html, svg, nothing, render} from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import {LitElement, html, svg, nothing, render} from '/page/vendor/lit.js';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
-import {clearVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
+import {clearVoice, exportVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
 import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {closeMenus, toggleMenu} from './popup-menu.js';
 import './run-button.js';
 import './audio-preview.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
+import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
 import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
+import './gallery-tile.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {t, plural, label} from '../lib/i18n.js';
 
@@ -370,6 +372,29 @@ class VoiceStudio extends LitElement {
     if (message.kind === 'take') this.addTake(message.take, message.text, false, message.segmentId);
     if (message.kind === 'remove') this.removeTake(message.id, false);
     if (message.kind === 'clear') this.clearCompleted(message.cutoff, false);
+  }
+
+  // The gallery file carries every take and its WAV. An import adds each take
+  // through the same door a run uses, so the tombstones and the cutoff still rule.
+  async collectBundle() {
+    if (this.options?.keeping?.() === false) return [];
+    return exportVoice();
+  }
+
+  async restoreBundle(items) {
+    let imported = 0, skipped = 0;
+    for (const item of items) {
+      const audio = (item.media || []).find(entry => entry.role === 'audio' && entry.blob instanceof Blob);
+      if (!audio) { skipped += 1; continue; }
+      const take = {...item.record, id: item.id, blob: audio.blob};
+      delete take.segmentId;
+      delete take.segmentText;
+      const duplicate = this.segments.some(segment => segment.takes.some(one => one.id === take.id));
+      if (this.removed.has(take.id) || take.createdAt <= this.cutoff || duplicate) { skipped += 1; continue; }
+      this.addTake(take, item.record.segmentText || take.text || '', false, item.record.segmentId || null);
+      imported += 1;
+    }
+    return {imported, skipped};
   }
 
   setScript(value) {
@@ -1221,14 +1246,20 @@ class VoiceStudio extends LitElement {
   // One path for the browser panel and the strip head, so a file's name and its
   // type come from the same place.
   async downloadTakes(clips, ids) {
-    for (const {segment, take} of clips.filter(({take}) => ids.includes(take.id))) {
+    const chosen = clips.filter(({take}) => ids.includes(take.id));
+    const files = [];
+    const progress = window.studioProgress?.(t('gallery.saving'));
+    for (const [index, {segment, take}] of chosen.entries()) {
       let blob;
       try { blob = await this.ensureTake(take); }
-      catch (error) { this.fail(error.message); return; }
-      downloadAudio(blob, mediaDownloadName({kind: 'audio', text: segment.text,
-        at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')}));
-      await new Promise(resolve => setTimeout(resolve, 300));
+      catch (error) { progress?.close(); this.fail(error.message); return; }
+      files.push({blob, name: mediaDownloadName({kind: 'audio', text: segment.text,
+        at: take.createdAt, id: take.id, extension: mediaExtension(blob.type, 'wav')})});
+      progress?.set({done: index + 1, total: chosen.length, index: index + 1, count: chosen.length});
     }
+    if (!files.length) { progress?.close(); return; }
+    saveBundle(await encodeFiles(files, Date.now(), step => progress?.set(step)), filesName('takes'));
+    progress?.close();
   }
 
   async openDetails(event) {
@@ -1344,25 +1375,28 @@ class VoiceStudio extends LitElement {
           .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
           .download=${ids => this.downloadTakes(clips, ids)} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
         <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all"
-          ?disabled=${!this.takesCount}
+          title=${t('gallery.downloadAll.title')} ?disabled=${!this.takesCount}
           @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>${t('voice.action.downloadAll')}</button>
-          <button type="button" class="text-btn" ?disabled=${!this.takesCount} @click=${() => {
-            if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
-          }}>${t('voice.action.clearAll')}</button></span></div>
+          <button type="button" class="text-btn" title=${t('gallery.clearAll.title')}
+            ?disabled=${!this.takesCount} @click=${() => {
+              if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
+            }}>${t('voice.action.clearAll')}</button></span></div>
       <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
-        ${rendering ? html`<button type="button" class=${'frame pending voice-render-pending' + (this.showingGeneration ? ' selected' : '')}
-          aria-label=${t('voice.gallery.showGenerationAria')} aria-pressed=${String(this.showingGeneration)}
-          @click=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}>
-          <span class="still voice-clip-thumb"><span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span></span>
-          <span class="no">${String(this.takesCount + 1).padStart(2, '0')}</span>${this.showingGeneration ? pencilLoop() : nothing}
-        </button>` : nothing}
+        ${rendering ? html`<gallery-tile extra="voice-render-pending" ?pending=${true}
+          ?selected=${this.showingGeneration} label=${t('voice.gallery.showGenerationAria')}
+          .footer=${() => String(this.takesCount + 1).padStart(2, '0')}
+          .mark=${() => pencilLoop()}
+          .onPick=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
+          .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span>`}></gallery-tile>` : nothing}
         <gallery-window .items=${clips} .selected=${item?.take?.id} .renderItem=${({segment, take}) => html`
-          <button type="button" class=${'frame voice-clip' + (item?.take?.id === take.id && !this.showingGeneration ? ' selected' : '')}
-            data-take-id=${take.id} data-segment-id=${segment.id} aria-pressed=${String(item?.take?.id === take.id && !this.showingGeneration)}
-            aria-label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
-            @click=${() => this.selectTake(segment.id, take.id)}>
-            <span class="still voice-clip-thumb">${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span></span>
-            <span class="no">${String(this.clipNumber(take)).padStart(2, '0')}</span>${item?.take?.id === take.id && !this.showingGeneration ? pencilLoop(true) : nothing}</button>`}></gallery-window>
+          <gallery-tile extra="voice-clip" stillClass="voice-clip-thumb"
+            ?selected=${item?.take?.id === take.id && !this.showingGeneration}
+            label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
+            .takeId=${take.id} .segmentId=${segment.id}
+            .footer=${() => String(this.clipNumber(take)).padStart(2, '0')}
+            .mark=${() => pencilLoop(true)}
+            .onPick=${() => this.selectTake(segment.id, take.id)}
+            .content=${() => html`${this.renderWaveform(take)}<span class="voice-clip-duration num">${durationLabel(take.duration)}</span>`}></gallery-tile>`}></gallery-window>
       </div>
     </section>`;
   }

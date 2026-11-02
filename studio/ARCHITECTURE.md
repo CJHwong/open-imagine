@@ -206,6 +206,23 @@ remove it or hide it inside the Image stage. The page supplies the current works
 Voice help distinguishes Drama-3 from AuK. Workspace or model changes close stale guidance.
 The guide retains the existing toggle, sheet, keyboard and focus contracts and links to `/api/docs`.
 
+The gallery browser has one card element, `web/components/gallery-card.js`, in all four
+workspaces; the owner still draws the thumbnail, because a still, a waveform, a cover and a
+staff are different pictures. The page also carries a gallery file: `web/lib/gallery-bundle.js`
+writes every stored item and its media as a ZIP. `gallery.json` holds the records and `media/`
+holds each file as it was stored. Each entry is a header plus the media Blob itself, with a CRC
+per file, so no media passes through a JavaScript string and nothing is compressed twice. A
+browser caps one string near a few hundred megabytes, and the older base64 JSON failed there.
+The archive turns to ZIP64 when a file or the directory passes 4 GB or the entries pass 65535.
+Version 1 (one JSON object) and version 2 (line-delimited JSON) bundles still load. Export and
+Import live in one place, the Media menu: Export writes the whole gallery, Import restores one.
+The shelves keep their own downloads, because a download gives files: Download all saves each file
+in the shelf, and Download selected saves the checked files. A download leaves as one files-only ZIP
+with its descriptive sidecar, and Import refuses it; only Export gives an archive another browser can
+restore. Export reports its packing as a progress toast with the same bar and percent as a run. Image and Video import through
+`web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
+its own tombstones and cutoff.
+
 ## Copy and locales
 
 UI copy lives in `web/i18n/<code>.json`, one file per locale. The file name is the locale
@@ -289,6 +306,14 @@ Ordered batches run sequentially and retain each completed result. Browser stora
 record per song, so tabs do not replace each other's whole galleries. No speech script splitting
 or mono-reference normalization is applied. The Music workspace and its controls are separate
 from Voice; keyboard submission uses the active workspace.
+
+A song downloads as a tagged MP3 in the tab. `web/lib/mp3.js` decodes the WAV through Web Audio,
+resamples to 48 kHz stereo, encodes with lamejs from the CDN, and writes ID3v2.3 frames for the
+title, genre, artist, year, style and length. The genre comes from the style preset stored with
+the song; a style with no preset gets no genre. If the encoder cannot load, the WAV is saved and
+the page says so. The score preview engraves at the pane's width up to a 900 px staff, so the
+paper keeps the page's width and the notes stay a readable size; the page is as tall as its
+notation and scrolls only when the score is longer than the pane. A width change re-engraves it.
 
 ### Private result storage
 

@@ -25,6 +25,10 @@ def main():
             "**/operations/*/result", lambda route: route.fulfill(content_type="audio/wav", body=fixture.getvalue())
         )
         page.goto(base + "/?workspace=music")
+        # A song this tab started plays on arrival by design. This suite drives the
+        # transport from a stopped song, so the preference starts off.
+        page.evaluate("localStorage.setItem('studio-autoplay', 'off')")
+        page.reload()
         page.locator("#music-style").fill("Warm piano instrumental")
         page.locator("#music-generate").click()
         expect(page.locator(".music-song")).to_have_count(1)
@@ -103,10 +107,34 @@ def main():
         page.get_by_role("button", name="Select song 1", exact=True).click()
         assert second.evaluate("audio=>!audio.paused")
         expect(play).to_be_visible()
-        page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
+        # The preview takes the arrow keys too, and it walks the order a person sees:
+        # the strip shows the newest song at the left, so Left moves left.
+        order = page.evaluate(
+            "[...document.querySelectorAll('.music-strip .music-thumb')].map(button => button.dataset.songId)"
+        )
+        before_id = page.evaluate("document.querySelector('music-studio').selectedId")
+        assert before_id == order[-1], (before_id, order)
+        page.locator(".music-preview-area").focus()
+        page.keyboard.press("ArrowLeft")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId !== id", arg=before_id)
+        assert page.evaluate("document.querySelector('music-studio').selectedId") == order[-2]
+        assert page.evaluate("document.activeElement.classList.contains('music-preview-area')")
+        page.keyboard.press("ArrowRight")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId === id", arg=before_id)
+        print("PASS the preview steps songs with the arrow keys, left to left", flush=True)
+        browse = page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle')
+        browse.click()
         expect(page.locator(".gallery-card .gallery-no-preview")).to_have_text(["♫", "♫"])
         expect(page.locator(".gallery-wave")).to_have_count(0)
-        page.locator('gallery-browser[workspace="music"] .gallery-browse-toggle').click()
+        # The switch sits outside the strip's own keys, and the arrows still step the
+        # songs from it, keeping focus on the switch so Escape still closes the shelf.
+        stepped = page.evaluate("document.querySelector('music-studio').selectedId")
+        browse.press("ArrowLeft")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId !== id", arg=stepped)
+        assert page.evaluate("document.activeElement.classList.contains('gallery-browse-toggle')")
+        browse.click()
+        browse.press("ArrowRight")
+        page.wait_for_function("id => document.querySelector('music-studio').selectedId === id", arg=stepped)
         # Visibility alone misses controls clipped by the preview pane's scrolling box.
         current.locator(".music-track-text").evaluate(
             "node=>node.textContent='Evening lights across the water\\nMorning follows every quiet dream\\nFootsteps fade along the shore'"
@@ -118,7 +146,12 @@ def main():
             assert page.locator("#music-studio").evaluate("node=>node.scrollWidth<=node.clientWidth")
             assert current.evaluate("""card=>{
               const pane=card.closest('.music-preview-pane').getBoundingClientRect();
-              return ['.music-song-title','.music-track-text','.music-timeline','.music-transport'].every(selector=>{
+              // A phone hides the style block when the song has no lyrics, so the
+              // text joins the check only when it is on screen.
+              const selectors=['.music-song-title','.music-timeline','.music-transport'];
+              const text=card.querySelector('.music-track-text');
+              if (text && text.getClientRects().length) selectors.push('.music-track-text');
+              return selectors.every(selector=>{
                 const rect=card.querySelector(selector).getBoundingClientRect();
                 return rect.top>=pane.top && rect.bottom<=Math.min(pane.bottom,innerHeight) && rect.left>=pane.left && rect.right<=pane.right;
               });

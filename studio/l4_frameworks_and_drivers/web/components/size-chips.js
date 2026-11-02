@@ -16,7 +16,7 @@
 // A redraw is the store's: each element names the fields it is sensitive to, and
 // the page mirrors the fields into the store on every form change.
 
-import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
+import { LitElement, html } from '/page/vendor/lit.js';
 import { subscribe } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
 

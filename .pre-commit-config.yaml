@@ -8,14 +8,19 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # A vendored file must match the digest in web/vendor/MANIFEST.json, so no
+      # hook may rewrite its bytes.
       - id: trailing-whitespace
+        exclude: ^studio/l4_frameworks_and_drivers/web/vendor/
       - id: end-of-file-fixer
+        exclude: ^studio/l4_frameworks_and_drivers/web/vendor/
       - id: check-yaml
       - id: check-toml
       - id: check-json
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+        exclude: ^studio/l4_frameworks_and_drivers/web/vendor/
       - id: debug-statements
       - id: detect-private-key
 

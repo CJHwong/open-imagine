@@ -2,6 +2,7 @@
 
 import re
 import sys
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -65,14 +66,14 @@ with sync_playwright() as tool:
         link.click()
     image_name = image_download.value.suggested_filename
     check("the Image action downloads with its prompt", image_name.startswith("image-a-red-apple-on-a-table-"))
-    downloads = []
-    page.on("download", lambda download: downloads.append(download.suggested_filename))
-    page.click("#download-gallery")
-    page.wait_for_timeout(1000)
-    check("Image Download all keeps the individual filename", image_name in downloads)
+    with page.expect_download() as image_all:
+        page.click("#download-gallery")
+    with zipfile.ZipFile(image_all.value.path()) as archive:
+        bulk = archive.namelist()
+    check("Image Download all keeps the individual filename", image_name in bulk)
     check(
         "Image metadata has a dated filename",
-        any(re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", name) for name in downloads),
+        any(re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", name) for name in bulk),
     )
 
     page.click("#media-video-mode")
@@ -105,13 +106,14 @@ with sync_playwright() as tool:
         "the Video action uses its prompt and original format",
         video_name.startswith("video-a-blue-kite-above-the-sea-") and video_name.endswith(".webm"),
     )
-    downloads.clear()
-    page.click("#video-gallery-download")
-    page.wait_for_timeout(1000)
-    check("Video Download all keeps the individual filename", video_name in downloads)
+    with page.expect_download() as video_all:
+        page.click("#video-gallery-download")
+    with zipfile.ZipFile(video_all.value.path()) as archive:
+        bulk = archive.namelist()
+    check("Video Download all keeps the individual filename", video_name in bulk)
     check(
         "Video metadata has a dated filename",
-        any(re.fullmatch(r"video-metadata-\d{8}-\d{9}\.json", name) for name in downloads),
+        any(re.fullmatch(r"video-metadata-\d{8}-\d{9}\.json", name) for name in bulk),
     )
     page.evaluate(
         """async () => {

@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "name": "lit",
+      "version": "3.2.1",
+      "file": "lit.js",
+      "license": "BSD-3-Clause",
+      "source": "https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm",
+      "note": "Bundled as one ESM file with esbuild 0.25.12 from lit@3.2.1, including lit/directives/repeat.js.",
+      "sha256": "32a998de831401da369322d43b69ee4969ac9e34cebb3569abe3036e7d4bd6ca",
+      "bytes": 18110
+    },
+    {
+      "name": "abcjs",
+      "version": "6.6.1",
+      "file": "abcjs.js",
+      "license": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/abcjs@6.6.1/+esm",
+      "note": "The library carries optional soundfont URLs. The studio only engraves notation and never requests them.",
+      "sha256": "3cc9bfae20ce201a842d54caf816bb3188f6c69d3b7d770098e4440ff947b9f0",
+      "bytes": 508457
+    },
+    {
+      "name": "lamejs",
+      "version": "1.2.1",
+      "file": "lame.min.js",
+      "license": "LGPL-3.0",
+      "source": "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js",
+      "note": "",
+      "sha256": "15d285e2587b3bdbfd18a68de6ce07cc074f7480a82c3815da2dc1c348ec6df4",
+      "bytes": 156043
+    },
+    {
+      "name": "htmx.org",
+      "version": "2.0.4",
+      "file": "htmx.min.js",
+      "license": "BSD-2-Clause",
+      "source": "https://unpkg.com/htmx.org@2.0.4",
+      "note": "",
+      "sha256": "e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447",
+      "bytes": 50917
+    },
+    {
+      "name": "swagger-ui-dist",
+      "version": "5.25.3",
+      "file": "swagger-ui-bundle.js",
+      "license": "Apache-2.0",
+      "source": "https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui-bundle.js",
+      "note": "",
+      "sha256": "4316f6f394fae9f2f585139e522a168307e2a5e9599469a06440845c7eaecc77",
+      "bytes": 1485334
+    },
+    {
+      "name": "swagger-ui-dist",
+      "version": "5.25.3",
+      "file": "swagger-ui.css",
+      "license": "Apache-2.0",
+      "source": "https://unpkg.com/swagger-ui-dist@5.25.3/swagger-ui.css",
+      "note": "",
+      "sha256": "4f76417253f37d7fe5aab8d69beaf3017570e2ab611289c504968b2078a07236",
+      "bytes": 154994
+    }
+  ]
+}

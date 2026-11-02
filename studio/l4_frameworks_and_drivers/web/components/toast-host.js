@@ -19,8 +19,8 @@
 // `showToast` off the global scope. The page keeps that one name and forwards
 // it here, on the door below. This door closes when the inline script is gone.
 
-import { LitElement, html } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/+esm';
-import { repeat } from 'https://cdn.jsdelivr.net/npm/lit@3.2.1/directives/repeat.js/+esm';
+import { LitElement, html, nothing } from '/page/vendor/lit.js';
+import { repeat } from '/page/vendor/lit.js';
 import { t } from '../lib/i18n.js';
 
 // How long a message that is not a failure stays. A failure waits for a person.
@@ -64,6 +64,25 @@ class ToastHost extends LitElement {
     this.updateComplete.then(() => this.present());
   }
 
+  // A long local job, such as packing the gallery, reports its bytes here. The
+  // toast stays until the job closes it, so the bar never disappears mid-copy.
+  progress(text) {
+    const id = this.counter++;
+    this.messages = this.messages.concat([{ id: id, kind: 'progress', text: text, done: 0, total: 0 }]);
+    this.requestUpdate();
+    this.updateComplete.then(() => this.present());
+    return {
+      set: (step) => {
+        const one = this.messages.find((message) => message.id === id);
+        if (!one) return;
+        one.done = step.done; one.total = step.total;
+        one.index = step.index; one.count = step.count;
+        this.requestUpdate();
+      },
+      close: () => this.dismiss(id),
+    };
+  }
+
   dismiss(id) {
     const left = this.messages.filter((message) => message.id !== id);
     if (left.length === this.messages.length) return;
@@ -95,6 +114,14 @@ class ToastHost extends LitElement {
   }
 
   message(one) {
+    if (one.kind === 'progress') {
+      const percent = one.total ? Math.min(100, Math.round(one.done / one.total * 100)) : 0;
+      const files = one.count ? t('gallery.exportFiles', {done: one.index, total: one.count}) : '';
+      return html`<div class="toast progress" role="status">
+        <span class="operation-indicator" aria-hidden="true"></span>
+        <div class="toast-body"><p>${one.text}</p>${files ? html`<span class="toast-detail">${files}</span>` : nothing}</div>
+        <span class="toast-percent" aria-label=${percent + '%'}>${percent}%</span></div>`;
+    }
     const failure = one.kind === 'error';
     return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title=${t('toast.dismiss')} aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;
   }
@@ -116,6 +143,10 @@ const handle = {
   },
   clear: function () {
     if (host) host.clear();
+  },
+  progress: function (text) {
+    if (!host) return { set: function () {}, close: function () {} };
+    return host.progress(text);
   },
 };
 

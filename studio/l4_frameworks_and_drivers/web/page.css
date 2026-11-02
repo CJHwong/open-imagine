@@ -548,6 +548,17 @@
     font-size: 12px; text-decoration: underline; text-decoration-color: var(--line-strong);
     text-underline-offset: 3px; }
   .text-btn:hover { color: var(--text); text-decoration-color: currentColor; }
+  /* A download that waits on the encoder says so. The mark replaces the underline's job
+     as the sign of life, and a reduced-motion reader gets a dimmed dot instead. */
+  .text-btn.is-busy, .icon-btn.is-busy { cursor: default; opacity: .7; }
+  .text-btn.is-busy { display: inline-flex; align-items: center; gap: 5px; }
+  .text-btn.is-busy::after, .icon-btn.is-busy::after { content: ''; flex: none; width: 11px; height: 11px;
+    border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;
+    animation: gallery-spin .8s linear infinite; }
+  .icon-btn.is-busy { position: relative; }
+  .icon-btn.is-busy > * { visibility: hidden; }
+  .icon-btn.is-busy::after { position: absolute; width: 12px; height: 12px; }
+  @media (prefers-reduced-motion: reduce) { .text-btn.is-busy::after, .icon-btn.is-busy::after { animation: none; opacity: .5; } }
 
   /* Below the 52 px topbar, so a failure never covers the workspace switch, and
      below the shared operation bar while one runs. The host is a popover, so the
@@ -564,6 +575,11 @@
   .toast.error .icon:first-child { color: var(--danger); }
   .toast p { margin: 0; flex: 1; white-space: pre-wrap; overflow-wrap: anywhere; }
   .toast .icon-btn { width: 24px; height: 24px; }
+  .toast.progress { align-items: center; }
+  .toast.progress .toast-body { flex: 1; display: grid; gap: 2px; min-width: 0; }
+  .toast.progress p { margin: 0; color: var(--text); }
+  .toast-detail { color: var(--text-3); font-size: 11px; }
+  .toast-percent { color: var(--text); font-variant-numeric: tabular-nums; }
 
   /* The contact sheet: a strip of film in both themes. The sprocket holes are
      35 mm proportions and scroll with the frames. */
@@ -691,7 +707,7 @@
      `display: inline`, where width and height do nothing and the ring collapsed
      to its borders. Four classes beat that rule, so the tile is a grid again and
      the ring is blockified into its 16px box. */
-  .video-gallery-item.video-gallery-pending.frame.pending .still { display: grid; align-content: center;
+  .video-gallery-pending .still { display: grid; align-content: center;
     justify-items: center; gap: 7px; border: 1px dashed var(--line-strong); color: var(--text-2); }
   .video-pending-indicator { width: 16px; height: 16px; border: 2px solid var(--line-strong); border-top-color: var(--marker);
     border-radius: 50%; animation: video-pending-spin .9s linear infinite; }
@@ -801,7 +817,12 @@
   .strip-head { display: flex; justify-content: space-between; align-items: center;
     padding: 0 2px 2px; color: var(--text-3); font-size: 12px; }
   .strip-actions { display: flex; gap: 14px; }
-  .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px;
+  /* A classic scrollbar adds its height to the strip, so a full shelf stands taller than
+     a short one and the head above it shifts. Hold one height for every shelf: the parts
+     (60px still + 8px gap + 11px number + 20px top + 18px bottom = 117px) plus the 11px
+     the bar takes. A shelf that does not scroll leaves that 11px empty; a shelf that does
+     lets the bar use it, so nothing moves. */
+  .strip { display: flex; gap: 16px; overflow-x: auto; padding: 20px 10px 18px; height: 128px;
     scrollbar-width: thin; --scroll-thumb: #2e2e2e;
     --holes: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5'%3E%3Crect x='2.2' y='.5' width='5.6' height='4' rx='1' fill='%23262626'/%3E%3C/svg%3E");
     background: var(--holes) left 4px / 10px 5px repeat-x local,
@@ -813,7 +834,7 @@
      strip rule pins both the frame and its picture, which centres a narrow picture in a
      wide empty frame and makes the gaps between pictures look uneven; the image strip
      drops it so one gutter runs the whole way. */
-  #strip gallery-window > .frame { flex: 0 0 auto; width: auto; }
+  #strip gallery-window > gallery-tile { flex: 0 0 auto; width: auto; }
   #strip .frame .still { width: auto; max-width: none; }
   #strip .frame .still gallery-media { grid-template-rows: 100%; }
   #strip .frame .still img { object-fit: contain; }
@@ -1189,18 +1210,32 @@
   #music-studio { grid-column: 1; grid-row: 3 / span 2; min-height: 0; min-width: 0; overflow: hidden; }
   #music-studio[hidden] { display: none; }
   .music-studio-shell { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; }
-  .music-preview-area.stage { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; overflow: hidden; }
-  .music-preview-pane { display: grid; align-items: safe center; justify-items: center; min-height: 0;
-    overflow: auto; padding: 28px; }
+  /* The pane takes every pixel above the details bar. A grid row can size to content
+     in some engines, which leaves the card centered in a short pane and the rest of
+     the stage empty; a flex column gives the pane the remaining height everywhere. */
+  .music-preview-area.stage { display: flex; flex-direction: column; min-height: 0; min-width: 0;
+    overflow: hidden; outline: none; }
+  .music-preview-area.stage:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+  .music-generation:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 8px; }
+  .music-preview-area.stage > .music-preview-pane { flex: 1 1 auto; }
+  .music-preview-area.stage > .music-output-bars { flex: none; }
+  /* Flex centers the card the same way in every engine. Grid alignment relied on
+     declarations a browser may drop, and the card then stretched to the pane top. */
+  .music-preview-pane { display: flex; align-items: center; justify-content: center;
+    min-height: 0; overflow: auto; padding: 28px; }
+  /* Auto margins center the child on their own, so the card stays centered even in an
+     engine that treats the alignment keywords differently. */
+  .music-preview-pane > .music-songs { align-self: center; margin: auto; }
   .music-gallery.strip-wrap { min-width: 0; padding: 8px 18px 6px; }
   .music-strip:empty { display: none; }
-  /* Every music tile is a square: the stage cover, the strip thumb, the pending tile
-     and the browser card all keep one 1:1 shape. The strip's square is 60px, the height
-     the other three shelves use, so the four shelves stand at the same height. */
+  .music-strip gallery-tile { display: block; flex: none; }
+  /* Every music tile is a square: the stage cover, the strip thumb and the pending tile
+     all keep one 1:1 shape. The browser card keeps the shared card box, so the cover
+     centers in it like every other shelf's artwork. */
   .music-thumb .music-thumb-art { width: 60px; aspect-ratio: 1; height: auto; display: grid; place-items: center; background: linear-gradient(135deg, #443b36, #211c1b); }
-  gallery-browser[workspace="music"] .gallery-card .still { width: 80px; height: 80px; margin: 0 auto; }
   .music-thumb-art img { width: 100%; height: 100%; object-fit: cover; }
   .music-thumb-note { font: 32px var(--serif); color: #c8b4a1; }
+  .music-thumb-note .icon { width: 36px; height: 36px; }
   .music-thumb .still, gallery-browser[workspace="music"] .gallery-card .still { position: relative; }
   .music-thumb.is-playing .still, gallery-browser[workspace="music"] .gallery-card.is-playing .still {
     opacity: 1; box-shadow: inset 0 0 0 2px var(--accent); }
@@ -1246,9 +1281,16 @@
   .music-songs { width: min(1020px, 100%); min-width: 0; }
   .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr); gap: 24px 32px; min-width: 0; animation: arrive .3s ease-out; }
   .music-song[hidden] { display: none; }
-  .music-track-body { min-width: 0; align-self: stretch; display: flex; flex-direction: column; }
+  /* The artwork and the name share one top edge. The words run from that edge down and
+     take the room the pane has, so a long lyric does not sit in a short strip. */
+  .music-track-body { min-width: 0; align-self: stretch; display: flex; flex-direction: column;
+    justify-content: flex-start; }
   /* Long text scrolls inside the cover height instead of moving the transport. */
-  .music-track-text { flex: 1 1 0; min-height: 0; contain: size; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+  /* The words, the title and the transport read as one block against the square
+     artwork, so the block centers in the column instead of pinning the player
+     to the bottom and leaving a gap above it. */
+  .music-track-text { flex: 0 1 auto; min-height: 0; max-height: min(420px, 35dvh); overflow: auto;
+    overscroll-behavior: contain; scrollbar-gutter: stable; }
   .music-track-text:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
   .music-track-facts { margin: 0 0 20px; color: var(--text-3); font: 11px/1.6 var(--mono); overflow-wrap: anywhere; }
   .music-song-title .music-title-button { font: inherit; letter-spacing: inherit; text-align: left; color: inherit; padding: 0; max-width: 100%; overflow-wrap: anywhere; }
@@ -1257,7 +1299,7 @@
   .music-stub-note { margin: 0 0 12px; }
   .music-song h3 { margin: 0 0 12px; font: 500 clamp(22px, 2.6vw, 34px)/1.2 var(--serif); letter-spacing: -.02em; overflow-wrap: anywhere; }
   .music-song-style { margin: 0 0 12px; color: var(--text-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-  .music-artwork { max-width: 360px; justify-self: center; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; align-self: end;
+  .music-artwork { max-width: 360px; justify-self: center; position: relative; display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; align-self: start;
     overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: linear-gradient(145deg, #7b6153, #302b35 75%); box-shadow: 0 16px 36px #0003; }
   .music-artwork > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .music-artwork.has-cover .music-turntable { position: absolute; bottom: 12px; right: 12px; transform: scale(.6); transform-origin: right bottom; }
@@ -1269,7 +1311,7 @@
   .music-song.is-playing .music-tonearm, .music-generation .music-tonearm { transform: rotate(35deg); }
   .music-song.is-playing .music-power, .music-generation .music-power { background: #ffd478; box-shadow: 0 0 7px #ffd47880; }
   .music-song audio[hidden] { display: none; }
-  .music-player { width: 100%; max-width: 520px; margin: auto auto 0; padding-top: 12px; order: 1; }
+  .music-player { width: 100%; max-width: 520px; margin: 14px 0 0; padding-top: 12px; order: 1; }
   .music-timeline input[type="range"] { display: block; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; appearance: none; cursor: pointer; background: transparent; }
   .music-timeline input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
   .music-timeline input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
@@ -1278,7 +1320,12 @@
   .music-timeline input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
   .music-timeline input[type="range"]:disabled { opacity: .4; cursor: default; }
   .music-times { display: flex; justify-content: space-between; color: var(--text-2); font-size: 11px; }
-  .music-transport { display: flex; align-items: center; justify-content: center; gap: 28px; margin: 14px 0 0; }
+  .music-transport { position: relative; display: flex; align-items: center; justify-content: center;
+    gap: 28px; margin: 14px 0 0; }
+  /* The words switch rides at the right edge. In the row it would push the three
+     playback buttons off center, and the play button is the one thing that must
+     sit on the axis. */
+  .music-transport .music-lyrics-toggle { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
   .music-transport .icon { width: 22px; height: 22px; fill: currentColor; stroke: none; }
   .music-transport .music-play { width: 52px; height: 52px; border-radius: 50%; color: var(--chrome); background: var(--text); }
   .music-transport .music-play .icon { width: 28px; height: 28px; }
@@ -1302,7 +1349,7 @@
   .music-sheet { display: grid; gap: 16px; min-width: 0; }
   .music-sheet-page { position: relative; padding: 18px 20px 16px; border: 1px solid var(--line);
     border-radius: 8px; color: #24211e; background: #fff; box-shadow: 0 16px 36px #0003; }
-  .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); }
+  .music-sheet-notes { min-width: 0; max-height: min(46dvh, 420px); overflow: auto; }
   .music-sheet-page .music-abc-notation { padding: 0; background: none; color: #24211e;
     max-height: min(46dvh, 420px); }
   .music-sheet-notes svg { display: block; width: 100%; height: auto; margin: 0 auto; max-width: 100%; }
@@ -1381,13 +1428,24 @@
     .music-song, .music-record { animation: none !important; }
     .music-tonearm { transition: none; }
   }
-  @media (max-width: 1050px) {
-    .music-song { grid-template-columns: minmax(0, 1fr); max-width: 560px; margin: auto; }
-    .music-artwork { width: min(300px, 100%); justify-self: center; }
-    .music-track-body { display: block; align-self: center; }
-    .music-track-text { height: 220px; }
-    .music-player { margin-top: 24px; padding-top: 0; }
-    .music-transport { margin-bottom: 14px; }
+  /* The card keeps its two columns until the tabbed view starts. A 1024 wide window
+     still has room beside the artwork, and one column there made the card taller
+     than the preview pane, which pushed it to the top of that pane. */
+  @media (max-width: 900px) {
+    /* One column. The transport stays at the bottom of the pane, and the artwork,
+       name and words are one block that centers in the room above it. */
+    .music-song { position: relative; display: flex; flex-direction: column; justify-content: center;
+      max-width: 560px; margin: 0 auto; height: 100%; min-height: 0; box-sizing: border-box;
+      padding-bottom: 116px; }
+    .music-artwork { width: min(300px, 100%); margin: 0 auto; flex: none; }
+    .music-track-body { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0;
+      align-self: stretch; }
+    .music-track-text { flex: 0 1 auto; min-height: 0; max-height: 220px; display: flex;
+      flex-direction: column; }
+    .music-style-panel, .music-inline-lyrics { margin-block: auto; }
+    .music-player { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 0; }
+    .music-songs { height: 100%; }
+    .music-transport { margin-bottom: 0; }
   }
   /* A narrow window shows one pane at a time: the preview, the gallery or the controls.
      The switch floats above all three, and a page opens on the preview. */
@@ -1458,10 +1516,17 @@
     .music-preview-pane { padding: 12px 18px; }
     .music-song { gap: 8px; }
     /* The preview owns the whole pane on a phone, so the album takes the room it has. */
-    .music-artwork { width: clamp(96px, min(64vw, calc(100svh - 560px)), 280px); }
+    .music-artwork { width: clamp(96px, min(46vw, calc(100svh - 660px)), 220px); }
     .music-song h3 { margin-bottom: 6px; font-size: 22px; }
     .music-song-style { margin-bottom: 6px; line-height: 1.4; }
-    .music-track-text { height: clamp(64px, calc(100svh - 760px), 104px); }
+    /* The small view shows the artwork, the name and the style by default. The words
+       switch swaps that block for the lyrics, and the lyrics center in the same room. */
+    .music-song.shows-lyrics .music-artwork,
+    .music-song.shows-lyrics .music-song-title { display: none; }
+    .music-song.shows-lyrics .music-track-body { flex: 1 1 auto; }
+    .music-song.shows-lyrics .music-track-text { flex: 1 1 auto; max-height: none; padding-top: 10px; }
+    .music-output-details .about .prompt-line { display: -webkit-box; -webkit-line-clamp: 1;
+      -webkit-box-orient: vertical; overflow: hidden; }
     .music-sheet-page, .music-sheet-page .music-abc-notation { max-height: min(46dvh, 420px); }
     .music-stub-note { margin-bottom: 8px; }
     .music-player { margin-top: 6px; }
@@ -1539,13 +1604,29 @@
   .music-tag-guide[open] { padding-bottom: 2px; }
   .music-song.is-score { grid-template-columns: minmax(0, 1fr); width: min(900px, 100%); margin: auto; }
   .music-song.is-score .music-artwork { display: none; }
+  /* A score fills the preview. The page takes the height the pane gives it, and the
+     notation scrolls only when the score is longer than that. The old 900px width and
+     420px height caps left a third of a wide stage empty and cut the last system. */
+  /* Only the score on screen takes the whole pane. Every song card stays in the pane,
+     hidden or not, so a hidden score must not stretch the pane for a song beside it. */
+  .music-preview-pane:has(.music-song.is-score:not([hidden])) { align-items: stretch; justify-content: flex-start; }
+  .music-preview-pane:has(.music-song.is-score:not([hidden])) .music-songs { width: 100%; height: 100%; }
+  .music-song.is-score { width: 100%; max-width: none; height: 100%; margin: 0; }
+  .music-song.is-score .music-track-body { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  /* The page is as tall as its notation, up to the height the pane leaves for it. A
+     short score leaves no empty paper; a long one scrolls inside the page. */
+  .music-song.is-score .music-sheet { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;
+    justify-content: center; gap: 16px; }
+  .music-song.is-score .music-sheet-page { flex: 0 1 auto; box-sizing: border-box; display: flex;
+    flex-direction: column; min-height: 0; max-height: calc(100% - 56px); }
+  .music-song.is-score .music-sheet-page .music-abc-notation,
+  .music-song.is-score .music-sheet-notes { flex: 0 1 auto; min-height: 0; max-height: none; overflow: auto; }
   .music-score-downloads { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 10px 0; font-size: 12px; }
   .music-score-downloads:empty { display: none; }
   .music-song-actions .menu { min-width: 200px; }
 
   @media (max-width: 900px) { .music-output-details { flex-wrap: wrap; } .music-output-details .actions { max-width: none; } }
 
-  .music-transport { position: relative; }
   .music-lyrics-section { margin: 32px 0 16px; font: 11px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--text-2); }
   .music-lyrics-section:first-child { margin-top: 0; }
   .music-lyrics-line { margin: 0 0 12px; font: 500 15px/1.6 var(--sans); letter-spacing: normal; overflow-wrap: anywhere; }

@@ -34,6 +34,7 @@ import sys
 import tempfile
 import time
 import urllib.parse
+import zipfile
 from pathlib import Path
 
 import js_coverage
@@ -1731,14 +1732,14 @@ with sync_playwright() as playwright:
         f"reloads {page.evaluate('window.__reloaded')}",
     )
 
-    downloads = []
-    page.on("download", lambda download: downloads.append(download.suggested_filename))
-    page.get_by_role("button", name="Download all").click()
-    page.wait_for_timeout(5000)
+    with page.expect_download() as image_all:
+        page.get_by_role("button", name="Download all").click()
+    with zipfile.ZipFile(image_all.value.path()) as archive:
+        downloads = archive.namelist()
     check(
         "Download all saves each image and one file of the prompts",
         any(re.fullmatch(r"image-metadata-\d{8}-\d{9}\.json", name) for name in downloads)
-        and len(downloads) >= frames(page),
+        and len([name for name in downloads if name.endswith(".png")]) >= frames(page),
         str(downloads),
     )
     # The prompts file is built by the browser as the images leave. A browser that
@@ -2160,10 +2161,10 @@ with sync_playwright() as playwright:
         f"{frames(tab)} images, edge {edge_model(tab)!r}",
     )
     # Both models use the same descriptive filename format.
-    downloads = []
-    tab.on("download", lambda download: downloads.append(download.suggested_filename))
-    tab.get_by_role("button", name="Download all").click()
-    tab.wait_for_timeout(5000)
+    with tab.expect_download() as image_all:
+        tab.get_by_role("button", name="Download all").click()
+    with zipfile.ZipFile(image_all.value.path()) as archive:
+        downloads = archive.namelist()
     image_names = [name for name in downloads if name.endswith(".png") and not name.endswith("-before.png")]
     check(
         "each frame downloads with a descriptive unique filename",

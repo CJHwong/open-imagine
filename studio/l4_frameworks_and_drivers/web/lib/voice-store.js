@@ -115,3 +115,22 @@ export async function loadVoiceTake(id) {
     request.onerror = () => reject(request.error);
   });
 }
+
+// Every take and its bytes, for the gallery file. The project holds the facts;
+// the media store holds the WAVs.
+export async function exportVoice() {
+  const project = await loadVoice();
+  if (!project) return [];
+  const items = [];
+  for (const segment of project.segments || []) {
+    for (const take of segment.takes || []) {
+      const blob = await loadVoiceTake(take.id).catch(() => null);
+      if (!blob) continue;
+      const {stored, ...record} = take;
+      items.push({workspace: 'voice', id: take.id, at: take.createdAt || 0,
+        record: {...record, segmentId: segment.id, segmentText: segment.text || ''},
+        media: [{role: 'audio', blob}]});
+    }
+  }
+  return items;
+}
