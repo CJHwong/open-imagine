@@ -303,7 +303,6 @@ const MUSIC_GENRE_GROUPS = [
   ]
 ];
 
-function musicModelName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
 
 // The genre picker writes a whole sentence into the style text. A song keeps the
 // short name too, so the MP3 tag and a later reader do not have to parse prose.
@@ -1414,7 +1413,7 @@ class MusicStudio extends HTMLElement {
     this.querySelector('.music-generation-label').textContent = this.operation?.status === 'stopping' ? t('music.generation.stopping')
       : progress.stage === 'preparing' ? t('music.generation.loading') : progress.stage === 'transcribing' ? t('music.generation.transcribing_reference') : (t({plan: 'music.generation.composing', transcribe: 'music.generation.transcribing', cover: 'music.generation.covering'}[this.operation?.mode || draft.mode] || 'music.generation.generating'));
     this.querySelector('.music-generation-detail').textContent = generating
-      ? [musicModelName(this.operation?.model || this.capabilities?.name), progress.total > 0 ? t('music.generation.steps', {step: progress.step, total: progress.total}) : progress.step > 0 ? plural(progress.step, t('music.generation.tokens')) : t('music.generation.composing_recording')].filter(Boolean).join(' · ') : '';
+      ? [(this.operation?.model || this.capabilities?.name), progress.total > 0 ? t('music.generation.steps', {step: progress.step, total: progress.total}) : progress.step > 0 ? plural(progress.step, t('music.generation.tokens')) : t('music.generation.composing_recording')].filter(Boolean).join(' · ') : '';
     // A run in progress borrows the player's own timeline: the bar fills with the sampler's
     // share, and the line under it reads elapsed and percent instead of position and length.
     const bar = this.querySelector('.music-generation-timeline input');
@@ -1515,7 +1514,7 @@ class MusicStudio extends HTMLElement {
     const settings = this.operation?.settings || this.submittedRun || {};
     openRunSheet({
       kind: 'music',
-      model: musicModelName(this.operation?.model || this.capabilities?.name),
+      model: (this.operation?.model || this.capabilities?.name),
       mode: this.operation?.mode || settings.mode || this.submittedRun?.mode,
       request: settings,
       live: () => {
@@ -1820,7 +1819,7 @@ class MusicStudio extends HTMLElement {
       const hasAudio = song.blob instanceof Blob && song.blob.size > 0;
       return {id: song.id, number: this.songs.length - i,
         text: this.songTitle(song), description: song.settings?.style || song.settings?.reference_name,
-        model: musicModelName(song.model), seed: song.seed,
+        model: song.model, seed: song.seed,
         at: song.createdAt, duration: song.seconds, thumbnail: this.coverUrls?.get(song.id),
         // Only a score has no recording, so only a score wears the staff and the score badge.
         score: !hasAudio, mode: hasAudio ? '' : t('music.thumb.score'),
@@ -1900,7 +1899,7 @@ class MusicStudio extends HTMLElement {
     return encodeMp3(song.blob, {
       title: this.songTitle(song),
       genre: song.genre || genreOf(song),
-      artist: musicModelName(song.model),
+      artist: song.model,
       year: new Date(song.createdAt || Date.now()).getFullYear(),
       comment: song.settings?.style || '',
       lengthMs: (song.seconds || 0) * 1000,
@@ -2380,7 +2379,7 @@ class MusicStudio extends HTMLElement {
       const metadata = document.createElement('dl');
       const planning = song.metadata?.config?.cot || song.settings?.cot;
       const planningKey = {full: 'music.planning.full', melody: 'music.planning.melody', off: 'music.planning.off'}[planning];
-      for (const [name, value] of [[t('music.meta.model'), musicModelName(song.model)], [t('music.meta.genre'), song.genre || genreOf(song)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
+      for (const [name, value] of [[t('music.meta.model'), song.model], [t('music.meta.genre'), song.genre || genreOf(song)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
         [t('music.meta.audio_label'), hasAudio ? t('music.meta.audio_value') : t('music.meta.score_value')], [t('music.meta.workflow'), t({generate: 'music.meta.workflow_song', plan: 'music.meta.workflow_plan', transcribe: 'music.meta.workflow_transcribe', cover: 'music.meta.workflow_cover'}[song.settings?.mode || 'generate'])], [t('music.meta.reference'), song.settings?.reference_name], [t('music.meta.instrumental'), song.settings?.instrumental ? t('music.common.yes') : null], [t('music.meta.steps'), hasAudio ? song.settings?.steps || 32 : null], [t('music.meta.guidance'), hasAudio ? song.settings?.cfg_scale ?? 1 : null], [t('music.field.style'), song.settings?.style], [t('music.field.planning'), planningKey ? t(planningKey) : null], [t('music.meta.cover_model'), song.coverModel], [t('music.meta.cover_seed'), song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;
@@ -2441,7 +2440,7 @@ class MusicStudio extends HTMLElement {
       artworkButton.setAttribute('aria-keyshortcuts', 'Alt+C');
       artworkButton.addEventListener('click', () => this.generateCover(song));
       const facts = document.createElement('div'); facts.className = 'facts num'; facts.setAttribute('aria-label', t('music.meta.label'));
-      for (const value of [musicModelName(song.model), hasAudio ? t('music.duration.seconds', {value: song.seconds.toFixed(1)}) : t('music.playback.score_only'), Number.isFinite(song.generationSeconds) ? t('music.facts.generated_in', {value: song.generationSeconds.toFixed(1)}) : hasAudio ? t('music.facts.audio') : t('music.facts.abc'), t('music.facts.seed', {value: song.seed})]) { const fact = document.createElement('span'); fact.textContent = value; facts.append(fact); }
+      for (const value of [song.model, hasAudio ? t('music.duration.seconds', {value: song.seconds.toFixed(1)}) : t('music.playback.score_only'), Number.isFinite(song.generationSeconds) ? t('music.facts.generated_in', {value: song.generationSeconds.toFixed(1)}) : hasAudio ? t('music.facts.audio') : t('music.facts.abc'), t('music.facts.seed', {value: song.seed})]) { const fact = document.createElement('span'); fact.textContent = value; facts.append(fact); }
       const detailsId = 'music-details-' + this.songs.indexOf(song);
       this.detailsBodies.set(song.id, {id: detailsId, title: hasAudio ? t('music.details.song_title') : t('music.details.score_title'), body: details, footer: downloads});
       const about = document.createElement('div'); about.className = 'about';

@@ -379,10 +379,10 @@ function harvest() {
       at: Number(data.operationCompleted) * 1000 || Date.now(),
       // Which model made this one, taken now because the page knows it now. A
       // switch reloads the page but keeps the strip, so without this every frame
-      // would wear whichever model was selected last. `edgeName` is the active
-      // model's, in the form the edge draws, and the page hands it to this module
-      // on the run handle, beside `takeFrameId`.
-      backend: page.edgeName,
+      // would wear whichever model was selected last. `backendName` is the name the
+      // server records; the edge styles it when it draws, so a form run and an API
+      // run keep one string.
+      backend: page.backendName || page.edgeName,
       // The model's id beside its name, because a download names a file with it and
       // a file name cannot carry the capitals and the spaces the edge draws.
       backendId: page.backendId,
@@ -482,6 +482,7 @@ const handle = {
   },
   updateBackend: function (backend) {
     page.backendId = backend.id;
+    page.backendName = backend.name;
     page.edgeName = backend.name.toUpperCase().replace(/-/g, ' ');
     page.precision = backend.badge;
   },

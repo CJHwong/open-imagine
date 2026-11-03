@@ -878,8 +878,7 @@
   // workspaces run different models, and a title naming only the image model read wrong
   // in the video one. A run's progress goes in front of it, so a run can be watched from
   // another tab.
-  function musicDisplayName(name) { return String(name || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim(); }
-  function workspaceTitle() {
+    function workspaceTitle() {
     if (mediaMode === 'music') return t('page.title.withModel', {workspace: t('tab.music'), name: STUDIO.music?.backend?.name || 'YuE2'});
     if (mediaMode === 'voice') return t('page.title.withModel', {workspace: t('tab.voice'), name: STUDIO.voice?.backend?.name || 'AuK Flash'});
     const video = mediaMode === 'video';
@@ -2839,8 +2838,8 @@
         const music = state.music;
         if (music) {
           if (!STUDIO.music || STUDIO.music.backend.id !== music.active) changed = true;
-          STUDIO.music = {backend: {id: music.active, name: musicDisplayName(music.capabilities.name), badge: music.capabilities.badge},
-            backends: music.backends.map(one => [one.id, musicDisplayName(one.name), '']), capabilities: music.capabilities};
+          STUDIO.music = {backend: {id: music.active, name: music.capabilities.name, badge: music.capabilities.badge},
+            backends: music.backends.map(one => [one.id, one.name, '']), capabilities: music.capabilities};
           document.getElementById('media-music-mode').hidden = false;
           translateServerLabels(STUDIO);
           musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
@@ -3043,6 +3042,9 @@
       // name for the frame it draws; this one is what the run records, and it was
       // missing, which is why every frame wore the selected model.
       edgeName: EDGE_NAME,
+      // The model's name as the server records it. A frame keeps that, and the edge
+      // styles it when it draws, so a form run and an API run record one string.
+      backendName: STUDIO.backend.name,
       // The id as well, because a download names a file after the model and the
       // edge's name cannot stand in for one: a file name carries no capitals and
       // no spaces. The stage's handle carries this one too, for the frame it draws.
