@@ -58,11 +58,19 @@ def main():
             }""")
             if width == 1440:
                 page.screenshot(path="/tmp/music-player-alignment-desktop.png")
-            # The transport rides the card's bottom edge, and the card fills the pane's
-            # content box, so the play row keeps one place whatever the words do.
+            # The transport is a full-width bar on the card's bottom edge, centered on the
+            # card's axis, so the play row keeps one place whatever the words do.
             assert abs(bounds["play"]["bottom"] - bounds["card"]["bottom"]) <= 2, bounds
             assert abs(bounds["play"]["bottom"] - (bounds["pane"]["bottom"] - 28)) <= 2, bounds
-            assert bounds["player"]["left"] >= bounds["artwork"]["right"], bounds
+            assert (
+                abs(
+                    (bounds["play"]["left"] + bounds["play"]["right"]) / 2
+                    - (bounds["card"]["left"] + bounds["card"]["right"]) / 2
+                )
+                <= 2
+            ), bounds
+            assert abs(bounds["player"]["left"] - bounds["card"]["left"]) <= 2, bounds
+            assert abs(bounds["player"]["right"] - bounds["card"]["right"]) <= 2, bounds
             assert abs(bounds["title"]["top"] - bounds["artwork"]["top"]) <= 2, bounds
             assert bounds["lyrics"]["height"] >= 64, bounds
             assert bounds["lyrics"]["bottom"] <= bounds["player"]["top"] + 1, bounds
