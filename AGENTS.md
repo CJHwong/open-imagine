@@ -109,4 +109,5 @@ Its eval suite is in `plugins/open-imagine/evals/`. Each case asks for a prompt 
 claude plugin eval ./plugins/open-imagine --no-publish
 ```
 
-It calls a real model, so CI does not run it. A full run takes about 8 minutes and 2.30 USD. Add a case when you add a rule that a reply can show. Without `--no-publish`, the CLI uploads the report to claude.ai.
+It calls a real model, so CI does not run it. Add a case when you add a rule that a reply
+can show. Without `--no-publish`, the CLI uploads the report to claude.ai.
