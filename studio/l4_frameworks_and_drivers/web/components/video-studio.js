@@ -2172,9 +2172,6 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <div class="actions video-output-actions">
-          ${pending ? html`
-            <button class="btn quiet" type="button" data-action="run-details"
-              @click=${() => this.openRunDetails()}>${t('run.details')}</button>` : nothing}
           ${canCapture && !this.needsClip ? html`
             <button class="btn quiet" type="button" data-action="capture-video-frame"
               aria-label=${t('video.reference.add')} title=${t('video.reference.addTitle')}>

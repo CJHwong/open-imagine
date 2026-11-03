@@ -1,7 +1,7 @@
-"""The run sheet from the generating card, in all four workspaces.
+"""The run sheet, from the shared status bar, in all four workspaces.
 
-Every workspace offers Details on its generating card, and one sheet shows what
-the page sent plus the values that move. Run against a fresh stub server:
+The status bar carries one Details action whatever the mode is, and one sheet
+shows what the page sent plus the values that move. Run against a fresh stub:
 
 uv run studio --stub --port <port>
 uv run --with playwright python tests/e2e/verify_run_sheet.py <port>
@@ -53,8 +53,8 @@ def main():
         page.fill("#music-style", "Progressive house EDM, 126 BPM")
         page.fill("#music-lyrics", "[Verse]\nMidnight on the wire")
         page.click("#music-generate")
-        page.wait_for_selector(".music-run-details", timeout=15000)
-        page.click(".music-run-details")
+        page.wait_for_selector("#shared-operation-details", state="visible", timeout=15000)
+        page.click("#shared-operation-details")
         music = sheet(page)
         check("Music opens one run sheet", music["open"] and music["title"] == "This run", music)
         check("the style is the sentence that was sent", row(music, "Style") == "Progressive house EDM, 126 BPM")
@@ -76,10 +76,10 @@ def main():
             headers={"Content-Type": "application/json"},
         )
         page.goto(BASE + "/?workspace=image")
-        page.wait_for_selector("#stage-bar .run-details", timeout=20000)
-        page.click("#stage-bar .run-details")
+        page.wait_for_selector("#shared-operation-details", state="visible", timeout=20000)
+        page.click("#shared-operation-details")
         shared_image = sheet(page)
-        check("a shared run opens its sheet from the bar", shared_image["open"], shared_image)
+        check("a shared run opens its sheet from the top bar", shared_image["open"], shared_image)
         check("the shared prompt reaches the sheet", row(shared_image, "Prompt") == "a shared run image", shared_image)
         page.keyboard.press("Escape")
         page.wait_for_function(
@@ -90,10 +90,10 @@ def main():
         page.wait_for_selector("#prompt", timeout=20000)
         page.fill("#prompt", "a red barn in a field")
         page.click("#go")
-        page.wait_for_selector("#stage-bar .run-details", timeout=20000)
-        page.click("#stage-bar .run-details")
+        page.wait_for_selector("#shared-operation-details", state="visible", timeout=20000)
+        page.click("#shared-operation-details")
         image = sheet(page)
-        check("Image opens the sheet from its bar", image["open"], image)
+        check("Image opens the sheet from the top bar", image["open"], image)
         check(
             "the prompt and the model are the run's own",
             row(image, "Prompt") == "a red barn in a field" and "QWEN" in row(image, "Model").upper(),
@@ -115,11 +115,13 @@ def main():
              mode: 'generate', numFrames: 121, frameRate: 24,
              settings: {prompt: 'a slow pan over a rainy street', width: 1280, height: 720,
                numFrames: 121, frameRate: 24, seed: 42, mode: 'generate'}});
+          // A real run shows the shared bar; the driven monitor does not create a record.
+          document.getElementById('shared-operation').hidden = false;
         }""")
-        page.wait_for_selector('#video-output-details [data-action="run-details"]', timeout=8000)
-        page.click('#video-output-details [data-action="run-details"]')
+        page.wait_for_selector("#shared-operation-details", state="visible", timeout=8000)
+        page.click("#shared-operation-details")
         video = sheet(page)
-        check("Video opens the sheet from its bar", video["open"], video)
+        check("Video opens the sheet from the top bar", video["open"], video)
         check(
             "the size, frames and seed are the run's own",
             bool(re.fullmatch(r"1280\s.\s720", row(video, "Size")))
@@ -136,10 +138,10 @@ def main():
         page.wait_for_function("document.getElementById('voice-studio')?.ready")
         page.locator("#voice-text").fill("A calm narrator with a warm, clear voice.")
         page.locator("#voice-generate").click()
-        page.wait_for_selector(".voice-run-details", timeout=15000)
-        page.locator(".voice-run-details").click()
+        page.wait_for_selector("#shared-operation-details", state="visible", timeout=15000)
+        page.locator("#shared-operation-details").click()
         voice = sheet(page)
-        check("Voice opens the sheet from its generation block", voice["open"], voice)
+        check("Voice opens the sheet from the top bar", voice["open"], voice)
         check(
             "the script is the line that was sent",
             row(voice, "Text") == "A calm narrator with a warm, clear voice.",

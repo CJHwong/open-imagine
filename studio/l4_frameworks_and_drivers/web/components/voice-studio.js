@@ -1460,7 +1460,6 @@ class VoiceStudio extends LitElement {
         </svg>
       </div>
       <p class="voice-generation-note">${t('voice.generation.note', {state: phase === 'finishing' ? t('voice.generation.saving') : phase === 'stopping' ? t('voice.generation.waitingStop') : t('voice.generation.playable')})}</p>
-      <button type="button" class="text-btn voice-run-details" @click=${() => this.openRunDetails()}>${t('run.details')}</button>
     </section>`;
   }
 
