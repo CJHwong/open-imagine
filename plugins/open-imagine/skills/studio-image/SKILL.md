@@ -23,6 +23,9 @@ continues below.
 Use the user's server URL; otherwise try `http://127.0.0.1:8765`. Read [the API operating
 notes](references/studio-api.md) before submitting work. If the server is unavailable, report the
 connection problem; starting or installing a server is a separate task unless already authorized.
+Once the backend is known, read [model notes](references/model-notes.md) for measured behavior on
+that checkpoint. An unlisted model is untested; use its live capabilities and its own prompt
+wording.
 
 Extract the subject, intended use, deliverable count, aspect ratios, and visual direction from the
 brief. Identify what must remain exact: a face, product silhouette, label, material, garment, or
