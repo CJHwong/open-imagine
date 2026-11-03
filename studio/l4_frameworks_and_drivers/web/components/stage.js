@@ -349,7 +349,10 @@ export function renderStage() {
   // before this field existed has none, and none is invented for it: the active
   // model's name is a claim about a picture that model did not make, which is
   // the reading this field exists to remove. There the frame number stands alone.
-  edge.innerHTML = '<span>' + (entry.backend || '') + '</span><span>' + frameNumber(entry.id) + '</span>';
+  // The name is recorded as the server writes it. The edge draws it the way the
+  // film does, in capitals with the hyphens opened out, whatever path made it.
+  const edgeModel = String(entry.backend || '').toUpperCase().replace(/-/g, ' ');
+  edge.innerHTML = '<span>' + edgeModel + '</span><span>' + frameNumber(entry.id) + '</span>';
   shot.append(pic, edge);
   if (region.onPrint()) shot.classList.add('marking');
   // A brush on the print takes the drag that the divided view's divider would

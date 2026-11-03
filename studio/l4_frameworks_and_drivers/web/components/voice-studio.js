@@ -758,10 +758,12 @@ class VoiceStudio extends LitElement {
     const template = design?.templates?.find(item => item.name === (settings.settings?.template || settings.template));
     const voice = template ? this.templateText(template, settings.settings?.template_values || settings.template_values || {})
       : settings.settings?.voice || settings.voice || '';
+    // A record written before these fields existed keeps the current backend's own
+    // name and id rather than a name for a model this page no longer offers.
     const take = {id, blob, createdAt, duration: decoded.duration, peaks: audioPeaks(decoded.samples),
-      seed: settings.seed, mode: settings.settings?.mode || settings.mode || 'design',
-      voice, model: settings.model || 'AuK Flash',
-      backend: settings.settings?.backend || settings.backend || (settings.model === 'AuK' ? 'auk_base' : 'auk'),
+      seed: settings.seed, mode: settings.settings?.mode || settings.mode || this.mode || '',
+      voice, model: settings.model || this.capabilities?.name || '',
+      backend: settings.settings?.backend || settings.backend || this.capabilities?.backend_id || '',
       convert: settings.settings?.convert || settings.convert || 'tw2s',
       elapsed: settings.finished_at && settings.started_at ? settings.finished_at - settings.started_at : null};
     this.addTake(take, settings.settings?.segment_text || settings.segment_text || settings.text || settings.prompt || t('voice.import.fallbackText'),
@@ -1297,7 +1299,7 @@ class VoiceStudio extends LitElement {
           <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
       <div class="sheet-body"><dl><dt>${t('voice.details.script')}</dt><dd>${item.segment.text}</dd>
         ${item.take?.voice ? html`<dt>${t('voice.details.voiceDescription')}</dt><dd>${item.take.voice}</dd>` : nothing}
-        ${item.take ? html`<dt>${t('voice.details.model')}</dt><dd>${item.take.model || 'AuK Flash'}</dd>
+        ${item.take ? html`<dt>${t('voice.details.model')}</dt><dd>${item.take.model || this.capabilities?.name || ''}</dd>
           <dt>${t('voice.details.mode')}</dt><dd>${modeLabel(item.take.mode || 'design')}</dd>
           <dt>${t('voice.advanced.duration')}</dt><dd>${durationLabel(item.take.duration)}</dd>
           <dt>${t('voice.advanced.seed')}</dt><dd>${item.take.seed ?? t('voice.advanced.seedPlaceholder')}</dd>` : nothing}</dl></div>
@@ -1338,7 +1340,7 @@ class VoiceStudio extends LitElement {
           @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}><span class="caption">${t('voice.preview.voiceDescriptionLabel')}</span>${take.voice}</p>` : nothing}
         <div class="facts num" aria-label=${t('voice.preview.metadataAria')}>
           <span>${take ? t('voice.preview.audio', {number: this.clipNumber(take)}) : t('voice.details.script')}</span>
-          ${take ? html`<span>${durationLabel(take.duration)}</span><span>${take.model || 'AuK Flash'}</span>
+          ${take ? html`<span>${durationLabel(take.duration)}</span><span>${take.model || this.capabilities?.name || ''}</span>
             <span>${modeLabel(take.mode || 'design')}</span><span>${Number.isInteger(take.seed) ? t('voice.preview.seed', {seed: take.seed}) : t('voice.preview.randomSeed')}</span>
             ${Number.isFinite(take.elapsed) ? html`<span>${t('voice.preview.took', {duration: durationLabel(take.elapsed)})}</span>` : nothing}` : html`<span>${t('voice.preview.notGenerated')}</span>`}
         </div>

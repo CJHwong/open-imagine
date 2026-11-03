@@ -218,7 +218,7 @@ def main():
             node.setOperation({kind: 'music', model: 'YuE2 (MLX Q8)', progress: {step: 32, total: 0}});
             return node.querySelector('.music-generation-detail').textContent;
         }""")
-        assert detail == "YuE2 · 32 tokens generated"
+        assert detail == "YuE2 (MLX Q8) · 32 tokens generated"
         assert (
             page.locator(".music-generation .music-record").evaluate("node => getComputedStyle(node).animationName")
             == "music-record-turn"
