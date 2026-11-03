@@ -22,6 +22,7 @@
 
 import {mediaDownloadName} from '../lib/download-name.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
+import {openRunSheet} from '../lib/run-sheet.js';
 import {t} from '../lib/i18n.js';
 
 // What the stage draws with. The DOM helpers live here because the stage and the
@@ -324,7 +325,28 @@ export function renderStage() {
     stageBar.classList.add('reserved');
     // The card is components/progress-card.js. htmx keeps `#progress`, the
     // element the poll swaps, and that module draws this and never touches it.
-    page.progressCard().mount(page.canvas, page.edgeName, frameNumber(page.nextId()));
+    // Its Details action reads the request the page sent, never the server's
+    // record, so a private run shows only what its own caller wrote.
+    page.progressCard().mount(page.canvas, page.edgeName, frameNumber(page.nextId()), function () {
+      const request = page.runRequest ? page.runRequest() : null;
+      if (!request) return;
+      openRunSheet({
+        kind: 'image',
+        model: page.edgeName,
+        mode: page.currentMode().id,
+        request: request,
+        live: function () {
+          const state = page.progressState() || {};
+          return {
+            status: state.stopping ? 'stopping' : 'running',
+            stage: state.stage,
+            step: state.step,
+            total: state.total,
+            elapsedSeconds: page.runElapsed ? page.runElapsed() : -1,
+          };
+        },
+      });
+    });
     fitStage();
     page.renderProgress();
     return;

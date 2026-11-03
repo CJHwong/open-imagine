@@ -1970,6 +1970,8 @@
       }
     }, 350);
     try {
+      // The run sheet reads what this page is about to send.
+      videoStudio.rememberRun(settings);
       const response = await fetch('/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Studio-Client': CLIENT_ID, 'X-Studio-Library': LIBRARY_ID },
@@ -2308,6 +2310,8 @@
       arrivedId: function () { return arrivedId; },
       clearArrived: function () { arrivedId = null; },
       progressState: function () { return run ? run.progressState() : null; },
+      runRequest: function () { return run ? run.submittedRun() : null; },
+      runElapsed: function () { return run ? run.runElapsed() : -1; },
       region: function () { return region; },
       strip: function () { return strip; },
       menus: function () { return menus; },

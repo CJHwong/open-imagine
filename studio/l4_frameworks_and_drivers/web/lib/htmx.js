@@ -34,6 +34,8 @@ let cancelRestore = null;   // the copy Cancel asked for, applied once the run e
 
 // The run's own facts, apart from the form the next run will read.
 let runKey = null;
+// The form's own fields for the run in flight, read by the run sheet.
+let submittedRun = null;
 let nativeOperationId = null;
 let nativeRunning = false;
 let nativeDraftId = null;
@@ -256,8 +258,10 @@ function batchPayload(parameters) {
 
 async function submitBatch(parameters, headers) {
   try {
+    const payload = batchPayload(parameters);
+    submittedRun = payload;
     const answer = await fetch('/image/operations', {method: 'POST',
-      headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(batchPayload(parameters))});
+      headers: {...headers, 'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
     if (!answer.ok) {
       const body = await answer.json().catch(() => ({}));
       throw new Error(body.error || t('form.error.batchStart'));
@@ -508,6 +512,13 @@ const handle = {
     }
   },
   progressState: function () { return sharedProgress || progressState; },
+  // The request the page sent, kept for the run sheet. It is the form's own
+  // fields, not the server's record: a private run shows only what its caller wrote.
+  submittedRun: function () { return submittedRun; },
+  runElapsed: function () {
+    const started = startedAt();
+    return started ? Math.max(0, (Date.now() - started) / 1000) : -1;
+  },
 };
 
 document.dispatchEvent(new CustomEvent('run-ready', {
@@ -576,6 +587,7 @@ function listen() {
     nativeOperationId = null;
     preparedBatch = false;
     nativeDraftId = event.detail.parameters.draft_id || null;
+    submittedRun = {...event.detail.parameters};
     const references = page.references();
     const region = page.region();
     // Only a one-image edit changes that image in place. An edit from several
