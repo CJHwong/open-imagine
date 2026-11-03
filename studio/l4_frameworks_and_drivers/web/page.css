@@ -1315,8 +1315,8 @@
     grid-template-rows: minmax(0, 1fr) auto; gap: 24px 32px; min-width: 0; height: 100%; animation: arrive .3s ease-out; }
   /* The artwork and the words share the top row; the transport spans the card's bottom
      edge, the way the phone stacks it, so no column looks empty when the words are short. */
-  .music-artwork { grid-column: 1; grid-row: 1; }
-  .music-track-body { grid-column: 2; grid-row: 1; }
+  .music-song:not(.is-score) .music-artwork { grid-column: 1; grid-row: 1; }
+  .music-song:not(.is-score) .music-track-body { grid-column: 2; grid-row: 1; }
   .music-song[hidden] { display: none; }
   /* The artwork and the name share one top edge. The words run from that edge down and
      take the room the pane has, so a long lyric does not sit in a short strip. */
@@ -1641,7 +1641,8 @@
   /* The tag list is a reference, not a setting: it folds under the one-line hint. */
   .music-tag-guide { border: 0; padding: 0; margin-top: 6px; }
   .music-tag-guide[open] { padding-bottom: 2px; }
-  .music-song.is-score { grid-template-columns: minmax(0, 1fr); width: min(900px, 100%); margin: auto; }
+  .music-song.is-score { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+    width: min(900px, 100%); margin: auto; }
   .music-song.is-score .music-artwork { display: none; }
   /* A score fills the preview. The page takes the height the pane gives it, and the
      notation scrolls only when the score is longer than that. The old 900px width and
