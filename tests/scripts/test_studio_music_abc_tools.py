@@ -72,3 +72,38 @@ def test_a_meter_change_at_a_section_boundary_is_allowed():
     score = SCORE.replace("V: Ins\n", "M:3/4\nV: Ins\n").replace("C,2G,2|A,2E,2|", "C,2G,|A,2E,|", 1)
     parsed = abc_tools.parse(score)
     assert parsed.voices["Ins"].bars == [(Fraction(0), Fraction(3)), (Fraction(3), Fraction(3))]
+
+
+def test_the_manifest_names_the_changed_bar_and_the_first_note(tmp_path):
+    source = tmp_path / "source.abc"
+    edited = tmp_path / "edited.abc"
+    source.write_text(SCORE)
+    edited.write_text(SCORE.replace('"C"C2E2', '"C"C2F2', 1))
+    data = abc_tools.build_manifest(abc_tools.parse(SCORE), abc_tools.parse(edited.read_text()), source, edited)
+    assert data["source"]["sha256"] != data["edited"]["sha256"]
+    assert data["comparison"]["match"] is False
+    assert data["voices"]["Vocal"]["changed_bars"] == [1]
+    assert data["voices"]["Vocal"]["first_changed_note"] == 2
+    assert data["voices"]["Ins"]["changed_bars"] == []
+
+
+def test_the_manifest_records_a_chord_replacement(tmp_path):
+    source = tmp_path / "source.abc"
+    edited = tmp_path / "edited.abc"
+    source.write_text(SCORE)
+    edited.write_text(SCORE.replace('"Am"', '"Am7"'))
+    brief = tmp_path / "brief.md"
+    brief.write_text("Reharmonize bar 2.")
+    data = abc_tools.build_manifest(
+        abc_tools.parse(SCORE),
+        abc_tools.parse(edited.read_text()),
+        source,
+        edited,
+        brief_sha256=abc_tools.hashlib.sha256(brief.read_bytes()).hexdigest(),
+    )
+    assert data["comparison"]["match"] is True
+    assert data["brief_sha256"] == abc_tools.hashlib.sha256(brief.read_bytes()).hexdigest()
+    vocal = data["voices"]["Vocal"]
+    assert vocal["chords"]["added"] == [{"bar": 2, "beat": "0", "symbol": "Am7"}]
+    assert vocal["chords"]["removed"] == [{"bar": 2, "beat": "0", "symbol": "Am"}]
+    assert vocal["changed_bars"] == []

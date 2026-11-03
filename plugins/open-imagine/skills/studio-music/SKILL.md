@@ -92,8 +92,9 @@ state the invariants, edit the ABC text, and send it back with Generate. Compare
 events, not characters: `python3 scripts/abc_tools.py inspect score.abc` validates a score,
 and `python3 scripts/abc_tools.py compare source.abc edited.abc --voices Vocal` names the
 first changed note and its bar. A delegated edit takes [the edit brief](assets/edit-brief.md),
-and the manifest comes back with the take. The browser's **Edit score** action does the same
-thing the API does: it loads the returned score into a new Generate request.
+returns its manifest, and `scripts/abc_tools.py manifest` writes the evidence for it. The
+browser's **Edit score** action does the same thing the API does: it loads the returned score
+into a new Generate request.
 
 ## Covers and transcriptions
 

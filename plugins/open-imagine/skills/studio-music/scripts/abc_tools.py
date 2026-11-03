@@ -6,6 +6,7 @@ Copyright (c) 2026 the YuE2 authors) and fitted to this studio's score dialect.
 
     python3 scripts/abc_tools.py inspect score.abc
     python3 scripts/abc_tools.py compare source.abc edited.abc --voices Vocal
+    python3 scripts/abc_tools.py manifest --source source.abc --edit edited.abc --output edit_manifest.json
     python3 scripts/abc_tools.py strip-chords score.abc cover.abc --keep-voice Ins
 
 The score is the engine's narrow ABC: header fields, then voice sections of music
@@ -17,6 +18,7 @@ prove the performance followed it, and a different score may be the intended edi
 from __future__ import annotations
 
 import argparse
+import bisect
 import hashlib
 import json
 import re
@@ -385,6 +387,95 @@ def compare(before: Score, after: Score, names=VOICES, allow_tempo_change=False)
     }
 
 
+def bar_position(voice: Voice, onset: Fraction) -> tuple[int, Fraction]:
+    for index, (start, length) in enumerate(voice.bars):
+        if start <= onset < start + length:
+            return index + 1, onset - start
+    return len(voice.bars) + 1, onset
+
+
+def events_by_bar(voice: Voice) -> list[list]:
+    starts = [start for start, _ in voice.bars]
+    events: list[list] = [[] for _ in voice.bars]
+    for onset, pitch, duration in voice.notes:
+        index = bisect.bisect_right(starts, onset) - 1
+        if 0 <= index < len(events):
+            events[index].append((onset - starts[index], pitch, duration))
+    return events
+
+
+def changed_bars(before: Voice, after: Voice) -> list[int]:
+    old, new = events_by_bar(before), events_by_bar(after)
+    shared = min(len(old), len(new))
+    changed = [index + 1 for index in range(shared) if old[index] != new[index]]
+    changed.extend(range(shared + 1, max(len(old), len(new)) + 1))
+    return changed
+
+
+def chord_entry(voice: Voice, onset: Fraction, symbol: str) -> dict:
+    bar, beat = bar_position(voice, onset)
+    return {"bar": bar, "beat": str(beat), "symbol": symbol}
+
+
+def chord_changes(before: Voice, after: Voice) -> dict:
+    old = {(onset, symbol) for onset, symbol in before.chords}
+    new = {(onset, symbol) for onset, symbol in after.chords}
+    return {
+        "added": [chord_entry(after, onset, symbol) for onset, symbol in sorted(new - old)],
+        "removed": [chord_entry(before, onset, symbol) for onset, symbol in sorted(old - new)],
+    }
+
+
+def score_summary(score: Score, path: Path) -> dict:
+    return {
+        "path": str(path),
+        "sha256": hashlib.sha256(score.text.encode()).hexdigest(),
+        "title": score.title,
+        "meter": f"{score.meter[0]}/{score.meter[1]}",
+        "key": score.key,
+        "unit": str(score.unit),
+        "bpm": score.bpm,
+    }
+
+
+def build_manifest(
+    source: Score,
+    edited: Score,
+    source_path: Path,
+    edited_path: Path,
+    names=VOICES,
+    allow_tempo_change=False,
+    brief_sha256: str | None = None,
+) -> dict:
+    """Collect the mechanical evidence of an edit. The invariant level and the reason are yours."""
+    voices = {}
+    for name in names:
+        old, new = source.voices[name], edited.voices[name]
+        shared = min(len(old.notes), len(new.notes))
+        first = next((index for index in range(shared) if old.notes[index] != new.notes[index]), None)
+        if first is not None:
+            changed_note = first + 1
+        elif len(old.notes) != len(new.notes):
+            changed_note = shared + 1
+        else:
+            changed_note = None
+        voices[name] = {
+            "before_notes": len(old.notes),
+            "after_notes": len(new.notes),
+            "changed_bars": changed_bars(old, new),
+            "first_changed_note": changed_note,
+            "chords": chord_changes(old, new),
+        }
+    return {
+        "source": score_summary(source, source_path),
+        "edited": score_summary(edited, edited_path),
+        "brief_sha256": brief_sha256,
+        "comparison": compare(source, edited, names, allow_tempo_change),
+        "voices": voices,
+        "scope": "symbolic evidence for one edit; add the invariant level, the permitted changes and the reason",
+    }
+
+
 def strip_chords(text: str, keep_voice="both") -> str:
     source = parse(text)
     lines = text.splitlines(keepends=True)
@@ -420,35 +511,57 @@ def main() -> int:
     diff.add_argument("--voices", choices=("both", *VOICES), default="both")
     diff.add_argument("--allow-tempo-change", action="store_true")
     diff.add_argument("--output", type=Path)
+    record = commands.add_parser("manifest", help="write the evidence for an edit as JSON")
+    record.add_argument("--source", type=Path, required=True)
+    record.add_argument("--edit", type=Path, required=True)
+    record.add_argument("--brief", type=Path, help="the brief the editor worked from")
+    record.add_argument("--voices", choices=("both", *VOICES), default="both")
+    record.add_argument("--allow-tempo-change", action="store_true")
+    record.add_argument("--output", type=Path)
     strip = commands.add_parser("strip-chords", help="remove chord symbols, as a cover needs")
     strip.add_argument("source", type=Path)
     strip.add_argument("output", type=Path)
     strip.add_argument("--keep-voice", choices=("both", *VOICES), default="both")
     args = parser.parse_args()
-    try:
-        if args.command == "inspect":
-            data = report(parse(args.score.read_text(encoding="utf-8")))
-        elif args.command == "strip-chords":
-            fail(args.source.resolve() == args.output.resolve(), "write a new file; do not overwrite the source")
-            text = strip_chords(args.source.read_text(encoding="utf-8"), args.keep_voice)
-            with args.output.open("x", encoding="utf-8", newline="") as handle:
-                handle.write(text)
-            print(json.dumps({"output": str(args.output), "kept_voice": args.keep_voice}))
-            return 0
-        else:
-            names = VOICES if args.voices == "both" else (args.voices,)
-            data = compare(
-                parse(args.before.read_text(encoding="utf-8")),
-                parse(args.after.read_text(encoding="utf-8")),
-                names,
-                args.allow_tempo_change,
-            )
+
+    def emit(data: dict) -> None:
         rendered = json.dumps(data, indent=2, ensure_ascii=False, default=json_value) + "\n"
         if args.output:
             fail(args.output.exists(), "the report path already exists; choose a new one")
             args.output.write_text(rendered, encoding="utf-8")
         else:
             print(rendered, end="")
+
+    try:
+        if args.command == "inspect":
+            data = report(parse(args.score.read_text(encoding="utf-8")))
+            emit(data)
+            return 0
+        if args.command == "strip-chords":
+            fail(args.source.resolve() == args.output.resolve(), "write a new file; do not overwrite the source")
+            text = strip_chords(args.source.read_text(encoding="utf-8"), args.keep_voice)
+            with args.output.open("x", encoding="utf-8", newline="") as handle:
+                handle.write(text)
+            print(json.dumps({"output": str(args.output), "kept_voice": args.keep_voice}))
+            return 0
+        names = VOICES if args.voices == "both" else (args.voices,)
+        source_text = (
+            args.source.read_text(encoding="utf-8")
+            if args.command == "manifest"
+            else args.before.read_text(encoding="utf-8")
+        )
+        edited_text = (
+            args.edit.read_text(encoding="utf-8")
+            if args.command == "manifest"
+            else args.after.read_text(encoding="utf-8")
+        )
+        source, edited = parse(source_text), parse(edited_text)
+        if args.command == "manifest":
+            brief_sha256 = hashlib.sha256(args.brief.read_bytes()).hexdigest() if args.brief else None
+            emit(build_manifest(source, edited, args.source, args.edit, names, args.allow_tempo_change, brief_sha256))
+            return 0
+        data = compare(source, edited, names, args.allow_tempo_change)
+        emit(data)
         return 1 if data.get("match") is False else 0
     except (AbcError, OSError) as problem:
         print(f"ABC check failed: {problem}", file=sys.stderr)
