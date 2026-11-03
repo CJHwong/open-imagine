@@ -12,6 +12,7 @@ import './gallery-browser.js';
 import './gallery-window.js';
 import './gallery-tile.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
+import {openRunSheet} from '../lib/run-sheet.js';
 import {t, plural, label} from '../lib/i18n.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
@@ -653,6 +654,7 @@ class VoiceStudio extends LitElement {
       if (reference) payload.reference = {wav_base64: await blobBase64(reference.blob), name: reference.name};
       if (items.length === 1) Object.assign(payload, items[0]);
       else payload.items = items;
+      this.submittedRun = payload;
       const response = await fetch('/voice/operations', {
         method: 'POST', headers: {'Content-Type': 'application/json', 'X-Studio-Client': this.options.clientId,
           'X-Studio-Library': this.options.libraryId}, body: JSON.stringify(payload),
@@ -1408,6 +1410,28 @@ class VoiceStudio extends LitElement {
     </section>`;
   }
 
+  // The run sheet reads the request the page sent, then follows the operation.
+  openRunDetails() {
+    const operation = this.activeOperation?.kind === 'voice' ? this.activeOperation : null;
+    const request = operation?.settings || this.submittedRun || {};
+    openRunSheet({
+      kind: 'voice',
+      model: operation?.model || this.capabilities?.name,
+      mode: operation?.mode || this.mode,
+      request: request,
+      live: () => {
+        const progress = operation?.progress || {};
+        const started = Number(operation?.started_at) || 0;
+        return {
+          status: operation?.status === 'stopping' ? 'stopping' : 'running',
+          stage: progress.stage || progress.label,
+          step: progress.step,
+          total: progress.total,
+          elapsedSeconds: started ? Date.now() / 1000 - started : -1,
+        };
+      },
+    });
+  }
   renderGeneration() {
     const operation = this.activeOperation?.kind === 'voice' ? this.activeOperation : null;
     const progress = operation?.progress || {};
@@ -1436,6 +1460,7 @@ class VoiceStudio extends LitElement {
         </svg>
       </div>
       <p class="voice-generation-note">${t('voice.generation.note', {state: phase === 'finishing' ? t('voice.generation.saving') : phase === 'stopping' ? t('voice.generation.waitingStop') : t('voice.generation.playable')})}</p>
+      <button type="button" class="text-btn voice-run-details" @click=${() => this.openRunDetails()}>${t('run.details')}</button>
     </section>`;
   }
 

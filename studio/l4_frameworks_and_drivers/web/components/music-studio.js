@@ -8,6 +8,7 @@ import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
+import {openRunSheet} from '../lib/run-sheet.js';
 import {html, render} from '/page/vendor/lit.js';
 import {encodeMp3} from '../lib/mp3.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
@@ -383,6 +384,7 @@ class MusicStudio extends HTMLElement {
           <div class="music-times num"><span class="music-generation-elapsed">0:00</span><span class="music-generation-percent"></span></div>
         </div>
         <span class="music-generation-detail"></span>
+        <button type="button" class="text-btn music-run-details">${t('run.details')}</button>
       </div>
       <div class="music-empty video-empty empty">
         <div class="video-empty-mark">MUSIC</div>
@@ -404,6 +406,7 @@ class MusicStudio extends HTMLElement {
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
+    this.querySelector('.music-run-details').addEventListener('click', () => this.openRunDetails());
     // The engraver fixes the staff width when it runs. A window that changes width
     // gets a fresh engraving at the new width: a wide page carries more bars per line,
     // so the score needs fewer systems and less scrolling.
@@ -1466,6 +1469,7 @@ class MusicStudio extends HTMLElement {
         backend: this.capabilities.backend_id, client_id: this.options.clientId, library_id: this.options.libraryId};
       const count = draft.mode === 'transcribe' ? 1 : Number(draft.count);
       if (count > 1) payload.items = Array.from({length: count}, (_, index) => ({seed: payload.seed === null ? null : (payload.seed + index) >>> 0}));
+      this.submittedRun = payload;
       const answer = await fetch('/music/operations', {
         method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload),
       });
@@ -1487,6 +1491,27 @@ class MusicStudio extends HTMLElement {
       this.options.notify('error', message);
     }
     finally { this.pending = false; this.sync(); this.options.onBusyChange(); }
+  }
+  // The run sheet reads the request the page sent, then follows the sampler.
+  openRunDetails() {
+    const settings = this.operation?.settings || this.submittedRun || {};
+    openRunSheet({
+      kind: 'music',
+      model: musicModelName(this.operation?.model || this.capabilities?.name),
+      mode: this.operation?.mode || settings.mode || this.submittedRun?.mode,
+      request: settings,
+      live: () => {
+        const progress = this.operation?.progress || {};
+        const started = Number(this.operation?.started_at) || 0;
+        return {
+          status: this.operation?.status === 'stopping' ? 'stopping' : 'running',
+          stage: progress.stage || progress.label,
+          step: progress.step,
+          total: progress.total,
+          elapsedSeconds: started ? Date.now() / 1000 - started : -1,
+        };
+      },
+    });
   }
   async importOperation(operation, answer) {
     if (operation.batch_total) {

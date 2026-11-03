@@ -9,6 +9,7 @@ import './gallery-window.js';
 import './gallery-tile.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
+import {openRunSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
 
 let nextClipId = 1;
@@ -456,6 +457,29 @@ class VideoStudio extends LitElement {
       clip.thumbnailError = error.message;
       if (clip.kind === 'source') this.renderSourceVideos();
       else this.renderVideoGallery();
+    });
+  }
+
+  // The settings the page is sending, kept for the run sheet.
+  rememberRun(settings) { this.runDetails = settings; }
+
+  openRunDetails() {
+    const settings = this.runDetails || {};
+    openRunSheet({
+      kind: 'video',
+      model: settings.modelName,
+      mode: settings.mode,
+      request: settings,
+      live: () => {
+        const progress = this.generationProgress || {};
+        return {
+          status: progress.stopping ? 'stopping' : 'running',
+          stage: progress.stage,
+          step: progress.step,
+          total: progress.total,
+          elapsedSeconds: Number(progress.elapsedSeconds) || 0,
+        };
+      },
     });
   }
 
@@ -2313,6 +2337,8 @@ class VideoStudio extends LitElement {
             style=${details.percent === null ? nothing : '--rendered: ' + details.percent + '%'}></div>
           ${details.percent === null ? nothing : html`
             <span id="video-render-percent" class="video-render-percent">${details.percent}%</span>`}
+          <button type="button" class="text-btn video-run-details"
+            @click=${() => this.openRunDetails()}>${t('run.details')}</button>
         </div>
       </section>`;
     return this.renderMonitor(

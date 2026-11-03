@@ -19,15 +19,25 @@
 // and `.percent`, and `--exposed` is the property the CSS consumes for the
 // sweep, the drop, the rise and the develop. Every one of them stays.
 
+import {t} from '../lib/i18n.js';
+
 // The card for the run in flight, fitted and painted by the caller: the page
 // fits it from the stage it was put in, and paints it on the progress it reads.
 // The film's plate comes first, then its edge print, which carries the model's
 // name and the number of the frame the run is making.
-export function mount(canvas, edge, number) {
+export function mount(canvas, edge, number, onDetails) {
   const card = document.createElement('div');
   card.className = 'card';
   card.innerHTML = '<div class="plate"><div class="exposure"></div><span class="percent num"></span></div>'
     + '<div class="edge"><span>' + edge + '</span><span>' + number + '</span></div>';
+  if (onDetails) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'card-details';
+    button.textContent = t('run.details');
+    button.addEventListener('click', onDetails);
+    card.querySelector('.plate').append(button);
+  }
   canvas.append(card);
 }
 
