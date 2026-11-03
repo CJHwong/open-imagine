@@ -495,6 +495,11 @@ class VideoStudio extends LitElement {
       this.outputHeight = outputShape.height;
       this.outputModelName = outputShape.modelName || this.outputModelName;
     }
+    // A run this tab did not start still has a record with its settings, so its
+    // Details sheet can name what was sent.
+    if (outputShape && outputShape.settings) {
+      this.runDetails = {...outputShape.settings, modelName: outputShape.modelName, mode: outputShape.mode};
+    }
     if (!state) {
       this.generationProgress = null;
       this.pendingRender = null;
@@ -2167,6 +2172,9 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <div class="actions video-output-actions">
+          ${pending ? html`
+            <button class="btn quiet" type="button" data-action="run-details"
+              @click=${() => this.openRunDetails()}>${t('run.details')}</button>` : nothing}
           ${canCapture && !this.needsClip ? html`
             <button class="btn quiet" type="button" data-action="capture-video-frame"
               aria-label=${t('video.reference.add')} title=${t('video.reference.addTitle')}>
@@ -2337,8 +2345,6 @@ class VideoStudio extends LitElement {
             style=${details.percent === null ? nothing : '--rendered: ' + details.percent + '%'}></div>
           ${details.percent === null ? nothing : html`
             <span id="video-render-percent" class="video-render-percent">${details.percent}%</span>`}
-          <button type="button" class="text-btn video-run-details"
-            @click=${() => this.openRunDetails()}>${t('run.details')}</button>
         </div>
       </section>`;
     return this.renderMonitor(

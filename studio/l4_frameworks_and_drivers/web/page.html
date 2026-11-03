@@ -2311,6 +2311,9 @@
       clearArrived: function () { arrivedId = null; },
       progressState: function () { return run ? run.progressState() : null; },
       runRequest: function () { return run ? run.submittedRun() : null; },
+      // A run another tab or caller started: the page holds its record, and the
+      // sheet shows the fields that record carries.
+      runShared: function () { return sharedOperation; },
       runElapsed: function () { return run ? run.runElapsed() : -1; },
       region: function () { return region; },
       strip: function () { return strip; },

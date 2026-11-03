@@ -7,6 +7,7 @@ uv run studio --stub --port <port>
 uv run --with playwright python tests/e2e/verify_run_sheet.py <port>
 """
 
+import json
 import re
 import sys
 
@@ -65,15 +66,34 @@ def main():
         # One operation at a time: the next workspace opens when this run ends.
         page.wait_for_function("document.querySelector('#music-generate')?.dataset.state === 'idle'", timeout=60000)
 
-        # Image: the Details action rides on the progress card itself.
+        # Image, a run another caller started: the page holds the record, and the bar
+        # still opens the sheet with what that record carries.
+        context.request.post(
+            BASE + "/api/v1/operations",
+            data=json.dumps(
+                {"kind": "image", "prompt": "a shared run image", "size": "512x512", "steps": 8, "count": 1}
+            ),
+            headers={"Content-Type": "application/json"},
+        )
         page.goto(BASE + "/?workspace=image")
+        page.wait_for_selector("#stage-bar .run-details", timeout=20000)
+        page.click("#stage-bar .run-details")
+        shared_image = sheet(page)
+        check("a shared run opens its sheet from the bar", shared_image["open"], shared_image)
+        check("the shared prompt reaches the sheet", row(shared_image, "Prompt") == "a shared run image", shared_image)
+        page.keyboard.press("Escape")
+        page.wait_for_function(
+            "!document.body.classList.contains('busy') && document.body.dataset.sharedBusy !== 'true'", timeout=60000
+        )
+
+        # Image, this page's own run.
         page.wait_for_selector("#prompt", timeout=20000)
         page.fill("#prompt", "a red barn in a field")
         page.click("#go")
-        page.wait_for_selector(".card-details", timeout=20000)
-        page.click(".card-details")
+        page.wait_for_selector("#stage-bar .run-details", timeout=20000)
+        page.click("#stage-bar .run-details")
         image = sheet(page)
-        check("Image opens the sheet from its card", image["open"], image)
+        check("Image opens the sheet from its bar", image["open"], image)
         check(
             "the prompt and the model are the run's own",
             row(image, "Prompt") == "a red barn in a field" and "QWEN" in row(image, "Model").upper(),
@@ -84,20 +104,22 @@ def main():
         page.wait_for_selector(".card", state="detached", timeout=60000)
 
         # Video: the monitor state is driven, as the media suite does, because the stub
-        # clip returns before a render can be watched.
+        # clip returns before a render can be watched. The settings travel the way the
+        # shared operation sends them, so this covers that path too.
         page.goto(BASE + "/?workspace=video")
         page.wait_for_selector("#video-prompt", timeout=20000)
         page.evaluate("""() => {
           const studio = document.getElementById('video-studio');
-          studio.rememberRun({prompt: 'a slow pan over a rainy street', modelName: 'LTX 2.5',
-            mode: 'generate', width: 1280, height: 720, numFrames: 121, frameRate: 24, seed: 42});
           studio.setGenerationProgress({running: true, stage: 'running', step: 3, total: 8}, 12,
-            {width: 1280, height: 720, modelName: 'LTX 2.5'});
+            {width: 1280, height: 720, modelName: 'LTX 2.5', prompt: 'a slow pan over a rainy street',
+             mode: 'generate', numFrames: 121, frameRate: 24,
+             settings: {prompt: 'a slow pan over a rainy street', width: 1280, height: 720,
+               numFrames: 121, frameRate: 24, seed: 42, mode: 'generate'}});
         }""")
-        page.wait_for_selector(".video-run-details", timeout=8000)
-        page.click(".video-run-details")
+        page.wait_for_selector('#video-output-details [data-action="run-details"]', timeout=8000)
+        page.click('#video-output-details [data-action="run-details"]')
         video = sheet(page)
-        check("Video opens the sheet from the render placeholder", video["open"], video)
+        check("Video opens the sheet from its bar", video["open"], video)
         check(
             "the size, frames and seed are the run's own",
             bool(re.fullmatch(r"1280\s.\s720", row(video, "Size")))
