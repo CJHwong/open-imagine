@@ -38,6 +38,12 @@ takes `size` and `guidance`, and Edit takes `resolution` (`match`, or a long sid
 each step runs twice, so an image takes about twice as long. Turbo's `steps` has one allowed value
 (8 on Qwen-Image-2.1-Turbo); omit it to take the default.
 
+A mode may offer LoRAs. `loras` takes `{"id": ..., "strength": ...}` picks, by id from the mode's
+`loras`; `strength` is optional and takes that LoRA's own default. A pick at strength 0 is off: the
+server checks it, leaves it out, and it does not count toward `max_loras`. The engine adds a LoRA's
+trigger words to the prompt itself, so do not paste them in. When the user asks to keep an effect
+off, omit the pick; send an explicit strength only when they name one.
+
 An illustrative Generate payload (use only if discovery offers these values):
 
 ```json
