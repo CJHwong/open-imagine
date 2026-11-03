@@ -2489,9 +2489,14 @@ class MusicStudio extends HTMLElement {
       const showingLyrics = Boolean(hasLyrics && this.lyricsShown?.has(song.id));
       card.classList.toggle('shows-lyrics', showingLyrics);
       body.append(hasAudio ? renderSongText(song, showingLyrics) : this.sheetFor(song));
-      if (hasAudio) body.append(retained?.controls || this.renderPlayer(audio, song, showingLyrics), audio);
+      // The player belongs to the card, not to the words column: it spans the bottom
+      // edge so every song keeps the transport in one place, whatever the words do.
+      const player = hasAudio ? (retained?.controls || this.renderPlayer(audio, song, showingLyrics)) : null;
+      if (hasAudio) body.append(audio);
       if (song.coverError) { const error = document.createElement('p'); error.className = 'music-error'; error.textContent = song.coverError; body.append(error); }
-      card.append(artwork, body); list.append(card);
+      card.append(artwork, body);
+      if (player) card.append(player);
+      list.append(card);
       const number = this.songs.indexOf(song) + 1;
       const thumb = document.createElement('gallery-tile');
       thumb.extra = 'music-thumb'; thumb.songId = song.id; thumb.stillClass = 'music-thumb-art';

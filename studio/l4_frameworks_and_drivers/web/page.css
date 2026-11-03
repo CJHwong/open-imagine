@@ -1311,7 +1311,12 @@
   /* The card takes the pane's height so the transport has one place to sit. The
      words keep the room above it and scroll there; the player rides the bottom edge. */
   .music-songs { width: min(1020px, 100%); min-width: 0; height: 100%; }
-  .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr); gap: 24px 32px; min-width: 0; height: 100%; animation: arrive .3s ease-out; }
+  .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr);
+    grid-template-rows: minmax(0, 1fr) auto; gap: 24px 32px; min-width: 0; height: 100%; animation: arrive .3s ease-out; }
+  /* The artwork and the words share the top row; the transport spans the card's bottom
+     edge, the way the phone stacks it, so no column looks empty when the words are short. */
+  .music-artwork { grid-column: 1; grid-row: 1; }
+  .music-track-body { grid-column: 2; grid-row: 1; }
   .music-song[hidden] { display: none; }
   /* The artwork and the name share one top edge. The words run from that edge down and
      take the room the pane has, so a long lyric does not sit in a short strip. */
@@ -1345,7 +1350,7 @@
   .music-song.is-playing .music-tonearm, .music-generation .music-tonearm { transform: rotate(35deg); }
   .music-song.is-playing .music-power, .music-generation .music-power { background: #ffd478; box-shadow: 0 0 7px #ffd47880; }
   .music-song audio[hidden] { display: none; }
-  .music-player { width: 100%; max-width: 520px; margin: auto 0 0; padding-top: 12px; order: 1; flex: none; }
+  .music-player { grid-column: 1 / -1; grid-row: 2; width: 100%; margin: 0; padding-top: 12px; flex: none; }
   .music-timeline input[type="range"] { display: block; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; appearance: none; cursor: pointer; background: transparent; }
   .music-timeline input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
   .music-timeline input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
