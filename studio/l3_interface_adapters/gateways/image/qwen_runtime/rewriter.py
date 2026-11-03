@@ -22,6 +22,11 @@ ten requests each at the card's own sampling:
     4-bit       4.2s    23.5s (11.5 to 41.7)      1 to 6, and quoted text split apart
 
 4-bit is not faster in practice: it writes longer answers. 8-bit is the setting.
+
+The cards write English by design: their shipped system prompt says so, and the
+4-bit conversion keeps that behaviour. Removing both English-only lines and asking
+for the request's language changed nothing in a measured run on 2026-11-03, where a
+Chinese request still came back as English.
 """
 
 import contextlib
