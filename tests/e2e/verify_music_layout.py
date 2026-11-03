@@ -47,6 +47,31 @@ def main():
         expect(page.locator(".music-reference-fields")).to_be_visible()
         expect(page.locator("#music-controls .music-advanced-fields")).to_have_count(1)
         assert not page.locator(".music-advanced-fields").evaluate("node=>node.open")
+        # The generation card sits in the middle of the pane. An empty song stack that kept
+        # its auto margins absorbed the free space and pushed the card to the left edge.
+        centered = page.evaluate("""() => {
+          const root = document.querySelector('music-studio');
+          const generation = root.querySelector('.music-generation');
+          const pane = root.querySelector('.music-preview-pane');
+          const shelf = root.querySelector('.music-songs');
+          // A run hides the shelf's cards, so the stack is present and empty of visible
+          // children. It is the case that pushed the card left.
+          const held = document.createElement('article');
+          held.className = 'music-song';
+          held.hidden = true;
+          shelf.append(held);
+          generation.hidden = false;
+          root.querySelector('.music-empty').hidden = true;
+          const card = generation.getBoundingClientRect(), box = pane.getBoundingClientRect();
+          generation.hidden = true;
+          root.querySelector('.music-empty').hidden = false;
+          held.remove();
+          return {
+            x: Math.abs(card.left + card.width / 2 - (box.left + box.width / 2)),
+            y: Math.abs(card.top + card.height / 2 - (box.top + box.height / 2)),
+          };
+        }""")
+        assert centered["x"] <= 1 and centered["y"] <= 1, centered
         page.locator("#music-style").fill("Warm piano pop, two voices")
         page.locator("#music-lyrics").fill("[Verse]\nA melody for the morning")
         page.locator("#music-generate").click()
