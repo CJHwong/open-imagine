@@ -87,6 +87,17 @@ checks it against the contract. Both work from text, never from the audio alone.
    The reviewer runs the compare command and reads each permitted difference.
 4. Render only after the review. Keep the manifest beside the audio and the score.
 
+The tool writes the mechanical half of the manifest:
+
+```sh
+python3 scripts/abc_tools.py manifest --source score.abc --edit edited.abc \
+  --brief brief.md --output edit_manifest.json
+```
+
+It records both hashes, the changed bars and voices, the first changed note, the chord
+symbols that came and went, and the comparison result. Add the invariant level, each
+permitted change and the reason yourself.
+
 The manifest records:
 
 - `source_sha256` and `edited_sha256`, from `abc_tools.py inspect`.
