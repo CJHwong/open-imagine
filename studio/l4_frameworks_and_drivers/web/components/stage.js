@@ -319,34 +319,53 @@ export function renderStage() {
   stageBar.classList.remove('reserved');
   if (page.view() === 'progress' && page.busy()) {
     // The caption's room is kept through the run, so the frame does not
-    // move when the plate turns into the print.
-    stageBar.innerHTML = '';
+    // move when the plate turns into the print. The bar carries the prompt
+    // and the Details action, the way a finished frame's bar does.
+    const shared = page.runShared ? page.runShared() : null;
+    const request = (page.runRequest ? page.runRequest() : null) || shared?.settings || null;
     stageBar.hidden = false;
-    stageBar.classList.add('reserved');
+    stageBar.classList.remove('reserved');
+    stageBar.innerHTML = '';
+    if (request) {
+      const about = document.createElement('div');
+      about.className = 'about';
+      const line = document.createElement('p');
+      line.className = 'prompt-line';
+      line.textContent = request.prompt || shared?.prompt || '';
+      about.append(line);
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      const details = document.createElement('button');
+      details.type = 'button';
+      details.className = 'text-btn run-details';
+      details.textContent = t('run.details');
+      // The request comes from this page's own run, or from the record of a
+      // run this caller may already see. A private run without its key never
+      // reaches the page at all, so there is nothing to hide here.
+      details.addEventListener('click', function () {
+        openRunSheet({
+          kind: 'image',
+          model: shared?.model || page.edgeName,
+          mode: shared?.mode || page.currentMode().id,
+          request: request,
+          live: function () {
+            const state = page.progressState() || {};
+            return {
+              status: state.stopping ? 'stopping' : 'running',
+              stage: state.stage,
+              step: state.step,
+              total: state.total,
+              elapsedSeconds: page.runElapsed ? page.runElapsed() : -1,
+            };
+          },
+        });
+      });
+      actions.append(details);
+      stageBar.append(about, actions);
+    }
     // The card is components/progress-card.js. htmx keeps `#progress`, the
     // element the poll swaps, and that module draws this and never touches it.
-    // Its Details action reads the request the page sent, never the server's
-    // record, so a private run shows only what its own caller wrote.
-    page.progressCard().mount(page.canvas, page.edgeName, frameNumber(page.nextId()), function () {
-      const request = page.runRequest ? page.runRequest() : null;
-      if (!request) return;
-      openRunSheet({
-        kind: 'image',
-        model: page.edgeName,
-        mode: page.currentMode().id,
-        request: request,
-        live: function () {
-          const state = page.progressState() || {};
-          return {
-            status: state.stopping ? 'stopping' : 'running',
-            stage: state.stage,
-            step: state.step,
-            total: state.total,
-            elapsedSeconds: page.runElapsed ? page.runElapsed() : -1,
-          };
-        },
-      });
-    });
+    page.progressCard().mount(page.canvas, page.edgeName, frameNumber(page.nextId()));
     fitStage();
     page.renderProgress();
     return;
