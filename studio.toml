@@ -50,9 +50,14 @@ quantize = 0
 # image one serves edit. Neither is fetched until the toggle is first used.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+# A converted checkpoint, used when the directory is there. The repo ids above
+# stay as the fallback for a machine that has not converted one.
+rewrite_generate_local = "~/Library/Caches/models/qwen-pe-t2i-community/4bit"
+rewrite_edit_local = "~/Library/Caches/models/qwen-pe-i2i-community/4bit"
 # Unlike the image model, a rewriter is quantized: it writes one token at a time and
 # each token reads the whole card, so 8-bit halves a rewrite, 39.7s to 20.4s on
-# 2026-10-23. The card is quantized as it loads; 0 keeps bf16.
+# 2026-10-23. The card is quantized as it loads unless the local checkpoint above
+# already carries its own; 0 keeps bf16.
 rewrite_quantize = 8
 
 [qwen21_turbo]
@@ -65,6 +70,10 @@ model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"
 # holds the table; `docs/explanation/design-decisions.md` explains why it differs from the default table.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+# A converted checkpoint, used when the directory is there. The repo ids above
+# stay as the fallback for a machine that has not converted one.
+rewrite_generate_local = "~/Library/Caches/models/qwen-pe-t2i-community/4bit"
+rewrite_edit_local = "~/Library/Caches/models/qwen-pe-i2i-community/4bit"
 rewrite_quantize = 8                      # as [qwen21]
 # Your own LoRAs, one table each; docs/reference/configuration.md lists every key. The
 # same tables work under [qwen21], [viggle_turbo], [ltx25_mlx] and [ltx23_mlx].
@@ -95,6 +104,10 @@ lora_path = "~/Library/Caches/models/viggle-turbo/Qwen-Image-2.1-viggle-turbo-v0
 # depend on which weights draw the image.
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+# A converted checkpoint, used when the directory is there. The repo ids above
+# stay as the fallback for a machine that has not converted one.
+rewrite_generate_local = "~/Library/Caches/models/qwen-pe-t2i-community/4bit"
+rewrite_edit_local = "~/Library/Caches/models/qwen-pe-i2i-community/4bit"
 rewrite_quantize = 8                      # as [qwen21]
 
 [auk]

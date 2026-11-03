@@ -92,6 +92,34 @@ def test_the_viggle_backend_offers_the_same_prompt_rewriters(tmp_path: Path):
     assert built["viggle_turbo"].modes() == ("generate", "edit")
 
 
+def test_a_converted_rewriter_directory_replaces_the_repo_id(tmp_path: Path):
+    """A converted checkpoint on disk is used as it stands, and the repo id stays in
+    the map only for a machine that does not hold one."""
+    local = tmp_path / "pe-q4"
+    local.mkdir()
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21_turbo"\n'
+        '[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
+        'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
+        f'rewrite_generate_local = "{local}"\n',
+    )
+
+    assert build_rewriters(config)["qwen21_turbo"]._models["generate"] == str(local)
+
+
+def test_a_missing_converted_directory_keeps_the_repo_id(tmp_path: Path):
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21_turbo"\n'
+        '[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
+        'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
+        'rewrite_generate_local = "not/here"\n',
+    )
+
+    assert build_rewriters(config)["qwen21_turbo"]._models["generate"] == "Qwen/PE-T2I"
+
+
 def test_the_rewriter_is_quantized_as_its_backend_section_says(tmp_path: Path, monkeypatch):
     from studio.l4_frameworks_and_drivers import main as main_module
 

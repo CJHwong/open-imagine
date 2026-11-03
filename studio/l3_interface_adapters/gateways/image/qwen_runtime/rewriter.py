@@ -29,6 +29,7 @@ import io
 import json
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import cast
 
 from PIL import Image
@@ -66,7 +67,13 @@ def in_the_cache(repo: str) -> bool:
     huggingface_hub's own resolver answers, not a path built here, because the
     cache layout belongs to the library. A cached repo answers in under a
     millisecond and no network is used, so this is cheap enough for startup.
+
+    A directory answers directly. That is how a converted checkpoint, which is a
+    local MLX model rather than a hub repo, reaches this line and mlx-vlm.
     """
+    if Path(repo).expanduser().is_dir():
+        return True
+
     from huggingface_hub import snapshot_download
     from huggingface_hub.errors import LocalEntryNotFoundError
 
@@ -94,7 +101,16 @@ def cache_line(models: Mapping[str, str]) -> str:
 
 
 def _system_prompt(repo: str) -> str:
-    """The instructions shipped beside the weights. The model depends on them."""
+    """The instructions shipped beside the weights. The model depends on them.
+
+    A converted checkpoint keeps them beside its own weights, so the local
+    directory answers first and the hub is read only for a repo id.
+    """
+    path = Path(repo).expanduser()
+    if path.is_dir():
+        with open(path / "system_prompt.txt", encoding="utf-8") as handle:
+            return handle.read().strip()
+
     from huggingface_hub import hf_hub_download
 
     with open(hf_hub_download(repo, "system_prompt.txt"), encoding="utf-8") as handle:
@@ -300,9 +316,14 @@ class Qwen21Rewriter(PromptRewriterGateway):
         # are runtime switches, so they work whatever imported it first.
         disable_progress_bars()
         hub_logging.set_verbosity_error()
-        repo = self._models[mode]
+        # A hub id and a local directory both reach mlx-vlm here. The directory
+        # form is a converted checkpoint, and `~` is expanded so the config can
+        # name one without writing this machine's home path into the repo.
+        repo = str(Path(self._models[mode]).expanduser())
         config = load_config(repo)
-        if self._quantize:
+        # A converted checkpoint carries its own quantization, and quantizing it a
+        # second time would read a 4-bit card as if it were bf16.
+        if self._quantize and "quantization" not in config:
             model, processor = load(repo, lazy=True)
             _quantize(model, config, self._quantize)
         else:
