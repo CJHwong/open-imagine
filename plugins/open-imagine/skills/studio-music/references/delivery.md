@@ -10,6 +10,8 @@ per take. Include:
 
 - The complete style and lyrics, the seed, the mode, the planning value, `steps` and
   `cfg_scale`.
+- The backend id, and the engine identity that the capability or metadata response reports:
+  the checkpoint that made this take.
 - The operation ID, the start and finish times, and any truncation flags.
 - The score, and for a score edit, both the source and the edited version.
 - For a cover or a transcription, the reference name and the transcription task. Keep the
@@ -24,6 +26,10 @@ Save before either deadline. Do not leave the only copy in the server.
 Hand over the WAV, or a lossless copy, with the exact style and lyrics beside it. If the
 interface supports a local page, a small player can help. A listening page is a delivery aid,
 not a benchmark result.
+
+Review the bundle before you share it. A copied folder or page can carry local paths, failure
+text and prompts the user did not mean to hand over. Share the audio, the score, the style,
+the lyrics and the public model names. Leave out logs, private prompts and machine paths.
 
 Listen when the environment allows it. Check:
 
@@ -50,6 +56,11 @@ an impression of the sound.
 
 A same-seed pair is provenance, not a controlled experiment. Do not select a seed after
 hearing the options and present that take as the planned one.
+
+To read your own render back, submit `mode: "transcribe"` with the render as `reference_audio`
+and a `transcription_task`. Then compare the returned notes with the score you sent. Report a
+missed note as a disagreement between the render and the transcription. It can be either
+one, and a note check cannot tell you which. Listen before you name a cause.
 
 ## Failures
 

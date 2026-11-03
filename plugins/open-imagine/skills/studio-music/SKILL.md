@@ -89,8 +89,11 @@ next to the recording. Direct generation may return no useful score. Read the re
 
 Read [score editing](references/score-editing.md) before changing a score. Keep the source,
 state the invariants, edit the ABC text, and send it back with Generate. Compare musical
-events, not characters. The browser's **Edit score** action does the same thing the API
-does: it loads the returned score into a new Generate request.
+events, not characters: `python3 scripts/abc_tools.py inspect score.abc` validates a score,
+and `python3 scripts/abc_tools.py compare source.abc edited.abc --voices Vocal` names the
+first changed note and its bar. A delegated edit takes [the edit brief](assets/edit-brief.md),
+and the manifest comes back with the take. The browser's **Edit score** action does the same
+thing the API does: it loads the returned score into a new Generate request.
 
 ## Covers and transcriptions
 
@@ -115,9 +118,11 @@ The track count is the stop. A per-track duration is not a request field.
 ## Deliver
 
 Give the user playable audio, the exact style and lyrics, the returned score, the seed, the
-mode, the planning, and any truncation flags. Listen when the environment allows it. Say
-which checks you heard and which you only checked on paper. Read [delivery](references/delivery.md)
-for the evidence table and the report.
+mode, the planning, and any truncation flags. Name the backend and the checkpoint the
+metadata reports. Review a shared folder or page before you hand it over: it can carry local
+paths and failure text. Listen when the environment allows it. Say which checks you heard and
+which you only checked on paper. Read [delivery](references/delivery.md) for the evidence
+table and the report.
 
 Do not claim exact note realization, singer identity, instrument removal or waveform
 preservation from a score check, a successful operation or a clean engraving. A playable file

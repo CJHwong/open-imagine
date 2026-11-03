@@ -56,7 +56,12 @@ The engine writes a narrow, native ABC. Treat the returned score as the authorit
 1. Copy the source to a new file. Keep the original unchanged.
 2. Make one musical change in the intended bars.
 3. Compare the source and the edit as events: per voice, pitch, onset, duration, ties, meter
-   and tempo. A string comparison says nothing about whether the melody moved.
+   and tempo. A string comparison says nothing about whether the melody moved. Use the
+   bundled tool: `python3 scripts/abc_tools.py inspect score.abc` validates the score and
+   reports its sounding notes, bars and chord symbols. `python3 scripts/abc_tools.py compare
+   source.abc edited.abc --voices Vocal` names the first changed note and its bar, and exits
+   1 when the check finds a difference. Add `--allow-tempo-change` only for an intended
+   tempo change.
 4. If the contract allows rhythm or pitch changes, read the differences instead of calling an
    exact comparison a failure. Report the permitted differences.
 5. Send the complete edited score as `abc` with `mode: "generate"` and `cot: "full"`. Use
@@ -68,6 +73,27 @@ The engine writes a narrow, native ABC. Treat the returned score as the authorit
    score check does not prove the performance followed it.
 
 A same seed makes a comparison easier to trace. It does not hold the performance steady.
+
+## Hand an edit to another agent
+
+An editor and a reviewer see the same material. The editor proposes the change. The reviewer
+checks it against the contract. Both work from text, never from the audio alone.
+
+1. Give the editor the raw ABC, the source request, the requested change and
+   [the edit brief](../assets/edit-brief.md).
+2. Ask for the complete edited ABC, the request it will send, an `edit_manifest.json` and a
+   short musical rationale tied to bars and beats.
+3. Give a separate reviewer the source and the edited score, the manifest and the contract.
+   The reviewer runs the compare command and reads each permitted difference.
+4. Render only after the review. Keep the manifest beside the audio and the score.
+
+The manifest records:
+
+- `source_sha256` and `edited_sha256`, from `abc_tools.py inspect`.
+- The voices, bars and sections that changed.
+- The invariant level from the table above, and each permitted pitch, rhythm or lyric change.
+- The harmonic changes, as old symbol to new symbol with the beat position.
+- The checks that ran, and the result of each.
 
 ## Lyric changes
 
