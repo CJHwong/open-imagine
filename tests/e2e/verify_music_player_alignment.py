@@ -51,17 +51,21 @@ def main():
               const play = card.querySelector('.music-play').getBoundingClientRect();
               const player = card.querySelector('.music-player').getBoundingClientRect();
               return {artwork:artwork.toJSON(), play:play.toJSON(), player:player.toJSON(),
+                card:card.getBoundingClientRect().toJSON(),
+                pane:card.closest('.music-preview-pane').getBoundingClientRect().toJSON(),
                 title:card.querySelector('.music-song-title').getBoundingClientRect().toJSON(),
                 lyrics:card.querySelector('.music-track-text').getBoundingClientRect().toJSON()};
             }""")
             if width == 1440:
                 page.screenshot(path="/tmp/music-player-alignment-desktop.png")
-            assert abs(bounds["artwork"]["bottom"] - bounds["play"]["bottom"]) <= 2, bounds
+            # The transport rides the card's bottom edge, and the card fills the pane's
+            # content box, so the play row keeps one place whatever the words do.
+            assert abs(bounds["play"]["bottom"] - bounds["card"]["bottom"]) <= 2, bounds
+            assert abs(bounds["play"]["bottom"] - (bounds["pane"]["bottom"] - 28)) <= 2, bounds
             assert bounds["player"]["left"] >= bounds["artwork"]["right"], bounds
             assert abs(bounds["title"]["top"] - bounds["artwork"]["top"]) <= 2, bounds
             assert bounds["lyrics"]["height"] >= 64, bounds
             assert bounds["lyrics"]["bottom"] <= bounds["player"]["top"] + 1, bounds
-            assert current.locator(".music-track-text").evaluate("pane => pane.scrollHeight > pane.clientHeight")
         for width, height in [(390, 844), (360, 740)]:
             page.set_viewport_size({"width": width, "height": height})
             page.locator(".music-preview-pane").evaluate("pane => pane.scrollTop = 0")

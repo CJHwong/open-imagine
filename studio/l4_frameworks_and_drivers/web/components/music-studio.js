@@ -655,6 +655,26 @@ class MusicStudio extends HTMLElement {
       if (!this.stepSong(event.key === 'ArrowRight' ? 1 : -1)) return;
       event.preventDefault();
     });
+    // A phone steps to the next song with a sideways swipe on the preview, the same step
+    // the arrow keys take. Mouse drags are left alone, and a control, the seek bar, the
+    // words, or a score's own scroller keeps its drag.
+    this.swipeStart = null;
+    const swipeArea = this.querySelector('.music-preview-area');
+    swipeArea.addEventListener('pointerdown', event => {
+      this.swipeStart = null;
+      if (event.pointerType !== 'touch') return;
+      if (event.target.closest('input, textarea, select, button, audio, a, [contenteditable], .music-player, .music-track-text, .music-abc-notation, .music-output-details')) return;
+      this.swipeStart = {id: event.pointerId, x: event.clientX, y: event.clientY};
+    });
+    swipeArea.addEventListener('pointerup', event => {
+      const start = this.swipeStart;
+      this.swipeStart = null;
+      if (!start || start.id !== event.pointerId) return;
+      const dx = event.clientX - start.x, dy = event.clientY - start.y;
+      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      this.stepSong(dx < 0 ? 1 : -1);
+    });
+    swipeArea.addEventListener('pointercancel', () => { this.swipeStart = null; });
     // The Browse/Compact switch sits in the shelf's head, outside the strip's own keys.
     // A person who presses it still expects the arrow keys to step the songs.
     this.querySelector('gallery-browser').addEventListener('keydown', event => {
