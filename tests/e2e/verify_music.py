@@ -241,6 +241,24 @@ def main():
         expect(page.locator(".music-song")).to_have_count(2)
         expect(page.locator(".music-generation")).to_be_hidden()
         expect(page.locator(".music-count")).to_have_text("2 songs, kept in this browser.")
+        # A phone steps to the next song with a sideways swipe on the preview, the same
+        # step the arrow keys take.
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.locator('.pane-switch [data-pane="preview"]').click()
+        page.wait_for_timeout(100)
+        before = page.locator("#music-studio").evaluate("node => node.selectedId")
+        page.locator("#music-studio .music-preview-area").evaluate("""area => {
+          const box = area.getBoundingClientRect();
+          const y = box.top + box.height / 2, x = box.left + box.width / 2;
+          const fire = (type, at) => area.dispatchEvent(new PointerEvent(type, {
+            bubbles: true, cancelable: true, pointerId: 1, pointerType: 'touch',
+            clientX: at, clientY: y, isPrimary: true}));
+          fire('pointerdown', x);
+          fire('pointerup', x - 100);
+        }""")
+        page.wait_for_timeout(150)
+        after = page.locator("#music-studio").evaluate("node => node.selectedId")
+        assert after != before, (before, after)
         while page.locator(".music-song").count():
             page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
             page.wait_for_timeout(100)

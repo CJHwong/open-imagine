@@ -1249,7 +1249,7 @@
   /* A size container lets the card measure the pane itself. A percentage height resolves
      to auto here, because the pane takes its height from the shell's flex row. */
   .music-preview-pane { display: flex; align-items: center; justify-content: center;
-    min-height: 0; overflow: auto; padding: 28px; container-type: size; }
+    min-height: 0; overflow: auto; padding: 28px; container-type: size; touch-action: pan-y; }
   /* Auto margins center the child on their own, so the card stays centered even in an
      engine that treats the alignment keywords differently. An empty stack must take no
      space: its auto margins would absorb the free space and push the generation card to
@@ -1308,8 +1308,10 @@
     border-radius: 2px; background: #29282a; border-bottom: 3px solid #d8a984; }
   .music-power { position: absolute; right: 17px; bottom: 15px; width: 5px; height: 5px; border-radius: 50%; background: #3c3731; }
   .music-rpm { position: absolute; left: 15px; bottom: 5px; color: #eadac8; font-size: 7px; letter-spacing: .12em; font-family: var(--mono); }
-  .music-songs { width: min(1020px, 100%); min-width: 0; }
-  .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr); gap: 24px 32px; min-width: 0; animation: arrive .3s ease-out; }
+  /* The card takes the pane's height so the transport has one place to sit. The
+     words keep the room above it and scroll there; the player rides the bottom edge. */
+  .music-songs { width: min(1020px, 100%); min-width: 0; height: 100%; }
+  .music-song { display: grid; grid-template-columns: minmax(180px, .85fr) minmax(240px, 1.15fr); gap: 24px 32px; min-width: 0; height: 100%; animation: arrive .3s ease-out; }
   .music-song[hidden] { display: none; }
   /* The artwork and the name share one top edge. The words run from that edge down and
      take the room the pane has, so a long lyric does not sit in a short strip. */
@@ -1343,7 +1345,7 @@
   .music-song.is-playing .music-tonearm, .music-generation .music-tonearm { transform: rotate(35deg); }
   .music-song.is-playing .music-power, .music-generation .music-power { background: #ffd478; box-shadow: 0 0 7px #ffd47880; }
   .music-song audio[hidden] { display: none; }
-  .music-player { width: 100%; max-width: 520px; margin: 14px 0 0; padding-top: 12px; order: 1; flex: none; }
+  .music-player { width: 100%; max-width: 520px; margin: auto 0 0; padding-top: 12px; order: 1; flex: none; }
   .music-timeline input[type="range"] { display: block; width: 100%; height: 24px; margin: 0; padding: 0; border: 0; appearance: none; cursor: pointer; background: transparent; }
   .music-timeline input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
   .music-timeline input[type="range"]::-moz-range-track { height: 4px; border-radius: 4px; background: linear-gradient(to right, var(--text) var(--music-progress, 0%), var(--line-strong) var(--music-progress, 0%)); }
