@@ -14,6 +14,14 @@ SCORE = (
 )
 
 
+LONG_LYRICS = "\n\n".join(
+    [
+        f"[Verse]\nA melody for the morning\nLine {line} keeps the room full\nAnother line to fill it"
+        for line in range(1, 9)
+    ]
+)
+
+
 def open_editor(page):
     bar = page.locator(".music-output-details:not([hidden])")
     bar.get_by_role("button", name="More actions", exact=True).click()
@@ -73,10 +81,24 @@ def main():
         }""")
         assert centered["x"] <= 1 and centered["y"] <= 1, centered
         page.locator("#music-style").fill("Warm piano pop, two voices")
-        page.locator("#music-lyrics").fill("[Verse]\nA melody for the morning")
+        page.locator("#music-lyrics").fill(LONG_LYRICS)
         page.locator("#music-generate").click()
         expect(page.locator(".music-song audio")).to_have_count(1)
         expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
+        # A short window keeps the transport inside the pane. The card used to grow past
+        # the pane and cut the play button below the fold, which a 13 inch MacBook does at
+        # this height. The words give up the room and scroll instead.
+        page.locator(".music-song:not([hidden]) .music-lyrics-toggle").click()
+        fit = page.evaluate("""() => {
+          const pane = document.querySelector('.music-preview-pane').getBoundingClientRect();
+          const card = document.querySelector('.music-song:not([hidden])');
+          const transport = card.querySelector('.music-transport').getBoundingClientRect();
+          const text = card.querySelector('.music-track-text');
+          return {pane: pane.bottom, transport: transport.bottom,
+            scrolls: text.scrollHeight > text.clientHeight};
+        }""")
+        assert fit["transport"] <= fit["pane"], fit
+        assert fit["scrolls"], f"the words did not scroll: {fit}"
         # The shelf label opens the strip head, at the same left edge as Image, Video and
         # Voice, with Browse and the bulk actions on the right.
         head = page.locator("#music-studio .strip-head")
@@ -160,7 +182,7 @@ def main():
         lyrics = sheet.locator("details.music-details-lyrics")
         expect(lyrics).not_to_have_attribute("open", "")
         lyrics.locator("summary").click()
-        expect(lyrics.locator("p")).to_have_text("[Verse]\nA melody for the morning")
+        expect(lyrics.locator("p")).to_have_text(LONG_LYRICS)
         expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2")
         expect(bar.locator(".facts span").first).to_have_text("YuE2")
         assert page.locator("#music-studio gallery-browser").evaluate(
