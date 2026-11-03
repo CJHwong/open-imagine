@@ -384,7 +384,6 @@ class MusicStudio extends HTMLElement {
           <div class="music-times num"><span class="music-generation-elapsed">0:00</span><span class="music-generation-percent"></span></div>
         </div>
         <span class="music-generation-detail"></span>
-        <button type="button" class="text-btn music-run-details">${t('run.details')}</button>
       </div>
       <div class="music-empty video-empty empty">
         <div class="video-empty-mark">MUSIC</div>
@@ -406,7 +405,6 @@ class MusicStudio extends HTMLElement {
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
-    this.querySelector('.music-run-details').addEventListener('click', () => this.openRunDetails());
     // The engraver fixes the staff width when it runs. A window that changes width
     // gets a fresh engraving at the new width: a wide page carries more bars per line,
     // so the score needs fewer systems and less scrolling.

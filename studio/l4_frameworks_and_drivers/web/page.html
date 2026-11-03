@@ -122,6 +122,7 @@
       <div class="operation-metrics" aria-hidden="true">
         <span id="shared-operation-percent"></span><span id="shared-operation-elapsed"></span>
       </div>
+      <button id="shared-operation-details" type="button" class="pill" data-i18n="run.details">Details</button>
       <button id="shared-operation-cancel" type="button" class="pill"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span data-i18n="page.action.cancel">Cancel</span></button>
     </section>
     <section id="shared-rewrite-result" class="shared-operation" hidden>
@@ -750,6 +751,15 @@
   const videoStudio = document.getElementById('video-studio');
   const voiceStudio = document.getElementById('voice-studio');
   const musicStudio = document.getElementById('music-studio');
+  // One Details action for every mode. It rides in the shared status bar, so the
+  // trigger sits in the same place in Image, Video, Voice and Music.
+  document.getElementById('shared-operation-details').addEventListener('click', function () {
+    const kind = sharedOperation?.kind || mediaMode;
+    if (kind === 'music') musicStudio.openRunDetails?.();
+    else if (kind === 'voice') voiceStudio.openRunDetails?.();
+    else if (kind === 'video') videoStudio.openRunDetails?.();
+    else stage?.openRunDetails?.();
+  });
   const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
   // The payload says which workspaces this studio offers, so all four tabs are
   // drawn before the first paint. A tab that waited for the first state poll
