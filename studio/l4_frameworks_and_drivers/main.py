@@ -407,12 +407,23 @@ def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
     reader would look for it. None when studio.toml names neither. A settings file
     written before the rewriters existed has no keys for them, and that studio
     starts as it did, with no toggle, rather than refusing to boot.
+
+    `rewrite_generate_local` and `rewrite_edit_local` name a converted checkpoint
+    on disk. When that directory exists it is used instead of the repo id, which
+    stays as the fallback for a machine that has not converted one.
     """
     settings = config.backend(backend_id)
     models = {
         "generate": settings.get("rewrite_generate_model"),
         "edit": settings.get("rewrite_edit_model"),
     }
+    # A converted checkpoint is a local directory, and it answers first when it is
+    # there. The repo id stays in the map for a machine that does not hold one, so a
+    # fresh install still downloads and quantizes the bf16 card as it always did.
+    for mode in ("generate", "edit"):
+        local = settings.get(f"rewrite_{mode}_local")
+        if local and Path(str(local)).expanduser().is_dir():
+            models[mode] = str(Path(str(local)).expanduser())
     return models if all(models.values()) else None
 
 

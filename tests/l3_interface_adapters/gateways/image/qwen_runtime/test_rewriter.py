@@ -339,6 +339,16 @@ def test_one_model_stays_resident_until_the_other_mode_asks_for_its_own(system_p
     assert stubs["huggingface_hub.logging"]["set_verbosity_error"].called
 
 
+def test_a_local_directory_of_weights_is_in_the_cache(tmp_path):
+    """A converted checkpoint is a directory, not a repo id, and it needs no download."""
+    assert in_the_cache(str(tmp_path)) is True
+
+
+def test_a_local_directory_supplies_its_own_system_prompt(tmp_path):
+    (tmp_path / "system_prompt.txt").write_text("You lengthen a request.\n", encoding="utf-8")
+    assert _system_prompt(str(tmp_path)) == "You lengthen a request."
+
+
 def test_a_bf16_rewriter_loads_its_weights_eagerly_and_quantizes_nothing(system_prompt):
     stubs = rewriter_stubs(answering("{}"), system_prompt)
     quantize = Mock()
@@ -376,6 +386,22 @@ def test_a_quantized_rewriter_loads_lazily_then_quantizes_and_evaluates_before_w
     assert keep("language_model.model.layers.0.mlp.up_proj", Mock()) is True
     assert stubs["mlx.core"]["eval"].call_args.args == (model.parameters.return_value,)
     assert order == ["quantize", "eval", "write"]
+
+
+def test_a_converted_card_is_not_quantized_a_second_time(system_prompt):
+    """A converted checkpoint carries its own quantization, so the load returns it as
+    it stands. Quantizing it again would read a 4-bit card as if it were bf16."""
+    model = Mock()
+    stubs = rewriter_stubs(answering("{}"), system_prompt)
+    stubs["mlx_vlm"]["load"] = Mock(return_value=(model, "the processor"))
+    stubs["mlx_vlm.utils"]["load_config"] = Mock(
+        return_value={"quantization": {"group_size": 64, "bits": 4, "mode": "affine"}}
+    )
+    stubs["mlx_vlm.quant_utils"] = {"quantize_model": Mock()}
+    with heavy_modules(stubs):
+        Qwen21Rewriter({"generate": "Qwen/PE-T2I"}, quantize=8).rewrite("a cat", "generate", (), no_writing, never_stop)
+    assert stubs["mlx_vlm"]["load"].call_args.kwargs == {}
+    assert not stubs["mlx_vlm.quant_utils"]["quantize_model"].called
 
 
 def test_the_modes_are_the_ones_the_backend_wired_in():

@@ -25,6 +25,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
 | Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
+| Image backend `rewrite_generate_local`, `rewrite_edit_local` | A converted rewriter checkpoint on disk, such as a 4-bit MLX directory. When the directory exists it is used instead of the repo id, and its own quantization is kept. When it does not, the repo id above is downloaded and quantized at load, so a fresh machine needs no conversion. |
 | `[mlx_video].cli_path`, `ffmpeg_path` | Optional Video engine executable, and the media tool. Empty `cli_path` uses the wrapper the studio ships and builds. |
 | `[mlx_video].model_ltx25`, `model_ltx23` | Video pack identifiers. |
 | `[mlx_video].lora_dir`, `fetch_loras` | Effect adapter directory and opt-in download policy. |
