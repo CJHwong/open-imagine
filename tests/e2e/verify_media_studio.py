@@ -1117,7 +1117,7 @@ with sync_playwright() as playwright:
         page.locator("#backend-toggle .name").inner_text(),
     )
     page.locator("label[for=mode-edit]").click()
-    page.set_input_files("#reference", str(REFERENCE))
+    # The reference from the earlier paste must survive the mode switch.
     page.get_by_role("img", name="reference.png").wait_for(state="visible", timeout=10000)
     page.fill("#prompt", "Replace the copper cup with a glass vase")
     page.dispatch_event("#prompt", "input")
@@ -2112,6 +2112,22 @@ with sync_playwright() as playwright:
         and switched["prompt"] == switched["expected"]
         and bool(switched["expected"]),
         json.dumps({**switched, "picked": picked}),
+    )
+    # The strip draws the render ahead of the clips, so the arrow must walk back to it.
+    # It used to skip the placeholder because only clips were in the walk.
+    page.locator("#video-gallery .video-clip").first.focus()
+    page.keyboard.press("ArrowLeft")
+    back_by_arrow = page.evaluate(
+        """() => ({
+          monitor: Boolean(document.querySelector('.video-render-placeholder')),
+          tile: document.querySelector('#video-gallery .video-gallery-pending')?.getAttribute('aria-pressed'),
+          focused: Boolean(document.activeElement?.classList.contains('video-gallery-pending')),
+        })"""
+    )
+    check(
+        "the arrow keys walk back to the render placeholder",
+        back_by_arrow == {"monitor": True, "tile": "true", "focused": True},
+        str(back_by_arrow),
     )
     page.locator("#video-gallery .video-gallery-pending").click()
     back_to_render = page.evaluate(

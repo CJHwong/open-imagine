@@ -1883,23 +1883,29 @@ class VideoStudio extends LitElement {
 
   stepClip(delta) {
     const gallery = this.querySelector('#video-gallery');
-    // The strip draws newest first, and this walks it in the order it draws, so the
-    // arrow keys move the way the frames do.
+    // The strip draws the render in flight ahead of the clips, and this walks it in the
+    // order it draws, so the arrow keys move the way the frames do. The placeholder is
+    // a null entry: it has no clip id, and picking it puts the render back on screen.
     const outputs = this.clips.filter((clip) => clip.kind === 'generated').reverse();
-    const current = outputs.findIndex((clip) => clip.id === this.selectedClipId);
-    const next = outputs[current + delta];
-    if (!next) return false;
+    const pending = Boolean(this.pendingRender);
+    const items = pending ? [null, ...outputs] : outputs;
+    const selected = outputs.findIndex((clip) => clip.id === this.selectedClipId);
+    const current = pending && this.showRender ? 0 : selected < 0 ? -1 : selected + (pending ? 1 : 0);
+    const next = items[current + delta];
+    if (next === undefined) return false;
     const keepFocus = Boolean(gallery?.contains(document.activeElement));
-    this.selectClip(next.id);
+    if (next === null) this.showRenderMonitor();
+    else this.selectClip(next.id);
     // The strip is a Lit child: its buttons still carry the previous selection until it
     // redraws. Wait for that frame, then move and focus the one that is selected now.
     const settle = async () => {
       const window = this.querySelector('#video-gallery gallery-window');
       if (window) await window.updateComplete;
-      const selected = this.querySelector('#video-gallery .video-clip.selected');
-      if (!selected) return;
-      selected.scrollIntoView({block: 'nearest', inline: 'nearest'});
-      if (keepFocus) selected.focus();
+      const picked = this.querySelector(
+        '#video-gallery .video-clip.selected, #video-gallery .video-gallery-pending.selected');
+      if (!picked) return;
+      picked.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      if (keepFocus) picked.focus();
     };
     settle();
     return true;
