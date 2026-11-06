@@ -69,6 +69,7 @@ function snapshotInputs() {
     if (node) params[param.id] = node.value;
   });
   return {
+    mode: page.currentMode().id,
     view: page.view(),
     prompt: page.el.promptInput.value,
     negative: document.getElementById('negative').value,
@@ -78,15 +79,14 @@ function snapshotInputs() {
     look: JSON.parse(JSON.stringify(page.look())),
     loras: page.loraPicks(),
     references: page.references().slice(),
+    eachReference: document.querySelector('input[name=each_reference]:checked')?.value || '',
+    eachText: page.eachText(),
     region: page.region().snapshot(),
   };
 }
 
-// Everything the run consumed goes back to nothing: the words, the seed, the marks, the
-// references, and the settings with them, because the form the run sent is emptied and the
-// guide tells a reader that Run empties the form it sent. A step count picked for one job is
-// typed again for the next one, which is the price of that rule and not a fault in it: the
-// settings inside one batch are kept, since a chain link never clears the form.
+// The form clears while a run uses its inputs. A failed or cancelled run restores them.
+// A successful run leaves the form ready for new inputs. Batch links keep their settings.
 //
 // The defaults come from the mode, through the same call a mode switch makes,
 // rather than from a value named here that could drift away from the backend.
@@ -118,6 +118,7 @@ function restoreInputs(snapshot) {
   if (!snapshot) return;
   const el = page.el;
   const region = page.region();
+  page.observeMode(snapshot.mode);
   // The stage the region was drawn on comes back first: a mark only survives on
   // the frame it was drawn on, so the frame has to be there before the strokes.
   page.setView(snapshot.view);
@@ -130,6 +131,9 @@ function restoreInputs(snapshot) {
   // The rows read their text from here, so it goes back before they are built.
   region.setText(snapshot.region.text);
   page.setReferences(snapshot.references.slice());
+  const eachReference = document.querySelector('input[name=each_reference][value="' + snapshot.eachReference + '"]');
+  if (eachReference) eachReference.checked = true;
+  page.setEachText(snapshot.eachText || {});
   region.putDown();
   page.applyParams();  // this marks every input as applied, so the values below stick
   Object.keys(snapshot.params).forEach(function (id) {
@@ -211,7 +215,7 @@ function stopWork() {
     const snapshot = cancelRestore;
     cancelRestore = null;
     restoreInputs(snapshot);
-  }
+  } else cleared = null;
 }
 
 function armCancelRestore() {
@@ -430,6 +434,7 @@ function harvest() {
     node.remove();
   });
   const terminalNotice = incoming.querySelector(':scope > .err, :scope > .hint');
+  if (incoming.querySelector(':scope > .err')) armCancelRestore();
   if (terminalNotice && nativeOperationId) {
     document.dispatchEvent(new CustomEvent('operation-imported', {detail: nativeOperationId}));
   }
@@ -674,12 +679,14 @@ function listen() {
   }
   });
   document.body.addEventListener('htmx:responseError', function () {
+    armCancelRestore();
     stopWork();
     // An error response from /generate, /progress or /cancel used to take the card away
     // without a word. The run may still be going on the server, so the copy says so.
     page.notify('error', t('form.error.requestFailed'));
   });
   document.body.addEventListener('htmx:sendError', function () {
+    armCancelRestore();
     stopWork();
     page.notify('error', t('form.error.serverSilent'));
   });
