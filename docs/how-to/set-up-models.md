@@ -41,6 +41,9 @@ uv run --with huggingface-hub hf download dgrauet/ltx-2.5-mlx-q8 --local-dir ~/L
 
 The `--local-dir` form writes real files. The shared cache form can leave the large weights as Xet
 pointers on a client without Xet support, and a run then fails on the first file it opens.
+Keep `transformer-dev.safetensors` in the pack. The audio track route uses CFG guidance and fails
+with `Dev transformer not found` when only the distilled transformer is present. A text-only clip
+still runs without it.
 LTX-2.3 keeps a repository id, so its pack downloads on first use.
 
 To use Video Edit effects, accept each adapter’s terms and either place its file in `[mlx_video].lora_dir`
