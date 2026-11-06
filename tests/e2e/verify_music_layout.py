@@ -183,10 +183,10 @@ def main():
         expect(lyrics).not_to_have_attribute("open", "")
         lyrics.locator("summary").click()
         expect(lyrics.locator("p")).to_have_text(LONG_LYRICS)
-        expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2 (MLX Q8)")
-        expect(bar.locator(".facts span").first).to_have_text("YuE2 (MLX Q8)")
+        expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2")
+        expect(bar.locator(".facts span").first).to_have_text("YuE2")
         assert page.locator("#music-studio gallery-browser").evaluate(
-            "node=>node.items.every(item=>item.model==='YuE2 (MLX Q8)')"
+            "node=>node.items.every(item=>item.model==='YuE2')"
         )
         # Both readings start folded; the sheet engraves when it is opened.
         score_fold = sheet.locator("details.music-details-sheet")

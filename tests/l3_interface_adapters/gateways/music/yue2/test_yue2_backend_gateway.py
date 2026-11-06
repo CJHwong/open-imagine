@@ -54,7 +54,7 @@ def test_mlx_load_requires_converted_q8_and_bf16_conditioning_weights(tmp_path):
         (vae / name).touch()
     gateway = Yue2BackendGateway(child, str(tmp_path), str(vae))
     assert gateway.capabilities().badge == "Q8 AR / BF16 audio"
-    assert gateway.capabilities().name == "YuE2 (MLX Q8)"
+    assert gateway.capabilities().name == "YuE2"
     for name in (
         "ar-8bit.safetensors",
         "ar-bf16.safetensors",
