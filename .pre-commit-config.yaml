@@ -69,3 +69,9 @@ repos:
         language: system
         pass_filenames: false
         files: \.py$
+      - id: studio-video-tests
+        name: studio-video skill tests
+        entry: python3 -m unittest discover -s plugins/open-imagine/skills/studio-video/scripts -p test_*.py
+        language: system
+        pass_filenames: false
+        files: ^plugins/open-imagine/skills/studio-video/scripts/.*\.py$

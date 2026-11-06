@@ -57,6 +57,9 @@ exclude = [
     "studio/l3_interface_adapters/gateways/image/flux3/flux3_child.py",
     # The video engine wrapper imports the engine, which lives in the environment it builds.
     "studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py",
+    # The video skill's scripts run standalone from the installed skill, outside the studio
+    # package: dynamic CLI dispatch, macOS Vision imports, and untyped project fixtures.
+    "plugins/open-imagine/skills/studio-video/scripts/",
 ]
 
 # Branch coverage as well as statement coverage. A statement can run while one side

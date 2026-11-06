@@ -89,6 +89,19 @@ def test_controller_maps_single_and_batch_requests():
     assert controller.capabilities()["loading"]["policy"] == "download_on_first_use"
 
 
+def test_validate_checks_a_voice_request_without_running_the_model():
+    from unittest.mock import Mock
+
+    from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+
+    controller = VoiceController(Mock(), auk_capabilities("flash"))
+
+    job = controller.validate({"mode": "design", "text": "Hello", "voice": "A warm voice"})
+
+    assert job.text == "Hello"
+    assert job.options["voice"] == "A warm voice"
+
+
 @pytest.mark.parametrize("seconds, expected", [(0, 4), (2, 2)])
 def test_speed_template_uses_actual_reference_length_unless_duration_is_explicit(seconds, expected):
     payload = {

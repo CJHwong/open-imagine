@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
-from studio.l1_entities.errors import Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.operation import OperationOutput
 from studio.l1_entities.video_job import VideoResult
@@ -61,6 +61,7 @@ class JsonApi:
         operations: OperationGateway,
         completion: CompleteOperationUseCase,
         batches: PrepareBatchUseCase,
+        resource_admission: Callable[[Mapping[str, object]], None] | None = None,
     ) -> None:
         self._controller = controller
         self._video = video
@@ -69,6 +70,7 @@ class JsonApi:
         self._operations = operations
         self._completion = completion
         self._batches = batches
+        self._resource_admission = resource_admission
 
     def trim_audio(self, payload: Mapping[str, Any]) -> tuple[bytes, float]:
         return trim_audio(payload)
@@ -156,8 +158,24 @@ class JsonApi:
         backend = payload.get("backend") or (document["active"] if document else "")
         model = next((one["name"] for one in document["backends"] if one["id"] == backend), "") if document else ""
         batch_metadata = {}
+        batch_items = None
         if "items" in payload:
-            batch_metadata["batch_total"] = len(self._batches.execute({**payload, "backend": backend}))
+            batch_items = self._batches.execute({**payload, "backend": backend})
+            batch_metadata["batch_total"] = len(batch_items)
+        if self._resource_admission is not None and kind != "rewrite":
+            if self._operations.busy():
+                raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
+            resource_payload = {
+                **payload,
+                "kind": kind,
+                "workspace": workspace,
+                "backend": backend,
+                "mode": mode,
+            }
+            if batch_items is not None:
+                resource_payload["items"] = batch_items
+            self._validate_resource_requests(str(kind), resource_payload)
+            self._resource_admission(resource_payload)
         excluded = {"references", "reference", "clip", "audio", "reference_audio", "reference_token", "items"}
         settings = {key: value for key, value in payload.items() if key not in excluded}
         return operation_document(
@@ -183,6 +201,28 @@ class JsonApi:
                 private_key=owner,
             )
         )
+
+    def _validate_resource_requests(self, kind: str, payload: Mapping[str, object]) -> None:
+        requests = payload.get("items")
+        if not isinstance(requests, list):
+            requests = [payload]
+        for request in requests:
+            if not isinstance(request, Mapping):
+                raise InvalidJob("Each entry in items must be an object.")
+            mode = str(request.get("mode") or payload.get("mode") or "generate")
+            if kind == "image":
+                form = {key: value for key, value in request.items() if isinstance(key, str) and isinstance(value, str)}
+                if len(form) == len(request):
+                    self._controller.plan(form)
+                else:
+                    self._controller.plan(image_form(request, mode))
+            elif kind == "video":
+                self._video_backend().plan({**request, "mode": mode})
+            elif kind == "voice":
+                voice_request = {**request, "mode": mode, "backend": payload["backend"]}
+                if voice_request.get("seed") in (None, ""):
+                    voice_request["seed"] = 0
+                self._voice_backend().validate(voice_request)
 
     def complete(
         self, operation_id: str, action: Callable, serialize: Callable | None = None, observed: dict | None = None
