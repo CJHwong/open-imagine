@@ -27,16 +27,19 @@ def fake_engine(media_tools):
 
         @contextlib.contextmanager
         def phase(self, name):
-            yield
-            self.data["phases"].append({"seconds": 1, "peak_gib": 2})
-            self.flush()
+            # As the engine's own: a phase records itself and flushes, also when it raised.
+            try:
+                yield
+            finally:
+                self.data["phases"].append({"seconds": 1, "peak_gib": 2})
+                self.flush()
 
     engine = SimpleNamespace(Recorder=Recorder)
 
     def main():
         assert sys.argv[-2:] == ["--", "private test words"]
         assert "--prompt-cache" not in sys.argv and "--draft-cache-dir" not in sys.argv
-        assert not {"--first-frame", "--keyframe", "--audio-drive"} & set(sys.argv)
+        assert not {"--first-frame", "--keyframe", "--audio-drive", "--lora"} & set(sys.argv)
         record = engine.Recorder(Path("must-not-write.json"), {"prompt": sys.argv[-1]})
         with record.phase("joint_denoise"):
             print("private test words")
@@ -262,3 +265,99 @@ def test_worker_script_entrypoint_refuses_bad_arguments_without_exposing_input(m
 
     assert stopped.value.code == 1
     assert json.loads(events[0]) == {"event": "error", "type": "ValueError"}
+
+
+def test_worker_hands_each_lora_to_the_engine_in_the_order_picked(fake_engine, tmp_path):
+    seen = {}
+
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--lora", action="append")
+        args, _ = parser.parse_known_args(sys.argv[1:])
+        seen["loras"] = args.lora
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+    loras = [{"path": "/loras/one.safetensors", "scale": 0.4}, {"path": "/lo:ras/two.safetensors", "scale": 1.0}]
+
+    worker.render(fake_engine, tmp_path, request(loras=loras), lambda _: None)
+
+    assert seen["loras"] == ["/loras/one.safetensors:0.4", "/lo:ras/two.safetensors:1.0"]
+    # The engine's parse_spec splits PATH:SCALE at the last colon, so a colon in the path is safe.
+    assert [spec.rpartition(":")[::2] for spec in seen["loras"]] == [
+        ("/loras/one.safetensors", "0.4"),
+        ("/lo:ras/two.safetensors", "1.0"),
+    ]
+
+
+def accounting(*adapters):
+    return {"adapters": [{"path": "private", "applied": applied, "unaccounted": lost} for applied, lost in adapters]}
+
+
+@pytest.mark.parametrize(
+    "adapters,index,applied,unaccounted",
+    [
+        (((0, 0),), 0, 0, 0),
+        (((None, 0),), 0, 0, 0),
+        (((100, 0), (208, 51)), 1, 208, 51),
+    ],
+)
+def test_worker_stops_before_the_denoise_when_the_engine_cannot_apply_a_lora(
+    fake_engine, tmp_path, adapters, index, applied, unaccounted
+):
+    def main():
+        record = fake_engine.Recorder(Path("must-not-write.json"), {})
+        with record.phase("adaln_cache_and_noise"):
+            record.data["lora_accounting"] = accounting(*adapters)
+            record.flush()
+        raise AssertionError("the denoise started")
+
+    fake_engine.main = main
+    events = []
+
+    with pytest.raises(RuntimeError, match="cannot apply all of a LoRA"):
+        worker.render(fake_engine, tmp_path, request(), events.append)
+
+    # The phase flushes again on its way out, and the gateway hears about the LoRA once.
+    unfit = {"event": "lora_unfit", "index": index, "applied": applied, "unaccounted": unaccounted}
+    assert events == [unfit]
+    assert "private" not in json.dumps(events)
+
+
+LORAS = [{"path": "/loras/one.safetensors", "scale": 0.4}, {"path": "/loras/two.safetensors", "scale": 1.0}]
+
+
+def test_worker_runs_on_when_the_engine_applied_every_lora(fake_engine, tmp_path):
+    def main():
+        record = fake_engine.Recorder(Path("must-not-write.json"), {})
+        record.data["lora_accounting"] = accounting((100, 0), (208, 0))
+        record.flush()
+        with record.phase("joint_denoise"):
+            pass
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+    events = []
+
+    assert worker.render(fake_engine, tmp_path, request(loras=LORAS), events.append)[4:8] == b"ftyp"
+    assert events == [{"event": "phase", "phase": "joint_denoise", "seconds": 1, "peak_gib": 2}]
+
+
+def test_worker_stops_before_the_denoise_when_the_engine_counted_no_lora(fake_engine, tmp_path):
+    # A later engine pin can rename or move the count. The check above then has nothing to read.
+    def main():
+        record = fake_engine.Recorder(Path("must-not-write.json"), {})
+        with record.phase("adaln_cache_and_noise"):
+            pass
+        with record.phase("joint_denoise"):
+            raise AssertionError("the denoise started")
+
+    fake_engine.main = main
+    events = []
+
+    with pytest.raises(RuntimeError, match="did not count the layers"):
+        worker.render(fake_engine, tmp_path, request(loras=LORAS), events.append)
+
+    assert events == [{"event": "phase", "phase": "adaln_cache_and_noise", "seconds": 1, "peak_gib": 2}]

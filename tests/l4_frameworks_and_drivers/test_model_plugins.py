@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from studio.l1_entities.lora import Lora
 from studio.l1_entities.voice_capabilities import Capabilities as VoiceCapabilities
 from studio.l1_entities.voice_capabilities import ModeSpec as VoiceMode
 from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
@@ -12,7 +13,7 @@ from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewri
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
-from studio.plugins import ModelPlugin
+from studio.plugins import API_VERSION, ModelPlugin
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
 from tests.support.plugins import CHECKPOINT, PACK, checkpoint_entries, entry, install, pack_entries
 
@@ -124,8 +125,139 @@ def test_context_has_resolved_settings_and_cancellable_host_process_driver(monke
     registry, _ = installed(monkeypatch)
     context = registry.context(configuration(), "example_image")
     assert context.settings == {"key": "value"} and callable(context.run_process)
+    assert context.capabilities is None and context.lora_paths == {}
     with pytest.raises(TypeError):
         context.settings["key"] = "changed"
+
+
+def lora_tables(**settings):
+    """The example video model's section with two LoRA tables, as studio.toml resolves them."""
+    tables = [
+        {"id": "motion", "label": "Motion", "path": "/private/motion.safetensors", "trigger": "in motion"},
+        {"id": "detail", "label": "Detail", "path": "/private/detail.safetensors", "strength": 0.5},
+    ]
+    return replace(configuration(), sections={"example_video": {"loras": tables, **settings}})
+
+
+def taking_loras(factory=None):
+    """A video declaration that takes the LoRA tables, and the contexts its factory saw."""
+    seen = []
+
+    def create(context):
+        seen.append(context)
+        return StubVideoBackendGateway(context.capabilities)
+
+    video = replace(declarations()["video"], create=factory or create, loras=True)
+    return {"video": video}, seen
+
+
+@pytest.mark.parametrize("stub", [False, True])
+def test_a_plugin_that_takes_loras_offers_its_tables_by_id(monkeypatch, stub):
+    plugins, seen = taking_loras()
+    registry, _ = installed(monkeypatch, plugins)
+
+    gateway = registry.build("video", "example_video", lora_tables(max_loras=2), stub)
+
+    offered = gateway.capabilities()
+    assert [lora.id for lora in offered.loras] == ["motion", "detail"] and offered.max_loras == 2
+    assert offered.loras[0].trigger == "in motion" and offered.loras[1].strength == 0.5
+    assert replace(offered, loras=(), max_loras=0) == plugins["video"].capabilities
+    assert "/private/" not in repr(offered)
+    if stub:
+        assert seen == []
+    else:
+        (context,) = seen
+        assert context.capabilities == offered
+        assert context.lora_paths == {"motion": "/private/motion.safetensors", "detail": "/private/detail.safetensors"}
+        with pytest.raises(TypeError):
+            context.lora_paths["motion"] = "/elsewhere"
+
+
+def test_a_plugin_that_takes_loras_keeps_its_record_without_tables(monkeypatch):
+    plugins, seen = taking_loras()
+    registry, _ = installed(monkeypatch, plugins)
+
+    gateway = registry.build("video", "example_video", configuration())
+
+    assert gateway.capabilities() == plugins["video"].capabilities == seen[0].capabilities
+    assert seen[0].lora_paths == {}
+
+
+def test_a_plugin_that_takes_loras_must_report_the_offered_record(monkeypatch):
+    video = declarations()["video"]
+    plugins, _ = taking_loras(lambda context: StubVideoBackendGateway(video.capabilities))
+    registry, _ = installed(monkeypatch, plugins)
+
+    with pytest.raises(ConfigError, match="Cannot construct video model plugin"):
+        registry.build("video", "example_video", lora_tables())
+
+
+@pytest.mark.parametrize(
+    "table,reason",
+    [
+        ({"id": "motion", "label": "Motion"}, "needs path"),
+        # The rules of a video model: one LoRA set applies to every mode.
+        ({"id": "motion", "label": "Motion", "path": "/m.safetensors", "modes": ["generate"]}, "remove modes"),
+    ],
+)
+def test_a_table_for_a_plugin_that_takes_loras_follows_the_built_in_video_rules(monkeypatch, table, reason):
+    plugins, _ = taking_loras()
+    registry, _ = installed(monkeypatch, plugins)
+    config = replace(configuration(), sections={"example_video": {"loras": [table]}})
+
+    with pytest.raises(ConfigError, match=reason):
+        registry.build("video", "example_video", config)
+
+
+def test_a_plugin_that_takes_no_loras_leaves_its_tables_to_itself(monkeypatch):
+    seen = []
+    video = declarations()["video"]
+    plugins = {"video": replace(video, create=lambda context: seen.append(context) or video.create(context))}
+    registry, _ = installed(monkeypatch, plugins)
+
+    gateway = registry.build("video", "example_video", lora_tables())
+
+    assert gateway.capabilities() == video.capabilities
+    assert seen[0].capabilities is None and seen[0].lora_paths == {}
+    assert seen[0].settings["loras"][0]["path"] == "/private/motion.safetensors"
+
+
+@pytest.mark.parametrize(
+    "kind,changes,reason",
+    [
+        ("video", {"loras": "yes"}, "loras must be True or False"),
+        ("image", {"loras": True}, "only a video model takes LoRA tables"),
+        ("voice", {"loras": True}, "only a video model takes LoRA tables"),
+        (
+            "video",
+            {
+                "loras": True,
+                "capabilities": replace(
+                    fake_video_capabilities("example_video"), loras=(Lora("own", "Own"),), max_loras=1
+                ),
+            },
+            "declares no LoRAs of its own",
+        ),
+    ],
+)
+def test_a_declaration_that_takes_loras_is_checked(monkeypatch, kind, changes, reason):
+    bad = replace(declarations()[kind], **changes)
+    name = bad.capabilities.backend_id
+    registry, _ = installed(monkeypatch, entries=[SimpleNamespace(name=name, group=GROUPS[kind], load=lambda: bad)])
+
+    with pytest.raises(ConfigError, match=reason):
+        registry.declaration(kind, name)
+
+
+def test_a_record_that_gives_its_api_version_by_position_keeps_its_meaning(monkeypatch):
+    video = declarations()["video"]
+    positional = ModelPlugin(video.capabilities, video.create, None, API_VERSION)
+    name = video.capabilities.backend_id
+    registry, _ = installed(
+        monkeypatch, entries=[SimpleNamespace(name=name, group=GROUPS["video"], load=lambda: positional)]
+    )
+
+    assert registry.declaration("video", name) is positional and positional.loras is False
 
 
 @pytest.mark.parametrize(

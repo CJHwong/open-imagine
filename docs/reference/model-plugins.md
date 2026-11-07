@@ -20,9 +20,10 @@ own engine resolves to a `studio.plugins.image.QwenCheckpoint`. See
 | Field | Contract |
 |---|---|
 | `capabilities` | The corresponding media capability record; `backend_id` equals the entry point name. |
-| `create(context)` | A cheap factory returning that media's gateway with exactly the declared capabilities. |
+| `create(context)` | A cheap factory returning that media's gateway with exactly the declared capabilities. With `loras`, the gateway returns `context.capabilities` instead. |
 | `rewriter(context)` | Optional Image/Video `PromptRewriterGateway` factory. Omit to hide Rewrite. |
 | `api_version` | `1`. Unsupported versions fail at startup with the plugin's name. |
+| `loras` | `True` to offer the LoRA tables of the plugin's section. Video only. See [LoRA tables](#lora-tables). |
 
 Wrong media types, missing dependencies of a visible plugin, conflicting IDs, invalid factories,
 and changed capability records produce named startup errors. Hidden plugin code is not imported.
@@ -95,6 +96,25 @@ reaches the page, the API or the operation record. Keep the files in the plugin'
 configuration, and resolve them in `load` or `run`. A `loras` list of tables in the plugin's
 section gets the same rule as the built-in models: the host resolves each entry's `path` from
 the configuration file, and `context.settings` holds the absolute path.
+
+### LoRA tables
+
+A video model can leave its list of LoRAs to the person who runs it. Declare `loras=True` on
+the `ModelPlugin`, and declare no LoRAs on the capability record. The host then reads the
+`[[<backend_id>.loras]]` tables of the plugin's section, with the rules of a built-in video
+model in [the configuration reference](configuration.md#loras). It offers them on the record,
+also in stub mode. The factory gets two more fields in its context:
+
+| Field | Contract |
+|---|---|
+| `context.capabilities` | The declared record with the LoRAs of the tables and their `max_loras`. The gateway returns it from `capabilities()`, or the studio stops at start. |
+| `context.lora_paths` | A read-only map from each LoRA id to the absolute path of its file. |
+
+A plugin without `loras` gets `None` and an empty map. The host does not read its tables and
+leaves them in `context.settings`.
+
+The host does not check that a file is on disk, so the stub starts without the files. The
+gateway checks the file at the run, and refuses a missing file by its id, not by its path.
 
 The host checks each request before the run. It refuses an unknown id, a repeated id, a
 strength outside the LoRA's range, and more picks than `max_loras`. The job then carries the

@@ -12,7 +12,7 @@ from open_imagine_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
 from open_imagine_h3.runtime import MAX_RESULT_BYTES, model_files
 
 from studio.plugins import PluginContext
-from studio.plugins.video import Cancelled, InvalidJob, VideoAudio, VideoJob, VideoReference
+from studio.plugins.video import Cancelled, InvalidJob, Lora, LoraUse, VideoAudio, VideoJob, VideoReference
 
 
 def job(**changes):
@@ -31,7 +31,28 @@ def ready(tmp_path, media_tools):
         '{"weight_map":{"test.weight":"model-1.safetensors"}}'
     )
     (models / "h3-dit-q8/model-1.safetensors").write_bytes(b"fixture weights")
-    return SimpleNamespace(settings={"engine_dir": str(engine), "model_dir": str(models)}, run_process=Mock())
+    return SimpleNamespace(
+        settings={"engine_dir": str(engine), "model_dir": str(models)},
+        run_process=Mock(),
+        capabilities=None,
+        lora_paths={},
+    )
+
+
+@pytest.fixture
+def offered(ready, tmp_path):
+    """The context that the host builds from two [[minimax_h3.loras]] tables."""
+    folder = tmp_path / "private-loras"
+    folder.mkdir()
+    for name in ("motion", "detail"):
+        (folder / f"private-{name}.safetensors").write_bytes(b"fixture adapter")
+    ready.capabilities = replace(
+        CAPABILITIES,
+        loras=(Lora("motion", "Motion", trigger="test motion"), Lora("detail", "Detail")),
+        max_loras=2,
+    )
+    ready.lora_paths = {name: str(folder / f"private-{name}.safetensors") for name in ("motion", "detail")}
+    return ready
 
 
 def test_plugin_declaration_and_factory_load_no_engine_or_model():
@@ -39,6 +60,8 @@ def test_plugin_declaration_and_factory_load_no_engine_or_model():
 
     assert plugin.capabilities == gateway.capabilities() == CAPABILITIES
     assert plugin.rewriter is None
+    # The host reads the LoRA tables, so the record itself declares none.
+    assert plugin.loras is True and not CAPABILITIES.loras and not CAPABILITIES.loras_with_audio
     assert CAPABILITIES.estimate is None
     assert not CAPABILITIES.templates and not CAPABILITIES.fast_mode and not CAPABILITIES.can_skip_audio
     assert CAPABILITIES.duration_presets == (73, 124, 175) and CAPABILITIES.max_frames == 175
@@ -132,7 +155,6 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
     "changes,reason",
     [
         ({"edit": object()}, "no clip to change"),
-        ({"loras": (object(),)}, "no clip to change"),
         ({"references": (still(0), still(24), still(48), still(72))}, "at most 3 H3 keyframes"),
         ({"references": (still(36), still(36))}, "its own frame"),
         ({"references": (still(73),)}, "its own frame"),
@@ -253,3 +275,121 @@ def test_gateway_refuses_a_wrong_quantization_or_incomplete_pack(ready, filename
     with pytest.raises(InvalidJob, match="weights"):
         MinimaxH3BackendGateway(ready).run(job())
     ready.run_process.assert_not_called()
+
+
+def test_gateway_offers_the_hosts_loras_and_sends_each_pick_as_its_file(offered):
+    seen = []
+
+    def execute(command, **options):
+        seen.append((command, options))
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+    gateway = MinimaxH3BackendGateway(offered)
+
+    gateway.run(job(loras=(LoraUse("detail", 0.4), LoraUse("motion", 0.7))))
+
+    command, options = seen[0]
+    request = json.loads(options["input_bytes"])
+    assert gateway.capabilities() == offered.capabilities
+    assert request["loras"] == [
+        {"path": offered.lora_paths["detail"], "scale": 0.4},
+        {"path": offered.lora_paths["motion"], "scale": 0.7},
+    ]
+    # The trigger words go after the prompt, as for every video model.
+    assert request["prompt"] == "private test words, test motion"
+    assert "private-" not in str(command) + str(options["environment"])
+
+
+def test_gateway_sends_no_loras_when_none_are_picked(offered):
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert request["loras"] == [] and request["prompt"] == "private test words"
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+
+    MinimaxH3BackendGateway(offered).run(job())
+
+
+@pytest.mark.parametrize(
+    "changes,reason",
+    [
+        ({"loras": (LoraUse("unknown", 1.0),)}, "no LoRA called unknown"),
+        ({"loras": (LoraUse("motion", 1.0),), "audio": VideoAudio(b"RIFF", "voice.wav")}, "follows a track"),
+    ],
+)
+def test_gateway_refuses_a_lora_it_cannot_apply_before_starting_a_child(offered, changes, reason):
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3BackendGateway(offered).run(job(**changes))
+
+    offered.run_process.assert_not_called()
+
+
+def test_gateway_refuses_a_missing_lora_file_by_its_id_and_logs_nothing(offered, capsys):
+    Path(offered.lora_paths["motion"]).unlink()
+
+    with pytest.raises(InvalidJob, match="LoRA motion are not on disk") as refused:
+        MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+
+    offered.run_process.assert_not_called()
+    assert "private-" not in str(refused.value)
+    assert capsys.readouterr() == ("", "")
+
+
+def test_gateway_refuses_a_lora_in_a_folder_it_cannot_read_by_its_id(offered):
+    folder = Path(offered.lora_paths["motion"]).parent
+    folder.chmod(0)
+    try:
+        with pytest.raises(InvalidJob, match="LoRA motion are not on disk") as refused:
+            MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+    finally:
+        folder.chmod(0o755)
+
+    # The error of a folder that cannot be read names the path, and a failure shows on the page.
+    offered.run_process.assert_not_called()
+    assert "private-" not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "applied,unaccounted,reason",
+    [
+        (0, 0, "no layer that it can load in LoRA motion"),
+        (0, 12, "No part of LoRA motion matches a layer"),
+        (208, 51, "LoRA motion has 51 parts with no matching layer"),
+        # The real engine counts one adaLN pair this way, on a file with one fc2 pair beside it.
+        (1, 1, "LoRA motion has 1 part with no matching layer"),
+    ],
+)
+def test_gateway_names_the_lora_that_the_engine_could_not_apply(offered, applied, unaccounted, reason):
+    def execute(_command, **options):
+        event = {"event": "lora_unfit", "index": 1, "applied": applied, "unaccounted": unaccounted}
+        options["consume"](json.dumps(event) + "\n")
+        raise AssertionError("the gateway kept reading after an unfit LoRA")
+
+    offered.run_process = execute
+
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("detail", 1.0), LoraUse("motion", 0.5))))
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"event": "lora_unfit", "index": 1, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": -1, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": True, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": 0, "applied": "0", "unaccounted": 0},
+        {"event": "lora_unfit", "index": 0, "applied": 0},
+    ],
+)
+def test_gateway_ignores_a_malformed_lora_event(offered, event):
+    def execute(_command, **options):
+        options["consume"](json.dumps(event) + "\n")
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+
+    result = MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+
+    assert result.mp4[4:8] == b"ftyp"

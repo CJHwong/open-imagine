@@ -345,11 +345,35 @@ def test_h3_admission_refuses_its_largest_clip_on_an_idle_mac_and_takes_a_shorte
     assert admission({**request, "num_frames": 124}) is None
 
 
+@pytest.mark.parametrize("loras", ([{"id": "lora", "strength": 0.7}], '[{"id": "lora", "strength": 0.7}]'))
+@pytest.mark.parametrize(("width", "height", "num_frames"), ((512, 288, 73), (1024, 576, 175), (576, 1024, 175)))
+def test_h3_adds_the_measured_lora_figure_to_clips_up_to_the_smaller_run(width, height, num_frames, loras):
+    assert h3(width=width, height=height, num_frames=num_frames, loras=loras) == pytest.approx(35.6 + 2.5)
+
+
+def test_h3_grows_the_lora_figure_with_the_rows():
+    # 52 latent frames of 40 x 22 rows, against 52 x 32 x 18 in the measured run.
+    expected = 49.6 + 2.5 * 880 / 576
+
+    assert h3(width=1280, height=704, num_frames=175, loras=[{"id": "lora"}]) == pytest.approx(expected)
+
+
+def test_h3_admission_takes_one_lora_on_the_measured_clip_and_refuses_it_on_the_largest():
+    admission = ResourceAdmission(lambda: (64 * GIB, int(0.87 * 64 * GIB)))
+    request = {"kind": "video", "backend": "minimax_h3", "num_frames": 175, "loras": [{"id": "lora"}]}
+
+    assert admission({**request, "width": 1024, "height": 576}) is None
+    with pytest.raises(InsufficientMemory, match=r"53\.4 GiB"):
+        admission({**request, "width": 1280, "height": 704})
+
+
 @pytest.mark.parametrize(
     "changes",
     (
         {"mode": "edit"},
-        {"loras": [{"id": "lora"}]},
+        {"loras": [{"id": "lora"}, {"id": "other"}]},
+        {"loras": "not json"},
+        {"loras": {"id": "lora"}},
         {"references": "still"},
         {"width": None},
         {"height": "bad"},

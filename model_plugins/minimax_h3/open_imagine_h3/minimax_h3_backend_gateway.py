@@ -2,28 +2,44 @@
 
 import base64
 import json
+import os
 import secrets
 import shutil
 from pathlib import Path
 
-from studio.plugins.video import Cancelled, InvalidJob, VideoBackendGateway, VideoResult
+from studio.plugins.video import Cancelled, InvalidJob, VideoBackendGateway, VideoResult, with_triggers
 
 from .capabilities import CAPABILITIES
 from .runtime import DEFAULT_ENGINE, DEFAULT_MODELS, MAX_RESULT_BYTES, weights_ready
 
 
+def unfit(lora_id, applied, unaccounted):
+    """Why the worker stopped before the denoise: the engine could not apply all of a LoRA."""
+    if not applied and not unaccounted:
+        return (
+            f"H3 found no layer that it can load in LoRA {lora_id}. "
+            "H3 reads LoRA files whose tensors end in lora_A.weight and lora_B.weight. No clip was made."
+        )
+    if not applied:
+        return f"No part of LoRA {lora_id} matches a layer of H3. No clip was made."
+    parts = "1 part" if unaccounted == 1 else f"{unaccounted} parts"
+    return f"LoRA {lora_id} has {parts} with no matching layer in H3. No clip was made."
+
+
 class MinimaxH3BackendGateway(VideoBackendGateway):
     def __init__(self, context):
         self._context = context
+        # The host offers the LoRAs of the [[minimax_h3.loras]] tables on this record.
+        self._capabilities = CAPABILITIES if context.capabilities is None else context.capabilities
 
     def capabilities(self):
-        return CAPABILITIES
+        return self._capabilities
 
     def run(self, job, progress=None, cancelled=None):
         if cancelled and cancelled():
             raise Cancelled("H3 generation was cancelled.")
-        if job.edit is not None or job.loras:
-            raise InvalidJob("H3 draws a new clip. It takes no clip to change and no LoRAs.")
+        if job.edit is not None:
+            raise InvalidJob("H3 draws a new clip. It takes no clip to change.")
         if job.fast_mode or not job.include_audio:
             raise InvalidJob("This H3 preview uses its base schedule and includes sound.")
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
@@ -51,6 +67,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("An H3 keyframe has no strength setting. Send a strength of 1.")
         if job.seed is not None and (type(job.seed) is not int or not 0 <= job.seed < 2**32):
             raise InvalidJob("Choose an H3 seed between 0 and 4294967295.")
+        loras = self._lora_files(job)
         settings = self._context.settings
         engine = Path(settings.get("engine_dir", DEFAULT_ENGINE)).expanduser()
         models = Path(settings.get("model_dir", DEFAULT_MODELS)).expanduser()
@@ -63,7 +80,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
         # The stills and the track travel without their names, which the engine has no use for.
         request = json.dumps(
             {
-                "prompt": job.prompt,
+                "prompt": with_triggers(job.prompt, job.loras, self._capabilities.loras),
                 "width": job.width,
                 "height": job.height,
                 "frames": job.num_frames,
@@ -73,6 +90,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                     for reference in sorted(job.references, key=lambda reference: reference.frame_index)
                 ],
                 "audio": base64.b64encode(job.audio.data).decode() if job.audio is not None else None,
+                "loras": loras,
             }
         ).encode()
         output = bytearray()
@@ -103,6 +121,15 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                     and progress
                 ):
                     progress(event["step"], event["total"], seed)
+                if (
+                    isinstance(event, dict)
+                    and event.get("event") == "lora_unfit"
+                    and type(event.get("index")) is int
+                    and 0 <= event["index"] < len(job.loras)
+                    and type(event.get("applied")) is int
+                    and type(event.get("unaccounted")) is int
+                ):
+                    raise InvalidJob(unfit(job.loras[event["index"]].id, event["applied"], event["unaccounted"]))
 
         self._context.run_process(
             [str(python), str(Path(__file__).with_name("worker.py")), str(engine), str(models)],
@@ -118,6 +145,28 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
         if len(output) < 12 or output[4:8] != b"ftyp":
             raise InvalidJob("H3 did not return an MP4 clip.")
         return VideoResult(bytes(output), job.width, job.height, job.num_frames, job.frame_rate, seed)
+
+    def _lora_files(self, job):
+        """Each pick as the file and the scale the engine loads, in the order picked.
+
+        A missing file is refused by its id. Nothing goes to the log, because the pick of a
+        private operation is part of its settings.
+        """
+        if job.loras and job.audio is not None and not self._capabilities.loras_with_audio:
+            raise InvalidJob("H3 applies no LoRA to a clip that follows a track. Remove the track or the LoRAs.")
+        loras = []
+        for pick in job.loras:
+            path = self._context.lora_paths.get(pick.id)
+            if path is None:
+                raise InvalidJob(f"H3 has no LoRA called {pick.id}.")
+            # os.path.isfile is False on any OSError. Path.is_file raises on a folder that it
+            # cannot read, and that error names the path.
+            if not os.path.isfile(path):
+                raise InvalidJob(
+                    f"The weights of LoRA {pick.id} are not on disk. Check its path under [[minimax_h3.loras]]."
+                )
+            loras.append({"path": path, "scale": pick.strength})
+        return loras
 
     def release(self):
         # The owned child exits before run returns, including cancellation and failure.

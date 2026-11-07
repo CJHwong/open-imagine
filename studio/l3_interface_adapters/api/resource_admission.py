@@ -37,6 +37,14 @@ LTX_LARGE_TOKENS = tokens(1920, 1088, 97)
 H3_SMALL_CLIP_PEAK_GIB = 35.6
 H3_LARGE_CLIP_PEAK_GIB = 49.6
 H3_MEASURED_FRAMES = 175
+# One LoRA on H3: a run of 1024 by 576 and 175 frames through the plugin's own gateway, sampled
+# about once a second from start to end. The LoRA was rank 16 on mlp.fc1 and mlp.fc2, 86 MB, at
+# strength 0.7. From an idle 88%, macOS free memory fell to 30% in the first denoise step and
+# stayed at 31 to 33% after it. That is 37.1 GiB, so keep 38.1 GiB: 2.5 GiB over the run without
+# a LoRA. The worker footprint rose only 0.7 GiB over that run, and at 512 by 288 the denoise peak
+# rose 0.14 GiB. Much of the 2.5 GiB may be the first step, which the earlier sampling missed, but
+# count all of it, and let it grow with the rows. Two LoRAs at once were not measured.
+H3_LORA_GIB = 2.5
 H3_MEASURED_SIDE = 1280
 # Calibrated only on the office M5 Pro, macOS, 64 GiB, with the pinned 8-bit
 # MLX checkpoint. Completed scripts of 44, 483, 979 and 2,008 characters
@@ -162,7 +170,8 @@ def _ltx25_peak(payload: Mapping[str, object], mode: str) -> float | None:
 
 
 def _minimax_h3_peak(payload: Mapping[str, object], mode: str) -> float | None:
-    if mode != "generate" or _has_loras(payload.get("loras")):
+    loras = _lora_count(payload.get("loras"))
+    if mode != "generate" or loras is None or loras > 1:
         return None
     references = payload.get("references") or []
     if not isinstance(references, list):
@@ -182,7 +191,9 @@ def _minimax_h3_peak(payload: Mapping[str, object], mode: str) -> float | None:
     # A straight line between the two runs stays above any need that grows linearly or
     # faster with the rows.
     fraction = max(0.0, rows - H3_SMALL_ROWS) / (H3_LARGE_ROWS - H3_SMALL_ROWS)
-    return H3_SMALL_CLIP_PEAK_GIB + (H3_LARGE_CLIP_PEAK_GIB - H3_SMALL_CLIP_PEAK_GIB) * fraction
+    peak = H3_SMALL_CLIP_PEAK_GIB + (H3_LARGE_CLIP_PEAK_GIB - H3_SMALL_CLIP_PEAK_GIB) * fraction
+    # A smaller clip keeps the measured LoRA figure, as it keeps the run's own.
+    return peak + loras * H3_LORA_GIB * max(1.0, rows / H3_SMALL_ROWS)
 
 
 def _h3_rows(width: int, height: int, frames: int, stills: int) -> int:
@@ -244,6 +255,18 @@ def _image_size(value: object) -> tuple[int | None, int | None]:
     if not separator or not width.isdigit() or not height.isdigit():
         return None, None
     return int(width), int(height)
+
+
+def _lora_count(raw: object) -> int | None:
+    """The number of LoRA picks, or None for a value that this cannot read."""
+    if raw in (None, "", [], ()):
+        return 0
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    return len(raw) if isinstance(raw, list) else None
 
 
 def _has_loras(raw: object) -> bool:

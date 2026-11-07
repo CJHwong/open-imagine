@@ -2,8 +2,10 @@
 
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from importlib import metadata
 from types import MappingProxyType
+from typing import cast
 
 from studio.l1_entities.capabilities import Capabilities as ImageCapabilities
 from studio.l1_entities.video_capabilities import VideoCapabilities
@@ -14,9 +16,11 @@ from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGat
 from studio.l2_use_cases.boundaries.voice_backend_gateway import VoiceBackendGateway
 from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter, StubPromptRewriter
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
+from studio.l4_frameworks_and_drivers.lora_table import lora_files
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from studio.plugins import API_VERSION, ModelPlugin, PluginContext
 from studio.plugins.image import QwenCheckpoint
@@ -89,16 +93,26 @@ class ModelPlugins:
 
     def build(self, kind: str, name: str, config: Config, stub: bool = False, **_):
         plugin = self._model_plugin(kind, name)
+        capabilities = plugin.capabilities
+        loras = LoraFiles()
+        if plugin.loras:
+            # The tables are read for the stub as well, so page work sees the same picker.
+            loras = lora_files(config, name, video=True)
+            # The declaration check keeps `loras` to a video model.
+            capabilities = loras.offer_video(cast(VideoCapabilities, plugin.capabilities))
         if stub:
-            capabilities = plugin.capabilities
             if isinstance(capabilities, ImageCapabilities):
                 return StubBackendGateway(capabilities)
             if isinstance(capabilities, VideoCapabilities):
                 return StubVideoBackendGateway(capabilities)
             return StubVoiceBackendGateway(capabilities=capabilities)
+        context = self.context(config, name)
+        if plugin.loras:
+            paths = MappingProxyType({item.lora.id: item.path for item in loras.files})
+            context = replace(context, capabilities=capabilities, lora_paths=paths)
         try:
-            gateway = plugin.create(self.context(config, name))
-            if not isinstance(gateway, GATEWAYS[kind]) or gateway.capabilities() != plugin.capabilities:
+            gateway = plugin.create(context)
+            if not isinstance(gateway, GATEWAYS[kind]) or gateway.capabilities() != capabilities:
                 raise ValueError("factory must return its media gateway with the declared capabilities")
             return gateway
         except Exception as error:
@@ -132,6 +146,12 @@ def _check_plugin(plugin, kind: str, name: str) -> None:
         raise ValueError(f"expected {kind} capabilities with backend_id {name!r}")
     if not callable(plugin.create) or (plugin.rewriter is not None and not callable(plugin.rewriter)):
         raise ValueError("create and optional rewriter must be factories")
+    if not isinstance(plugin.loras, bool):
+        raise ValueError("loras must be True or False")
+    if plugin.loras and kind != "video":
+        raise ValueError("only a video model takes LoRA tables in this version")
+    if plugin.loras and plugin.capabilities.loras:
+        raise ValueError("a model that takes LoRA tables declares no LoRAs of its own")
 
 
 def _check_pack(pack: LtxPack, kind: str, name: str) -> None:

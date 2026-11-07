@@ -5,6 +5,10 @@ metrics writer and media writer, and forwards only numerical progress and memory
 It also hands the engine its keyframes and its audio track from memory. The engine reads
 them in three places: a file check, `Image.open` and `read_audio`. Each one sees a path
 under MEMORY, which does not exist on disk, so a read that bypasses them fails.
+
+A LoRA is a file on disk, which the engine reads itself. The engine only prints a warning
+when it cannot apply all of one, and that text goes nowhere, so this adapter reads the
+engine's own count instead and stops the run before the denoise.
 """
 
 import base64
@@ -69,6 +73,9 @@ def render(engine, models, request, emit):
     track = base64.b64decode(request["audio"]) if request.get("audio") else None
     if track is not None:
         flags += ["--audio-drive", TRACK]
+    # Runtime adapters on the Q8 layers, in the order picked. The engine stacks them.
+    for lora in request.get("loras", ()):
+        flags += ["--lora", f"{lora['path']}:{lora['scale']}"]
 
     held = set(stills) | ({TRACK} if track is not None else set())
 
@@ -96,11 +103,25 @@ def render(engine, models, request, emit):
     streams = []
 
     class MemoryRecorder(original):
+        unfit = False
+
         def flush(self):
-            pass
+            # The engine counts each LoRA's layers once it has applied them, before the denoise.
+            # A LoRA that it applied in part, or not at all, still renders a plausible clip.
+            # The phase that raised flushes once more on its way out, so report only once.
+            accounting = self.data.get("lora_accounting")
+            for index, adapter in enumerate(accounting["adapters"] if accounting and not self.unfit else ()):
+                applied, unaccounted = int(adapter["applied"] or 0), int(adapter["unaccounted"])
+                if not applied or unaccounted:
+                    self.unfit = True
+                    emit({"event": "lora_unfit", "index": index, "applied": applied, "unaccounted": unaccounted})
+                    raise RuntimeError("H3 cannot apply all of a LoRA.")
 
         @contextlib.contextmanager
         def phase(self, name):
+            # The check above needs the engine's count. Without it, a LoRA goes unchecked, so stop.
+            if name == "joint_denoise" and request.get("loras") and "lora_accounting" not in self.data:
+                raise RuntimeError("H3 did not count the layers of the LoRAs.")
             with super().phase(name):
                 yield
             item = self.data["phases"][-1]

@@ -20,10 +20,11 @@ The plugin drives Phosphene's staged runner at commit
   quality class is 1280 x 704 and 704 x 1280, the same sizes as LTX's. On a 64 GiB Mac the
   memory gate takes them up to 158 frames. See "Memory gate" below.
 - The base schedule uses nine sigma points and eight transformer evaluations.
+- LoRA files that your settings list. See "LoRAs" below.
 - Ordered batches use Studio's sequential fallback. One child renders one clip.
 - Cancellation stops the owned process group, including its media encoder.
 
-Video edits, prompt rewriting, Looks, templates, LoRAs, clips longer than 175 frames and
+Video edits, prompt rewriting, Looks, templates, clips longer than 175 frames and
 distilled Fast adapters are not offered in this version. A keyframe has no strength setting.
 H3's distilled Fast schedule differs from LTX's float16 Fast mode.
 No time estimate is published from a single small smoke test.
@@ -85,6 +86,62 @@ Generation stays offline and refuses incomplete weights.
 The host needs the subprocess input/output support in this change. Older Studio
 versions do not support this plugin's memory transport.
 
+## LoRAs
+
+H3 takes LoRA files for its DiT. List each file in a `[[minimax_h3.loras]]` table under the
+section. The keys are the ones of a built-in model's table, in
+[the configuration reference](../../docs/reference/configuration.md#loras), except `modes`:
+a video LoRA applies to every mode. `max_loras` sets how many LoRAs one clip can pick. It is 1
+when the section does not set it. Keep it at 1: the memory gate takes one LoRA per clip.
+
+```toml
+[[minimax_h3.loras]]
+id = "example_style"
+label = "Example style"
+path = "~/Library/Caches/models/minimax-h3/loras/example-style.safetensors"
+strength = 0.7
+recommended = [0.5, 0.9]
+trigger = "example trigger"
+```
+
+The page and the API show the id and the label, never the path. If the names of your LoRAs
+are private, keep their tables in a settings file outside the repository, and pass that file
+with `--config`.
+
+The engine adds each LoRA beside the Q8 layers at run time, because a LoRA cannot merge into a
+quantized weight. It stacks the LoRAs of a clip in the order picked. It reads:
+
+| Part of the file | What the engine takes |
+|---|---|
+| Tensor names | `<module>.lora_A.weight` and `<module>.lora_B.weight`, with or without a `diffusion_model.`, `transformer.` or `model.diffusion_model.` prefix |
+| Modules | `attn.qkv_proj`, `attn.out_proj`, `mlp.fc1` and `mlp.fc2` of the 50 blocks and the 2 token refiner blocks |
+| Data types | BF16 and F32. It computes an F16 file in BF16, because F16 overflows in the MLP |
+| Scale | The strength you pick. The engine reads no `alpha` tensor, so strength 1.0 assumes alpha equals the rank |
+
+Before the denoise, the worker reads the engine's count of the layers it applied. It stops the
+run, and the page names the LoRA by its id, in two cases:
+
+- H3 can load no layer of the file. A kohya file with `lora_down` and `lora_up` names and a
+  LoKr file are two examples.
+- Some parts of the file match no layer. The adaLN pairs of a distilled speed LoRA are an
+  example, because the pruned DiT has no input for them.
+
+These limits apply:
+
+- A clip that follows an audio track takes no LoRA. The host refuses the pair until a real run
+  tries it.
+- The memory gate takes one LoRA per clip, and refuses two. It adds 2.5 GiB to the clip's own
+  figure up to 1024 x 576 at 175 frames, and more for a larger clip. One run measured it, with
+  an 86 MB LoRA. A LoRA file of several GiB is not covered.
+- The engine reads the two halves of `mlp.fc1` as `[gate; value]`. ai-toolkit trains H3 LoRAs
+  in the same order, so this plugin does not pass `--lora-fc1-swap`. A file in the other order
+  still makes a plausible clip, and nothing reports it: the same LoRA with and without the swap
+  gave two clean clips.
+
+One LoRA costs little on the measured runs. At 512 x 288 and 73 frames, it added 2.1 s to a
+53.6 s denoise and 0.14 GiB to its peak. A clip of 1024 x 576 and 175 frames with it took
+1,175 s.
+
 ## Private operations
 
 The parent sends the prompt, the keyframes and the audio track over stdin and receives MP4
@@ -97,7 +154,12 @@ M4A index that follows the audio data to the front, the way `qt-faststart` does.
 metrics writer with an in-memory recorder and disables persistent prompt caches.
 The encoder pipes video and WAV data into ffmpeg and returns a fragmented MP4.
 No prompt, still, track, metrics, WAV, frames or MP4 file is written by this path.
-Only numerical step and phase metrics cross stderr. Engine diagnostics are suppressed.
+Only numerical step and phase metrics cross stderr, with the index and layer counts of a LoRA
+that does not fit. Engine diagnostics are suppressed.
+The path of each picked LoRA goes to the worker over stdin with the rest of the request, so no
+pick enters a command line. The engine reads the file from where the settings name it, and
+its report on each LoRA goes to the suppressed output. A missing file is refused by its id,
+and no log line names the pick.
 Studio applies its existing private ownership checks and encrypted result storage.
 
 ## Why it looks like this
