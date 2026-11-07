@@ -1549,6 +1549,9 @@
   // Edit has no choice, and a run that follows a track keeps that track.
   function syncVideoAudioTrack() {
     const button = document.getElementById('video-audio-track');
+    // A model that always makes its sound takes no "off". A choice made on another model, or
+    // kept in a draft, must not reach a run on this one, which refuses it.
+    if (!videoCapabilities()?.can_skip_audio) button.setAttribute('aria-pressed', 'true');
     const supported = Boolean(videoCapabilities()?.can_skip_audio) && videoModeInForce().id === 'generate';
     document.getElementById('video-audio-field').hidden = !supported;
     if (!supported) return;
@@ -2887,8 +2890,26 @@
             backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
             capabilities: video.capabilities, rewrite_modes: video.rewrite_modes || []};
           translateServerLabels(STUDIO);
-          syncVideoFastMode();
-          syncVideoMode();
+          // Another tab or an API caller switched the model, so this page draws the new
+          // model's lengths, shapes and limits, as a reload after a switch here does. Without
+          // them its next run sends the old model's size, and the new model refuses it.
+          videoResolutionRung = null;
+          applyVideoCapabilities();
+          if (typeof videoStudio.setModelCapabilities === 'function') {
+            videoStudio.setModelCapabilities(video.capabilities);
+            // The form keeps its inputs. Remove the ones the new model refuses: stills past its
+            // limit, and a track that its mode cannot follow. The drafts are paused, so the old
+            // model's draft keeps them.
+            const extra = videoStudio.imageReferences.slice(video.capabilities.max_references || 0);
+            extra.forEach(function (reference) { videoStudio.removeImageReference(reference.id); });
+            const mode = videoModeInForce();
+            const track = Boolean(videoStudio.audio) && !mode.needs_clip && !mode.accepts_audio;
+            if (track) videoStudio.clearAudio();
+            if (extra.length || track) {
+              showToast('info', t('page.video.switchRemoved', {name: STUDIO.video.backend.name}));
+            }
+          }
+          syncVideoFrameCount();
           if (drafts) drafts.restore('video');
         }
         if (changed) renderBackendSelector();
