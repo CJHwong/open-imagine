@@ -41,6 +41,11 @@ def test_plugin_declaration_and_factory_load_no_engine_or_model():
     assert plugin.rewriter is None
     assert CAPABILITIES.estimate is None
     assert not CAPABILITIES.templates and not CAPABILITIES.fast_mode and not CAPABILITIES.can_skip_audio
+    assert CAPABILITIES.duration_presets == (73, 124, 175) and CAPABILITIES.max_frames == 175
+    # The engine encodes 17n+5 frames. It snaps any other count up, and the worker then refuses
+    # the clip only after the models load.
+    assert CAPABILITIES.frame_step == 17
+    assert all((frames - 5) % 17 == 0 for frames in (CAPABILITIES.min_frames, CAPABILITIES.max_frames))
     generate = CAPABILITIES.mode("generate")
     assert CAPABILITIES.modes == (generate,) and not generate.needs_clip
     assert generate.accepts_audio and generate.max_references == CAPABILITIES.max_references == 3
@@ -132,6 +137,7 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
         ({"references": (still(36), still(36))}, "its own frame"),
         ({"references": (still(73),)}, "its own frame"),
         ({"references": (still(-1),)}, "its own frame"),
+        ({"num_frames": 175, "references": (still(175),)}, "its own frame"),
         ({"references": (still(True),)}, "its own frame"),
         ({"references": (still(0, strength=0.5),)}, "no strength setting"),
         ({"fast_mode": True}, "base schedule"),
@@ -139,6 +145,8 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
         ({"width": 256}, "offered H3 size"),
         ({"num_frames": 125}, "offered H3 size"),
         ({"num_frames": 74}, "offered H3 size"),
+        ({"num_frames": 56}, "a 73-175 frame clip"),
+        ({"num_frames": 192}, "a 73-175 frame clip"),
         ({"frame_rate": 30}, "offered H3 size"),
         ({"seed": -1}, "H3 seed"),
         ({"seed": True}, "H3 seed"),
@@ -149,6 +157,21 @@ def test_gateway_refuses_unsupported_inputs_before_starting_a_child(ready, chang
         MinimaxH3BackendGateway(ready).run(job(**changes))
 
     ready.run_process.assert_not_called()
+
+
+@pytest.mark.parametrize("frames", range(73, 176, 17))
+def test_gateway_runs_every_offered_length_with_a_still_on_its_last_frame(ready, frames):
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert request["frames"] == frames
+        assert [keyframe["frame"] for keyframe in request["keyframes"]] == [0, frames - 1]
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    result = MinimaxH3BackendGateway(ready).run(job(num_frames=frames, references=(still(0), still(frames - 1))))
+
+    assert result.num_frames == frames
 
 
 def test_gateway_refuses_cancellation_before_reading_weights(ready):
@@ -204,7 +227,12 @@ def test_shapes_keep_their_named_ratio_on_the_32_pixel_grid():
     for shape in CAPABILITIES.shapes:
         a, b = map(int, shape.ratio.split(":"))
         assert shape.width % 32 == shape.height % 32 == 0
-        assert abs(shape.width / shape.height / (a / b) - 1) < 0.01
+        assert CAPABILITIES.min_dimension <= min(shape.width, shape.height)
+        assert max(shape.width, shape.height) <= CAPABILITIES.max_dimension
+        # 1280 x 704 is LTX's own 16:9 class, 2.3 percent wide, so a clip from either model has
+        # the same frame. Every other size keeps its ratio within 1 percent.
+        tolerance = 0.025 if {shape.width, shape.height} == {1280, 704} else 0.01
+        assert abs(shape.width / shape.height / (a / b) - 1) < tolerance
 
 
 @pytest.mark.parametrize(

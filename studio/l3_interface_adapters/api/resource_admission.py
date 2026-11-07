@@ -28,6 +28,16 @@ LTX_SMALL_CLIP_PEAK_GIB = 25.0
 LTX_LARGE_CLIP_CEILING_GIB = 54.0
 LTX_SMALL_TOKENS = tokens(384, 384, 25)
 LTX_LARGE_TOKENS = tokens(1920, 1088, 97)
+# Staged Q8 MiniMax H3. Two page runs of 175 frames were sampled once a second. From an idle
+# 87%, macOS free memory fell to 33% at 1024 by 576 (34.6 GiB) and to 11% at 1280 by 704
+# (48.6 GiB). The smaller run was sampled only in its last denoise steps, but the larger run
+# held its low through every step. Keep 1 GiB above each drop, because memory_pressure
+# reports whole percents. The text encoder alone used about 31.4 GiB, so a smaller clip
+# keeps the smaller run's figure. The runs did not record their stills or track.
+H3_SMALL_CLIP_PEAK_GIB = 35.6
+H3_LARGE_CLIP_PEAK_GIB = 49.6
+H3_MEASURED_FRAMES = 175
+H3_MEASURED_SIDE = 1280
 # Calibrated only on the office M5 Pro, macOS, 64 GiB, with the pinned 8-bit
 # MLX checkpoint. Completed scripts of 44, 483, 979 and 2,008 characters
 # showed 41.6 to 44.8 GiB less available memory in coarse pressure samples.
@@ -95,6 +105,8 @@ def _estimate_one(payload: Mapping[str, object], qwen_turbo_quantize: int | None
         return _qwen_turbo_peak(payload, str(mode), qwen_turbo_quantize)
     if kind == "video" and backend == "ltx25_mlx":
         return _ltx25_peak(payload, str(mode))
+    if kind == "video" and backend == "minimax_h3":
+        return _minimax_h3_peak(payload, str(mode))
     if kind == "voice" and backend == "drama3":
         return _drama_peak(payload, str(mode))
     if kind == "music" and backend == "yue2":
@@ -147,6 +159,42 @@ def _ltx25_peak(payload: Mapping[str, object], mode: str) -> float | None:
         return None
     fraction = max(0.0, token_count - LTX_SMALL_TOKENS) / (LTX_LARGE_TOKENS - LTX_SMALL_TOKENS)
     return LTX_SMALL_CLIP_PEAK_GIB + (LTX_LARGE_CLIP_CEILING_GIB - LTX_SMALL_CLIP_PEAK_GIB) * fraction
+
+
+def _minimax_h3_peak(payload: Mapping[str, object], mode: str) -> float | None:
+    if mode != "generate" or _has_loras(payload.get("loras")):
+        return None
+    references = payload.get("references") or []
+    if not isinstance(references, list):
+        return None
+    width = _positive_integer(payload.get("width"))
+    height = _positive_integer(payload.get("height"))
+    frames = _positive_integer(payload.get("num_frames"))
+    if width is None or height is None or frames is None:
+        return None
+    # The audio rows grow with the frame count and are not counted below, so a longer clip
+    # is unmeasured at any size.
+    if max(width, height) > H3_MEASURED_SIDE or frames > H3_MEASURED_FRAMES or (frames - 5) % 17:
+        return None
+    rows = _h3_rows(width, height, frames, len(references))
+    if rows > H3_LARGE_ROWS:
+        return None
+    # A straight line between the two runs stays above any need that grows linearly or
+    # faster with the rows.
+    fraction = max(0.0, rows - H3_SMALL_ROWS) / (H3_LARGE_ROWS - H3_SMALL_ROWS)
+    return H3_SMALL_CLIP_PEAK_GIB + (H3_LARGE_CLIP_PEAK_GIB - H3_SMALL_CLIP_PEAK_GIB) * fraction
+
+
+def _h3_rows(width: int, height: int, frames: int, stills: int) -> int:
+    """The packed video rows of one H3 run. 17n + 5 frames make 5n + 2 latent frames of
+    (W / 32) x (H / 32) rows each. A still adds one latent frame of conditioning rows. A
+    track fills the target audio rows, so it adds none."""
+    latent_frames = (frames - 5) // 17 * 5 + 2
+    return (latent_frames + stills) * -(-width // 32) * -(-height // 32)
+
+
+H3_SMALL_ROWS = _h3_rows(1024, 576, H3_MEASURED_FRAMES, 0)
+H3_LARGE_ROWS = _h3_rows(1280, 704, H3_MEASURED_FRAMES, 0)
 
 
 def _drama_peak(payload: Mapping[str, object], mode: str) -> float | None:
