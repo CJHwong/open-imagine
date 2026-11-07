@@ -645,6 +645,7 @@ def create_studio(
         allowed_origins=allowed_origins,
         private_results_dir=private_results_dir,
         resource_memory_headroom=None if stub else memory_headroom,
+        qwen_turbo_quantize=config.backend("qwen21_turbo").get("quantize"),
     )
 
 
@@ -668,6 +669,7 @@ def assemble_studio(
     allowed_origins: tuple[str, ...] = (),
     private_results_dir: Path | None = None,
     resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
+    qwen_turbo_quantize: int | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -701,7 +703,9 @@ def assemble_studio(
         )
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
-    resource_admission = ResourceAdmission(resource_memory_headroom) if resource_memory_headroom else None
+    resource_admission = (
+        ResourceAdmission(resource_memory_headroom, qwen_turbo_quantize) if resource_memory_headroom else None
+    )
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())
     # The rewrite publishes its own phase, because the page draws that button from

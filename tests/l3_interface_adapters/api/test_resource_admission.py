@@ -10,6 +10,11 @@ from studio.l3_interface_adapters.api import resource_admission
 from studio.l3_interface_adapters.api.resource_admission import GIB, ResourceAdmission, estimate_peak_gib
 
 
+@pytest.fixture(autouse=True)
+def calibrated_mac_estimate_platform(monkeypatch):
+    monkeypatch.setattr(resource_admission.sys, "platform", "darwin")
+
+
 def encoded_png(width, height):
     image = Image.new("RGB", (width, height), (90, 120, 150))
     encoded = io.BytesIO()
@@ -33,6 +38,19 @@ def test_qwen_generation_uses_the_measured_high_resolution_peak_from_one_megapix
     )
 
     assert estimate == 53.1
+
+
+def test_qwen_estimate_fails_closed_for_an_unmeasured_quantization():
+    payload = {"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"}
+
+    assert estimate_peak_gib(payload, 64, qwen_turbo_quantize=8) is None
+
+
+def test_admission_fails_closed_when_qwen_quantization_is_not_calibrated():
+    admission = ResourceAdmission(lambda: (64 * GIB, 64 * GIB), qwen_turbo_quantize=8)
+
+    with pytest.raises(ResourceEstimateUnavailable):
+        admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
 
 
 def test_yue2_uses_the_engine_default_token_budget_for_each_mode():
@@ -293,13 +311,24 @@ def test_drama_uses_the_measured_mac_peak_and_prompt_length(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "payload",
+    (
+        {"kind": "image", "backend": "qwen21_turbo", "size": "512x512"},
+        {"kind": "video", "backend": "ltx25_mlx", "width": 384, "height": 384, "num_frames": 25},
+        {"kind": "voice", "backend": "drama3", "text": "hello"},
+        {"kind": "music", "backend": "yue2", "style": "piano"},
+    ),
+)
+@pytest.mark.parametrize(
     ("platform", "total_memory_gib"),
     (("linux", 64), ("darwin", 128), ("darwin", 32)),
 )
-def test_drama_fails_closed_outside_the_measured_mac_setup(monkeypatch, platform, total_memory_gib):
+def test_all_mode_estimates_fail_closed_outside_the_calibrated_mac_setup(
+    monkeypatch, payload, platform, total_memory_gib
+):
     monkeypatch.setattr(resource_admission.sys, "platform", platform)
 
-    result = estimate_peak_gib({"kind": "voice", "backend": "drama3", "text": "hello"}, total_memory_gib)
+    result = estimate_peak_gib(payload, total_memory_gib)
 
     assert result is None
 

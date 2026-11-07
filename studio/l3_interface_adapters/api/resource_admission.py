@@ -14,10 +14,14 @@ from studio.l1_entities.video_estimate import tokens
 
 GIB = 1024**3
 OS_RESERVE_GIB = 8.0
-# Office M5 Pro: Qwen Turbo reached 53.1 GiB at 1328 square.
+# Every estimate below was measured on this macOS machine configuration.
+CALIBRATED_PLATFORM = "darwin"
+CALIBRATED_TOTAL_MEMORY_GIB = 64.0
+# Office M5 Pro, BF16 Qwen Turbo: 53.1 GiB at 1328 square.
 # A two-reference edit reached 10% free before cancellation took effect, so edits fail closed.
 QWEN_TURBO_WEIGHTS_GIB = 30_000_000_000 / GIB
 QWEN_TURBO_GENERATE_PEAK_GIB = 53.1
+QWEN_TURBO_CALIBRATED_QUANTIZE = None
 # The 384 square, 25 frame LTX run used 25 GiB of system headroom. A 1920 by
 # 1088, 97 frame run stayed within 64 GiB. Keep 10 GiB for host overhead there.
 LTX_SMALL_CLIP_PEAK_GIB = 25.0
@@ -28,7 +32,6 @@ LTX_LARGE_TOKENS = tokens(1920, 1088, 97)
 # MLX checkpoint. Completed scripts of 44, 483, 979 and 2,008 characters
 # showed 41.6 to 44.8 GiB less available memory in coarse pressure samples.
 # Keep 2.2 GiB above that largest drop. Re-measure after any setup change.
-DRAMA_CALIBRATED_MAC_MEMORY_GIB = 64.0
 DRAMA_CALIBRATED_PEAK_GIB = 47.0
 DRAMA_TEXT_GIB_PER_CHARACTER = 0.00015
 # YuE2's active weight files total 9.7 GB. A short 8-step song used 4.5 GiB
@@ -38,15 +41,16 @@ YUE2_TRANSCRIPTION_LIMIT_GIB = 16.0
 
 
 class ResourceAdmission:
-    def __init__(self, memory_headroom: Callable[[], tuple[int, int]]):
+    def __init__(self, memory_headroom: Callable[[], tuple[int, int]], qwen_turbo_quantize: int | None = None):
         self._memory_headroom = memory_headroom
+        self._qwen_turbo_quantize = qwen_turbo_quantize
 
     def __call__(self, payload: Mapping[str, object]) -> None:
         self.check(payload)
 
     def check(self, payload: Mapping[str, object]) -> None:
         total_bytes, available_bytes = self._memory_headroom()
-        estimate_gib = estimate_peak_gib(payload, total_bytes / GIB)
+        estimate_gib = estimate_peak_gib(payload, total_bytes / GIB, qwen_turbo_quantize=self._qwen_turbo_quantize)
         if estimate_gib is None:
             raise ResourceEstimateUnavailable(
                 "No safe memory estimate is available for this model setup. The operation was not started."
@@ -60,16 +64,20 @@ class ResourceAdmission:
             )
 
 
-def estimate_peak_gib(payload: Mapping[str, object], total_memory_gib: float) -> float | None:
+def estimate_peak_gib(
+    payload: Mapping[str, object], total_memory_gib: float, *, qwen_turbo_quantize: int | None = None
+) -> float | None:
+    if sys.platform != CALIBRATED_PLATFORM or total_memory_gib != CALIBRATED_TOTAL_MEMORY_GIB:
+        return None
     items = payload.get("items")
     if not isinstance(items, list):
-        return _estimate_one(payload, total_memory_gib)
+        return _estimate_one(payload, qwen_turbo_quantize)
     estimates = []
     shared = {key: value for key, value in payload.items() if key != "items"}
     for item in items:
         if not isinstance(item, Mapping):
             return None
-        estimate = _estimate_one({**shared, **item}, total_memory_gib)
+        estimate = _estimate_one({**shared, **item}, qwen_turbo_quantize)
         if estimate is None:
             return None
         estimates.append(estimate)
@@ -79,22 +87,24 @@ def estimate_peak_gib(payload: Mapping[str, object], total_memory_gib: float) ->
     return max(estimates) + max(0, len(estimates) - 1) * 0.125
 
 
-def _estimate_one(payload: Mapping[str, object], total_memory_gib: float) -> float | None:
+def _estimate_one(payload: Mapping[str, object], qwen_turbo_quantize: int | None) -> float | None:
     kind = payload.get("kind")
     backend = payload.get("backend")
     mode = payload.get("mode") or "generate"
     if kind == "image" and backend == "qwen21_turbo":
-        return _qwen_turbo_peak(payload, str(mode))
+        return _qwen_turbo_peak(payload, str(mode), qwen_turbo_quantize)
     if kind == "video" and backend == "ltx25_mlx":
         return _ltx25_peak(payload, str(mode))
     if kind == "voice" and backend == "drama3":
-        return _drama_peak(payload, str(mode), total_memory_gib)
+        return _drama_peak(payload, str(mode))
     if kind == "music" and backend == "yue2":
         return _yue2_peak(payload, str(mode))
     return None
 
 
-def _qwen_turbo_peak(payload: Mapping[str, object], mode: str) -> float | None:
+def _qwen_turbo_peak(payload: Mapping[str, object], mode: str, quantize: int | None) -> float | None:
+    if quantize != QWEN_TURBO_CALIBRATED_QUANTIZE:
+        return None
     if _has_loras(payload.get("loras")):
         return None
     references = _reference_sizes(payload.get("references"), payload.get("reference_sizes"))
@@ -139,13 +149,11 @@ def _ltx25_peak(payload: Mapping[str, object], mode: str) -> float | None:
     return LTX_SMALL_CLIP_PEAK_GIB + (LTX_LARGE_CLIP_CEILING_GIB - LTX_SMALL_CLIP_PEAK_GIB) * fraction
 
 
-def _drama_peak(payload: Mapping[str, object], mode: str, total_memory_gib: float) -> float | None:
+def _drama_peak(payload: Mapping[str, object], mode: str) -> float | None:
     if mode != "generate" or payload.get("reference"):
         return None
     text = payload.get("text", payload.get("prompt", ""))
     if not isinstance(text, str):
-        return None
-    if sys.platform != "darwin" or total_memory_gib != DRAMA_CALIBRATED_MAC_MEMORY_GIB:
         return None
     return DRAMA_CALIBRATED_PEAK_GIB + len(text) * DRAMA_TEXT_GIB_PER_CHARACTER
 
