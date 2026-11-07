@@ -916,7 +916,7 @@ def test_video_results_can_be_read_from_another_client(served):
 def test_optional_api_keeps_legacy_image_and_video_routes():
     controller = SimpleNamespace(run=lambda form: "image")
     presenter = SimpleNamespace(run=lambda result: result + " markup")
-    video = SimpleNamespace(run=lambda payload: VideoResult(b"mp4", 8, 8, 9, 24, None))
+    video = SimpleNamespace(run=lambda payload: VideoResult(b"mp4", 8, 8, 9, 24, None), cancel=lambda payload: True)
     handler = http_server.make_handler(cast(Any, controller), cast(Any, presenter), cast(Any, video))
     answers = []
 
@@ -934,6 +934,22 @@ def test_optional_api_keeps_legacy_image_and_video_routes():
     assert instance._run_image_form({}) == "image markup"
     instance._run_video()
     assert answers == [(b"mp4", 200, "video/mp4", {})]
+    instance._cancel_video()
+    assert answers[-1] == (b"", 204, "text/plain", None)
+
+
+def test_video_cancel_reports_a_finished_reservation_as_conflict(served, monkeypatch):
+    studio, server, *_ = served
+    operation = studio.operations.begin({"kind": "video"})
+
+    def finish_before_stop(operation_id):
+        studio.operations.finish(operation_id, {})
+        raise BackendBusy("This operation is no longer active.")
+
+    monkeypatch.setattr(studio.operations, "stopping", finish_before_stop)
+    status, _, body = post_json(server, "/api/v1/videos/cancel")
+    assert status == 409 and "no longer active" in body
+    assert studio.operations.get(operation["id"])["status"] == "succeeded"
 
 
 def test_an_async_start_returns_its_status_location(served):
@@ -1390,6 +1406,77 @@ def test_the_video_plan_route_answers_the_clip_without_a_run(served):
 
 
 PRIVATE = {"X-Studio-Private-Key": "k" * 40}
+
+
+@pytest.mark.parametrize(
+    "path", ["/progress", "/video/progress", "/rewrite/state", "/api/v1/progress", "/api/v1/rewrite/state"]
+)
+def test_shared_progress_cannot_reveal_a_private_operation(served, path):
+    import hashlib
+
+    studio, server, *_ = served
+    key = PRIVATE["X-Studio-Private-Key"]
+    operation = studio.operations.begin({"kind": "video", "owner": hashlib.sha256(key.encode()).hexdigest()}, key)
+    try:
+        assert call(server, path)[0] == 404
+        if path.startswith("/api/"):
+            assert call(server, path, **PRIVATE)[0] == 200
+            assert call(server, path, **{"X-Studio-Private-Key": "w" * 40})[0] == 404
+    finally:
+        studio.operations.finish(operation["id"], {"cancelled": True})
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/cancel",
+        "/rewrite/cancel",
+        "/video/cancel",
+        "/api/v1/images/cancel",
+        "/api/v1/rewrite/cancel",
+        "/api/v1/videos/cancel",
+    ],
+)
+def test_shared_cancel_cannot_stop_a_private_operation(served, path):
+    import hashlib
+
+    studio, server, *_ = served
+    key = PRIVATE["X-Studio-Private-Key"]
+    operation = studio.operations.begin({"kind": "video", "owner": hashlib.sha256(key.encode()).hexdigest()}, key)
+    try:
+        assert call(server, path, b'{"request_id":"guess"}', **{"Content-Type": "application/json"})[0] == 404
+        assert studio.operations.get(operation["id"])["status"] == "running"
+    finally:
+        studio.operations.finish(operation["id"], {"cancelled": True})
+
+
+def test_the_page_stop_frees_a_private_operation_and_names_nothing_about_it(served):
+    import hashlib
+
+    studio, server, *_ = served
+    key = PRIVATE["X-Studio-Private-Key"]
+    status, _, body = call(server, "/hidden/cancel", b"")
+    assert status == 409 and json.loads(body) == {"error": "No hidden operation is running."}
+    operation = studio.operations.begin(
+        {"kind": "video", "prompt": "", "owner": hashlib.sha256(key.encode()).hexdigest()}, key
+    )
+    try:
+        assert call(server, "/hidden/cancel", b"", **PRIVATE)[0] == 400
+        assert studio.operations.get(operation["id"])["status"] == "running"
+        assert call(server, "/hidden/cancel", b"") == (204, "text/plain", "")
+        assert studio.operations.get(operation["id"])["status"] == "stopping"
+    finally:
+        studio.operations.finish(operation["id"], {"cancelled": True})
+
+
+def test_the_page_stop_leaves_a_visible_operation_to_its_own_cancel(served):
+    studio, server, *_ = served
+    operation = studio.operations.begin({"kind": "image"})
+    try:
+        assert call(server, "/hidden/cancel", b"")[0] == 409
+        assert studio.operations.get(operation["id"])["status"] == "running"
+    finally:
+        studio.operations.finish(operation["id"], {"images": []})
 
 
 def wait_for(server, operation_id, headers):

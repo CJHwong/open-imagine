@@ -79,8 +79,14 @@ def test_the_turbo_stub_builds_where_mlx_cannot_be_imported_at_all(tmp_path, mon
     assert studio.active_capabilities().backend_id == "qwen21_turbo"
 
 
-def test_the_real_studio_builds_where_mlx_runs(needs_mlx, config):
-    assert create_studio(config).active_capabilities().name == "Qwen-Image-2.1"
+def test_the_real_studio_builds_where_mlx_runs(needs_mlx, config, tmp_path, monkeypatch):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    studio = create_studio(config)
+    try:
+        assert studio.active_capabilities().name == "Qwen-Image-2.1"
+        assert (tmp_path / ".local/share/open-imagine/private-results/storage.lock").is_file()
+    finally:
+        studio.shutdown()
 
 
 def fake_mlx(monkeypatch, gpu_available: bool):

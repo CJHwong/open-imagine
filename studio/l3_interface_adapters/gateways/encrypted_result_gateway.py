@@ -21,6 +21,33 @@ from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 
+RECORD_FIELDS = frozenset(
+    (
+        "id",
+        "owner",
+        "kind",
+        "workspace",
+        "source",
+        "status",
+        "started_at",
+        "finished_at",
+        "error",
+        "result_retained",
+        "batch_total",
+        "batch_index",
+        "batch_completed",
+    )
+)
+REDACTED_FIELDS = {
+    "prompt": "",
+    "settings": {},
+    "library_id": "",
+    "client_id": "",
+    "mode": "",
+    "backend": "",
+    "model": "",
+}
+
 
 def encryption_key(private_key: str, operation_id: str) -> bytes:
     return HKDF(
@@ -65,12 +92,18 @@ class EncryptedResultGateway:
                 "CREATE TABLE IF NOT EXISTS results "
                 "(operation_id TEXT, item_index INTEGER, ciphertext BLOB NOT NULL, PRIMARY KEY (operation_id, item_index))"
             )
+        # Scrub older records at the disk boundary, before the server reads them.
+        for (stored,) in self._connection.execute("SELECT record FROM operations").fetchall():
+            self.save_record(json.loads(stored))
 
     def records(self) -> list[dict[str, Any]]:
-        return [json.loads(row[0]) for row in self._connection.execute("SELECT record FROM operations ORDER BY rowid")]
+        return [
+            {**REDACTED_FIELDS, **json.loads(row[0])}
+            for row in self._connection.execute("SELECT record FROM operations ORDER BY rowid")
+        ]
 
     def save_record(self, record: dict[str, Any]) -> None:
-        record = dict(record)
+        record = {key: value for key, value in record.items() if key in RECORD_FIELDS}
         if record.get("error"):
             record["error"] = "The private operation failed."
         with self._connection:

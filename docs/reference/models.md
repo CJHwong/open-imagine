@@ -12,6 +12,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 | Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
+| Video | [MiniMax H3 plugin](../../model_plugins/minimax_h3/README.md), experimental | `minimax_h3` | Short text-to-video clips with native sound | Staged Q8; 512 x 288 / 73-frame smoke test passed on M5 Pro 64 GiB |
 | Voice | **Drama-3 (default)** | `drama3` | Generate and Clone | Eight-bit MLX checkpoint |
 | Voice | AuK | `auk_base` | Design, Clone, Edit | Eight-bit base; 32 steps, guidance 2 |
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |

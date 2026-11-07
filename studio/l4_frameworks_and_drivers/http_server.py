@@ -85,13 +85,19 @@ def make_handler(
             elif path == "/api/docs":
                 self._send((WEB / "api-docs.html").read_text())
             elif self.path == "/progress":
-                self._send(presenter.progress(controller.progress()))
+                self._send_shared(lambda: presenter.progress(api.progress_snapshot() if api else controller.progress()))
             elif self.path == "/video/progress":
-                self._send(presenter.video_progress(controller.progress()), content_type="application/json")
+                self._send_shared(
+                    lambda: presenter.video_progress(api.progress_snapshot() if api else controller.progress()),
+                    content_type="application/json",
+                )
             elif self.path == "/rewrite/state":
                 # The page polls this while a rewrite is in flight, so it is data
                 # the page reads, not a fragment it appends.
-                self._send(presenter.rewrite_state(controller.rewrite_state()), content_type="application/json")
+                self._send_shared(
+                    lambda: presenter.rewrite_state(api.rewrite_snapshot() if api else controller.rewrite_state()),
+                    content_type="application/json",
+                )
             elif self.path.startswith("/page/"):
                 self._send_page_asset(self.path.removeprefix("/page/"))
             else:
@@ -146,8 +152,9 @@ def make_handler(
             if self.path == "/generate":
                 self._send(self._outcome(lambda: self._run_image_form(form)))
             elif self.path == "/cancel":
-                api.cancel_image() if api else controller.cancel()
-                self._send("", status=204, content_type="text/plain")
+                self._send_shared(
+                    lambda: api.cancel_image() if api else controller.cancel(), success=204, content_type="text/plain"
+                )
             elif self.path == "/backend":
                 self._send(
                     self._outcome(lambda: (api.switch_backend(form, "image") if api else controller.switch(form)) or "")
@@ -190,8 +197,15 @@ def make_handler(
             elif self.path == "/rewrite/cancel":
                 # The rewrite answers on its own request, so this one only asks for
                 # the stop, the way `/cancel` does for a run.
-                api.cancel_rewrite() if api else controller.cancel_rewrite()
-                self._send("", status=204, content_type="text/plain")
+                self._send_shared(
+                    lambda: api.cancel_rewrite() if api else controller.cancel_rewrite(),
+                    success=204,
+                    content_type="text/plain",
+                )
+            elif self.path == "/hidden/cancel" and api is not None:
+                # The page cannot see a private run, but that run holds the one GPU.
+                # This stop frees it, and its answer names nothing about the run.
+                self._send_shared(api.cancel_hidden, success=204, content_type="text/plain")
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
@@ -217,9 +231,9 @@ def make_handler(
                 "/api/v1/studio": api.studio,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
-                "/api/v1/progress": api.progress,
+                "/api/v1/progress": lambda: api.progress(viewer),
                 "/api/v1/state": lambda: api.state(viewer),
-                "/api/v1/rewrite/state": api.rewrite_state,
+                "/api/v1/rewrite/state": lambda: api.rewrite_state(viewer),
             }
             if (
                 path.startswith(
@@ -486,6 +500,13 @@ def make_handler(
                     headers["X-Studio-Loras"] = json.dumps(lora_document(result.loras))
                 self._send_bytes(result.mp4, content_type="video/mp4", headers=headers)
 
+        def _send_shared(self, action, *, success=200, content_type="text/html; charset=utf-8") -> None:
+            body, status = self._api_result(action)
+            if status != 200:
+                self._send_json(body, status=status)
+            else:
+                self._send(body or "", status=success, content_type=content_type)
+
         def _api_result(self, action) -> tuple[Any, int]:
             """One answer shape for every API route: the document and its status, or an
             error object and the status that names the failure."""
@@ -554,11 +575,16 @@ def make_handler(
                 return
             try:
                 payload = self._read_json()
-                if via_api:
-                    assert api is not None
-                    cancelled = api.cancel_video(payload)
+                if api is not None:
+                    cancelled = api.cancel_video(payload, allow_implicit=via_api)
                 else:
                     cancelled = video_controller.cancel(payload)
+            except OperationMissing as error:
+                self._send_json({"error": str(error)}, status=404)
+                return
+            except BackendBusy as error:
+                self._send_json({"error": str(error)}, status=409)
+                return
             except InvalidJob as error:
                 self._send_json({"error": str(error)}, status=400)
                 return

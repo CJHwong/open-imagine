@@ -22,9 +22,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
-from studio.l1_entities.errors import Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.operation import OperationOutput
+from studio.l1_entities.rewrite_progress import RewriteProgress
+from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
@@ -225,7 +227,7 @@ class JsonApi:
         return self.complete(operation["id"], action, observed=operation)
 
     def operation(self, operation_id: str, viewer: str = "") -> dict[str, Any]:
-        return self._operation_document(self._readable(operation_id, viewer))
+        return self._operation_document(self._readable(operation_id, viewer), viewer)
 
     def _readable(self, operation_id: str, viewer: str) -> dict[str, Any]:
         """A private record answers only its owner. Anyone else gets the answer for an
@@ -235,10 +237,14 @@ class JsonApi:
             raise OperationMissing("The operation expired or does not exist.")
         return record
 
-    def _operation_document(self, operation: dict[str, Any]) -> dict[str, Any]:
+    def _operation_document(self, operation: dict[str, Any], viewer: str) -> dict[str, Any]:
         operation = operation_document(operation)
         if operation["status"] in ("running", "stopping"):
-            operation["progress"] = self.rewrite_state() if operation["kind"] == "rewrite" else self.progress()
+            operation["progress"] = (
+                self.rewrite_state(viewer, operation["id"])
+                if operation["kind"] == "rewrite"
+                else self.progress(viewer, operation["id"])
+            )
         else:
             operation["progress"] = {"running": False, "stage": operation["status"], "step": 0, "total": 0}
         if operation.get("batch_total"):
@@ -264,13 +270,26 @@ class JsonApi:
     def state(self, viewer: str = "") -> dict[str, Any]:
         """`busy` stays true while a private operation that this viewer cannot see runs."""
         recent = [one for one in self._operations.recent() if visible(one, viewer)]
-        operations = [self._operation_document(one) for one in recent]
+        operations = [self._operation_document(one, viewer) for one in recent]
         active = next((one for one in operations if one["status"] in ("running", "stopping")), None)
         return {"active": active, "busy": self._operations.busy(), "operations": operations, "studio": self.studio()}
 
     def cancel_operation(self, operation_id: str, viewer: str = "") -> None:
         self._readable(operation_id, viewer)
         self._stop(operation_id)
+
+    def cancel_hidden(self) -> None:
+        """Stop the run that the page cannot see. One GPU serves every caller, so the
+        person at the page can still free it. The answer names nothing about the run."""
+        active = self._operations.active()
+        try:
+            if active is None or visible(active, ""):
+                raise BackendBusy
+            self._stop(active["id"])
+        except BackendBusy:
+            # A run that ends between the read and the stop gets the same answer, so the
+            # timing of the answer tells the caller nothing more.
+            raise BackendBusy("No hidden operation is running.") from None
 
     def _stop(self, operation_id: str) -> None:
         operation = self._operations.stopping(operation_id)
@@ -295,8 +314,28 @@ class JsonApi:
     def release_model(self) -> None:
         self._operations.exclusive(self._controller.release_model)
 
-    def rewrite_state(self) -> dict[str, Any]:
-        return asdict(self._controller.rewrite_state())
+    def rewrite_state(self, viewer: str | None = None, operation_id: str | None = None) -> dict[str, Any]:
+        return asdict(
+            self._controller.rewrite_state() if viewer is None else self.rewrite_snapshot(viewer, operation_id)
+        )
+
+    def rewrite_snapshot(self, viewer: str = "", operation_id: str | None = None) -> RewriteProgress:
+        return self._shared_snapshot(self._controller.rewrite_state, RewriteProgress(), viewer, operation_id)
+
+    def progress_snapshot(self, viewer: str = "", operation_id: str | None = None) -> RunProgress:
+        return self._shared_snapshot(self._controller.progress, RunProgress(), viewer, operation_id)
+
+    def _shared_snapshot(self, read, idle, viewer: str, operation_id: str | None):
+        # Do not hold the operation lock while a controller takes its progress lock.
+        # Bind both sides of the read to one reservation, so another run cannot leak.
+        active = self._operations.active()
+        if active is None or (operation_id is not None and active["id"] != operation_id):
+            return idle
+        if not visible(active, viewer):
+            raise OperationMissing("The operation expired or does not exist.")
+        snapshot = read()
+        current = self._operations.active()
+        return snapshot if current is not None and current["id"] == active["id"] else idle
 
     def workspaces(self) -> dict[str, bool]:
         """Which optional workspaces this studio offers.
@@ -537,22 +576,26 @@ class JsonApi:
             lambda: rewrite_document(self._controller.rewrite(rewrite_form(payload, "video"))),
         )
 
-    def progress(self) -> dict[str, Any]:
-        return progress_document(self._controller.progress())
+    def progress(self, viewer: str | None = None, operation_id: str | None = None) -> dict[str, Any]:
+        return progress_document(
+            self._controller.progress() if viewer is None else self.progress_snapshot(viewer, operation_id)
+        )
+
+    def _public_active(self):
+        active = self._operations.active()
+        if active is not None and not visible(active, ""):
+            raise OperationMissing("The operation expired or does not exist.")
+        return active
 
     def cancel_image(self) -> None:
-        active = self._operations.active()
+        active = self._public_active()
         if active is not None and active["kind"] == "image":
             self._stop(active["id"])
-        else:
-            self._controller.cancel()
 
     def cancel_rewrite(self) -> None:
-        active = self._operations.active()
+        active = self._public_active()
         if active is not None and active["kind"] == "rewrite":
             self._stop(active["id"])
-        else:
-            self._controller.cancel_rewrite()
 
     def _select_requested_backend(self, workspace, payload):
         backend = payload.get("backend")
@@ -575,16 +618,21 @@ class JsonApi:
             body["request_id"] = uuid.uuid4().hex
         return self._video_backend().run(body)
 
-    def cancel_video(self, payload: Mapping[str, object]) -> bool:
-        """Stop one render. A caller that names none stops the one in flight, which is
-        the only render this single-GPU studio can be running."""
-        body = dict(payload)
-        if not body.get("request_id"):
-            active = self._controller.progress().request_id
-            if not active:
+    def cancel_video(self, payload: Mapping[str, object], *, allow_implicit: bool = True) -> bool:
+        """Stop the captured public operation, even if another render reuses its request id."""
+        self._video_backend()
+        request_id = payload.get("request_id")
+        if not allow_implicit and (not isinstance(request_id, str) or not request_id.strip()):
+            raise InvalidJob("request_id must be a nonempty string")
+        active = self._public_active()
+        if active is None or active["kind"] != "video":
+            if not request_id:
                 raise InvalidJob("No video render is active.")
-            body["request_id"] = active
-        return self._video_backend().cancel(body)
+            return False
+        if request_id and request_id != self.progress_snapshot("", active["id"]).request_id:
+            return False
+        self._stop(active["id"])
+        return True
 
     def _video_backend(self) -> VideoController:
         if self._video is None:

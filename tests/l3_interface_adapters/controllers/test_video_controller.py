@@ -71,6 +71,11 @@ def build_video_controller(run=None, capabilities=None):
     return VideoController(selected_run, catalog, switch, PlanVideoUseCase(catalog)), catalog
 
 
+def test_controller_cancel_refuses_a_render_that_is_no_longer_active():
+    controller, _ = build_video_controller()
+    assert controller.cancel({"request_id": "finished"}) is False
+
+
 def test_video_batch_validates_every_item_before_any_engine_call():
     controller, _ = build_video_controller(run=UnusedVideoRun())
     with pytest.raises(InvalidJob, match="prompt"):

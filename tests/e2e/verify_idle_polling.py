@@ -14,7 +14,10 @@ from playwright.sync_api import sync_playwright
 URL = "http://127.0.0.1:" + sys.argv[1]
 SHELL = """<!doctype html><html><body>
 <div id="voice-studio"><button id="voice-generate" data-state="idle">Speak</button></div>
-<div id="shared-operation"></div><button id="shared-operation-cancel"><span>Cancel</span></button>
+<div id="shared-operation"><span id="shared-operation-label"></span><span id="shared-operation-detail"></span>
+<span id="shared-operation-percent"></span><span id="shared-operation-elapsed"></span>
+<button id="shared-operation-details">Details</button></div>
+<button id="shared-operation-cancel"><span>Cancel</span></button>
 <script>
 // The modules read UI copy from the page. This shell has no server-inlined table, so it
 // hands them the English source strings the same way the page does.
@@ -26,7 +29,7 @@ Object.defineProperty(document, 'hidden', {get: () => window.hiddenForCheck});
 Object.defineProperty(document, 'visibilityState', {get: () => window.hiddenForCheck ? 'hidden' : 'visible'});
 document.addEventListener('operations-ready', event => {
   window.sharedPoll = event.detail.configure({
-    clientId: 'idle-check', libraryId: 'idle-check', notify() {}, setActive() {},
+    clientId: 'idle-check', libraryId: 'idle-check', notify() {}, setActive() {}, changingModel: () => false,
     observeDrafts() {}, finishImageOperation() {}
   });
 });

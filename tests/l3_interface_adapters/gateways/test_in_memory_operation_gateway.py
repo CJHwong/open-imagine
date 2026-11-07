@@ -222,6 +222,39 @@ def test_private_results_survive_restart_and_repeated_reads(tmp_path):
     restored.close()
 
 
+@pytest.mark.parametrize("kind", ["video", "voice", "music"])
+def test_private_output_facts_remain_encrypted_after_completion_and_restart(tmp_path, kind):
+    from studio.l1_entities.errors import OperationMissing
+    from studio.l1_entities.music_job import MusicResult
+    from studio.l1_entities.video_job import VideoResult
+    from studio.l1_entities.voice_job import SpeechResult
+
+    result = {
+        "video": VideoResult(b"private clip", 512, 288, 73, 24, 8675309),
+        "voice": SpeechResult(b"private voice", 2.5, 24000, 8675309, 4, text="private words"),
+        "music": MusicResult(b"private music", 2.5, 48000, 8675309, "private score", {}),
+    }[kind]
+    operations = Operations(private_directory=tmp_path)
+    operation = operations.begin({"kind": kind, "owner": "digest", "width": 512, "seed": 8675309}, "key")
+    operations.finish(operation["id"], result)
+    assert operations.get(operation["id"])["seed"] == 8675309
+    stored = operations._private_results.records()[0]
+    assert (
+        not {"width", "height", "num_frames", "frame_rate", "seed", "seconds", "sample_rate", "steps", "stub"}
+        & stored.keys()
+    )
+    operations.close()
+    assert b"8675309" not in (tmp_path / "private-results.sqlite3").read_bytes()
+    restored = Operations(private_directory=tmp_path)
+    assert restored.result(operation["id"], "key") == result
+    assert restored.result(operation["id"], "key") == result
+    with pytest.raises(OperationMissing):
+        restored.result(operation["id"], "wrong key")
+    restored.delete(operation["id"])
+    assert restored.recent() == []
+    restored.close()
+
+
 def test_private_batch_items_survive_restart_and_repeated_reads(tmp_path):
     operations = Operations(private_directory=tmp_path)
     operation = operations.begin({"kind": "image", "owner": "digest", "batch_total": 2}, private_key="key")
