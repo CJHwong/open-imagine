@@ -1725,8 +1725,8 @@ with sync_playwright() as playwright:
         str(duration_reference),
     )
     check(
-        "duration change explains when a reference moves to the last frame",
-        "moved to frame 241" in page.locator("#toasts").inner_text(),
+        "duration change explains when a reference moves inside the clip",
+        "moved inside the 241-frame clip" in page.locator("#toasts").inner_text(),
         page.locator("#toasts").inner_text(),
     )
     sent_strength = page.locator("#video-studio").evaluate("element => element.imageReferences[1].strength")

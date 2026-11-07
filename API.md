@@ -128,7 +128,7 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 The key keeps your work from other callers.
 It does not keep your work from a person who can read the memory, disk or process list of this machine.
 
-The optional MiniMax H3 plugin transfers prompts and MP4 results through memory pipes.
+The optional MiniMax H3 plugin transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
 It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
 Its results follow the same private ownership and encrypted retention rules as other Video results.
 

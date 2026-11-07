@@ -1048,8 +1048,8 @@
   "page.video.mediaPanel": "Video media",
   "page.video.modeAria": "Video mode",
   "page.video.movedReferences": {
-    "one": "{count} image reference moved to frame {frame} to fit the selected duration.",
-    "other": "{count} image references moved to frame {frame} to fit the selected duration."
+    "one": "{count} image reference moved inside the {frame}-frame clip to fit the selected duration.",
+    "other": "{count} image references moved inside the {frame}-frame clip, one per frame, to fit the selected duration."
   },
   "page.video.promptPlaceholder": "Describe how the subject should look and move.",
   "page.video.reason.brackets": "Fill in the [brackets]",

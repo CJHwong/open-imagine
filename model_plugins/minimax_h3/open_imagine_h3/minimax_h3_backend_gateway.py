@@ -1,5 +1,6 @@
 """Run one owned H3 child with input and output held in memory."""
 
+import base64
 import json
 import secrets
 import shutil
@@ -21,8 +22,8 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
     def run(self, job, progress=None, cancelled=None):
         if cancelled and cancelled():
             raise Cancelled("H3 generation was cancelled.")
-        if job.references or job.edit is not None or job.audio is not None or job.loras:
-            raise InvalidJob("This H3 preview accepts text only.")
+        if job.edit is not None or job.loras:
+            raise InvalidJob("H3 draws a new clip. It takes no clip to change and no LoRAs.")
         if job.fast_mode or not job.include_audio:
             raise InvalidJob("This H3 preview uses its base schedule and includes sound.")
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
@@ -34,6 +35,17 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             or job.frame_rate != 24
         ):
             raise InvalidJob("Choose an offered H3 size and a 73-124 frame clip at 24 fps.")
+        frames = [reference.frame_index for reference in job.references]
+        if (
+            len(frames) > CAPABILITIES.max_references
+            or len(set(frames)) != len(frames)
+            or any(type(frame) is not int or not 0 <= frame < job.num_frames for frame in frames)
+        ):
+            raise InvalidJob(
+                f"Place at most {CAPABILITIES.max_references} H3 keyframes, each on its own frame of the clip."
+            )
+        if any(reference.strength != 1 for reference in job.references):
+            raise InvalidJob("An H3 keyframe has no strength setting. Send a strength of 1.")
         if job.seed is not None and (type(job.seed) is not int or not 0 <= job.seed < 2**32):
             raise InvalidJob("Choose an H3 seed between 0 and 4294967295.")
         settings = self._context.settings
@@ -45,8 +57,20 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
         if not weights_ready(models):
             raise InvalidJob("H3 weights are incomplete. Complete the H3 plugin weight setup before generating.")
         seed = job.seed if job.seed is not None else secrets.randbelow(2**32)
+        # The stills and the track travel without their names, which the engine has no use for.
         request = json.dumps(
-            {"prompt": job.prompt, "width": job.width, "height": job.height, "frames": job.num_frames, "seed": seed}
+            {
+                "prompt": job.prompt,
+                "width": job.width,
+                "height": job.height,
+                "frames": job.num_frames,
+                "seed": seed,
+                "keyframes": [
+                    {"frame": reference.frame_index, "png": base64.b64encode(reference.png).decode()}
+                    for reference in sorted(job.references, key=lambda reference: reference.frame_index)
+                ],
+                "audio": base64.b64encode(job.audio.data).decode() if job.audio is not None else None,
+            }
         ).encode()
         output = bytearray()
         buffered = ""

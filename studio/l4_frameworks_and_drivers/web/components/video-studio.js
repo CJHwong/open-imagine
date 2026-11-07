@@ -590,13 +590,28 @@ class VideoStudio extends LitElement {
         : plural(this.maxReferences, t('video.reference.max')));
       return;
     }
+    // A locked rail holds every picture on its frame. Elsewhere each picture gets a frame of its
+    // own, because a model such as MiniMax H3 refuses two pictures on one frame. A picture that
+    // names no frame goes where it is farthest from the others: frame 0, then the last frame,
+    // then the middle. One that names a taken frame, such as a capture at 0:00, takes the
+    // nearest free frame.
+    let frameIndex = this.lockedFrame;
+    if (frameIndex === null) {
+      frameIndex = Number.isInteger(reference.frameIndex)
+        ? this.freeReferenceFrame(reference.frameIndex)
+        : this.spreadReferenceFrame();
+    }
+    if (frameIndex === null) {
+      this.setError(t('video.reference.noRoom'));
+      return;
+    }
     this.clearError();
     this.imageReferences = this.imageReferences.concat({
       id: reference.id,
       name: reference.name,
       src: reference.src,
       base64: reference.base64,
-      frameIndex: Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0,
+      frameIndex: frameIndex,
       strength: this.normalizeReferenceStrength(reference.strength),
     });
     if (!this.selectedReferenceId) this.selectedReferenceId = reference.id;
@@ -700,14 +715,28 @@ class VideoStudio extends LitElement {
     const changed = this.frameLimit !== frameCount;
     this.frameLimit = frameCount;
     const lastFrame = frameCount - 1;
-    let movedReferences = 0;
-    this.imageReferences = this.imageReferences.map((reference) => {
-      const frameIndex = Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0;
-      const validFrame = Math.min(lastFrame, Math.max(0, frameIndex));
-      if (frameIndex === validFrame) return reference;
-      movedReferences += 1;
-      return {...reference, frameIndex: validFrame};
-    });
+    const frameOf = (reference) => (Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0);
+    // A picture past the new end takes the last frame. A picture in its way steps back one
+    // frame, and so on down the rail, so the pictures keep their order and one frame each: the
+    // picture that ended the clip still ends it. A picture that does not move sets no limit, so
+    // pictures that already share a frame stay as they are.
+    const targets = new Map();
+    let ceiling = lastFrame;
+    this.imageReferences
+      .map((reference, position) => ({reference, position}))
+      .sort((a, b) => frameOf(b.reference) - frameOf(a.reference) || b.position - a.position)
+      .forEach(({reference}) => {
+        const frame = Math.max(0, Math.min(frameOf(reference), ceiling));
+        if (frame === frameOf(reference)) {
+          ceiling = lastFrame;
+          return;
+        }
+        targets.set(reference.id, frame);
+        ceiling = frame - 1;
+      });
+    this.imageReferences = this.imageReferences.map((reference) =>
+      (targets.has(reference.id) ? {...reference, frameIndex: targets.get(reference.id)} : reference));
+    const movedReferences = targets.size;
     // Every chip's x depends on the length, so a new length redraws even with no clamp.
     if (movedReferences || changed) this.renderImageReferences();
     return movedReferences;
@@ -994,6 +1023,23 @@ class VideoStudio extends LitElement {
       time: this.referenceTime(frame).toFixed(1),
       frame,
     });
+  }
+
+  // The free frame farthest from every placed picture, frame 0 when there is none, or null
+  // when every frame holds one.
+  spreadReferenceFrame() {
+    const used = this.imageReferences.map((reference) => reference.frameIndex).filter(Number.isInteger);
+    if (!used.length) return 0;
+    let best = null;
+    let bestGap = 0;
+    for (let frame = 0; frame < this.railLimit(); frame += 1) {
+      const gap = Math.min(...used.map((taken) => Math.abs(taken - frame)));
+      if (gap > bestGap) {
+        best = frame;
+        bestGap = gap;
+      }
+    }
+    return best;
   }
 
   freeReferenceFrame(preferred) {
