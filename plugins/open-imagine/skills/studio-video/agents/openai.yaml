@@ -1,4 +1,0 @@
-interface:
-  display_name: "Studio Video"
-  short_description: "Make clips, scenes, storyboards and music videos"
-  default_prompt: "Use $studio-video to turn this idea into a clip, scene or storyboard, then review and revise it."
