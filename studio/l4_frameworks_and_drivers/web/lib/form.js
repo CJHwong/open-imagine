@@ -1607,16 +1607,10 @@ function wire() {
 
   el.form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     radio.addEventListener('change', function () {
-      applyMode();
+      applyMode(true);
       page.menus().closeMenus();
-      page.setReferences([]);
-      // The words and the Look stay. A switch is a change of verb, not a reason to throw
-      // away what the person set up: the video form keeps its box and its adapter, and this
-      // form emptied the text and the picks. The Look survives because the rows are read by
-      // name: a pick the new mode does not offer contributes nothing, and it is there again
-      // on the way back. References still go, because a generate keyframe and an edit source
-      // are different things.
-      document.getElementById('each-all').checked = true;
+      // Keep the current references and settings. A mode can hide an input, but switching
+      // back must show the value the person entered.
       pushLook();
       growPrompt();
       renderReferences();

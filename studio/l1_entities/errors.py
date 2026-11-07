@@ -30,6 +30,14 @@ class BackendBusy(StudioError):
     """A run or a switch was asked for while a run is in flight."""
 
 
+class ResourceEstimateUnavailable(StudioError):
+    """No safe memory estimate exists for this request setup."""
+
+
+class InsufficientMemory(StudioError):
+    """The request needs more memory than the machine can spare."""
+
+
 class UnknownBackend(StudioError):
     """No backend is registered under that id."""
 

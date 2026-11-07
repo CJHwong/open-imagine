@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from studio.l1_entities.errors import InvalidJob, StudioError
+from studio.l1_entities.errors import BackendBusy, InvalidJob, StudioError
 from studio.l1_entities.image_job import ImageResult
 from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_capabilities import VideoCapabilities, VideoShape
@@ -797,6 +797,105 @@ def test_readonly_backend_capabilities_do_not_switch_models(monkeypatch):
     monkeypatch.setattr(controller, "capabilities", missing)
     with pytest.raises(LookupError):
         api.backend_capabilities("image", "missing")
+
+
+def test_resource_admission_checks_image_form_before_admission(monkeypatch):
+    controller = FakeController()
+    forms = []
+    admitted = []
+    monkeypatch.setattr(controller, "plan", lambda form: forms.append(dict(form)))
+    api = api_for(controller)
+    api._resource_admission = lambda payload: admitted.append(dict(payload))
+
+    api.reserve({"kind": "image", "mode": "generate", "prompt": "A pear", "size": "512x512"})
+
+    assert forms == [
+        {
+            "kind": "image",
+            "workspace": "image",
+            "backend": "fake",
+            "mode": "generate",
+            "prompt": "A pear",
+            "size": "512x512",
+        }
+    ]
+    assert admitted[0]["backend"] == "fake"
+
+
+def test_resource_admission_maps_typed_image_batch_items_to_forms(monkeypatch):
+    controller = FakeController()
+    forms = []
+    monkeypatch.setattr(controller, "plan", lambda form: forms.append(dict(form)))
+    api = api_for(controller)
+    api._resource_admission = lambda payload: None
+
+    api.reserve(
+        {
+            "kind": "image",
+            "mode": "generate",
+            "items": [{"prompt": "A pear", "width": 512, "height": 512}],
+        }
+    )
+
+    assert forms == [
+        {
+            "mode": "generate",
+            "kind": "image",
+            "backend": "fake",
+            "prompt": "A pear",
+            "width": "512",
+            "height": "512",
+        }
+    ]
+
+
+def test_resource_admission_checks_video_and_voice_with_their_controllers(monkeypatch):
+    video = FakeVideo()
+    video_forms = []
+    monkeypatch.setattr(video, "plan", lambda form: video_forms.append(dict(form)))
+    video_api = api_for(FakeController(), video=video)
+    video_api._resource_admission = lambda payload: None
+
+    video_api.reserve({"kind": "video", "backend": "video-fake", "prompt": "A clip"})
+    voice_api = api_for(FakeController(), voice=FakeVoice())
+    voice_api._resource_admission = lambda payload: None
+    voice_operation = voice_api.reserve({"kind": "voice", "text": "Hello", "voice": "A warm voice"})
+
+    assert video_forms[0]["mode"] == "generate"
+    assert voice_operation["backend"] == "auk"
+
+
+def test_resource_admission_runs_after_busy_check_and_skips_rewrites(monkeypatch):
+    api = api_for(FakeController())
+    calls = []
+    api._resource_admission = lambda payload: calls.append(dict(payload))
+    monkeypatch.setattr(api._operations, "busy", lambda: True)
+
+    with pytest.raises(BackendBusy):
+        api.reserve({"kind": "image"})
+    assert calls == []
+
+    monkeypatch.setattr(api._operations, "busy", lambda: False)
+    api.reserve({"kind": "rewrite", "workspace": "image", "prompt": "A pear"})
+
+    assert calls == []
+
+
+def test_resource_request_validation_rejects_bad_items_and_handles_other_modes():
+    api = api_for(FakeController(), voice=FakeVoice())
+
+    with pytest.raises(InvalidJob, match="Each entry in items"):
+        api._validate_resource_requests("image", {"items": [None]})
+
+    api._validate_resource_requests("music", {})
+    api._validate_resource_requests(
+        "voice",
+        {
+            "backend": "auk",
+            "mode": "design",
+            "items": [{"text": "Hello", "voice": "A warm voice", "seed": 7}],
+        },
+    )
 
 
 def test_operation_workspace_must_match_its_media_kind():

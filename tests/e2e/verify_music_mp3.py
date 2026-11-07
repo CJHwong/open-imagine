@@ -33,7 +33,7 @@ def add_song(page, blob):
             {type: 'audio/wav'});
           studio.songs = [{id: 'mp3-a', title: 'Morning Test', blob, seconds: 1, seed: 5,
             createdAt: Date.UTC(2026, 0, 2), score: '', settings: {style},
-            model: 'YuE2 (MLX Q8)', metadata: {}}];
+            model: 'YuE2', metadata: {}}];
           studio.selectedId = 'mp3-a';
           studio.renderSongs();
         }""",
@@ -79,7 +79,7 @@ def main():
         assert text(found["TIT2"]) == "Morning Test", text(found["TIT2"])
         assert text(found["TCON"]) == "Pop", text(found["TCON"])
         assert text(found["TYER"]) == "2026", text(found["TYER"])
-        assert text(found["TPE1"]) == "YuE2 (MLX Q8)", text(found["TPE1"])
+        assert text(found["TPE1"]) == "YuE2", text(found["TPE1"])
         assert text(found["TLEN"]) == "1000", text(found["TLEN"])
         assert found["COMM"][1:4] == b"eng", found["COMM"][:4]
         assert found["COMM"][4:10] == b"\xff\xfe\x00\x00\xff\xfe", found["COMM"][:10]

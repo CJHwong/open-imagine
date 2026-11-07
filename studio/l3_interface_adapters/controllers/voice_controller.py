@@ -34,6 +34,10 @@ class VoiceController:
         backend_id = self._backend_id(payload)
         return backend_id, self.model_capabilities(backend_id)
 
+    def validate(self, payload: Mapping) -> SpeechJob:
+        backend_id = self._backend_id(payload)
+        return voice_job(payload, self.model_capabilities(backend_id))
+
     def run(self, payload: Mapping):
         backend_id, capabilities = self._selected(payload)
         return self._run.execute(voice_job(payload, capabilities), backend_id)

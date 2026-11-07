@@ -39,7 +39,9 @@ GUIDANCE = {
         "choose backend and mode for reproducible behavior. For varied outputs, add items with shared defaults at "
         "the top level. Save the returned id/status_url, poll until terminal status, then fetch result_url. "
         "202 means accepted, not successful: validation, model loading, and inference may fail in the worker. "
-        "Only one operation owns model memory; 409 means busy and nothing was queued. Model loading/download policy "
+        "Only one operation owns model memory; 409 means busy and nothing was queued. "
+        "503 means memory is too tight or this setup has no safe memory estimate, so no operation started. "
+        "Model loading/download policy "
         "matches the page. Public results expire after 10 minutes, 32 operations, or 256 MiB, and on restart. Private results stay encrypted on disk for one hour and support repeated downloads. "
         "API batches need no browser continuation; legacy page image batches reserve their next item for 30 seconds."
     ),

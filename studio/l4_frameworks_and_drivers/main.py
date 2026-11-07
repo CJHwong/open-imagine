@@ -1,6 +1,7 @@
 """The composition root: builds every part and wires them. No side effects beyond that."""
 
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
@@ -27,6 +28,7 @@ from studio.l2_use_cases.switch_music_backend_use_case import SwitchMusicBackend
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 from studio.l2_use_cases.switch_voice_backend_use_case import SwitchVoiceBackendUseCase
 from studio.l3_interface_adapters.api.json_api import JsonApi
+from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.music_controller import MusicController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
@@ -110,6 +112,7 @@ from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.lora_table import lora_files, no_loras
 from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
+from studio.l4_frameworks_and_drivers.system_memory import memory_headroom
 from studio.plugins.image import QwenCheckpoint
 from studio.plugins.video import LtxPack
 
@@ -641,6 +644,8 @@ def create_studio(
         video_rewriters=video_rewriters,
         allowed_origins=allowed_origins,
         private_results_dir=private_results_dir,
+        resource_memory_headroom=None if stub else memory_headroom,
+        qwen_turbo_quantize=config.backend("qwen21_turbo").get("quantize"),
     )
 
 
@@ -663,6 +668,8 @@ def assemble_studio(
     video_rewriters: dict | None = None,
     allowed_origins: tuple[str, ...] = (),
     private_results_dir: Path | None = None,
+    resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
+    qwen_turbo_quantize: int | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -696,6 +703,9 @@ def assemble_studio(
         )
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
+    resource_admission = (
+        ResourceAdmission(resource_memory_headroom, qwen_turbo_quantize) if resource_memory_headroom else None
+    )
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())
     # The rewrite publishes its own phase, because the page draws that button from
@@ -764,6 +774,7 @@ def assemble_studio(
         operations=operations,
         completion=CompleteOperationUseCase(operations),
         batches=PrepareBatchUseCase(),
+        resource_admission=resource_admission,
     )
     return Studio(
         handler=make_handler(controller, presenter, video_controller, api, allowed_origins),

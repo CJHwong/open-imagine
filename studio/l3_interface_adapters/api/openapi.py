@@ -753,7 +753,7 @@ def operation_paths() -> dict[str, Any]:
             "parameters": [PRIVATE_KEY],
             "tags": ["studio"],
             "summary": "Start work and return immediately",
-            "description": "One operation runs at a time. There is no queue. Poll its URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
+            "description": "One operation runs at a time. There is no queue. The API checks the request's memory estimate against current macOS headroom before it records or starts the operation. A setup without a reliable estimate, or one that exceeds current headroom, returns 503. Poll an accepted operation's URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
             "requestBody": {
                 "required": True,
                 "content": {
@@ -770,6 +770,7 @@ def operation_paths() -> dict[str, Any]:
                 },
                 "400": _error("Invalid operation"),
                 "409": _error("The studio is busy"),
+                "503": _error("No safe memory estimate exists for this setup, or current memory headroom is too low"),
             },
         }
     }
@@ -1863,7 +1864,7 @@ def music_schemas() -> dict[str, Any]:
             ],
             "properties": {
                 "backend_id": {"type": "string"},
-                "name": {"type": "string", "description": "Display name, such as YuE2 (MLX Q8)"},
+                "name": {"type": "string", "description": "Display name, such as YuE2"},
                 "badge": {"type": "string", "description": "Short note on precision, shown beside the name"},
                 "modes": {
                     "type": "array",
