@@ -4,7 +4,7 @@ A local Image, Video, Voice, and Music studio for Apple Silicon, with a shared U
 
 - **Image:** generate and edit with Qwen Image Turbo, references, and region marking.
 - **Video:** create clips with LTX-2.5 from text, keyframes, and audio; apply editing effects or turn a layout animation and look image into a rendered shot.
-  An experimental [MiniMax H3 plugin](model_plugins/minimax_h3/README.md) adds short clips with sound from text, keyframes or a voice track.
+  An experimental [MiniMax H3 plugin](model_plugins/minimax_h3/README.md) adds clips of up to 7.3 seconds with sound from text, keyframes or a voice track.
 - **Voice:** generate speech and clone voices with Drama-3; use AuK for voice design and instruction edits.
 - **Music:** create songs and instrumentals, compose and edit scores, transcribe audio and cover reference recordings with native MLX Q8 YuE2 on Apple Silicon. [Set up Music](docs/how-to/music.md).
   Repeated covers reuse a transcription. See the [measured comparison](docs/how-to/music.md#why-it-looks-like-this).

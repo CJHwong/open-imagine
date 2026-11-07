@@ -30,11 +30,14 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("Install ffmpeg and ffprobe before generating an H3 clip.")
         if (
             (job.width, job.height) not in {(shape.width, shape.height) for shape in CAPABILITIES.shapes}
-            or not 73 <= job.num_frames <= 124
-            or (job.num_frames - 5) % 17
+            or not CAPABILITIES.min_frames <= job.num_frames <= CAPABILITIES.max_frames
+            or (job.num_frames - CAPABILITIES.min_frames) % CAPABILITIES.frame_step
             or job.frame_rate != 24
         ):
-            raise InvalidJob("Choose an offered H3 size and a 73-124 frame clip at 24 fps.")
+            raise InvalidJob(
+                f"Choose an offered H3 size and a {CAPABILITIES.min_frames}-{CAPABILITIES.max_frames} "
+                "frame clip at 24 fps."
+            )
         frames = [reference.frame_index for reference in job.references]
         if (
             len(frames) > CAPABILITIES.max_references
