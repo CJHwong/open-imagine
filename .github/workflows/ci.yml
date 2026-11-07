@@ -32,6 +32,10 @@ jobs:
       - name: Sync the env
         run: uv sync --locked --python 3.13
 
+      # The Studio video skill tests build and inspect synthetic media fixtures.
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
       - name: prek
         run: |
           uv tool install prek
