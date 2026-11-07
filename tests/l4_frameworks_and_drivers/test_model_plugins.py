@@ -176,14 +176,14 @@ def test_public_media_sdk_imports_the_host_contracts():
     assert audio.Capabilities is VoiceCapabilities
 
 
-def test_composition_builds_all_three_external_models_without_platform_or_engine_loading(monkeypatch):
+def test_composition_builds_all_three_external_models_without_platform_or_engine_loading(monkeypatch, tmp_path):
     from studio.l4_frameworks_and_drivers import main
 
     registry, _ = installed(monkeypatch)
     monkeypatch.setattr(
         main, "require_mlx", Mock(side_effect=AssertionError("plugin-only composition must not impose MLX"))
     )
-    studio = main.create_studio(configuration(), plugins=registry)
+    studio = main.create_studio(configuration(), plugins=registry, private_results_dir=tmp_path / "private")
     try:
         assert studio.video_catalog is not None and studio.video_rewriter is not None
         assert studio.active_capabilities().backend_id == "example_image"
@@ -234,7 +234,7 @@ def test_video_rewrite_switches_between_plugin_and_builtin_without_cross_model_e
         studio.shutdown()
 
 
-def test_video_plugin_rewrite_and_release_share_the_model_thread(monkeypatch):
+def test_video_plugin_rewrite_and_release_share_the_model_thread(monkeypatch, tmp_path):
     import threading
 
     from studio.l4_frameworks_and_drivers import main
@@ -252,7 +252,7 @@ def test_video_plugin_rewrite_and_release_share_the_model_thread(monkeypatch):
     registry, _ = installed(
         monkeypatch, {**declarations(), "video": replace(declarations()["video"], rewriter=lambda context: Rewriter())}
     )
-    studio = main.create_studio(configuration(), plugins=registry)
+    studio = main.create_studio(configuration(), plugins=registry, private_results_dir=tmp_path / "private")
     assert studio.video_rewriter is not None
     studio.video_rewriter.rewrite("A landscape", "generate", (), lambda: None, lambda: False)
     studio.shutdown()

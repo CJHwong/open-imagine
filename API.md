@@ -103,7 +103,14 @@ Stored errors use a generic message, so engine errors cannot put private words i
 Every read under `/api/v1/` accepts the key, and `/api/v1/state` uses it.
 A write accepts it on `POST /api/v1/operations`, the cancel route, and the private operation delete route.
 Any other write, and every route outside `/api/v1/`, answers `400` when the header is present.
+Shared progress and cancel routes return `404` while a private operation runs.
+Use the operation's status and cancel routes with its original key.
 A stop from the page still stops a private run, because one GPU serves all callers.
+The page's status bar then says only that another client's operation runs. Its Cancel button calls `POST /hidden/cancel`.
+That route names nothing about the run. It answers `409` when no hidden operation runs.
+So a private run can end `cancelled` because a person at the page stopped it. Do not retry it in a loop.
+Private disk records contain only lifecycle and routing metadata. Input settings and output facts stay out of the disk record.
+Read the encrypted result with the original key for its dimensions, seed, and other output facts after a server restart.
 
 ### What a run still holds
 
@@ -120,6 +127,10 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 
 The key keeps your work from other callers.
 It does not keep your work from a person who can read the memory, disk or process list of this machine.
+
+The optional MiniMax H3 plugin transfers prompts and MP4 results through memory pipes.
+It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
+Its results follow the same private ownership and encrypted retention rules as other Video results.
 
 ## Prompt aids and reference inputs
 

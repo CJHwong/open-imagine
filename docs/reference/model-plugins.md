@@ -255,6 +255,12 @@ optional `cancelled` and stderr `consume` callbacks, and keyword arguments inclu
 It returns no value; use temporary files for binary output, as the example Video gateway does.
 The host owns process termination, not engine-specific output parsing.
 
+For an engine that keeps private inputs and results in memory, pass `input_bytes` and
+`consume_output` instead. The driver writes input and drains binary stdout concurrently,
+while `consume` continues to receive stderr. Both options are optional. Set
+`terminate_group=True` to start an owned process session and stop its group on cancellation,
+timeout or a consumer error. The H3 plugin uses this path, so its prompt and media need no files.
+
 ## Compatibility and installation
 
 API version 1 identifies this contract independently of the plugin package's version. Install

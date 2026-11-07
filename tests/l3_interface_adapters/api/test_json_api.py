@@ -231,7 +231,7 @@ def test_a_video_run_carries_the_mode_the_route_names():
 
     assert result.mp4 == b"mp4"
     assert video.payloads[-1]["mode"] == "generate"
-    assert api.cancel_video({"request_id": "r"}) is True
+    assert api.cancel_video({"request_id": "r"}) is False
 
 
 def test_a_studio_without_a_video_model_refuses_a_video_call():
@@ -289,8 +289,11 @@ def test_a_video_stop_without_an_id_stops_the_render_in_flight():
     controller = FakeController(state=RunProgress(running=True, request_id="r-1"))
     video = FakeVideo()
 
-    assert api_for(controller, video).cancel_video({}) is True
-    assert video.payloads[-1] == {"request_id": "r-1"}
+    api = api_for(controller, video)
+    operation = api.reserve({"kind": "video"})
+    assert api.cancel_video({}) is True
+    assert api.operation(operation["id"])["status"] == "stopping"
+    assert video.payloads == []
 
 
 def test_a_video_stop_with_nothing_in_flight_says_so():
@@ -935,7 +938,7 @@ def test_native_image_progress_label_does_not_change_other_operations(kind, sour
     controller = FakeController(state=RunProgress(running=True, step=2, total=8, label="2 of 4"))
     api = api_for(controller)
     operation = api.reserve({"kind": kind}, source=source)
-    monkeypatch.setattr(api, "rewrite_state", lambda: {"stage": "writing"})
+    monkeypatch.setattr(api, "rewrite_state", lambda *args: {"stage": "writing"})
     expected = api.rewrite_state() if kind == "rewrite" else api.progress()
     assert api.operation(operation["id"])["progress"] == expected
 
@@ -1201,15 +1204,136 @@ def test_a_private_result_remains_readable_until_its_owner_deletes_it():
     assert api.state()["operations"] == [] and api.state()["busy"] is False
 
 
-def test_a_page_stop_still_reaches_a_private_run():
+def test_a_page_stop_cannot_reach_a_private_run():
+    from studio.l1_entities.errors import OperationMissing
+
     api = api_for(FakeController())
     operation = api.reserve({"kind": "image"}, owner=OWNER)
-    api.cancel_image()
-    assert api.operation(operation["id"], OWNER)["status"] == "stopping"
+    with pytest.raises(OperationMissing):
+        api.cancel_image()
+    assert api.operation(operation["id"], OWNER)["status"] == "running"
     rewrite = api_for(FakeController())
     rewrite.reserve({"kind": "rewrite"}, owner=OWNER)
-    rewrite.cancel_rewrite()
-    assert rewrite.cancellation_requested()
+    with pytest.raises(OperationMissing):
+        rewrite.cancel_rewrite()
+    assert not rewrite.cancellation_requested()
+
+
+@pytest.mark.parametrize("kind", ["image", "video", "rewrite"])
+def test_the_page_can_stop_a_private_run_that_it_cannot_see(kind):
+    api = api_for(FakeController(), FakeVideo())
+    operation = api.reserve({"kind": kind}, owner=OWNER)
+    state = api.state()
+    assert state["active"] is None and state["busy"] is True
+
+    api.cancel_hidden()
+
+    assert api._operations.get(operation["id"])["status"] == "stopping"
+    assert api.cancellation_requested()
+
+
+def test_the_hidden_stop_refuses_when_no_hidden_run_holds_the_studio():
+    from studio.l1_entities.errors import BackendBusy
+
+    api = api_for(FakeController())
+    with pytest.raises(BackendBusy, match="No hidden operation"):
+        api.cancel_hidden()
+    operation = api.reserve({"kind": "image"})
+    with pytest.raises(BackendBusy, match="No hidden operation"):
+        api.cancel_hidden()
+    assert api.operation(operation["id"])["status"] == "running"
+
+
+def test_the_hidden_stop_answers_the_same_when_the_run_ends_before_the_stop(monkeypatch):
+    from studio.l1_entities.errors import BackendBusy
+
+    api = api_for(FakeController())
+    private = api.reserve({"kind": "image"}, owner=OWNER)
+    stale = api._operations.active()
+    api._operations.finish(private["id"], {})
+    public = api.reserve({"kind": "image"})
+    monkeypatch.setattr(api._operations, "active", lambda: stale)
+
+    with pytest.raises(BackendBusy, match=r"^No hidden operation is running\.$"):
+        api.cancel_hidden()
+    assert api._operations.get(public["id"])["status"] == "running"
+
+
+def test_the_hidden_stop_leaves_a_model_change_alone():
+    from studio.l1_entities.errors import BackendBusy
+
+    api = api_for(FakeController())
+    held = []
+
+    def change_model():
+        with pytest.raises(BackendBusy, match="No hidden operation"):
+            api.cancel_hidden()
+        held.append(api._operations.busy())
+
+    api._operations.exclusive(change_model)
+    assert held == [True]
+    assert not api._operations.busy()
+
+
+@pytest.mark.parametrize("rewrite", [False, True])
+def test_a_shared_snapshot_without_a_reservation_never_reads_controller_state(monkeypatch, rewrite):
+    controller = FakeController()
+    monkeypatch.setattr(controller, "progress", lambda: pytest.fail("Unowned snapshot read"))
+    monkeypatch.setattr(controller, "rewrite_state", lambda: pytest.fail("Unowned snapshot read"))
+    api = api_for(controller)
+    snapshot = api.rewrite_state("") if rewrite else api.progress("")
+    assert snapshot["running"] is False
+    api.cancel_image()
+    api.cancel_rewrite()
+    assert controller.cancelled == controller.rewrites_cancelled == 0
+
+
+@pytest.mark.parametrize("rewrite", [False, True])
+@pytest.mark.parametrize("next_run", [False, True])
+def test_shared_progress_discards_a_snapshot_that_crosses_operations(monkeypatch, rewrite, next_run):
+    from studio.l1_entities.rewrite_progress import RewriteProgress
+
+    controller = FakeController()
+    api = api_for(controller)
+    operation = api.reserve({"kind": "rewrite" if rewrite else "image"})
+
+    def change_operation():
+        api._operations.finish(operation["id"], {})
+        if next_run:
+            api.reserve({"kind": "image"}, owner=OWNER)
+        return RewriteProgress(True, "secret stage") if rewrite else RunProgress(True, label="secret label")
+
+    monkeypatch.setattr(controller, "rewrite_state" if rewrite else "progress", change_operation)
+    snapshot = api.operation(operation["id"])["progress"]
+    assert snapshot["running"] is False and "secret" not in str(snapshot)
+
+
+def test_state_cannot_attach_a_new_private_snapshot_to_an_old_public_record(monkeypatch):
+    controller = FakeController()
+    api = api_for(controller)
+    operation = api.reserve({"kind": "image"})
+    captured = api._operations.recent()
+    api._operations.finish(operation["id"], {})
+    api.reserve({"kind": "image"}, owner=OWNER)
+    monkeypatch.setattr(api._operations, "recent", lambda: captured)
+    monkeypatch.setattr(controller, "progress", lambda: pytest.fail("Private progress read"))
+    assert api.state()["operations"][0]["progress"]["running"] is False
+
+
+def test_video_cancel_cannot_cross_operations_that_reuse_a_request_id(monkeypatch):
+    controller = FakeController()
+    api = api_for(controller, FakeVideo())
+    operation = api.reserve({"kind": "video"})
+    private = []
+
+    def start_private():
+        api._operations.finish(operation["id"], {})
+        private.append(api.reserve({"kind": "video"}, owner=OWNER))
+        return RunProgress(True, request_id="same")
+
+    monkeypatch.setattr(controller, "progress", start_private)
+    assert api.cancel_video({"request_id": "same"}) is False
+    assert api._operations.get(private[0]["id"])["status"] == "running"
 
 
 def test_the_owner_can_stop_its_private_run():

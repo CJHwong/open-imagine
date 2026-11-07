@@ -489,7 +489,9 @@ def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeyp
 
     platform = Mock()
     monkeypatch.setattr(main, "require_mlx", platform)
-    studio = main.create_studio(pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries()))
+    studio = main.create_studio(
+        pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries()), private_results_dir=tmp_path / "private"
+    )
     try:
         assert studio.video_catalog is not None and studio.video_rewriter is not None
         assert isinstance(studio.video_catalog.get("example_pack"), LtxPackBackendGateway)
@@ -676,7 +678,9 @@ def test_a_real_checkpoint_needs_the_host_platform_and_gets_the_qwen_rewriter_it
     assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriter)
 
     studio = main.create_studio(
-        checkpoint_settings(tmp_path, section), plugins=install(monkeypatch, checkpoint_entries())
+        checkpoint_settings(tmp_path, section),
+        plugins=install(monkeypatch, checkpoint_entries()),
+        private_results_dir=tmp_path / "private",
     )
     studio.shutdown()
     platform.assert_called_once_with()

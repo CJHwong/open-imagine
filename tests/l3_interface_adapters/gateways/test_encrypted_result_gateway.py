@@ -12,6 +12,71 @@ from studio.l3_interface_adapters.gateways.encrypted_result_gateway import Encry
 KEY = "a private random caller key of at least 32 characters"
 
 
+def test_private_disk_records_keep_only_lifecycle_metadata(tmp_path):
+    record = {
+        "id": "operation",
+        "owner": "digest",
+        "status": "running",
+        "started_at": 1,
+        "finished_at": None,
+        "error": None,
+        "result_retained": False,
+        "kind": "video",
+        "workspace": "video",
+        "source": "api",
+        "prompt": "secret prompt",
+        "settings": {"seed": 7},
+        "width": 1234567,
+        "height": 7654321,
+        "seed": 9234567,
+        "model": "secret model",
+        "backend": "secret backend",
+        "mode": "secret mode",
+        "client_id": "secret client",
+        "library_id": "secret library",
+        "unexpected": "secret future result field",
+    }
+    vault = EncryptedResultGateway(tmp_path)
+    vault.save_record(record)
+    restored = vault.records()[0]
+    assert restored["id"] == "operation" and restored["owner"] == "digest"
+    assert restored["prompt"] == "" and restored["settings"] == {}
+    assert not {"width", "height", "seed", "unexpected"} & restored.keys()
+    assert all(b"secret" not in path.read_bytes() for path in tmp_path.iterdir())
+    vault.close()
+
+
+def test_reopening_scrubs_old_plaintext_settings_from_disk(tmp_path):
+    import json
+
+    vault = EncryptedResultGateway(tmp_path)
+    with vault._connection:
+        vault._connection.execute(
+            "INSERT INTO operations VALUES (?, ?)",
+            (
+                "old",
+                json.dumps(
+                    {
+                        "id": "old",
+                        "owner": "digest",
+                        "prompt": "secret legacy prompt",
+                        "seed": "secret legacy seed",
+                        "error": "secret engine failure",
+                        "unexpected": "secret future field",
+                    }
+                ),
+            ),
+        )
+    vault.close()
+    assert b"secret" in (tmp_path / "private-results.sqlite3").read_bytes()
+    restored = EncryptedResultGateway(tmp_path)
+    record = restored.records()[0]
+    assert record["prompt"] == "" and record["settings"] == {}
+    assert record["error"] == "The private operation failed."
+    restored.close()
+    assert all(b"secret" not in path.read_bytes() for path in tmp_path.iterdir())
+
+
 @pytest.mark.parametrize(
     "result",
     [

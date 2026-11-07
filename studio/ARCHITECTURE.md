@@ -67,6 +67,10 @@ and concrete factory validation belong in layer 4; core use cases never inspect 
 Plugin IDs are globally unique because all media share one residency map. Stub mode uses
 capability records without calling plugin engine factories. Native built-in factories and IDs
 remain unchanged. Plugin-only configurations own their runtime platform requirements.
+The optional H3 model plugin keeps its pinned staged engine in a separate environment.
+It uses the generic driver's binary input/output pipes and owned process session, so private
+prompts and media need no scratch files. The plugin replaces the engine's disk metrics writer
+with an in-memory recorder and publishes only numerical progress and phase metrics.
 Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
 no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/model-plugins.md).
 An LTX pack and a Qwen checkpoint are the exceptions to both rules, because each runs on a

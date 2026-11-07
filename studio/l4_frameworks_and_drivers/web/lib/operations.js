@@ -38,17 +38,49 @@ let stopped = false;
 let lastFailure = '';
 let progressId = null;
 let overallPercent = null;
+// Polls in a row that found the studio busy with no operation this page can see.
+let hiddenPolls = 0;
+// A press shows Stopping for a short time only. A new hidden run can start before this
+// page sees an idle poll, and a lasting flag would then lock that run's Cancel.
+const HIDDEN_STOP_MS = 10000;
+let hiddenStopUntil = 0;
+
+function hiddenStopping() {
+  return performance.now() < hiddenStopUntil;
+}
 
 function elapsed(operation) {
   return Math.max(0, (operation.finished_at || Date.now() / 1000) - operation.started_at);
+}
+
+// Another client's private operation stays out of this page's state, but it holds the
+// GPU that every client shares. The bar names nothing about it and offers only the stop.
+// It waits for a second busy poll, so that a short model change does not flash it.
+function renderHidden(panel, label, cancel) {
+  panel.hidden = hiddenPolls < 2;
+  if (panel.hidden) return;
+  const stopping = hiddenStopping();
+  label.textContent = stopping ? t('operation.phase.stopping') : t('operation.hidden.label');
+  document.getElementById('shared-operation-detail').textContent = t('operation.hidden.detail');
+  document.getElementById('shared-operation-percent').textContent = '';
+  document.getElementById('shared-operation-elapsed').textContent = '';
+  document.getElementById('shared-operation-details').hidden = true;
+  cancel.disabled = stopping;
+  cancel.querySelector('span').textContent = stopping ? t('operation.action.stopping') : t('operation.action.cancel');
+  panel.dataset.operationId = '';
+  panel.dataset.status = stopping ? 'stopping' : 'hidden';
 }
 
 function render(operation) {
   const panel = document.getElementById('shared-operation');
   const label = document.getElementById('shared-operation-label');
   const cancel = document.getElementById('shared-operation-cancel');
-  panel.hidden = !operation;
-  if (!operation) return;
+  if (!operation) {
+    renderHidden(panel, label, cancel);
+    return;
+  }
+  panel.hidden = false;
+  document.getElementById('shared-operation-details').hidden = false;
   const state = operation.progress || {};
   // Music reports separate phase totals, with unknown token counts between them.
   if (progressId !== operation.id || operation.kind === 'music') { progressId = operation.id; overallPercent = null; }
@@ -80,8 +112,25 @@ function render(operation) {
   panel.dataset.status = operation.status;
 }
 
+async function cancelHidden() {
+  if (hiddenPolls < 2 || hiddenStopping()) return;
+  document.getElementById('shared-operation-cancel').disabled = true;
+  try {
+    const answer = await fetch('/hidden/cancel', {method: 'POST'});
+    // A 409 says the hidden operation ended before the press arrived.
+    if (answer.status === 409) page.notify('info', t('operation.hidden.none'));
+    else if (!answer.ok) {
+      const body = await answer.json().catch(() => ({}));
+      throw new Error(body.error || t('operation.error.notStopped'));
+    } else hiddenStopUntil = performance.now() + HIDDEN_STOP_MS;
+    await poll();
+  } catch (error) {
+    page.notify('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
+  }
+}
+
 async function cancelActive() {
-  if (!active) return;
+  if (!active) return cancelHidden();
   page.prepareNativeCancel(active);
   const operationId = active.id;
   document.getElementById('shared-operation-cancel').disabled = true;
@@ -239,6 +288,10 @@ async function poll() {
     const state = await answer.json();
     active = state.active;
     serverBusy = Boolean(state.busy || active);
+    // This page's own model change also holds the studio with no operation.
+    const hidden = Boolean(state.busy && !active) && !page.changingModel();
+    hiddenPolls = hidden ? hiddenPolls + 1 : 0;
+    if (!hidden) hiddenStopUntil = 0;
     awake.set(active);
     if (active && !observed.has(active.id)) {
       observed.add(active.id);

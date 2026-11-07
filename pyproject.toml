@@ -59,6 +59,9 @@ exclude = [
     "studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py",
 ]
 
+[tool.ty.environment]
+extra-paths = ["model_plugins/minimax_h3"]
+
 # Branch coverage as well as statement coverage. A statement can run while one side
 # of its condition never does, and then no test has proved that path: the first run
 # with this on left three such branches that no test had reached.
@@ -67,8 +70,9 @@ branch = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["model_plugins/minimax_h3"]
 markers = ["live: needs the real model weights and the GPU"]
-# Every statement and every branch in studio/ runs under this command, in every layer.
+# Every statement and branch in studio/ and the bundled H3 plugin runs under this command.
 # The weight of the gate is the point: a module added without a test stops the suite,
 # so the mirrored test file gets written rather than promised.
-addopts = "-m 'not live' --cov=studio --cov-fail-under=100"
+addopts = "-m 'not live' --cov=studio --cov=open_imagine_h3 --cov-fail-under=100"

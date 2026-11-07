@@ -777,6 +777,7 @@
   let guide;
   let mediaMode = WORKSPACES[requestedWorkspace] ? requestedWorkspace : 'image';
   let workspaceSwitchPending = false;
+  let backendSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
   let formApi = null;
@@ -2771,6 +2772,7 @@
         if (operation.kind === 'video' && operation.client_id === CLIENT_ID) videoStudio.setCancelRequested(true);
       },
       notify: showToast,
+      changingModel: function () { return workspaceSwitchPending || backendSwitchPending; },
       video: function () { return videoStudio; },
       voice: function () { return voiceStudio; },
       music: function () { return musicStudio; },
@@ -3198,6 +3200,7 @@
     const toggle = document.getElementById('backend-toggle');
     if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', t('page.backend.wait'));
     toggle.disabled = true;
+    backendSwitchPending = true;
     showToast('info', t('page.backend.selecting', {name: name}));
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
       .then(function (answer) { return answer.text(); })
@@ -3209,10 +3212,12 @@
           return;
         }
         toggle.disabled = false;
+        backendSwitchPending = false;
         showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
       })
       .catch(function (error) {
         toggle.disabled = false;
+        backendSwitchPending = false;
         showToast('error', t('page.backend.switchFailed', {message: error.message}));
       });
   }

@@ -40,6 +40,12 @@ lora_dir = "~/Library/Caches/models/ltx-2.5-loras"
 # the run needs, from the Lightricks collection, the first time that effect runs.
 fetch_loras = false
 
+[minimax_h3]
+# Optional external Video plugin. See model_plugins/minimax_h3/README.md.
+# Install it before adding minimax_h3 to visible_video_backends.
+engine_dir = "~/Library/Caches/open-imagine/engines/minimax-h3-63893b3"
+model_dir = "~/Library/Caches/models/minimax-h3"
+
 [qwen21]
 # bf16 by default, which is 0. Measured on 2026-10-19: no level is faster than another, so a
 # quantized one costs accuracy for nothing this machine needs. -q on the command line overrides

@@ -11,6 +11,9 @@ A caller that sends `X-Studio-Private-Key` owns its operations. This is a fixed 
    prompt cache. API.md lists them under "What a run still holds". Do not add a copy. Keep that list
    true when you change an engine. Encrypted results are the permitted storage copy.
 2. Do not show a private operation to a caller without its key: not in `/api/v1/state`, not in a status, result or cancel route, and not on the page. Answer `404`, the same as for a missing operation.
+   One exception, by the user's decision on 2026-11-07: the page's `POST /hidden/cancel` stops a
+   private run that the page cannot see, because one GPU serves every caller. It answers `204`
+   or `409` and names nothing about the run. Keep it that narrow.
 3. Encrypt private results on disk with a key derived from the caller's original key.
    Keep downloads readable until explicit deletion or one hour after completion. Never store the encryption key.
 4. Do not add a route that accepts the key until it keeps rules 1 to 3. Until then, the route refuses the header.
