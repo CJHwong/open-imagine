@@ -2,8 +2,12 @@
 
 The engine keeps its own loading, sampling and decoding. This adapter replaces its
 metrics writer and media writer, and forwards only numerical progress and memory metrics.
+It also hands the engine its keyframes and its audio track from memory. The engine reads
+them in three places: a file check, `Image.open` and `read_audio`. Each one sees a path
+under MEMORY, which does not exist on disk, so a read that bypasses them fails.
 """
 
+import base64
 import contextlib
 import importlib.util
 import io
@@ -13,7 +17,10 @@ import re
 import runpy
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PosixPath
+
+MEMORY = Path("/open-imagine-memory")
+TRACK = str(MEMORY / "track")
 
 
 def load_module(path, name):
@@ -43,6 +50,47 @@ class ProgressSink(io.TextIOBase):
 def render(engine, models, request, emit):
     media = load_module(Path(__file__).with_name("media.py"), "_open_imagine_h3_media")
     media.check_tools()
+    from PIL import Image, ImageOps
+
+    read_image = Image.open
+    stills = {}
+    flags = []
+    for index, keyframe in enumerate(request.get("keyframes", ())):
+        path = str(MEMORY / f"{index}.png")
+        with Image.open(io.BytesIO(base64.b64decode(keyframe["png"]))) as image:
+            # Cover-crop every still to the canvas here. The engine then uses each one as it is,
+            # and the first frame is not stretched, which the engine does to a first frame.
+            size = (request["width"], request["height"])
+            stills[path] = ImageOps.fit(image.convert("RGB"), size, Image.Resampling.LANCZOS)
+        if keyframe["frame"] == 0:
+            flags += ["--first-frame", path]
+        else:
+            flags += ["--keyframe", f"{path}@{keyframe['frame']}"]
+    track = base64.b64decode(request["audio"]) if request.get("audio") else None
+    if track is not None:
+        flags += ["--audio-drive", TRACK]
+
+    held = set(stills) | ({TRACK} if track is not None else set())
+
+    class MemoryPath(PosixPath):
+        def is_file(self, *args, **kwargs):
+            return str(self) in held or super().is_file(*args, **kwargs)
+
+    def open_image(source, *args, **kwargs):
+        if str(source) in stills:
+            return stills[str(source)].copy()
+        return read_image(source, *args, **kwargs)
+
+    def read_audio(path, sample_rate=32000, start_seconds=0.0, duration_seconds=None):
+        if track is None or str(path) != TRACK:
+            raise RuntimeError("H3 reads only the audio track it was given.")
+        # The engine reads the track from its start to its end. A clip uses its first seconds,
+        # so a long track is not decoded whole.
+        seconds = request["frames"] / 24 + 1
+        if duration_seconds is not None:
+            seconds = min(seconds, duration_seconds)
+        return media.decode_audio(track, sample_rate, start_seconds, seconds)
+
     original = engine.Recorder
     encoded = None
     streams = []
@@ -79,6 +127,8 @@ def render(engine, models, request, emit):
     engine.Recorder = MemoryRecorder
     engine.save_mp4 = save
     engine.probe_video_frames = count
+    engine.Path = MemoryPath
+    engine.read_audio = read_audio
     previous_argv = sys.argv
     sys.argv = [
         "h3-studio-worker",
@@ -106,9 +156,11 @@ def render(engine, models, request, emit):
         os.devnull,
         "--output",
         os.devnull,
+        *flags,
         "--",
         request["prompt"],
     ]
+    Image.open = open_image  # ty: ignore[invalid-assignment]
     try:
         with contextlib.redirect_stdout(ProgressSink(emit)), contextlib.redirect_stderr(io.StringIO()):
             code = engine.main()
@@ -117,6 +169,7 @@ def render(engine, models, request, emit):
         return encoded
     finally:
         sys.argv = previous_argv
+        Image.open = read_image
 
 
 def main():

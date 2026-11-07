@@ -1036,7 +1036,7 @@
   "page.video.mediaPanel": "影片媒體",
   "page.video.modeAria": "影片模式",
   "page.video.movedReferences": {
-    "other": "{count} 張圖片參考已移到第 {frame} 格，以符合所選時長。"
+    "other": "{count} 張圖片參考已移進 {frame} 格的片段內，每格一張，以符合所選時長。"
   },
   "page.video.promptPlaceholder": "描述主體的外觀與動作。",
   "page.video.reason.brackets": "填入 [括號] 的內容",

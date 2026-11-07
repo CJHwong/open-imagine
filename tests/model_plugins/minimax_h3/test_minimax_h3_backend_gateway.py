@@ -1,3 +1,4 @@
+import base64
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -11,7 +12,7 @@ from open_imagine_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
 from open_imagine_h3.runtime import MAX_RESULT_BYTES, model_files
 
 from studio.plugins import PluginContext
-from studio.plugins.video import Cancelled, InvalidJob, VideoJob
+from studio.plugins.video import Cancelled, InvalidJob, VideoAudio, VideoJob, VideoReference
 
 
 def job(**changes):
@@ -39,7 +40,10 @@ def test_plugin_declaration_and_factory_load_no_engine_or_model():
     assert plugin.capabilities == gateway.capabilities() == CAPABILITIES
     assert plugin.rewriter is None
     assert CAPABILITIES.estimate is None
-    assert not CAPABILITIES.templates and not CAPABILITIES.max_references and not CAPABILITIES.fast_mode
+    assert not CAPABILITIES.templates and not CAPABILITIES.fast_mode and not CAPABILITIES.can_skip_audio
+    generate = CAPABILITIES.mode("generate")
+    assert CAPABILITIES.modes == (generate,) and not generate.needs_clip
+    assert generate.accepts_audio and generate.max_references == CAPABILITIES.max_references == 3
     gateway.release()
     gateway.release()
 
@@ -84,13 +88,52 @@ def test_gateway_chooses_one_seed_and_can_run_without_a_progress_consumer(ready,
     assert result.seed == 23
 
 
+def still(frame, name="private-still.png", strength=1.0):
+    return VideoReference(name, b"\x89PNG private still " + str(frame).encode(), frame, strength)
+
+
+def test_gateway_sends_keyframes_in_time_order_and_the_track_without_their_names(ready):
+    seen = []
+
+    def execute(command, **options):
+        seen.append((command, options))
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+    track = VideoAudio(b"RIFF private track", "private-voice.m4a")
+
+    MinimaxH3BackendGateway(ready).run(job(references=(still(72), still(0), still(36)), audio=track))
+
+    command, options = seen[0]
+    request = json.loads(options["input_bytes"])
+    assert [keyframe["frame"] for keyframe in request["keyframes"]] == [0, 36, 72]
+    assert base64.b64decode(request["keyframes"][1]["png"]) == still(36).png
+    assert base64.b64decode(request["audio"]) == track.data
+    assert "private-" not in options["input_bytes"].decode() + str(command) + str(options["environment"])
+
+
+def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert request["keyframes"] == [] and request["audio"] is None
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    MinimaxH3BackendGateway(ready).run(job())
+
+
 @pytest.mark.parametrize(
     "changes,reason",
     [
-        ({"references": (object(),)}, "text only"),
-        ({"edit": object()}, "text only"),
-        ({"audio": object()}, "text only"),
-        ({"loras": (object(),)}, "text only"),
+        ({"edit": object()}, "no clip to change"),
+        ({"loras": (object(),)}, "no clip to change"),
+        ({"references": (still(0), still(24), still(48), still(72))}, "at most 3 H3 keyframes"),
+        ({"references": (still(36), still(36))}, "its own frame"),
+        ({"references": (still(73),)}, "its own frame"),
+        ({"references": (still(-1),)}, "its own frame"),
+        ({"references": (still(True),)}, "its own frame"),
+        ({"references": (still(0, strength=0.5),)}, "no strength setting"),
         ({"fast_mode": True}, "base schedule"),
         ({"include_audio": False}, "base schedule"),
         ({"width": 256}, "offered H3 size"),

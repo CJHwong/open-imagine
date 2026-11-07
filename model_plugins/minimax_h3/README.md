@@ -7,13 +7,20 @@ The plugin drives Phosphene's staged runner at commit
 ## Current scope
 
 - Text to video with native stereo audio, 24 fps, 73-124 frames on the `17n+5` grid.
+- Up to three keyframes, each on its own frame. A still at frame 0 is the first frame. A still on
+  the last frame is the last frame, and a still on any other frame is a keyframe there.
+  Each still is cover-cropped to the canvas. The page puts stills without a frame on the first
+  frame, then the last frame, then the middle, and gives a captured frame the nearest free frame.
+- An audio track drives the clip, for example a voice for lip sync. The clip keeps that track as
+  its sound. WAV, MP3, FLAC, OGG, M4A and AIFF decode in memory, including an M4A that keeps
+  its index after its audio data.
 - Landscape, portrait and square canvases. The initial landscape canvas is 512 x 288.
 - The base schedule uses nine sigma points and eight transformer evaluations.
 - Ordered batches use Studio's sequential fallback. One child renders one clip.
 - Cancellation stops the owned process group, including its media encoder.
 
-Reference conditioning, video edits, supplied audio, prompt rewriting, Looks, templates,
-long clips and distilled Fast adapters are not offered in this first version.
+Video edits, prompt rewriting, Looks, templates, LoRAs, long clips and distilled Fast adapters
+are not offered in this version. A keyframe has no strength setting.
 H3's distilled Fast schedule differs from LTX's float16 Fast mode.
 No time estimate is published from a single small smoke test.
 
@@ -76,11 +83,16 @@ versions do not support this plugin's memory transport.
 
 ## Private operations
 
-The parent sends the prompt over stdin and receives MP4 bytes over stdout.
-The prompt never enters the process command line. The adapter replaces the engine's
+The parent sends the prompt, the keyframes and the audio track over stdin and receives MP4
+bytes over stdout. None of them enters the process command line, and their file names stay in
+the parent. The worker gives the engine each still and the track under a path that does not
+exist on disk, and it answers the engine's three reads from memory: the file check,
+`Image.open` and `read_audio`. A read that bypasses them fails.
+ffmpeg decodes the track from a pipe. A pipe reads forward only, so the worker first moves an
+M4A index that follows the audio data to the front, the way `qt-faststart` does. The adapter replaces the engine's
 metrics writer with an in-memory recorder and disables persistent prompt caches.
 The encoder pipes video and WAV data into ffmpeg and returns a fragmented MP4.
-No prompt, metrics, WAV, frames or MP4 file is written by this path.
+No prompt, still, track, metrics, WAV, frames or MP4 file is written by this path.
 Only numerical step and phase metrics cross stderr. Engine diagnostics are suppressed.
 Studio applies its existing private ownership checks and encrypted result storage.
 
@@ -100,7 +112,27 @@ The MP4 passed full video/audio decoding. Higher resolutions and longer clips re
 The browser stopped a real render after its first step in 0.24 seconds in a separate check.
 A real private render passed ownership checks, encrypted storage checks, repeated downloads and deletion.
 
-CPU tests verify frame counts, stereo audio, memory transport, private diagnostic suppression and cancellation.
+Keyframes and a track were measured on 2026-11-07 on the same machine, at 512 x 288, 73 frames
+and seed 11. Each run went through the Studio HTTP API on this plugin's gateway and worker:
+
+| Inputs | Seconds |
+|---|---|
+| First frame, a keyframe at frame 36, last frame | 100 |
+| An 11.7 MB M4A voice track, index after the data | 73 |
+| First frame, last frame and a voice track, private | 86 |
+
+The text-only clip above took 75.6 seconds. An earlier spike drove the same worker directly
+with the same inputs. Its MLX peak was 25.6 GiB for text or a track alone and 27.0 GiB with
+three stills. The text encoder sets the peak.
+
+The first frame matched its still at about 31 dB PSNR. A keyframe or a last frame steers the
+picture without copying it, at about 27 dB against 24 dB without one. The clip's sound followed
+the voice track after the AAC encoder's own 1024-sample lead-in. No run left a new file under
+the temp folders or the caches. The private run stayed hidden from callers without its key.
+A cancel from the page's status bar stopped a real render 0.4 seconds after the press.
+
+CPU tests verify frame counts, stereo audio, memory transport, the in-memory keyframes and track,
+the M4A index move, private diagnostic suppression and cancellation.
 
 ## License
 

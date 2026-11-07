@@ -1,6 +1,9 @@
+import argparse
+import base64
 import contextlib
 import io
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +11,7 @@ import numpy as np
 import pytest
 from open_imagine_h3 import worker
 from open_imagine_h3.runtime import ENGINE_COMMIT
+from PIL import Image
 
 
 @pytest.fixture
@@ -30,10 +34,9 @@ def fake_engine(media_tools):
     engine = SimpleNamespace(Recorder=Recorder)
 
     def main():
-        import sys
-
         assert sys.argv[-2:] == ["--", "private test words"]
         assert "--prompt-cache" not in sys.argv and "--draft-cache-dir" not in sys.argv
+        assert not {"--first-frame", "--keyframe", "--audio-drive"} & set(sys.argv)
         record = engine.Recorder(Path("must-not-write.json"), {"prompt": sys.argv[-1]})
         with record.phase("joint_denoise"):
             print("private test words")
@@ -68,9 +71,75 @@ def test_worker_uses_memory_metrics_and_media_and_emits_only_safe_events(fake_en
 @pytest.mark.parametrize("code", [0, 1])
 def test_worker_refuses_success_without_a_clip(fake_engine, tmp_path, code):
     fake_engine.main = lambda: code
+    opener = Image.open
 
     with pytest.raises(RuntimeError, match="did not finish"):
         worker.render(fake_engine, tmp_path, request(), lambda _: None)
+
+    assert Image.open is opener
+
+
+def png(width, height, colours):
+    """A still of equal vertical bands, one per colour."""
+    image = Image.new("RGB", (width, height))
+    band = width // len(colours)
+    for index, colour in enumerate(colours):
+        image.paste(colour, (index * band, 0, (index + 1) * band, height))
+    data = io.BytesIO()
+    image.save(data, "PNG")
+    return data.getvalue()
+
+
+def test_worker_hands_keyframes_and_the_track_to_the_engine_from_memory(fake_engine, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    red, green, blue = (255, 0, 0), (0, 255, 0), (0, 0, 255)
+    seen = {}
+
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--first-frame")
+        parser.add_argument("--keyframe", action="append")
+        parser.add_argument("--audio-drive")
+        args, _ = parser.parse_known_args(sys.argv[1:])
+        held = [args.first_frame, *(spec.rpartition("@")[0] for spec in args.keyframe), args.audio_drive]
+        assert all(fake_engine.Path(path).is_file() for path in held)
+        assert not fake_engine.Path(str(worker.MEMORY / "other.png")).is_file()
+        assert fake_engine.Path(__file__).is_file()
+        with pytest.raises(FileNotFoundError):
+            Path(args.first_frame).read_bytes()
+        seen["first"] = Image.open(args.first_frame).convert("RGB")
+        seen["keyframes"] = [
+            (Image.open(spec.rpartition("@")[0]).size, spec.rpartition("@")[2]) for spec in args.keyframe
+        ]
+        seen["other"] = Image.open(io.BytesIO(png(4, 4, [blue]))).size
+        seen["audio"] = fake_engine.read_audio(fake_engine.Path(args.audio_drive), start_seconds=0.0)
+        seen["window"] = fake_engine.read_audio(args.audio_drive, 32000, 0.0, 0.5)
+        with pytest.raises(RuntimeError, match="only the audio track"):
+            fake_engine.read_audio("/elsewhere/track.wav")
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    opener = Image.open
+    fake_engine.main = main
+    payload = request(
+        keyframes=[
+            {"frame": 0, "png": base64.b64encode(png(96, 32, [red, green, blue])).decode()},
+            {"frame": 2, "png": base64.b64encode(png(32, 32, [red])).decode()},
+            {"frame": 4, "png": base64.b64encode(png(64, 64, [blue])).decode()},
+        ],
+        audio=base64.b64encode(b"\0" * 3000).decode(),
+    )
+
+    worker.render(fake_engine, tmp_path, payload, lambda _: None)
+
+    first = np.asarray(seen["first"])
+    assert seen["first"].size == (32, 32) and (first[:, :, 1] > 200).all() and (first[:, :, [0, 2]] < 60).all()
+    assert seen["keyframes"] == [((32, 32), "2"), ((32, 32), "4")]
+    assert seen["other"] == (4, 4)
+    assert seen["audio"].shape == (2, round((5 / 24 + 1) * 32000))
+    assert seen["window"].shape == (2, 16000)
+    assert Image.open is opener
+    assert not list(tmp_path.iterdir())
 
 
 def test_worker_refuses_a_clip_that_does_not_match_the_request(fake_engine, tmp_path):
