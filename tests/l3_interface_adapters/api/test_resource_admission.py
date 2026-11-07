@@ -285,9 +285,23 @@ def test_ltx_fails_closed_when_token_shape_exceeds_the_measured_limit(monkeypatc
     assert estimate("video", "ltx25_mlx", width=384, height=384, num_frames=25) is None
 
 
-def test_drama_uses_the_host_wired_limit_and_prompt_length():
-    assert estimate("voice", "drama3", text="") == pytest.approx(50.0)
+def test_drama_uses_the_measured_mac_peak_and_prompt_length(monkeypatch):
+    monkeypatch.setattr(resource_admission.sys, "platform", "darwin")
+
+    assert estimate("voice", "drama3", text="") == pytest.approx(47.0)
     assert estimate("voice", "drama3", prompt="word") > estimate("voice", "drama3", text="")
+
+
+@pytest.mark.parametrize(
+    ("platform", "total_memory_gib"),
+    (("linux", 64), ("darwin", 128), ("darwin", 32)),
+)
+def test_drama_fails_closed_outside_the_measured_mac_setup(monkeypatch, platform, total_memory_gib):
+    monkeypatch.setattr(resource_admission.sys, "platform", platform)
+
+    result = estimate_peak_gib({"kind": "voice", "backend": "drama3", "text": "hello"}, total_memory_gib)
+
+    assert result is None
 
 
 @pytest.mark.parametrize("payload", ({"mode": "clone"}, {"reference": {"wav_base64": "audio"}}, {"text": 7}))

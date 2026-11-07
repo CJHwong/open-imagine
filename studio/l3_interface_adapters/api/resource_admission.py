@@ -4,6 +4,7 @@ import base64
 import binascii
 import io
 import json
+import sys
 from collections.abc import Callable, Mapping
 
 from PIL import Image, UnidentifiedImageError
@@ -23,10 +24,13 @@ LTX_SMALL_CLIP_PEAK_GIB = 25.0
 LTX_LARGE_CLIP_CEILING_GIB = 54.0
 LTX_SMALL_TOKENS = tokens(384, 384, 25)
 LTX_LARGE_TOKENS = tokens(1920, 1088, 97)
-# Drama-3 applies this wired-memory cap while it generates. The first office
-# sample reached 39 GiB before the safety monitor stopped it.
-DRAMA_WIRED_LIMIT_FRACTION = 0.75
-DRAMA_NONWIRED_OVERHEAD_GIB = 2.0
+# Calibrated only on the office M5 Pro, macOS, 64 GiB, with the pinned 8-bit
+# MLX checkpoint. Completed scripts of 44, 483, 979 and 2,008 characters
+# showed 41.6 to 44.8 GiB less available memory in coarse pressure samples.
+# Keep 2.2 GiB above that largest drop. Re-measure after any setup change.
+DRAMA_CALIBRATED_MAC_MEMORY_GIB = 64.0
+DRAMA_CALIBRATED_PEAK_GIB = 47.0
+DRAMA_TEXT_GIB_PER_CHARACTER = 0.00015
 # YuE2's active weight files total 9.7 GB. A short 8-step song used 4.5 GiB
 # of system headroom. The weight floor and input terms below are conservative.
 YUE2_WEIGHT_FLOOR_GIB = 10.0
@@ -141,7 +145,9 @@ def _drama_peak(payload: Mapping[str, object], mode: str, total_memory_gib: floa
     text = payload.get("text", payload.get("prompt", ""))
     if not isinstance(text, str):
         return None
-    return DRAMA_WIRED_LIMIT_FRACTION * total_memory_gib + DRAMA_NONWIRED_OVERHEAD_GIB + len(text) * 0.00015
+    if sys.platform != "darwin" or total_memory_gib != DRAMA_CALIBRATED_MAC_MEMORY_GIB:
+        return None
+    return DRAMA_CALIBRATED_PEAK_GIB + len(text) * DRAMA_TEXT_GIB_PER_CHARACTER
 
 
 def _yue2_peak(payload: Mapping[str, object], mode: str) -> float | None:
