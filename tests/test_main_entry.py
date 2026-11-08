@@ -164,7 +164,7 @@ def test_a_settings_file_without_rewriter_keys_prints_no_line(tmp_path):
 def test_bad_settings_exit_with_the_message_that_names_the_file(tmp_path, monkeypatch):
     """The user has to learn which file and which key are wrong, so the exit
     message carries both."""
-    path = settings_file(tmp_path, 'default_backend = "krea2"\n')
+    path = settings_file(tmp_path, 'default_backend = "mystery"\n')
     argv(monkeypatch, "--stub", "--config", str(path))
 
     with pytest.raises(SystemExit) as exits:
@@ -172,7 +172,7 @@ def test_bad_settings_exit_with_the_message_that_names_the_file(tmp_path, monkey
 
     message = exit_message(exits)
     assert message.startswith(f"Bad settings in {path}: ")
-    assert "no backend called krea2" in message
+    assert "no backend called mystery" in message
 
 
 def test_a_machine_with_no_engine_exits_before_the_port_is_bound(tmp_path, monkeypatch):
@@ -226,7 +226,7 @@ def test_running_the_package_as_a_script_reaches_main(tmp_path, monkeypatch):
     """`python -m studio` starts the server through the guard at the bottom of
     the file. `uv run studio` goes through the console script instead, so this is
     the only way to run that line."""
-    path = settings_file(tmp_path, 'default_backend = "krea2"\n')
+    path = settings_file(tmp_path, 'default_backend = "mystery"\n')
     argv(monkeypatch, "--stub", "--config", str(path))
 
     # runpy says so itself: this file is already in sys.modules, because the
@@ -235,7 +235,7 @@ def test_running_the_package_as_a_script_reaches_main(tmp_path, monkeypatch):
         warnings.simplefilter("ignore", RuntimeWarning)
         runpy.run_module("studio", run_name="__main__")
 
-    assert "no backend called krea2" in exit_message(exits)
+    assert "no backend called mystery" in exit_message(exits)
 
 
 def test_the_full_precision_flag_reaches_the_settings_file(tmp_path, monkeypatch):

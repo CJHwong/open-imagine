@@ -52,7 +52,7 @@ each file under the model's section. These models take them:
 | An LTX pack plugin | ltx-2-mlx | As its family, `ltx25_mlx` or `ltx23_mlx` |
 | A Qwen checkpoint plugin | mflux | Generate and Edit; `modes` limits a LoRA to some of them |
 
-`flux2` takes no LoRAs, and a table under it stops the studio at start.
+`flux2` and `krea2` take no LoRAs, and a table under either one stops the studio at start.
 
 ```toml
 [qwen21_turbo]

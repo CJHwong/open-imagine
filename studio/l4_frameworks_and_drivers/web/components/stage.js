@@ -286,10 +286,14 @@ function renderStageBar(entry) {
   rule.className = 'rule';
   // A rewrite writes into the form, and Edit this empties it: the mode switch clears the
   // prompt and the Look. So it is locked while one is writing, and says why.
-  const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); });
-  edit.disabled = page.rewriting();
-  if (edit.disabled) edit.title = t('stage.action.locked');
-  actions.append(edit, more,
+  // A model with no edit mode has nothing for it to switch to, so it is left out.
+  if (page.canEdit()) {
+    const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); });
+    edit.disabled = page.rewriting();
+    if (edit.disabled) edit.title = t('stage.action.locked');
+    actions.append(edit);
+  }
+  actions.append(more,
     rule, download,
     iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger'));
   if (document.fullscreenEnabled) {

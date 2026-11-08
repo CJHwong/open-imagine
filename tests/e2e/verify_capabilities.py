@@ -374,6 +374,13 @@ def main():
             str(tiny.jobs[0].options if tiny.jobs else None),
         )
         check("the film edge names the backend", "TINY" in page.inner_text(".stage"))
+        # A generate-only backend has no edit mode to switch to. Krea 2 is one: before the
+        # stage asked, Edit this checked a disabled radio and the form threw on a missing mode.
+        check(
+            "a backend with no edit mode offers no Edit this",
+            page.get_by_role("button", name="Edit this", exact=True).count() == 0
+            and page.get_by_role("button", name="More actions").count() == 1,
+        )
 
         # A backend that shares the templates and takes one picture, but declares no
         # region: the tool, and the one template whose whole point is a mask, stay

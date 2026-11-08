@@ -42,6 +42,8 @@ from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
 from studio.l3_interface_adapters.gateways.image.flux2.flux2_backend_gateway import Flux2BackendGateway
 from studio.l3_interface_adapters.gateways.image.flux2.klein_models import KleinModels
 from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway import Flux3BackendGateway
+from studio.l3_interface_adapters.gateways.image.krea2.krea2_backend_gateway import Krea2BackendGateway
+from studio.l3_interface_adapters.gateways.image.krea2.krea2_model import Krea2Model
 from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
     OfficialQwenTurboBackendGateway,
@@ -221,6 +223,16 @@ def flux2_backend(config: Config) -> Flux2BackendGateway:
     return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
 
 
+def krea2_backend(config: Config) -> Krea2BackendGateway:
+    """Krea 2 Turbo from weights stored at int8. mflux runs the stored bits whatever it is
+    asked for, so a quantize other than 8 is refused rather than shown and then ignored."""
+    no_loras(config, "krea2")
+    settings = config.backend("krea2")
+    if "quantize" in settings and settings["quantize"] != 8:
+        raise ConfigError("[krea2] runs its weights at int8, as they are stored. Remove its quantize, or use 8.")
+    return Krea2BackendGateway(Krea2Model(config.required("krea2", "model_dir")))
+
+
 def flux3_backend(config: Config) -> Flux3BackendGateway:
     quantize = config.backend("flux3").get("quantize", 8)
     return Flux3BackendGateway(
@@ -315,6 +327,7 @@ BACKENDS = {
     "qwen21_turbo": qwen21_turbo_backend,
     "flux2": flux2_backend,
     "flux3": flux3_backend,
+    "krea2": krea2_backend,
     "viggle_turbo": viggle_turbo_backend,
 }
 

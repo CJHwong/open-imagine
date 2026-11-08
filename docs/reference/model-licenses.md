@@ -15,6 +15,9 @@ LTX-2.5 and its Layout to Render adapter carry the
 [LTX-2.x Community License](https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render#license).
 The third-party MLX port's code license does not replace the model-weight terms.
 
+Krea 2 Turbo weights carry the [Krea 2 Community License](https://cdn.jsdelivr.net/gh/krea-ai/krea-2@db3984fbc6e13b34c0064990fc2d95ac64d00058/assets/hf_samples/LICENSE.pdf).
+The eight-bit mflux copy keeps those terms.
+
 FLUX3 Image Klein weights carry the [FLUX Kommunity License](https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/337337621b8526e120f2275d250242f4a6bedd75/LICENSE.md).
 
 MiniMax H3 weights use the [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE).

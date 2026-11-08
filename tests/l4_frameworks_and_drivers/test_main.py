@@ -153,8 +153,8 @@ def test_a_backend_with_no_rewriter_settings_gets_none(tmp_path: Path):
 
 
 def test_an_unknown_backend_is_named(tmp_path: Path):
-    config = settings(tmp_path, 'default_backend = "krea2"\n')
-    with pytest.raises(ConfigError, match="no backend called krea2"):
+    config = settings(tmp_path, 'default_backend = "mystery"\n')
+    with pytest.raises(ConfigError, match="no backend called mystery"):
         build_backends(config)
 
 
@@ -364,7 +364,7 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
-    assert len(models) == len(set(models)) == 10
+    assert len(models) == len(set(models)) == 11
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
@@ -389,10 +389,29 @@ def test_a_lora_that_names_a_mode_the_model_lacks_stops_the_start(tmp_path: Path
         build_backends(settings(tmp_path, text))
 
 
-def test_flux2_refuses_a_lora_table(tmp_path: Path):
-    text = 'default_backend = "flux2"\n[flux2]\nmodel_dir = "klein"\n' + LORA_TABLE.format(id="flux2", modes="")
+@pytest.mark.parametrize("backend_id", ["flux2", "krea2"])
+def test_a_flux_style_backend_refuses_a_lora_table(tmp_path: Path, backend_id):
+    text = f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "weights"\n' + LORA_TABLE.format(
+        id=backend_id, modes=""
+    )
     with pytest.raises(ConfigError, match="takes no LoRAs"):
         build_backends(settings(tmp_path, text))
+
+
+KREA2 = 'default_backend = "krea2"\n[krea2]\nmodel_dir = "weights"\n'
+
+
+@pytest.mark.parametrize(("section", "flags"), [("quantize = 4\n", {}), ("quantize = 0\n", {}), ("", {"quantize": 0})])
+def test_krea2_refuses_a_quantize_it_would_ignore(tmp_path: Path, section, flags):
+    # The weights are stored at int8 and mflux runs the stored bits. A bf16 or int4
+    # request would start, show int8 and run int8, so it stops the start instead.
+    with pytest.raises(ConfigError, match=r"\[krea2\] runs its weights at int8"):
+        build_backends(settings(tmp_path, KREA2 + section, **flags))
+
+
+@pytest.mark.parametrize(("section", "flags"), [("", {}), ("quantize = 8\n", {}), ("", {"quantize": 8})])
+def test_krea2_takes_no_quantize_or_its_own_eight(tmp_path: Path, section, flags):
+    assert build_backends(settings(tmp_path, KREA2 + section, **flags))["krea2"].capabilities().badge == "int8"
 
 
 @pytest.mark.parametrize("backend_id", ["ltx25_mlx", "ltx23_mlx"])

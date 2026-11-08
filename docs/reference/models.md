@@ -1,6 +1,6 @@
 # Models
 
-Normal startup offers one model per workspace. `--all-backends` exposes optional models; it does not install their weights.
+Normal startup offers Qwen-Image-2.1-Turbo and Krea 2 Turbo in Image, and one model in each other workspace. `--all-backends` exposes optional models; it does not install their weights.
 [Set up models](../how-to/set-up-models.md) before using optional engines or checkpoints.
 
 | Workspace | Model | API backend ID | Modes | Precision |
@@ -9,6 +9,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 | Image | Qwen-Image-2.1 | `qwen21` | Generate, starting image, instruction Edit with up to 10 references | Full precision by default |
 | Image | Viggle Turbo | `viggle_turbo` | Generate and Edit | Qwen base plus six-step adapter |
 | Image | FLUX.2 klein-base-9B, uncensored | `flux2` | Generate and Edit with up to four references | Full precision by default |
+| Image | Krea 2 Turbo | `krea2` | Generate and starting image | Eight-bit stored weights; distilled 8-step schedule |
 | Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
@@ -18,7 +19,7 @@ Normal startup offers one model per workspace. `--all-backends` exposes optional
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |
 
 Capabilities from `GET /api/v1/studio` are the runtime source of truth for supported modes, controls, sizes, templates, and limits.
-Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model.
+Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model. `krea2` runs its stored eight-bit weights and refuses any other quantize.
 Image Rewrite quantizes its rewriter as it loads when the backend sets `rewrite_quantize`. The shipped `studio.toml` sets 8, which halves a rewrite; 0, the default, keeps full precision.
 
 ## Video

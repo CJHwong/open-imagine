@@ -2310,6 +2310,8 @@
       // writes into, so it is locked while one runs.
       rewriting: function () { return document.body.classList.contains('rewriting'); },
       editing: formApi.editing,
+      // A model with no edit mode, Krea 2 for one, offers no Edit this on its results.
+      canEdit: function () { return Boolean(MODES.edit); },
       currentMode: formApi.currentMode,
       paramSpec: formApi.paramSpec,
       references: function () { return references; },
