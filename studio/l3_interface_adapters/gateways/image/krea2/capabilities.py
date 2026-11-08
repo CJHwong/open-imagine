@@ -27,21 +27,23 @@ SIZES = (
     ("864 x 1152 (3:4)", 864, 1152),
 )
 
-# Seconds per step on an M5 Pro, 64 GB, int8 weights, guidance 1 (one pass), through
-# Krea2Model with no other GPU job running:
+# Whole runs on an M5 Pro, 64 GB, int8 weights, guidance 1 (one pass), through
+# Krea2Model with no other GPU job, on 2026-11-08 and 2026-11-09. Seconds:
 #
-#   megapixels                 0.26   0.59   1.05
-#   text to image              1.61   3.70   6.96
-#   from a reference, 7 steps  1.62   3.91   7.61
+#   megapixels                        0.26        0.59        1.05
+#   text to image, 8 steps       17.5, 20.3  36.1, 39.4  64.5, 74.8 to 83.8
+#   one reference, 7 steps       14.3, 32.9        35.2  73.3, 79.1, 86.2
 #
-# The time outside the steps grows with the size: the decode for a text run took
-# 4.6, 6.5 and 8.8 s, and a reference run adds its encode, 3.0, 7.8 and 20.1 s.
-# The overhead is fitted at 1 MP, the default, so a small image is estimated a
-# few seconds long. A 1360 x 768 reference run took 64.4, 56.4 and 45.4 s at
-# strength 0.3, 0.5 and 0.7, against 65, 50 and 43 from this estimate.
-GENERATE_ESTIMATE = Estimate(step_cost=6.56, exponent=1.06, overhead=8, overhead_per_image=True)
+# The same run took up to 30% longer on the second day, with more of the
+# machine's memory in use. The time outside the steps grows with the size (the
+# decode, and a reference's encode), and an Estimate has one constant for it, so
+# each line is fitted on the whole run time over every size: text is within 10%
+# on average and 19% at worst. The reference line has a steep exponent for the
+# same reason. It is within 12% at 1 MP for strength 0.05 to 0.7, but the two
+# 512 runs differ by 2.3 times, and the estimate sits between them.
+GENERATE_ESTIMATE = Estimate(step_cost=8.6, exponent=1.16, overhead=4, overhead_per_image=True)
 GENERATE_REFERENCE_ESTIMATE = Estimate(
-    step_cost=7.16, exponent=1.12, overhead=20, overhead_per_image=True, strength_scales_steps=True
+    step_cost=9.3, exponent=1.6, overhead=10, overhead_per_image=True, strength_scales_steps=True
 )
 
 SIZE = ParamSpec(

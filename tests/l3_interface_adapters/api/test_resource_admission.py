@@ -446,3 +446,46 @@ def test_positive_integer_accepts_positive_integer_values(value):
 @pytest.mark.parametrize("value", (True, 0, -1, 1.5, "0", "bad"))
 def test_positive_integer_rejects_bad_dimensions(value):
     assert estimate("video", "ltx25_mlx", width=value, height=384, num_frames=25) is None
+
+
+@pytest.mark.parametrize(
+    ("options", "peak"),
+    (
+        ({}, 47.0),  # the form's own default, 1024 square
+        ({"size": "512x512"}, 34.0),
+        ({"size": "768x432"}, 47.0),  # above 512 square, where 768 square already reached 44.8
+        ({"size": "1024x1024"}, 47.0),
+        ({"size": "1152x864"}, 47.0),
+        ({"size": "match", "references": [encoded_png(1600, 900)]}, 47.0),
+        ({"size": "512x512", "references": [encoded_png(4032, 3024)]}, 34.0),
+        ({"loras": "[]"}, 47.0),
+    ),
+)
+def test_krea2_uses_its_measured_peak_for_text_and_one_reference(options, peak):
+    assert estimate("image", "krea2", **options) == peak
+
+
+@pytest.mark.parametrize(
+    ("mode", "options"),
+    (
+        ("edit", {}),
+        ("generate", {"size": "1280x1024"}),  # above the 1 MP the measurement reached
+        ("generate", {"size": "not-a-size"}),
+        ("generate", {"loras": [{"id": "warm"}]}),
+        ("generate", {"mask": True}),
+        ("generate", {"each_reference": True}),
+        ("generate", {"reference_sizes": [[512, 512], [512, 512]]}),
+        ("generate", {"reference_sizes": [[512, 512]]}),  # sizes with no references
+    ),
+)
+def test_krea2_fails_closed_outside_what_was_measured(mode, options):
+    assert estimate("image", "krea2", mode, **options) is None
+
+
+def test_krea2_needs_its_peak_and_the_reserve_free():
+    fits = ResourceAdmission(lambda: (64 * GIB, 55 * GIB))
+    short = ResourceAdmission(lambda: (64 * GIB, 54 * GIB))
+
+    assert fits({"kind": "image", "backend": "krea2", "size": "1024x1024"}) is None
+    with pytest.raises(InsufficientMemory, match=r"about 47\.0 GiB"):
+        short({"kind": "image", "backend": "krea2", "size": "1024x1024"})
