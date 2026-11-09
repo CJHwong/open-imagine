@@ -1071,6 +1071,7 @@
   "page.video.statusAdded": "Video added to the gallery.",
   "page.video.statusCancelled": "Video generation cancelled.",
   "page.video.statusStub": "Stub response added. No video file was generated.",
+  "page.video.switchRemoved": "{name} cannot use some pictures or the audio track on the form. They were removed.",
   "page.video.tabHint": "Press Tab to jump to the next [bracket].",
   "page.video.waitRewrite": "Wait for the rewrite to finish",
   "record.cancel": "Cancel",

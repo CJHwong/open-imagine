@@ -1,4 +1,4 @@
-"""The LoRAs a built-in backend offers, read from its section of studio.toml.
+"""The LoRAs a backend offers, read from its section of studio.toml.
 
     [qwen21_turbo]
     max_loras = 3

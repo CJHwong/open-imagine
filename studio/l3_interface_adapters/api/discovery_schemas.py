@@ -219,7 +219,11 @@ def discovery_schemas() -> dict[str, Any]:
                 "precision": string,
                 "fast_mode": {
                     "type": "boolean",
-                    "description": "Supports optional Fast mode; reduced compute precision can change generated details and motion.",
+                    "description": "Supports optional Fast mode, which can change generated details and motion.",
+                },
+                "fast_mode_note": {
+                    "type": "string",
+                    "description": "What Fast mode changes on this backend. Empty means the LTX-2.5 float16 path.",
                 },
                 "can_skip_audio": {
                     "type": "boolean",

@@ -752,6 +752,13 @@ capability before using it. It uses reduced transformer compute precision with t
 weights and sampling steps. Generated details and motion may differ even at the same seed;
 speed varies by output size and conditioning. It is separate from Rewrite and prompt enhancement.
 
+MiniMax H3, an optional plugin, also offers `fast_mode: true`, and it works another way. It runs
+half the denoise steps on the same weights. It refuses a clip with more packed video rows than
+1024 x 576 at 124 frames with one keyframe; each keyframe adds one frame of rows. So 1280 x 704
+takes Fast mode only at 73 frames. A backend like this sends `fast_mode_note` in its capabilities, a sentence that says what
+its Fast mode does. The page shows that sentence in place of its own. An empty `fast_mode_note`
+means the LTX-2.5 path.
+
 ```json
 {
   "kind": "video",

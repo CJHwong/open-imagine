@@ -27,3 +27,6 @@ class GatewayModelRegistration:
     create: Callable[[ModelFactoryContext], ImageBackendGateway | VideoBackendGateway | VoiceBackendGateway]
     rewriter: Callable[[ModelFactoryContext], PromptRewriterGateway] | None = None
     api_version: int = MODEL_PLUGIN_API_VERSION
+
+    loras: bool = False
+    """Read Video LoRA tables from configuration when the runtime accepts arbitrary adapters."""

@@ -1,5 +1,9 @@
 """Construct backend gateways for registrations that supply their own runtime."""
 
+from dataclasses import replace
+from types import MappingProxyType
+from typing import cast
+
 from studio.l1_entities.capabilities import Capabilities as ImageCapabilities
 from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
@@ -7,11 +11,13 @@ from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewrite
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.l2_use_cases.boundaries.voice_backend_gateway import VoiceBackendGateway
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
 from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
+from studio.l4_frameworks_and_drivers.lora_table import lora_files
 from studio.l4_frameworks_and_drivers.model_registration.catalog import ModelRegistrationCatalog
 from studio.l4_frameworks_and_drivers.model_registration.factory_context import create_context
 from studio.plugins import GatewayModelRegistration
@@ -27,16 +33,24 @@ class ModelBackendFactory:
 
     def build(self, kind: str, name: str, config: Config, stub: bool = False, **_):
         registration = self._registration(kind, name)
+        capabilities = registration.capabilities
+        loras = LoraFiles()
+        if registration.loras:
+            loras = lora_files(config, name, video=True)
+            capabilities = loras.offer_video(cast(VideoCapabilities, registration.capabilities))
         if stub:
-            capabilities = registration.capabilities
             if isinstance(capabilities, ImageCapabilities):
                 return StubBackendGateway(capabilities)
             if isinstance(capabilities, VideoCapabilities):
                 return StubVideoBackendGateway(capabilities)
             return StubVoiceBackendGateway(capabilities=capabilities)
+        context = create_context(config, name)
+        if registration.loras:
+            paths = MappingProxyType({item.lora.id: item.path for item in loras.files})
+            context = replace(context, capabilities=capabilities, lora_paths=paths)
         try:
-            gateway = registration.create(create_context(config, name))
-            if not isinstance(gateway, GATEWAYS[kind]) or gateway.capabilities() != registration.capabilities:
+            gateway = registration.create(context)
+            if not isinstance(gateway, GATEWAYS[kind]) or gateway.capabilities() != capabilities:
                 raise ValueError("factory must return its media gateway with the declared capabilities")
             return gateway
         except Exception as error:

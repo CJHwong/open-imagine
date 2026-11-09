@@ -114,7 +114,9 @@ prompt enhancement. A result reports the prompt the request sent. Only
 the gateway maps an id to a file, so no path reaches the page, the API or an operation record.
 A built-in gateway keeps that map in `gateways/lora_files.py`. The composition root reads it from
 the backend's `[[<id>.loras]]` tables (`l4_frameworks_and_drivers/lora_table.py`), and a run
-refuses a file that is not on disk instead of fetching it.
+refuses a file that is not on disk instead of fetching it. A video `ModelPlugin` that declares
+`loras` gets the same tables: `model_plugins.py` reads them, offers them on the plugin's record,
+and hands the factory the record and a map from each id to its file.
 
 A video plugin can export an `LtxPack` record in place of a `ModelPlugin`, to run a pack on the
 studio's own LTX engine. The record is data only, so the SDK imports no adapter. The composition

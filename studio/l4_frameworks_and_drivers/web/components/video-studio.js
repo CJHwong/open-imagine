@@ -670,9 +670,10 @@ class VideoStudio extends LitElement {
   }
 
   async audioPayload() {
-    if (!this.audio) return undefined;
-    const bytes = new Uint8Array(await this.audio.file.arrayBuffer());
-    return { name: this.audio.name, data: base64OfBytes(bytes) };
+    const audio = this.audio;
+    if (!audio) return undefined;
+    const bytes = new Uint8Array(await audio.file.arrayBuffer());
+    return { name: audio.name, data: base64OfBytes(bytes) };
   }
 
   renderAudio() {
