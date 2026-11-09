@@ -16,6 +16,23 @@ GENERATE = VideoMode(
     placeholder="Describe the scene, the motion and the sound.",
 )
 
+# The base schedule has nine sigma points, so eight transformer evaluations. Fast mode runs
+# four on the same weights. On 2026-11-09, on an M5 Pro with 64 GiB, seven 1024 x 576 clips of
+# 124 frames, each from one still, took about 417 s at four against 754 s at eight, with the
+# same 29.2 GiB worker peak. The engine's authors found that a shorter schedule fails first on
+# long clips, so Fast mode takes no clip with more video rows than the ones measured. A still
+# adds one latent frame of rows, the same count as the memory gate's `_h3_rows`.
+BASE_FORWARDS = 8
+FAST_FORWARDS = 4
+FAST_MAX_ROWS = (37 + 1) * (1024 // 32) * (576 // 32)
+
+
+def video_rows(width, height, frames, stills):
+    """The packed video rows of a clip: 17n + 5 frames make 5n + 2 latent frames of 32-pixel cells,
+    and each still adds one more latent frame."""
+    return ((frames - 5) // 17 * 5 + 2 + stills) * (width // 32) * (height // 32)
+
+
 # 1280 x 704 is the high quality class. It is LTX's own 16:9 size, 2.3 percent wide, so a clip
 # from either model has the same frame. Its short side stays under H3's released 768 pixels.
 SHAPES = (
@@ -62,4 +79,10 @@ CAPABILITIES = VideoCapabilities(
     max_dimension=1280,
     dimension_step=32,
     precision="int8",
+    fast_mode=True,
+    # The page's zh-TW table repeats this text under label.fastmode.minimax_h3. Change both.
+    fast_mode_note=(
+        "Runs half the denoise steps on the same weights. Faster; generated details and motion "
+        "may differ. Takes clips up to the size of 1024 x 576 at 124 frames with one keyframe."
+    ),
 )

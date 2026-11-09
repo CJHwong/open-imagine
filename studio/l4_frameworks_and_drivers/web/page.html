@@ -623,6 +623,9 @@
       if (typeof capabilities.description === 'string' && typeof backend === 'string') {
         capabilities.description = label('backend', backend, capabilities.description);
       }
+      if (capabilities.fast_mode_note && typeof capabilities.fast_mode_note === 'string' && typeof backend === 'string') {
+        capabilities.fast_mode_note = label('fastmode', backend, capabilities.fast_mode_note);
+      }
       // The note a model shows before its first load belongs to the backend that wrote it.
       if (capabilities.loading && typeof capabilities.loading.note === 'string' && typeof backend === 'string') {
         capabilities.loading.note = label('loading', backend + '.note', capabilities.loading.note);
@@ -1538,9 +1541,23 @@
     return videoLoraDoor && !videoLoraHeld() ? videoLoraDoor.picks('video') : [];
   }
 
+  // Fast mode means a different thing on each model: float16 on LTX-2.5, fewer steps on H3.
+  // A choice made for one model does not carry to the next. A draft or an observed run of the
+  // new model sets it again after this.
+  let fastModeBackend = null;
+
   function syncVideoFastMode() {
     const supported = Boolean(videoCapabilities()?.fast_mode);
     document.getElementById('video-fast-field').hidden = !supported;
+    const backend = videoCapabilities()?.backend_id ?? null;
+    if (backend !== fastModeBackend) {
+      document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
+      fastModeBackend = backend;
+    }
+    // A backend whose Fast mode is not the LTX-2.5 float16 path says what it does instead.
+    const note = videoCapabilities()?.fast_mode_note;
+    document.getElementById('video-fast-note').textContent =
+      typeof note === 'string' && note ? note : window.studioI18n.t('page.video.fastModeNote');
     if (!supported) document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
     syncVideoLoras();
   }

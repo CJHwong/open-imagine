@@ -9,7 +9,7 @@ from pathlib import Path
 
 from studio.plugins.video import Cancelled, InvalidJob, VideoBackendGateway, VideoResult, with_triggers
 
-from .capabilities import CAPABILITIES
+from .capabilities import BASE_FORWARDS, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
 from .runtime import DEFAULT_ENGINE, DEFAULT_MODELS, MAX_RESULT_BYTES, weights_ready
 
 
@@ -40,8 +40,8 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise Cancelled("H3 generation was cancelled.")
         if job.edit is not None:
             raise InvalidJob("H3 draws a new clip. It takes no clip to change.")
-        if job.fast_mode or not job.include_audio:
-            raise InvalidJob("This H3 preview uses its base schedule and includes sound.")
+        if not job.include_audio:
+            raise InvalidJob("An H3 clip always includes its sound.")
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
             raise InvalidJob("Install ffmpeg and ffprobe before generating an H3 clip.")
         if (
@@ -67,7 +67,13 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("An H3 keyframe has no strength setting. Send a strength of 1.")
         if job.seed is not None and (type(job.seed) is not int or not 0 <= job.seed < 2**32):
             raise InvalidJob("Choose an H3 seed between 0 and 4294967295.")
+        if job.fast_mode and video_rows(job.width, job.height, job.num_frames, len(job.references)) > FAST_MAX_ROWS:
+            raise InvalidJob(
+                "H3 Fast mode takes clips up to the size of 1024 x 576 at 124 frames with one keyframe. "
+                "Shorten the clip, place fewer keyframes, or turn Fast mode off."
+            )
         loras = self._lora_files(job)
+        forwards = FAST_FORWARDS if job.fast_mode else BASE_FORWARDS
         settings = self._context.settings
         engine = Path(settings.get("engine_dir", DEFAULT_ENGINE)).expanduser()
         models = Path(settings.get("model_dir", DEFAULT_MODELS)).expanduser()
@@ -91,6 +97,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                 ],
                 "audio": base64.b64encode(job.audio.data).decode() if job.audio is not None else None,
                 "loras": loras,
+                "forwards": forwards,
             }
         ).encode()
         output = bytearray()
@@ -117,7 +124,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                     and event.get("event") == "step"
                     and type(event.get("step")) is int
                     and type(event.get("total")) is int
-                    and 0 < event["step"] <= event["total"] == 8
+                    and 0 < event["step"] <= event["total"] == forwards
                     and progress
                 ):
                     progress(event["step"], event["total"], seed)

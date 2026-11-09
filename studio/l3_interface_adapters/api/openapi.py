@@ -394,7 +394,7 @@ def openapi_document() -> dict[str, Any]:
                         "fast_mode": {
                             "type": "boolean",
                             "default": False,
-                            "description": "Fast mode: optional LTX-2.5 rendering with float16 transformer computation and unchanged q8 weights. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
+                            "description": "Fast mode: an optional faster render path. On LTX-2.5 it is float16 transformer computation with unchanged q8 weights. A backend that sends fast_mode_note does it another way, which the note describes; on MiniMax H3 it runs half the denoise steps. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
                         },
                         "include_audio": {
                             "type": "boolean",

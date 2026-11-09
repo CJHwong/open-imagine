@@ -25,6 +25,8 @@ from pathlib import Path, PosixPath
 
 MEMORY = Path("/open-imagine-memory")
 TRACK = str(MEMORY / "track")
+# The base schedule: nine sigma points, so eight transformer evaluations.
+BASE_FORWARDS = 8
 
 
 def load_module(path, name):
@@ -38,13 +40,14 @@ def load_module(path, name):
 
 
 class ProgressSink(io.TextIOBase):
-    def __init__(self, emit):
+    def __init__(self, emit, total=BASE_FORWARDS):
         self.emit = emit
+        self.total = total
 
     def write(self, text):
-        match = re.match(r"^step ([1-8])/8: [0-9.]+s(?: |$)", text)
-        if match:
-            self.emit({"event": "step", "step": int(match[1]), "total": 8})
+        match = re.match(r"^step ([0-9]+)/([0-9]+): [0-9.]+s(?: |$)", text)
+        if match and int(match[2]) == self.total and 1 <= int(match[1]) <= self.total:
+            self.emit({"event": "step", "step": int(match[1]), "total": self.total})
         return len(text)
 
     def flush(self):
@@ -76,6 +79,7 @@ def render(engine, models, request, emit):
     # Runtime adapters on the Q8 layers, in the order picked. The engine stacks them.
     for lora in request.get("loras", ()):
         flags += ["--lora", f"{lora['path']}:{lora['scale']}"]
+    forwards = request.get("forwards", BASE_FORWARDS)
 
     held = set(stills) | ({TRACK} if track is not None else set())
 
@@ -168,7 +172,8 @@ def render(engine, models, request, emit):
         "--seed",
         str(request["seed"]),
         "--steps",
-        "9",
+        # The engine counts sigma points, one more than the forwards.
+        str(forwards + 1),
         "--wired-gb",
         "40",
         "--memory-gb",
@@ -183,7 +188,7 @@ def render(engine, models, request, emit):
     ]
     Image.open = open_image  # ty: ignore[invalid-assignment]
     try:
-        with contextlib.redirect_stdout(ProgressSink(emit)), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(ProgressSink(emit, forwards)), contextlib.redirect_stderr(io.StringIO()):
             code = engine.main()
         if code != 0 or encoded is None:
             raise RuntimeError("H3 did not finish a clip.")

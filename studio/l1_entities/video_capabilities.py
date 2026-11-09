@@ -184,7 +184,10 @@ class VideoCapabilities:
     """The largest audio track a run will take. The track crosses the request as base64, so
     the cap leaves room under the request's own 64 MB ceiling."""
     fast_mode: bool = False
-    """Whether this backend accepts the optional faster, reduced-precision render path."""
+    """Whether this backend accepts the optional faster render path."""
+    fast_mode_note: str = ""
+    """What Fast mode changes on this backend, in the form's words. Empty keeps the form's
+    own note, which describes the LTX-2.5 float16 path."""
     can_skip_audio: bool = False
     """Whether a Generate run can leave its audio track out of the file.
 

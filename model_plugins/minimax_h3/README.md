@@ -20,13 +20,14 @@ The plugin drives Phosphene's staged runner at commit
   quality class is 1280 x 704 and 704 x 1280, the same sizes as LTX's. On a 64 GiB Mac the
   memory gate takes them up to 158 frames. See "Memory gate" below.
 - The base schedule uses nine sigma points and eight transformer evaluations.
+- Fast mode runs four on the same weights, for clips up to the size of 1024 x 576 at 124 frames with one keyframe. See
+  "Fast mode" below.
 - LoRA files that your settings list. See "LoRAs" below.
 - Ordered batches use Studio's sequential fallback. One child renders one clip.
 - Cancellation stops the owned process group, including its media encoder.
 
 Video edits, prompt rewriting, Looks, templates, clips longer than 175 frames and
 distilled Fast adapters are not offered in this version. A keyframe has no strength setting.
-H3's distilled Fast schedule differs from LTX's float16 Fast mode.
 No time estimate is published from a single small smoke test.
 
 ## Install the engine
@@ -85,6 +86,34 @@ Generation stays offline and refuses incomplete weights.
 
 The host needs the subprocess input/output support in this change. Older Studio
 versions do not support this plugin's memory transport.
+
+## Fast mode
+
+Send `fast_mode: true`, or press Fast mode under Advanced on the page. H3 then runs four
+transformer evaluations in place of eight, on the same weights. It differs from LTX-2.5's Fast
+mode, which keeps its steps and computes in float16.
+
+Measured on 2026-11-09 on an M5 Pro with 64 GiB. Each run drove this plugin's worker directly
+with one still, at 1024 x 576, 124 frames and seed 42:
+
+| Schedule | Denoise | Whole clip | Worker peak |
+|---|---|---|---|
+| Eight evaluations | not recorded | 754 s, through the Studio API | about 29.3 GiB |
+| Four evaluations, seven scenes | 344 to 347 s | 413 to 450 s | 29.2 GiB |
+
+The memory gate keeps the base figure, because the peak did not change. Fast mode refuses a clip
+with more packed video rows than the measured clip: 1024 x 576 at 124 frames with one keyframe,
+which is 21,888 rows. Each keyframe adds one latent frame of rows, so the same clip with three
+keyframes is refused. The engine's own campaign found that a shorter schedule fails first on long clips: eight evaluations duplicated a subject at
+about 25,000 rows. That figure counts the text and audio rows too, so the margin is smaller than
+the difference suggests. 1280 x 704 takes Fast mode only at 73 frames.
+
+No blind test compared four evaluations against eight. The seven clips at four looked coherent,
+but generated details and motion can differ.
+
+A distilled Turbo LoRA was tried for Fast mode and dropped. On the Q8 layers a LoRA cannot
+merge, so each of its evaluations costs about a third more, and four of them took 609 s for the
+same clip. It also burned the spoken line into the picture as a subtitle.
 
 ## LoRAs
 

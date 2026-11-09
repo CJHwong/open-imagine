@@ -351,6 +351,12 @@ def test_h3_adds_the_measured_lora_figure_to_clips_up_to_the_smaller_run(width, 
     assert h3(width=width, height=height, num_frames=num_frames, loras=loras) == pytest.approx(35.6 + 2.5)
 
 
+def test_h3_fast_mode_keeps_the_figure_of_the_base_schedule():
+    # Four forwards on the same weights peaked at the same 29.2 GiB worker footprint as eight.
+    for size in ({"width": 1024, "height": 576, "num_frames": 124}, {"width": 1280, "height": 704, "num_frames": 73}):
+        assert h3(**size, fast_mode=True) == pytest.approx(h3(**size))
+
+
 def test_h3_grows_the_lora_figure_with_the_rows():
     # 52 latent frames of 40 x 22 rows, against 52 x 32 x 18 in the measured run.
     expected = 49.6 + 2.5 * 880 / 576

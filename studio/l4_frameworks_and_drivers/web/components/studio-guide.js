@@ -73,6 +73,11 @@ function videoGuide(capabilities) {
       if (!edit && nameKey === 'guide.video.gallery.name') {
         return [nameKey, 'guide.video.gallery.noEdit.text'];
       }
+      // The guide's own sentence describes the LTX-2.5 float16 path. A backend whose Fast mode
+      // works another way sends its own note, already in the page's language.
+      if (nameKey === 'guide.video.fastMode.name' && typeof capabilities.fast_mode_note === 'string' && capabilities.fast_mode_note) {
+        return [nameKey, textKey, capabilities.fast_mode_note];
+      }
       return [nameKey, textKey];
     });
 }
@@ -159,11 +164,11 @@ function referenceSection(entries) {
   const title = document.createElement('h3');
   title.textContent = t('guide.details.title');
   const list = document.createElement('dl');
-  entries.forEach(([termKey, textKey]) => {
+  entries.forEach(([termKey, textKey, own]) => {
     const term = document.createElement('dt');
     const text = document.createElement('dd');
     term.textContent = t(termKey);
-    text.textContent = t(textKey);
+    text.textContent = own ?? t(textKey);
     list.append(term, text);
   });
   section.append(title, list);

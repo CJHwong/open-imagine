@@ -213,6 +213,38 @@ def test_progress_sink_discards_arbitrary_engine_text():
     assert events == [{"event": "step", "step": 8, "total": 8}]
 
 
+@pytest.mark.parametrize("line", ["step 4/8: 0.1s", "step 0/4: 0.1s", "step 5/4: 0.1s", "step 12/12: 0.1s"])
+def test_progress_sink_reports_only_the_steps_of_its_own_schedule(line):
+    events = []
+    sink = worker.ProgressSink(events.append, 4)
+    sink.write(line)
+    sink.write("step 4/4: 2.3s")
+    assert events == [{"event": "step", "step": 4, "total": 4}]
+
+
+@pytest.mark.parametrize("changes,points", [({}, "9"), ({"forwards": 8}, "9"), ({"forwards": 4}, "5")])
+def test_worker_runs_the_number_of_forwards_that_the_request_names(fake_engine, tmp_path, changes, points):
+    seen = {}
+
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--steps")
+        args, _ = parser.parse_known_args(sys.argv[1:])
+        seen["steps"] = args.steps
+        print(f"step 1/{int(args.steps) - 1}: 0.1s", flush=True)
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+    events = []
+
+    worker.render(fake_engine, tmp_path, request(**changes), events.append)
+
+    # The engine counts sigma points, one more than the forwards that progress reports.
+    assert seen == {"steps": points}
+    assert events == [{"event": "step", "step": 1, "total": int(points) - 1}]
+
+
 def test_worker_passes_option_like_text_as_a_literal_prompt(fake_engine, tmp_path):
     import argparse
     import sys

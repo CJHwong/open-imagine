@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from open_imagine_h3 import plugin
-from open_imagine_h3.capabilities import CAPABILITIES
+from open_imagine_h3.capabilities import BASE_FORWARDS, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
 from open_imagine_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
 from open_imagine_h3.runtime import MAX_RESULT_BYTES, model_files
 
@@ -63,7 +63,10 @@ def test_plugin_declaration_and_factory_load_no_engine_or_model():
     # The host reads the LoRA tables, so the record itself declares none.
     assert plugin.loras is True and not CAPABILITIES.loras and not CAPABILITIES.loras_with_audio
     assert CAPABILITIES.estimate is None
-    assert not CAPABILITIES.templates and not CAPABILITIES.fast_mode and not CAPABILITIES.can_skip_audio
+    assert not CAPABILITIES.templates and not CAPABILITIES.can_skip_audio
+    # Fast mode is fewer steps, so the form shows H3's own note and not LTX's float16 one.
+    assert CAPABILITIES.fast_mode and "half the denoise steps" in CAPABILITIES.fast_mode_note
+    assert FAST_FORWARDS * 2 == BASE_FORWARDS
     assert CAPABILITIES.duration_presets == (73, 124, 175) and CAPABILITIES.max_frames == 175
     # The engine encodes 17n+5 frames. It snaps any other count up, and the worker then refuses
     # the clip only after the models load.
@@ -162,8 +165,7 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
         ({"num_frames": 175, "references": (still(175),)}, "its own frame"),
         ({"references": (still(True),)}, "its own frame"),
         ({"references": (still(0, strength=0.5),)}, "no strength setting"),
-        ({"fast_mode": True}, "base schedule"),
-        ({"include_audio": False}, "base schedule"),
+        ({"include_audio": False}, "always includes its sound"),
         ({"width": 256}, "offered H3 size"),
         ({"num_frames": 125}, "offered H3 size"),
         ({"num_frames": 74}, "offered H3 size"),
@@ -393,3 +395,68 @@ def test_gateway_ignores_a_malformed_lora_event(offered, event):
     result = MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
 
     assert result.mp4[4:8] == b"ftyp"
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_gateway_runs_fast_mode_as_half_the_forwards_and_reports_its_steps(ready, fast):
+    seen = []
+    forwards = FAST_FORWARDS if fast else BASE_FORWARDS
+
+    def execute(_command, **options):
+        seen.append(json.loads(options["input_bytes"]))
+        # A total from the other schedule is not this run's progress.
+        options["consume"](f'{{"event":"step","step":1,"total":{forwards}}}\n{{"event":"step","step":1,"total":12}}\n')
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+    progress = Mock()
+
+    MinimaxH3BackendGateway(ready).run(job(fast_mode=fast), progress)
+
+    assert seen[0]["forwards"] == forwards
+    progress.assert_called_once_with(1, forwards, 7)
+
+
+def test_fast_mode_takes_the_measured_clip_and_its_rows_cap_matches_it():
+    # The measured clip came from one still, and each still adds one latent frame of rows.
+    assert video_rows(1024, 576, 124, 1) == FAST_MAX_ROWS
+    assert video_rows(1024, 576, 124, 0) < FAST_MAX_ROWS < video_rows(1024, 576, 124, 2)
+    assert video_rows(1280, 704, 73, 2) <= FAST_MAX_ROWS < video_rows(1024, 576, 141, 0)
+
+
+@pytest.mark.parametrize(
+    "width,height,frames,stills,taken",
+    [
+        (512, 288, 175, 3, True),
+        (512, 512, 175, 0, True),
+        (1024, 576, 124, 0, True),
+        (1024, 576, 124, 1, True),
+        (576, 1024, 124, 1, True),
+        (1280, 704, 73, 2, True),
+        (1024, 576, 124, 2, False),
+        (1024, 576, 124, 3, False),
+        (1280, 704, 73, 3, False),
+        (1024, 576, 141, 0, False),
+        (1280, 704, 90, 0, False),
+        (704, 1280, 175, 0, False),
+    ],
+)
+def test_gateway_refuses_fast_mode_past_the_measured_clip_before_starting_a_child(
+    ready, width, height, frames, stills, taken
+):
+    def execute(_command, **options):
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = Mock(side_effect=execute)
+    references = tuple(still(frame) for frame in (0, frames // 2, frames - 1)[:stills])
+    clip = job(fast_mode=True, width=width, height=height, num_frames=frames, references=references)
+
+    if taken:
+        MinimaxH3BackendGateway(ready).run(clip)
+        ready.run_process.assert_called_once()
+    else:
+        with pytest.raises(InvalidJob, match="up to the size of 1024 x 576 at 124 frames with one keyframe"):
+            MinimaxH3BackendGateway(ready).run(clip)
+        ready.run_process.assert_not_called()
+        # The same clip at the base schedule runs.
+        MinimaxH3BackendGateway(ready).run(replace(clip, fast_mode=False))

@@ -75,6 +75,14 @@ Automatic native enhancement inside generation is the model gateway's responsibi
 `job.enhance` is false when a Generate request sends `enhance: false`, and for every Edit. Then
 leave the prompt as it is.
 
+## Fast mode
+
+A video model can offer Fast mode. Set `fast_mode=True` on its `VideoCapabilities`, and read
+`job.fast_mode` in `run`. The page's note under the switch describes the LTX-2.5 float16 path.
+If your Fast mode works another way, also set `fast_mode_note` to one sentence that says what
+it changes. The page and the guide then show that sentence. The page translates it under the
+label key `label.fastmode.<backend_id>`, and shows the English when no translation exists.
+
 ## LoRAs
 
 A model can offer LoRAs. Declare them on the capability record: an image mode declares
