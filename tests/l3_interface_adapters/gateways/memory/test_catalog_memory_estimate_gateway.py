@@ -6,7 +6,7 @@ import pytest
 
 from studio.l1_entities.errors import InsufficientMemory
 from studio.l3_interface_adapters.api.resource_admission import GIB, ResourceAdmission
-from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
+from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
 from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gateway import CatalogMemoryEstimateGateway
 
 

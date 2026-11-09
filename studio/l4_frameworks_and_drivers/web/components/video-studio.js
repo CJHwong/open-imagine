@@ -1,3 +1,4 @@
+import {galleryStepIndex} from '../lib/gallery-navigation.js';
 import { LitElement, html, nothing, render as renderTemplate } from '/page/vendor/lit.js';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
@@ -1938,8 +1939,9 @@ class VideoStudio extends LitElement {
     const items = pending ? [null, ...outputs] : outputs;
     const selected = outputs.findIndex((clip) => clip.id === this.selectedClipId);
     const current = pending && this.showRender ? 0 : selected < 0 ? -1 : selected + (pending ? 1 : 0);
-    const next = items[current + delta];
-    if (next === undefined) return false;
+    const index = galleryStepIndex(items.length, current, delta);
+    const next = items[index];
+    if (next === undefined || index === current) return false;
     const keepFocus = Boolean(gallery?.contains(document.activeElement));
     if (next === null) this.showRenderMonitor();
     else this.selectClip(next.id);
@@ -2414,6 +2416,11 @@ class VideoStudio extends LitElement {
     renderTemplate(this.renderGallery(), gallery);
   }
 
+  async galleryMedia(clip) {
+    const record = clip.loadMedia ? await clip.loadMedia() : {mp4: clip.mp4Blob, thumbnail: clip.thumbnailBlob};
+    return {blob: record?.mp4, poster: record?.thumbnail};
+  }
+
   renderGallery() {
     const outputs = this.clips.filter((clip) => clip.kind === 'generated');
     // One thing is current: the render while it owns the screen, and a clip otherwise.
@@ -2443,7 +2450,7 @@ class VideoStudio extends LitElement {
             model: clip.metadata?.modelName, mode: clip.metadata?.mode, seed: clip.metadata?.seed,
             at: clip.createdAt, batch: galleryBatch(clip.metadata?.operationId, true),
             thumbnail: clip.thumbnailUrl, video: clip.stub ? null : clip.url,
-            loadMedia: clip.stub ? null : async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob}),
+            loadMedia: clip.stub ? null : () => this.galleryMedia(clip),
             duration: clip.duration, downloadable: !clip.stub && Boolean(clip.url || clip.loadMedia)}))}
             .selectedId=${this.selectedClipId} .keeping=${this.keepEnabled}
             .pending=${Boolean(this.pendingRender)} .pendingSelected=${renderOnScreen}
@@ -2479,7 +2486,7 @@ class VideoStudio extends LitElement {
                 .mark=${() => pencilLoop(true)}
                 .onPick=${() => this.selectClip(clip.id)}
                 .content=${() => html`${!clip.stub ? html`<gallery-media .identity=${'video-' + clip.id} .video=${true}
-                    .blocked=${Boolean(this.pendingRender)} .load=${async () => clip.loadMedia ? ({blob: (await clip.loadMedia())?.mp4}) : ({blob: clip.mp4Blob})}></gallery-media>`
+                    .blocked=${Boolean(this.pendingRender)} .load=${() => this.galleryMedia(clip)}></gallery-media>`
                     : html`<span class="video-clip-placeholder">${t('video.mark.stub')}</span>`}
                   <span class="video-clip-duration">${formatTime(clip.duration || 0)}</span>`}></gallery-tile>
             </div>`}></gallery-window>

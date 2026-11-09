@@ -85,10 +85,10 @@ def voice_job(payload: Mapping, capabilities) -> SpeechJob:
     if payload.get("backend", capabilities.backend_id) != capabilities.backend_id:
         raise InvalidJob(f"backend must be {capabilities.backend_id}")
     mode = capabilities.mode(str(payload.get("mode") or capabilities.default_mode))
-    template, fields = _template_fields(payload, mode)
+    template, fields, text_template = _template_fields(payload, mode)
     text = payload.get("text", payload.get("prompt", ""))
     if template is not None and template.target == "text":
-        text = template.text.format(**fields)
+        text = text_template
     if not isinstance(text, str) or not text.strip() or len(text) > 20000:
         raise InvalidJob("text must contain between 1 and 20000 characters")
     for param in mode.params:
@@ -96,7 +96,7 @@ def voice_job(payload: Mapping, capabilities) -> SpeechJob:
             raise InvalidJob(f"{param.id} must contain text")
     options = mode.parse_options({key: str(value) for key, value in payload.items() if value is not None})
     if template is not None and template.target == "voice":
-        options["voice"] = template.text.format(**fields)
+        options["voice"] = text_template
     if mode.id == "design" and not str(options.get("voice", "")).strip():
         raise InvalidJob("Describe the voice to build under voice.")
     references: tuple[ReferenceAudio, ...] = (_reference(payload["reference"]),) if payload.get("reference") else ()
@@ -119,7 +119,7 @@ def voice_job(payload: Mapping, capabilities) -> SpeechJob:
 
 def _template_fields(payload, mode):
     if "template" not in payload:
-        return None, {}
+        return None, {}, ""
     template = next((item for item in mode.templates if item.name == payload["template"]), None)
     if template is None:
         raise InvalidJob("Choose an offered Voice template for this mode.")
@@ -129,9 +129,21 @@ def _template_fields(payload, mode):
     unknown = set(values) - {field.id for field in template.fields}
     if unknown:
         raise InvalidJob("Unknown template fields: " + ", ".join(sorted(map(str, unknown))))
-    return template, {
-        field.id: _template_value(field, values.get(field.id, field.default)) for field in template.fields
-    }
+    locale = payload.get("template_locale", "en")
+    if not isinstance(locale, str):
+        raise InvalidJob("template_locale must be a language code")
+    translated = next((item for item in template.translations if item.locale.lower() == locale.lower()), None)
+    localized_fields = {field.id: field for field in translated.fields} if translated else {}
+    parsed = {}
+    formatted = {}
+    for field in template.fields:
+        content = localized_fields.get(field.id)
+        default = content.default if content and content.default is not None else field.default
+        parsed[field.id] = _template_value(field, values.get(field.id, default))
+        choices = dict(content.choices) if content else {}
+        formatted[field.id] = choices.get(str(parsed[field.id]), parsed[field.id])
+    text = translated.text if translated else template.text
+    return template, parsed, text.format(**formatted)
 
 
 def _template_value(field, value):

@@ -9,6 +9,10 @@ estimates through, fails here and not three files away.
 import pytest
 
 from studio.l1_entities.capabilities import Estimate, ModeSpec, ParamSpec
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import (
+    EDIT_TEMPLATES,
+    GENERATE_TEMPLATES,
+)
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls import (
     CFG,
     GUIDANCE,
@@ -23,10 +27,6 @@ from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls impo
     edit_mode,
     generate_mode,
     steps_param,
-)
-from studio.l3_interface_adapters.gateways.prompt_aids import (
-    EDIT_TEMPLATES,
-    GENERATE_TEMPLATES,
 )
 
 STEPS = steps_param(default=8, minimum=8, maximum=8)

@@ -8,18 +8,23 @@ import pytest
 from PIL import Image
 
 from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
-from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
+from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
 from studio.l3_interface_adapters.gateways.memory import catalog_memory_estimate_gateway as memory_catalog
-from studio.l4_frameworks_and_drivers.memory_estimates import build_memory_estimates
+from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
+from studio.l4_frameworks_and_drivers.config import Config
 
 
 def estimate_peak_gib(payload, total_memory_gib, *, qwen_turbo_quantize=None):
-    return build_memory_estimates(qwen_turbo_quantize).estimate(payload, total_memory_gib)
+    return build_memory_estimates(Config("", (), "", (), {"qwen21_turbo": {"quantize": qwen_turbo_quantize}})).estimate(
+        payload, total_memory_gib
+    )
 
 
 def admission_for(headroom, qwen_turbo_quantize=None):
     return ResourceAdmission(
-        headroom, build_memory_estimates(qwen_turbo_quantize), InMemoryStudioSettingsGateway(False)
+        headroom,
+        build_memory_estimates(Config("", (), "", (), {"qwen21_turbo": {"quantize": qwen_turbo_quantize}})),
+        InMemoryStudioSettingsGateway(False),
     )
 
 

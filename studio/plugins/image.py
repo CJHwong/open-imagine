@@ -4,6 +4,7 @@ from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, Look
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult, ReferenceImage
 from studio.l1_entities.lora import Lora, LoraUse
+from studio.l1_entities.template_translation import TemplateFieldTranslation, TemplateTranslation
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.plugins.qwen_checkpoint_registration import QwenCheckpointRegistration
 
@@ -31,4 +32,6 @@ __all__ = [
     "QwenCheckpointRegistration",
     "ReferenceImage",
     "Template",
+    "TemplateFieldTranslation",
+    "TemplateTranslation",
 ]

@@ -86,11 +86,12 @@ def test_krea2_needs_its_peak_and_the_reserve_free():
 def test_app_policy_blocks_unmeasured_requests_until_disabled():
     from studio.l1_entities.errors import ResourceEstimateUnavailable
     from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
-    from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
-    from studio.l4_frameworks_and_drivers.memory_estimates import build_memory_estimates
+    from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
+    from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
+    from studio.l4_frameworks_and_drivers.config import Config
 
     settings = InMemoryStudioSettingsGateway()
-    admission = ResourceAdmission(lambda: (64 * GIB, GIB), build_memory_estimates(), settings)
+    admission = ResourceAdmission(lambda: (64 * GIB, GIB), build_memory_estimates(Config("", (), "", (), {})), settings)
     payload = {"kind": "video", "backend": "ltx25_mlx", "references": ["unmeasured"]}
     with pytest.raises(ResourceEstimateUnavailable, match="Settings > Memory"):
         admission(payload)
@@ -103,11 +104,14 @@ def test_app_policy_blocks_unmeasured_requests_until_disabled():
 def test_app_policy_requires_every_batch_item_to_be_measured():
     from studio.l1_entities.errors import ResourceEstimateUnavailable
     from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
-    from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
-    from studio.l4_frameworks_and_drivers.memory_estimates import build_memory_estimates
+    from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
+    from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
+    from studio.l4_frameworks_and_drivers.config import Config
 
     settings = InMemoryStudioSettingsGateway()
-    admission = ResourceAdmission(lambda: (64 * GIB, 64 * GIB), build_memory_estimates(), settings)
+    admission = ResourceAdmission(
+        lambda: (64 * GIB, 64 * GIB), build_memory_estimates(Config("", (), "", (), {})), settings
+    )
     measured = {"mode": "generate", "size": "512x512"}
     unmeasured = {"mode": "edit", "references": [{"png_base64": encoded_png(512, 512)}]}
     batch = {"kind": "image", "backend": "qwen21_turbo", "items": [measured, unmeasured]}

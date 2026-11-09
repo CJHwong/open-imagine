@@ -1,3 +1,4 @@
+import {galleryStepIndex} from '../lib/gallery-navigation.js';
 import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
   musicSource, putMusicSource, sourceIdFor, sweepMusicSources, musicLink, putMusicLink, deleteMusicLink} from '../lib/music-store.js';
 import {renderNotation} from '../lib/music-notation.js';
@@ -688,7 +689,7 @@ class MusicStudio extends HTMLElement {
       const index = buttons.indexOf(event.target);
       if (index < 0) return;
       const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
-        : event.key === 'ArrowRight' ? Math.min(index + 1, buttons.length - 1) : event.key === 'ArrowLeft' ? Math.max(0, index - 1) : null;
+        : event.key === 'ArrowRight' ? galleryStepIndex(buttons.length, index, 1) : event.key === 'ArrowLeft' ? galleryStepIndex(buttons.length, index, -1) : null;
       if (next !== null) { event.preventDefault(); buttons[next].click(); buttons[next].focus(); }
     });
     window.addEventListener('storage', event => {
@@ -1792,7 +1793,7 @@ class MusicStudio extends HTMLElement {
     const current = generating && this.showGeneration !== false ? '__pending__' : this.selectedId;
     const index = order.indexOf(current);
     if (index < 0) return false;
-    const next = Math.max(0, Math.min(order.length - 1, index + delta));
+    const next = galleryStepIndex(order.length, index, delta);
     if (next === index) return false;
     if (order[next] === '__pending__') {
       this.showGeneration = true; this.sync(); this.syncGallery();
@@ -1838,12 +1839,14 @@ class MusicStudio extends HTMLElement {
       tile.extra = 'music-pending-thumb'; tile.pending = true; tile.stillClass = 'music-thumb-art';
       tile.label = t('music.generation.show_label'); tile.onPick = () => gallery.showPending();
       tile.footer = () => 'NEW';
+      tile.mark = () => pencilLoop(true);
+      tile.selected = Boolean(gallery.pendingSelected);
       tile.content = () => html`<span class="video-pending-indicator"></span><span>${t('music.common.generating')}</span>`;
       strip.prepend(tile);
       pending = tile.querySelector('.music-pending-thumb');
     }
     if (!gallery.pending && pending) (pending.closest('gallery-tile') || pending).remove();
-    else if (pending) { pending.classList.toggle('selected', gallery.pendingSelected); pending.setAttribute('aria-pressed', String(Boolean(gallery.pendingSelected))); }
+    else if (pending) pending.closest('gallery-tile').selected = Boolean(gallery.pendingSelected);
     gallery.choose = id => this.selectSong(id);
     gallery.removeItem = id => this.removeSong(id);
     gallery.download = async ids => this.downloadSongs(ids);
@@ -1853,10 +1856,7 @@ class MusicStudio extends HTMLElement {
     };
     this.querySelectorAll('.music-strip [data-song-id]').forEach(button => {
       const selected = button.dataset.songId === this.selectedId && !gallery.pendingSelected;
-      button.classList.toggle('selected', selected); button.setAttribute('aria-pressed', String(selected));
-      let marker = button.querySelector('.music-selection-mark');
-      if (!selected && marker) marker.remove();
-      if (selected && !marker) { marker = document.createElement('span'); marker.className = 'music-selection-mark'; render(pencilLoop(true), marker); button.append(marker); }
+      button.closest('gallery-tile').selected = selected;
     });
   }
   // One path for every download, so the strip and the browser panel cannot
@@ -2498,6 +2498,7 @@ class MusicStudio extends HTMLElement {
       list.append(card);
       const number = this.songs.indexOf(song) + 1;
       const thumb = document.createElement('gallery-tile');
+      thumb.mark = () => pencilLoop(true);
       thumb.extra = 'music-thumb'; thumb.songId = song.id; thumb.stillClass = 'music-thumb-art';
       thumb.label = t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number});
       thumb.title = this.songTitle(song);

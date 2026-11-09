@@ -4,10 +4,10 @@ from dataclasses import dataclass
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import InMemoryModelResidencyGateway
-from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import InMemoryModelResidencyGateway
+from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
 

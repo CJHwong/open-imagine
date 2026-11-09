@@ -1155,10 +1155,14 @@ def test_mlx_enhanced_batch_live(tmp_path, fast_mode):
     """Use the product runner and real weights; a separate API check covers high-res reuse."""
     import json
     import socket
-    import tomllib
 
-    settings = tomllib.loads(Path("studio.toml").read_text())["mlx_video"]
-    settings["cli_path"] = str(Path(settings["cli_path"]).expanduser())
+    from studio.l3_interface_adapters.gateways.video.shared.engine_paths import engine_executable
+    from studio.l4_frameworks_and_drivers.config import load_config
+
+    settings = load_config(Path("studio.toml")).backend("mlx_video")
+    if not Path(settings["model_ltx25"]).is_dir():
+        pytest.skip("Install the configured LTX-2.5 weights first.")
+    settings["cli_path"] = engine_executable(settings)
     if not Path(settings["cli_path"]).is_file():
         pytest.skip("Install the configured LTX MLX environment first.")
     with socket.socket() as connection:
@@ -1208,7 +1212,7 @@ def test_mlx_enhanced_batch_live(tmp_path, fast_mode):
         for index, result in enumerate(results):
             path = tmp_path / f"{index}.mp4"
             path.write_bytes(result.mp4)
-            ffmpeg = Path(settings["ffmpeg_path"])
+            ffmpeg = Path(settings.get("ffmpeg_path") or shutil.which("ffmpeg") or "ffmpeg")
             subprocess.run(
                 [str(ffmpeg), "-v", "error", "-i", str(path), "-f", "null", "-"], check=True, capture_output=True
             )

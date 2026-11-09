@@ -794,7 +794,7 @@ function openTemplates() {
     // offered where the tool is off. With more than one reference there is no
     // print to draw on, and the run would wait for a region that cannot exist.
     if (region.mentions(template.text) && !region.markable()) return;
-    const option = menus.menuItem('', template.name, function () { useTemplate(template.text); });
+    const option = menus.menuItem('', template.display_name || template.name, function () { useTemplate(template.text); });
     const note = document.createElement('span');
     note.className = 'item-note';
     note.textContent = template.hint;

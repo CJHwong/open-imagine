@@ -227,6 +227,7 @@ class JsonApi:
                 raise InvalidJob("Each entry in items must be an object.")
             mode = str(request.get("mode") or payload.get("mode") or "generate")
             if kind == "image":
+                request = self._prompt_payload(request, mode)
                 form = {key: value for key, value in request.items() if isinstance(key, str) and isinstance(value, str)}
                 if len(form) == len(request):
                     self._controller.plan(form)

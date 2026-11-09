@@ -70,11 +70,10 @@ modules =
     studio.l3_interface_adapters.gateways.image.krea2
     studio.l3_interface_adapters.gateways.image.viggle_turbo
     studio.l3_interface_adapters.gateways.image.qwen_checkpoint
-    studio.l3_interface_adapters.gateways.video.gemma3
     studio.l3_interface_adapters.gateways.video.ltx25
     studio.l3_interface_adapters.gateways.video.minimax_h3
     studio.l3_interface_adapters.gateways.video.ltx23
-    studio.l3_interface_adapters.gateways.video.ltx_pack
+    studio.l3_interface_adapters.gateways.video.ltx_checkpoint
     studio.l3_interface_adapters.gateways.voice.auk
     studio.l3_interface_adapters.gateways.voice.auk_flash
     studio.l3_interface_adapters.gateways.voice.drama3
@@ -113,11 +112,14 @@ forbidden_modules =
 name = Installed model discovery does not construct gateways or runtimes
 type = forbidden
 source_modules =
-    studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog
+    studio.l3_interface_adapters.gateways.model_registration.installed_model_catalog
 forbidden_modules =
-    studio.l3_interface_adapters.gateways
-    studio.l4_frameworks_and_drivers.model_registration.model_backend_factory
-    studio.l4_frameworks_and_drivers.model_factories
+    studio.l3_interface_adapters.gateways.image
+    studio.l3_interface_adapters.gateways.video
+    studio.l3_interface_adapters.gateways.voice
+    studio.l3_interface_adapters.gateways.music
+    studio.l3_interface_adapters.gateways.model_registration.model_backend_factory
+    studio.l3_interface_adapters.gateways.model_catalog
     studio.l4_frameworks_and_drivers.subprocess_runner
 
 [importlinter:contract:memory-catalog-model-independence]
@@ -130,3 +132,54 @@ forbidden_modules =
     studio.l3_interface_adapters.gateways.video
     studio.l3_interface_adapters.gateways.voice
     studio.l3_interface_adapters.gateways.music
+
+[importlinter:contract:model-adapters-no-stubs]
+name = Production model adapters do not depend on simulated backends
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.gateways.image
+    studio.l3_interface_adapters.gateways.video
+    studio.l3_interface_adapters.gateways.voice
+    studio.l3_interface_adapters.gateways.music
+forbidden_modules =
+    studio.l3_interface_adapters.gateways.stub
+
+[importlinter:contract:in-memory-model-independence]
+name = In-memory state adapters depend on contracts rather than model implementations
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.gateways.in_memory
+forbidden_modules =
+    studio.l3_interface_adapters.gateways.image
+    studio.l3_interface_adapters.gateways.video
+    studio.l3_interface_adapters.gateways.voice
+    studio.l3_interface_adapters.gateways.music
+    studio.l3_interface_adapters.gateways.stub
+
+[importlinter:contract:stub-model-independence]
+name = Simulators receive capabilities rather than importing supported models
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.gateways.stub
+forbidden_modules =
+    studio.l3_interface_adapters.gateways.image.qwen21
+    studio.l3_interface_adapters.gateways.image.qwen21_turbo
+    studio.l3_interface_adapters.gateways.image.viggle_turbo
+    studio.l3_interface_adapters.gateways.image.flux2
+    studio.l3_interface_adapters.gateways.image.flux3
+    studio.l3_interface_adapters.gateways.image.krea2
+    studio.l3_interface_adapters.gateways.video.ltx23
+    studio.l3_interface_adapters.gateways.video.ltx25
+    studio.l3_interface_adapters.gateways.video.minimax_h3
+    studio.l3_interface_adapters.gateways.voice
+    studio.l3_interface_adapters.gateways.music
+    studio.l3_interface_adapters.gateways.model_catalog
+
+[importlinter:contract:inner-no-plugin-sdk]
+name = Inner model contracts do not depend on public plugin declaration formats
+type = forbidden
+source_modules =
+    studio.l1_entities
+    studio.l2_use_cases
+forbidden_modules =
+    studio.plugins

@@ -25,12 +25,12 @@ from studio.l3_interface_adapters.api.request_mapper import next_form
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
 from tests.support.api import api_for
@@ -922,7 +922,7 @@ def test_voice_batch_progress_never_repeats_a_finished_take_on_the_next_index(mo
 
     from studio.l1_entities.voice_job import SpeechResult
     from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
-    from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+    from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
     from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 
     progress = InMemoryProgressGateway()
@@ -1476,3 +1476,35 @@ def test_an_embedded_api_without_app_settings_reports_the_default_but_cannot_cha
     assert api.settings() == {"require_memory_estimate": True}
     with pytest.raises(InvalidJob, match="settings are not configured"):
         api.update_settings({"require_memory_estimate": False})
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_resource_admission_composes_localized_template_before_image_form_validation(batch):
+    from dataclasses import replace
+
+    from studio.l1_entities.capabilities import Template
+    from studio.l1_entities.template_translation import TemplateTranslation
+
+    original = fake_capabilities()
+    template = Template(
+        "Portrait",
+        "",
+        "A portrait of [subject].",
+        translations=(TemplateTranslation("zh-TW", "人像", "", "[subject]的人像。"),),
+    )
+    capabilities = replace(original, modes=(replace(original.mode("generate"), templates=(template,)),))
+    controller = PlanningController(capabilities)
+    api = api_for(controller)
+    api._resource_admission = lambda payload: None
+    body = {
+        "mode": "generate",
+        "template": "Portrait",
+        "template_locale": "zh-TW",
+        "template_values": {"subject": "女孩"},
+    }
+    payload = {"kind": "image", "items": [body]} if batch else {"kind": "image", **body}
+
+    api.reserve(payload)
+
+    assert controller.planned[0]["prompt"] == "女孩的人像。"
+    assert "template_values" not in controller.planned[0]

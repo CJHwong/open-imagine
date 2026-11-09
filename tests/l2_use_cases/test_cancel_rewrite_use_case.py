@@ -10,7 +10,7 @@ owns the rewrite frees the rewriter after its own loop has stopped.
 """
 
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
-from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import InMemoryRewriteProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.rewrite_progress_gateway import InMemoryRewriteProgressGateway
 
 
 def test_a_cancel_sets_the_flag_the_rewriter_reads():

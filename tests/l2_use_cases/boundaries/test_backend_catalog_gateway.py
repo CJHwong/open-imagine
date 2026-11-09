@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from studio.l2_use_cases.boundaries.backend_catalog_gateway import BackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
 from tests.support.fakes import FakeBackendGateway
 
 OPERATIONS = frozenset({"get", "visible_ids", "active_id", "set_active"})

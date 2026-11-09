@@ -15,11 +15,19 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
 
-The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is not an engine choice. Layer 4 names the schedule, and the gateway registers it with mflux when a run starts, because the stub builds every backend on machines with no mflux. The official Turbo checkpoint's sigma table lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py`, because a backend may not import another backend.
+The engine choice is made in layer 4, from the probe in `engines.py`, not in a gateway. An engine that only one platform has is a decision at the top, not a branch inside the adapter. Engine code that already branches is not converted; `gateways/image/qwen21/PORTABILITY.md` records what a port would need. A checkpoint's sampling schedule is not an engine choice. The model's L3 provider names the schedule, and the gateway registers it with mflux when a run starts, because the stub builds every backend on machines with no mflux. The official Turbo checkpoint's sigma table lives beside the backends in `gateways/image/shared/qwen21_turbo_schedule.py`, because a backend may not import another backend.
 
 Image, Video, Voice, and Music have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
 
 Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway`. A use case ends in `_use_case.py` and `UseCase`. Controllers and presenters do the same. Entities and the records passed between layers have no suffix.
+
+## Gateway implementation packages
+
+`gateways/in_memory/` groups process-local catalogs, operation storage, references,
+progress, residency, and settings. These implementations serve production and stub
+instances. `gateways/stub/` groups the simulated Image, Video, Voice, Music and prompt
+rewriter implementations used by the stub server. Each implementation has its own
+file; package initializers do not construct gateways or load model runtimes.
 
 ## Responsibility and terminology
 
@@ -38,18 +46,27 @@ is weights for an existing runtime; LTX's on-disk "pack" layout remains `pack_di
 configuration. Voice is the workspace name; Audio describes media data. Public API-v1
 SDK aliases and configuration keys remain supported.
 
-`main.py` assembles the application; `studio.py` owns the assembled application's lifecycle.
-`model_factories/<workspace>/<model>.py` owns each model's construction and settings.
-The explicit factory registry is the composition layer's list of built-ins.
-`InstalledModelCatalog` owns metadata discovery and lazy registration loading.
-`ModelRegistrationCatalog` is the structural catalog contract used by `ModelBackendFactory`;
-construction and per-format validation have separate modules.
+`main.py` assembles the application; `studio.py` owns its lifecycle. Each model's
+`construction.py` owns its provider declaration, settings validation and backend
+construction. `gateways/model_catalog/registry.py` contains the single explicit list
+of built-in providers. Backend lists, rewriters and memory estimates derive from it.
+The L2 `ModelProvider` record and `ModelCatalogGateway`, `ModelConfigurationGateway`
+and `ProcessGateway` ports contain no SDK or driver imports.
 
-`ResourceAdmission` depends on the inner `MemoryEstimateGateway` port and an injected host
-memory probe. `CatalogMemoryEstimateGateway` handles calibrated host limits, estimator lookup
-and retained batch outputs. Each model's `memory_estimate.py` owns its measured formula;
-`memory_estimates.py` in layer 4 wires them. Neither the API nor the generic catalog imports
-concrete model estimators. Missing estimates retain the accepted-run policy.
+`CompositeModelCatalogGateway` combines built-ins and installed declarations.
+`gateways/model_registration/` validates SDK formats and translates declarations into
+internal providers. `InstalledModelCatalog` performs lazy discovery using an injected
+metadata reader. L4's `python_entry_points.py` only reads distribution metadata;
+`SubprocessRunner` only runs owned processes. Resolved settings and process callables
+are injected into L3 construction. `ModelServices` scopes shared runtime resources
+to one Studio instance, including LTX's enhancer and its rewrite cache.
+
+`ResourceAdmission` depends on the inner `MemoryEstimateGateway` port and an injected
+host memory probe. `CatalogMemoryEstimateGateway` handles calibrated host limits,
+estimator lookup and retained batch outputs. Each model owns its measured formula
+and binds its own settings to it; there is no second concrete estimator registry or
+model-specific argument in application assembly. Missing estimates retain the
+strict-by-default app policy and relaxed-mode checks of known limits.
 
 ## Model gateway ownership
 
@@ -63,20 +80,20 @@ Every generation model has one concrete gateway in its own media/model package:
 ```text
 gateways/
   image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,krea2,qwen_checkpoint}/
-  video/{ltx25,ltx23,ltx_pack}/
+  video/{ltx25,ltx23,minimax_h3,ltx_checkpoint}/
   voice/{drama3,auk,auk_flash}/
   music/yue2/
 ```
 
 Each package implements its media boundary. AuK and AuK Flash have separate gateways;
 LTX-2.3 and LTX-2.5 do too. A gateway fixes its model identity rather than selecting
-between models at runtime. `video/ltx_pack` and `image/qwen_checkpoint` are the exceptions: each
+between models at runtime. `video/ltx_checkpoint` and `image/qwen_checkpoint` are the exceptions: each
 takes its identity from the plugin record that names the weights. Existing public backend IDs remain stable.
 Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
 `video/ltx_runtime`, and `voice/auk_runtime`. These packages are implementation helpers, not additional
-model gateways. `.importlinter` forbids imports between the twelve model packages, `video/ltx_pack` and
+model gateways. `.importlinter` forbids imports between the concrete model packages, `video/ltx_checkpoint` and
 `image/qwen_checkpoint`.
-Layer 4 constructs the model-specific gateway and injects its engine dependencies.
+Each L3 model provider constructs its gateway using resolved settings and injected host services.
 LTX command construction, batching and memory profiles, sampler progress interpretation,
 and engine child scripts live in `video/ltx_runtime`. Gemma instructions, enhancement,
 image handling and the Rewrite cache live in `video/gemma3`. Neither imports layer 4.
@@ -93,13 +110,13 @@ Installed entry points under `open_imagine.models.image`, `.video`, and `.voice`
 workspace catalogs without changing the source tree. `model_registration/installed_model_catalog.py` reads metadata and
 imports only visible registrations. The public `studio.plugins` SDK exposes versioned immutable
 registration/context records and media-specific inner gateway/job/capability types. Discovery
-and concrete factory validation belong in layer 4; core use cases never inspect packages.
+and concrete factory validation belong in L3; core use cases never inspect packages.
 Plugin IDs are globally unique because all media share one residency map. Stub mode uses
 capability records without calling plugin engine factories. Native built-in factories and IDs
 remain unchanged. Plugin-only configurations own their runtime platform requirements.
-The optional H3 model plugin keeps its pinned staged engine in a separate environment.
+The optional built-in H3 model keeps its pinned staged engine in a separate environment.
 It uses the generic driver's binary input/output pipes and owned process session, so private
-prompts and media need no scratch files. The plugin replaces the engine's disk metrics writer
+prompts and media need no scratch files. The H3 adapter replaces the engine's disk metrics writer
 with an in-memory recorder and publishes only numerical progress and phase metrics. It hands
 the engine its keyframes and audio track from memory, under paths that do not exist on disk.
 Video rewriters now follow their selected catalog, just as Image rewriters do; a plugin with
@@ -107,21 +124,33 @@ no rewriter never inherits LTX's enhancer. See [the contract](../docs/reference/
 An LTX pack and a Qwen checkpoint are the exceptions to both rules, because each runs on a
 built-in engine.
 
+LoRA configuration and weight loading are separate contracts. The shared
+`parse_lora_tables(settings, backend_id, policy=...)` reads one resolved mapping;
+it cannot inspect another runtime's section. Each provider explicitly chooses a
+`LoraTablePolicy` for mode scoping and supported host options. A model can narrow
+that schema or own a different reader. There is no workspace-based policy switch.
+The parser validates table structure only. File format, tensor names, shapes,
+target modules, and actual weight compatibility belong to the model runtime.
+A syntactically valid table does not promise that its weights will load. The
+external SDK's `loras=True` explicitly opts into Studio's common video table schema;
+plugins with other formats own their configuration rather than opting into it.
+
 A LoRA is declared by id in layer 1 (`l1_entities/lora.py`), on an image `ModeSpec` or on
 `VideoCapabilities`. The entity checks the picks of a request and supplies `with_triggers`. The
 image use case adds the trigger words to the job; a video gateway adds them after its own
 prompt enhancement. A result reports the prompt the request sent. Only
 the gateway maps an id to a file, so no path reaches the page, the API or an operation record.
-A built-in gateway keeps that map in `gateways/lora_files.py`. The composition root reads it from
-the backend's `[[<id>.loras]]` tables (`l4_frameworks_and_drivers/lora_table.py`), and a run
+A built-in gateway keeps that map in `gateways/lora_files.py`. Its L3 provider reads it from
+the backend's `[[<id>.loras]]` tables (`gateways/model_configuration/lora_table.py`), and a run
 refuses a file that is not on disk instead of fetching it. A video `ModelPlugin` that declares
-`loras` gets the same tables: `model_plugins.py` reads them, offers them on the plugin's record,
+`loras` gets the same tables: `ModelBackendFactory` reads them, offers them on the plugin's record,
 and hands the factory the record and a map from each id to its file.
 
 A video plugin can export an `LtxPack` record in place of a `ModelPlugin`, to run a pack on the
 studio's own LTX engine. The record is data only, so the SDK imports no adapter. The composition
 root builds the model as it builds the base packs, with their runner, enhancer and LoRA tables,
-behind the gateway `video/ltx_pack`. A run checks the pack's folder before the engine starts, and
+behind the gateway `video/ltx_checkpoint`. The internal name is checkpoint; the upstream
+weights layout and compatible `pack_dir` setting retain the word pack. A run checks the pack's folder before the engine starts, and
 `gateways/hidden_paths.py` rewords an error that quotes the folder or a LoRA file.
 
 An image plugin can export a `QwenCheckpoint` record in the same way, to run a Qwen-Image-2.1
@@ -221,16 +250,22 @@ See the measured comparisons in the README before extending an optimization to a
 
 ## Add a backend
 
-1. Write the backend capability record. Image backends use `Capabilities`; video backends use `VideoCapabilities`.
-2. Write a gateway that implements the matching port. Image gateways implement `ImageBackendGateway`; video gateways implement `VideoBackendGateway`.
-3. Add a builder to `BACKENDS` or `VIDEO_BACKENDS`. Add the model to the matching default and visible lists in `studio.toml`.
-4. Keep model loading lazy. A run loads the needed weights. Switching models releases the old backend without preloading the new one.
-5. Add gateway tests at the mirrored path under `tests/`. Mock the engine for unit tests, so they run without weights.
-6. Run the relevant workspace with the stub, then verify the real backend when its model is available.
-
-The image form knows two mode ids, `generate` and `edit`, and the params `size`, `resolution`, `steps`, `guidance`, `cfg`, `strength` and `negative`. The video form has its own prompt, frame-grid duration, shape, source panel, timeline, and output gallery. Image and video references use separate request records. All Image, Video, Voice, and rewrite work uses the shared memory lock.
-
-An image edit may carry a marked region. The page appends it as the last image of the run, and replaces the prompt's `[the region you marked]` with that image's number. Only a mode that declares `region_marking` is offered the tool. A backend declares the modes it supports. A new kind of image parameter needs a control in `web/page.html`.
+1. Add a self-contained package under `gateways/<workspace>/<model>/` with its gateway,
+   capabilities, `construction.py` provider, settings rules and measured memory estimate.
+   Reuse an explicitly named family runtime where appropriate. Keep construction lazy.
+2. Add the provider to `BUILTIN_PROVIDERS`; backend selection, rewriters and calibrated
+   memory registration derive from this one list. Do not add a separate model-ID switch.
+3. Inject host services through the inward settings/process contracts. Keep filesystem
+   configuration reads, metadata I/O and process drivers in L4.
+4. Put model wording in its own or an explicit family prompt catalog. Generic helpers
+   only select/compose supplied data. Write verdicts to the model's `PROMPT_EVALUATION.md`
+   and link them from `gateways/PROMPTS.md`.
+5. Add the package to `backends-independent` and mirrored tests under `tests/`. Follow
+   AGENTS.md's backend flow for measurements, negative import proofs, full coverage,
+   real Studio runs, independent review, documentation and cleanup.
+6. Update `studio.toml`, the models table, weight setup and licenses. Optional models
+   remain opt-in through the visible list or `--all-backends`. Examples demonstrate
+   the external SDK on CPU; supported integrations belong in Studio.
 
 ## The page
 
@@ -276,8 +311,13 @@ Picking Automatic in the menu drops the cookie, so a browser's own language deci
 Server catalogue labels resolve by stable id (`label.mode.<id>`, `label.adapter.<id>`,
 `label.param.<id>` for a voice model's declared controls, `label.loading.<backend>.note`) or,
 for templates and Looks, by the catalogue's English name; the English the server sent is
-the fallback, so a new backend needs no translation to work. Prompt text, model names,
-filenames and routes stay English. `tests/l3_interface_adapters/presenters/test_locale.py`
+the fallback, so a new backend needs no translation to work. Templates additionally carry
+`TemplateTranslation` records for localized prompt bodies, placeholder labels, and Voice
+field labels, defaults and choice labels. Each integration or runtime family owns that data;
+`gateways/template_translations.py` attaches it while preserving canonical template names,
+field keys and engine tags. The page selects the UI locale; API clients use `template_locale`,
+with English fallback. Video reference requirements use `min_references`, never prompt-word
+matching. Model names, filenames and routes keep their stable spelling. `tests/l3_interface_adapters/presenters/test_locale.py`
 holds the key parity and the page-key coverage; `tests/e2e/verify_locale.py` drives the
 picker, the cookie and `?lang`.
 

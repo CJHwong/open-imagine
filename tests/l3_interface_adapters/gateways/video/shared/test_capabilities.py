@@ -1,10 +1,10 @@
 import pytest
 
-from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
+from studio.l3_interface_adapters.gateways.video.ltx_runtime.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
     ltx23_mlx_capabilities,
     ltx25_mlx_capabilities,
-    ltx_pack_capabilities,
+    ltx_checkpoint_capabilities,
 )
 
 
@@ -79,7 +79,7 @@ def test_the_2_3_pack_offers_generate_only():
 )
 def test_a_plugin_pack_takes_the_base_frame_and_offers_no_prompt_aids_or_fast_mode(family, base_record):
     """The Looks, the templates and Fast mode were tried on the base packs, so a pack offers none."""
-    pack = ltx_pack_capabilities("example_pack", "Example pack", family)
+    pack = ltx_checkpoint_capabilities("example_pack", "Example pack", family)
     base = base_record()
 
     assert (pack.backend_id, pack.name, pack.precision) == ("example_pack", "Example pack", "int8")
@@ -92,7 +92,7 @@ def test_a_plugin_pack_takes_the_base_frame_and_offers_no_prompt_aids_or_fast_mo
 
 
 def test_a_plugin_pack_offers_edit_audio_and_fast_mode_only_when_it_asks():
-    pack = ltx_pack_capabilities(
+    pack = ltx_checkpoint_capabilities(
         "example_pack",
         "Example pack",
         "ltx25",
@@ -119,7 +119,7 @@ def test_a_plugin_pack_offers_edit_audio_and_fast_mode_only_when_it_asks():
 )
 def test_a_plugin_pack_with_a_family_it_cannot_have_is_refused(family, options, message):
     with pytest.raises(ValueError, match=message):
-        ltx_pack_capabilities("example_pack", "Example pack", family, **options)
+        ltx_checkpoint_capabilities("example_pack", "Example pack", family, **options)
 
 
 def test_new_camera_templates_keep_the_measured_scene_and_motion():
@@ -201,7 +201,7 @@ def test_the_frame_controls_sit_on_the_port_s_grid(build):
 def test_every_pack_carries_the_time_of_a_clip_for_its_family_and_precision():
     ltx25 = ltx25_mlx_capabilities()
     ltx23 = ltx23_mlx_capabilities()
-    small = ltx_pack_capabilities("small", "Small", "ltx23", precision="int4")
+    small = ltx_checkpoint_capabilities("small", "Small", "ltx23", precision="int4")
 
     assert ltx25.estimate is not None and ltx23.estimate is not None and small.estimate is not None
     # 2.3 samples a keyframe on its guided path; 2.5 keeps the distilled one.

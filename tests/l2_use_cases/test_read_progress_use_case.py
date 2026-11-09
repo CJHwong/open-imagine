@@ -6,7 +6,7 @@ because the run may take a step or more to notice the request.
 """
 
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
 
 
 def test_an_idle_server_reports_no_run():

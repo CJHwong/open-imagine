@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks, pick_templates
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import pick_looks, pick_templates
 
 MATCH = "match"
 MAX_BATCH = 4

@@ -11,8 +11,8 @@ from studio.l1_entities.image_job import ReferenceImage
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
 from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway

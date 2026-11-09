@@ -6,10 +6,10 @@ import pytest
 from studio.l1_entities.errors import BackendBusy, BackendChanged, Cancelled
 from studio.l1_entities.music_job import MusicJob, MusicResult
 from studio.l2_use_cases.run_music_use_case import RunMusicUseCase
-from studio.l3_interface_adapters.gateways.in_memory_music_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.music_backend_catalog_gateway import (
     InMemoryMusicBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
 
 
 def setup(catalog=False):

@@ -20,8 +20,8 @@ from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import EDIT_TEMPLATES
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
-from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_TEMPLATES
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
 TINY = Capabilities(

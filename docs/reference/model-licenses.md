@@ -21,7 +21,7 @@ The eight-bit mflux copy keeps those terms.
 FLUX3 Image Klein weights carry the [FLUX Kommunity License](https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/337337621b8526e120f2275d250242f4a6bedd75/LICENSE.md).
 
 MiniMax H3 weights use the [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE).
-Its applicable territory excludes the EU, UK, South Korea and US. The optional plugin's MIT
+Its applicable territory excludes the EU, UK, South Korea and US. The built-in integration's MIT
 license and the runner's Apache-2.0 license do not replace the model terms.
 
 ## YuE2

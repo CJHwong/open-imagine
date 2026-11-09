@@ -1,6 +1,7 @@
 """Public Voice plugin types; outputs cross the boundary as WAV bytes."""
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
+from studio.l1_entities.template_translation import TemplateFieldTranslation, TemplateTranslation
 from studio.l1_entities.voice_capabilities import (
     Capabilities,
     Choice,
@@ -28,6 +29,8 @@ __all__ = [
     "SpeechJob",
     "SpeechResult",
     "Template",
+    "TemplateFieldTranslation",
+    "TemplateTranslation",
     "VoiceBackendGateway",
     "VoiceCapabilities",
 ]

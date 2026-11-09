@@ -6,7 +6,7 @@ returns a snapshot and never a live view. The cancel flag travels with it as
 """
 
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
-from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import InMemoryRewriteProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.rewrite_progress_gateway import InMemoryRewriteProgressGateway
 
 
 def test_an_idle_server_reports_no_rewrite():

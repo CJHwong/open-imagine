@@ -7,14 +7,10 @@ on the base model's config, which turns the resolution shift on.
 """
 
 import pytest
+from mflux.models.common.config.config import Config
 
-mx = pytest.importorskip("mlx.core")
-pytest.importorskip("mflux")
-
-from mflux.models.common.config.config import Config  # noqa: E402
-
-from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config  # noqa: E402
-from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (  # noqa: E402
+from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config
+from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (
     EULER_ANCESTRAL,
     LINEAR_QUADRATIC,
     AncestralSeedHook,
@@ -22,6 +18,9 @@ from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import ( 
     register_schedules,
     sigma_nodes,
 )
+
+mx = pytest.importorskip("mlx.core")
+pytest.importorskip("mflux")
 
 
 @pytest.fixture(autouse=True)

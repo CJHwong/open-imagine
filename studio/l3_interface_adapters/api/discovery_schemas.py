@@ -11,12 +11,31 @@ def discovery_schemas() -> dict[str, Any]:
     nullable_number = {"type": ["number", "null"]}
     pairs = {"type": "array", "items": {"type": "array", "prefixItems": [string, string], "minItems": 2, "maxItems": 2}}
     return {
+        "TemplateFieldTranslation": {
+            "type": "object",
+            "properties": {"id": string, "label": string, "default": {"type": ["string", "null"]}, "choices": pairs},
+        },
+        "TemplateTranslation": {
+            "type": "object",
+            "required": ["locale", "name", "hint", "text"],
+            "properties": {
+                "locale": string,
+                "name": string,
+                "hint": string,
+                "text": string,
+                "placeholders": pairs,
+                "fields": {"type": "array", "items": {"$ref": "#/components/schemas/TemplateFieldTranslation"}},
+            },
+            "description": "Localized content; text retains canonical field IDs. placeholders pairs each field occurrence with its display label.",
+        },
         "Template": {
             "type": "object",
             "required": ["name", "hint", "text"],
             "properties": {
                 "name": {"type": "string", "description": "Send this exact name as template"},
                 "hint": string,
+                "translations": {"type": "array", "items": {"$ref": "#/components/schemas/TemplateTranslation"}},
+                "min_references": {"type": "integer", "minimum": 0, "default": 0},
                 "text": {
                     "type": "string",
                     "description": "Every [field] needs a template_values entry. Preserve capitalization. Use template and template_values instead of copying this text into prompt.",
@@ -326,6 +345,7 @@ def discovery_schemas() -> dict[str, Any]:
         "VoiceTemplate": {
             "type": "object",
             "properties": {
+                "translations": {"type": "array", "items": {"$ref": "#/components/schemas/TemplateTranslation"}},
                 "name": string,
                 "hint": string,
                 "text": string,

@@ -67,7 +67,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
    - Use one seed, 768 x 768, 20 steps and the model's own guidance. Put each image next to the bare prompt.
    - Take two or three options per Look row, the ones most likely to behave differently on this model. Take each template with its first fill-in.
    - Make one contact sheet per row, and look at every image.
-   - Keep only the options that visibly work. Pick them with `pick_looks` in the backend's capabilities, and write the verdicts in `gateways/PROMPTS.md`.
+   - Keep only the options that visibly work. Pick them with `pick_looks` in the backend's capabilities, and write the verdicts in that model's `gateways/<workspace>/<id>/PROMPT_EVALUATION.md` and link it from `gateways/PROMPTS.md`.
    - Test an avoid part against a neutral negative at the same guidance, such as "low quality". Do not use a blank negative as the control: on qwen21, a blank negative turns true CFG off, so the two images differ in more than the avoid text. Keep an avoid part only if it wins on more than one seed, because it doubles the time of each image.
    - Before a full run, tell the user the image count and the time, and wait for approval.
 6. **Wire it in.** Follow "Add a backend" in ARCHITECTURE.md. Add the package to the `backends-independent` contract in `.importlinter`. Then prove that the contract can fail: add one import across adapters, see `lint-imports` fail, and remove the import.

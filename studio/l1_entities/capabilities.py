@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
 from studio.l1_entities.image_job import OptionValue
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
+from studio.l1_entities.template_translation import TemplateTranslation
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,8 @@ class Template:
     name: str
     hint: str
     text: str
+    min_references: int = 0
+    translations: tuple[TemplateTranslation, ...] = ()
 
 
 @dataclass(frozen=True)

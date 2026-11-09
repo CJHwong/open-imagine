@@ -8,7 +8,7 @@ from studio.l1_entities.capabilities import Estimate
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
 from studio.l1_entities.lora import Lora, LoraUse
 from studio.l2_use_cases.plan_image_use_case import PlanImageRequest, PlanImageUseCase
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
 from tests.support.fakes import FakeBackendGateway
 
 STYLE = Lora(id="style", label="Style", strength=0.8)

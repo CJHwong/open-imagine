@@ -21,16 +21,16 @@ itself is its step count, its cost fits, and the aid verdicts in PROMPTS.md.
 """
 
 from studio.l1_entities.capabilities import Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import (
-    EDIT_MATCH_CAP,
-    EDIT_RESOLUTIONS,
-    SIZES,
-)
-from studio.l3_interface_adapters.gateways.prompt_aids import (
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import (
     EDIT_LOOKS,
     EDIT_TEMPLATES,
     GENERATE_LOOKS,
     GENERATE_TEMPLATES,
+)
+from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import (
+    EDIT_MATCH_CAP,
+    EDIT_RESOLUTIONS,
+    SIZES,
 )
 
 MATCH = "match"

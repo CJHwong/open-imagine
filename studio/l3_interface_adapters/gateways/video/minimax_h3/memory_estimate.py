@@ -1,4 +1,4 @@
-"""Calibrated MiniMax H3 peaks; inference is supplied by the installed plugin."""
+"""Calibrated MiniMax H3 peaks; inference uses the built-in staged runtime."""
 
 import json
 from collections.abc import Mapping
@@ -14,7 +14,7 @@ from studio.l3_interface_adapters.gateways.memory.inputs import _positive_intege
 H3_SMALL_CLIP_PEAK_GIB = 35.6
 H3_LARGE_CLIP_PEAK_GIB = 49.6
 H3_MEASURED_FRAMES = 175
-# One LoRA on H3: a run of 1024 by 576 and 175 frames through the plugin's own gateway, sampled
+# One LoRA on H3: a run of 1024 by 576 and 175 frames through the model's gateway, sampled
 # about once a second from start to end. The LoRA was rank 16 on mlp.fc1 and mlp.fc2, 86 MB, at
 # strength 0.7. From an idle 88%, macOS free memory fell to 30% in the first denoise step and
 # stayed at 31 to 33% after it. That is 37.1 GiB, so keep 38.1 GiB: 2.5 GiB over the run without

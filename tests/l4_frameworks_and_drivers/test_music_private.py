@@ -11,8 +11,9 @@ from http.server import ThreadingHTTPServer
 
 import pytest
 
-from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
+from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.stub.music_backend_gateway import StubMusicBackendGateway
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway
 
@@ -28,7 +29,7 @@ def music_server(directory):
         {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
-        music_backends={"yue2": StubMusicBackendGateway()},
+        music_backends={"yue2": StubMusicBackendGateway(yue2_capabilities())},
         private_results_dir=directory,
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)

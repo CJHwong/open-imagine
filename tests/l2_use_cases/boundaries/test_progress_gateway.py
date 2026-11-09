@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from studio.l2_use_cases.boundaries.progress_gateway import ProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
 
 OPERATIONS = frozenset(
     {
