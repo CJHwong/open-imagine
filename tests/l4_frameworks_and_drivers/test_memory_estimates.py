@@ -92,6 +92,7 @@ def test_unmeasured_backends_and_kinds_fail_closed(kind, backend):
     (
         {"kind": "image", "backend": "qwen21_turbo", "size": "512x512"},
         {"kind": "video", "backend": "ltx25_mlx", "width": 384, "height": 384, "num_frames": 25},
+        {"kind": "video", "backend": "minimax_h3", "width": 512, "height": 288, "num_frames": 73},
         {"kind": "voice", "backend": "drama3", "text": "hello"},
         {"kind": "music", "backend": "yue2", "style": "piano"},
     ),

@@ -2006,25 +2006,25 @@
       // Capture controls and references before reading any media. A switch in another
       // client may redraw the form while the bytes are being read.
       const payload = videoStudio.requestPayload({
-          mode: settings.mode,
-          adapter: settings.adapter,
-          adapterStrength: settings.effectStrength,
-          maxReferences: videoModeInForce().max_references,
-          // The track goes only from the mode that takes one. An edit carries the clip, and
-          // the controller refuses audio there anyway.
-          prompt: prompt,
-          width: width,
-          height: height,
-          numFrames: numFrames,
-          frameRate: capabilities.frame_rate,
-          seed: seed,
-          backend: settings.backend,
-          enhance: true,
-          fastMode: settings.fastMode,
-          includeAudio: settings.includeAudio,
-          loras: settings.loras,
-          requestId: videoRunRequestId,
-              });
+        mode: settings.mode,
+        adapter: settings.adapter,
+        adapterStrength: settings.effectStrength,
+        maxReferences: videoModeInForce().max_references,
+        // The track goes only from the mode that takes one. An edit carries the clip, and
+        // the controller refuses audio there anyway.
+        prompt: prompt,
+        width: width,
+        height: height,
+        numFrames: numFrames,
+        frameRate: capabilities.frame_rate,
+        seed: seed,
+        backend: settings.backend,
+        enhance: true,
+        fastMode: settings.fastMode,
+        includeAudio: settings.includeAudio,
+        loras: settings.loras,
+        requestId: videoRunRequestId,
+            });
       payload.clip = editing ? await selectedClipPayload() : undefined;
       payload.audio = !editing ? await videoStudio.audioPayload() : undefined;
       const response = await fetch('/video/generate', {

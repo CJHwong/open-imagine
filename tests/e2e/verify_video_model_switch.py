@@ -340,7 +340,11 @@ with sync_playwright() as playwright:
         request["backend"] == other,
         request["backend"],
     )
-    check("the server accepts the captured request after a model switch", prepared.value.ok, str(prepared.value.status))
+    check(
+        "a changed model is refused explicitly rather than receiving mixed settings",
+        prepared.value.status == 503 and "video model changed" in prepared.value.json().get("error", "").lower(),
+        str(prepared.value.status),
+    )
     check("no page error", not errors, "; ".join(errors))
     browser.close()
 
