@@ -1705,11 +1705,54 @@ def test_app_policy_changes_admission_without_a_restart(tmp_path):
     try:
         payload = {"kind": "image", "prompt": "a pear", "seed": 12}
         status, _, body = post_json(server, "/api/v1/operations", payload)
-        assert status == 503 and "Settings > Memory" in json.loads(body)["error"]
+        assert status == 503 and "Settings > Generation" in json.loads(body)["error"]
         assert studio.operations.recent() == []
         assert post_json(server, "/api/v1/settings", {"require_memory_estimate": False})[0] == 200
         assert post_json(server, "/api/v1/operations", payload)[0] == 202
         assert JsonStudioSettingsGateway(tmp_path / "settings.json").require_memory_estimate() is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()
+
+
+def test_model_storage_routes_and_private_header_rejection(tmp_path):
+    from studio.l1_entities.model_asset import ModelAsset
+    from studio.l4_frameworks_and_drivers.model_asset_storage_gateway import ModelAssetStorageGateway
+
+    folder = tmp_path / "weights"
+    folder.mkdir()
+    (folder / "weights.bin").write_bytes(b"synthetic")
+    storage = ModelAssetStorageGateway(
+        [("fake", "Fake", "image", (ModelAsset("Weights", str(folder)),))], [tmp_path], scan_cache=lambda: None
+    )
+    studio = assemble_studio(
+        {"fake": FakeBackendGateway()},
+        {"fake": fast(StubPromptRewriterGateway())},
+        "fake",
+        ("fake",),
+        model_storage=storage,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status, _, body = call(server, "/api/v1/model-storage")
+        assert status == 200 and json.loads(body)["available"]
+        assert call(server, "/api/v1/model-storage", **{"X-Studio-Private-Key": "private-test"})[0] == 400
+        selection = {"models": ["fake"], "include_runtime": False}
+        status, _, body = call(
+            server, "/api/v1/model-storage/plan", json.dumps(selection).encode(), **{"Content-Type": "application/json"}
+        )
+        assert status == 200
+        plan = json.loads(body)
+        assert plan["bytes"] == 9 and folder.exists()
+        status, _, body = call(
+            server,
+            "/api/v1/model-storage/remove",
+            json.dumps({**selection, "revision": plan["revision"]}).encode(),
+            **{"Content-Type": "application/json"},
+        )
+        assert status == 200 and json.loads(body)["bytes"] == 9 and not folder.exists()
     finally:
         server.shutdown()
         server.server_close()

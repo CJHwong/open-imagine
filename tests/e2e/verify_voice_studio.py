@@ -6,6 +6,7 @@ Run against a fresh `uv run studio --stub --all-backends --port <port>`.
 import sys
 
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 from voice_helpers import choose_voice_profile, create_voice_clips, generate_another_take, open_clip_actions
 
 URL = "http://127.0.0.1:" + sys.argv[1]
@@ -96,8 +97,9 @@ with sync_playwright() as tool:
     # Reset clears the script and leaves the form empty through a refresh.
     page.fill("#voice-text", "A voice reset probe")
     page.wait_for_timeout(400)
-    page.locator("#theme-toggle").click()
-    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    open_settings(page, "generation")
+    page.get_by_role("button", name="Reset inputs", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_timeout(400)
     check("Reset clears the Voice script", page.locator("#voice-text").input_value() == "")
     page.reload()

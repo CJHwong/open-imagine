@@ -420,3 +420,19 @@ JSON driver persists only preferences through an atomic replacement; embedded
 and stub instances use an isolated in-memory gateway. The page has no independent
 policy in local storage. `require_memory_estimate` defaults to true. Disabling it
 permits missing measurements while keeping all known memory checks.
+
+### Download ownership and cleanup
+
+Each built-in provider declares its model assets in its own `storage_assets.py`, exposed
+through `ModelProvider.storage_assets`; declarations do not load engines. Dedicated
+cache roots outside the shared model/engine directories are declared through the
+provider's `storage_roots`, so L4 wiring never names a concrete model. The L3 model
+catalog collects these declarations and protects configured installed-plugin checkpoint
+paths. The plugin API currently has no removable-asset ownership contract.
+
+L2 inspection/removal use cases enforce shared ownership, runtime opt-in, preview revision
+and idle engine residency. The L4 storage gateway performs generic filesystem/cache I/O:
+managed-root checks, configured LoRA/private-result protection, symlink and overlap protection, inventory fingerprints and Hugging
+Face reference-aware deletion. It contains no concrete model IDs. Runtime and weight
+ownership stays with each integration. The page's Settings modal presents browser
+preferences separately from app-wide generation policy and server storage.

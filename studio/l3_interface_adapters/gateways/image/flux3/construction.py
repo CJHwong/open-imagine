@@ -4,6 +4,7 @@ from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConf
 from studio.l2_use_cases.boundaries.process_gateway import ProcessGateway
 from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway import Flux3BackendGateway
+from studio.l3_interface_adapters.gateways.image.flux3.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.model_configuration.offering import badge
 
 
@@ -18,4 +19,4 @@ def flux3_backend(config: ModelConfigurationGateway, *, execute_process: Process
     )
 
 
-PROVIDER = ModelProvider("flux3", "image", flux3_backend)
+PROVIDER = ModelProvider("flux3", "image", flux3_backend, storage_assets=storage_assets, storage_name="FLUX3")

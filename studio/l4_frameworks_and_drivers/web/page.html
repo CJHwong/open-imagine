@@ -26,6 +26,7 @@
 <script type="module" src="/page/components/studio-guide.js"></script>
 <script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
+<link rel="stylesheet" href="/page/lib/settings-dialog.css">
 <script type="module" src="/page/lib/studio-settings.js"></script>
 <script type="module" src="/page/lib/locale.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
@@ -100,8 +101,8 @@
           title="How to use this studio" aria-label="How to use this studio"
           data-i18n-attr='{"title":"guide.toggle","aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg></button>
         <div class="menu-anchor">
-        <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="theme-menu" title="Settings" aria-label="Settings"
+        <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="dialog" aria-expanded="false"
+          aria-controls="settings-dialog" title="Settings" aria-label="Settings"
           data-i18n-attr='{"title":"settings.toggle","aria-label":"settings.toggle"}'><svg class="icon"><use href="#i-aperture"/></svg></button>
           <div class="menu" id="theme-menu" role="menu" hidden></div>
         </div>

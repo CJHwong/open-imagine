@@ -1508,3 +1508,28 @@ def test_resource_admission_composes_localized_template_before_image_form_valida
 
     assert controller.planned[0]["prompt"] == "女孩的人像。"
     assert "template_values" not in controller.planned[0]
+
+
+def test_storage_api_validates_and_returns_cleanup_result():
+    from unittest.mock import Mock
+
+    api = api_for(FakeController())
+    assert api.model_storage()["available"] is False
+    for method in (api.storage_plan, api.remove_model_assets):
+        with pytest.raises(InvalidJob, match="unavailable"):
+            method({})
+    api._inspect_storage = Mock()
+    api._inspect_storage.execute.return_value = {"models": [], "assets": []}
+    api._remove_assets = Mock()
+    api._remove_assets.execute.return_value = {"removed": ["id"], "bytes": 123}
+    assert api.model_storage() == {"available": True, "models": [], "assets": []}
+    assert api.storage_plan({}) == {"models": [], "assets": []}
+    with pytest.raises(InvalidJob, match="only"):
+        api.storage_plan({"path": "/bad"})
+    with pytest.raises(InvalidJob, match="only"):
+        api.remove_model_assets({"path": "/bad"})
+    assert api.remove_model_assets({"models": ["a"], "include_runtime": True, "revision": "v"}) == {
+        "removed": ["id"],
+        "bytes": 123,
+    }
+    api._remove_assets.execute.assert_called_once_with(["a"], True, "v")

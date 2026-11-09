@@ -8,6 +8,7 @@ from studio.l3_interface_adapters.gateways.image.qwen21_turbo.memory_estimate im
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
     OfficialQwenTurboBackendGateway,
 )
+from studio.l3_interface_adapters.gateways.image.qwen21_turbo.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_configuration import (
@@ -68,4 +69,6 @@ PROVIDER = ModelProvider(
     estimator=memory_estimator,
     rewriter=build_rewriter,
     rewriter_cache=rewriter_cache,
+    storage_assets=storage_assets,
+    storage_name="Qwen Turbo",
 )

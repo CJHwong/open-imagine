@@ -40,6 +40,7 @@ from pathlib import Path
 import js_coverage
 from PIL import Image
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 
 PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
@@ -256,10 +257,8 @@ def keep_switch(page):
     A closed menu is out of that tree, so the item has to be shown before it can
     be read or clicked.
     """
-    if page.locator("#theme-menu").is_hidden():
-        page.click("#theme-toggle")
-        page.wait_for_timeout(150)
-    return page.get_by_role("menuitemcheckbox", name="Keep in this browser")
+    open_settings(page, "library")
+    return page.get_by_role("switch", name="Keep in this browser")
 
 
 def broken_store_page(browser, fault):
@@ -819,8 +818,9 @@ with sync_playwright() as playwright:
 
     # A theme from the theme menu reaches the document, not only the menu.
     before_theme = page.evaluate("() => document.documentElement.getAttribute('data-theme')")
-    page.click("#theme-toggle")
-    page.get_by_role("menuitemradio", name="Leica M").click()
+    open_settings(page, "appearance")
+    page.get_by_role("radio", name="Leica M").click()
+    page.keyboard.press("Escape")
     after_theme = page.evaluate("() => document.documentElement.getAttribute('data-theme')")
     check(
         "picking a theme applies it to the document",
@@ -831,27 +831,27 @@ with sync_playwright() as playwright:
 
     # The API is the page's other door onto the same use cases, and its document is
     # the one thing in the menu a reader opens to look something up.
-    page.click("#theme-toggle")
+    open_settings(page, "appearance")
     page.wait_for_timeout(150)
-    spec_item = page.get_by_role("menuitem", name="OpenAPI spec")
+    spec_item = page.get_by_role("button", name="OpenAPI spec")
     check(
         "the theme menu links the API document",
         spec_item.count() == 1,
         f"items named OpenAPI spec: {spec_item.count()}",
     )
-    if page.locator("#theme-menu").is_visible():
-        page.click("#theme-toggle")
+    if page.locator("#settings-dialog").is_visible():
+        page.keyboard.press("Escape")
 
     # The menu reads the theme back out of the store, so the pick is marked where
     # a user sees it. The closed menu leaves the accessibility tree, so it is
     # opened again before the marks are read.
-    page.click("#theme-toggle")
+    open_settings(page, "appearance")
     page.wait_for_timeout(150)
     check(
         "the theme menu marks the theme in force",
-        page.get_by_role("menuitemradio", name="Leica M").get_attribute("aria-checked") == "true"
-        and page.get_by_role("menuitemradio", name="Darkroom").get_attribute("aria-checked") == "false",
-        page.get_by_role("menuitemradio", name="Leica M").get_attribute("aria-checked"),
+        page.get_by_role("radio", name="Leica M").get_attribute("aria-checked") == "true"
+        and page.get_by_role("radio", name="Darkroom").get_attribute("aria-checked") == "false",
+        page.get_by_role("radio", name="Leica M").get_attribute("aria-checked"),
     )
     page.keyboard.press("Escape")
 
@@ -900,13 +900,13 @@ with sync_playwright() as playwright:
 
     page.click("#count-toggle")
     page.wait_for_timeout(200)
-    page.click("#theme-toggle")
+    open_settings(page, "appearance")
     page.wait_for_timeout(200)
     check(
         "opening one menu closes the one already open",
-        page.locator("#count-menu").is_hidden() and page.locator("#theme-menu").is_visible(),
+        page.locator("#count-menu").is_hidden() and page.locator("#settings-dialog").is_visible(),
         f"count hidden {page.locator('#count-menu').is_hidden()}, "
-        f"theme visible {page.locator('#theme-menu').is_visible()}",
+        f"theme visible {page.locator('#settings-dialog').is_visible()}",
     )
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
@@ -1887,6 +1887,7 @@ with sync_playwright() as playwright:
         page.locator("#strip-note").inner_text(),
     )
     page.keyboard.press("Escape")
+    tab.keyboard.press("Escape")
 
     # An image that arrives from the other tab is read back out of the store. An
     # image the store will not read has to be reported, or the strip stays one
@@ -2131,6 +2132,7 @@ with sync_playwright() as playwright:
     if not keep_switch(tab).is_checked():
         keep_switch(tab).click()
         tab.wait_for_timeout(500)
+    tab.keyboard.press("Escape")
     held = frames(tab)
     run_once(tab, "a pear on a wooden table")
     tab.wait_for_timeout(600)

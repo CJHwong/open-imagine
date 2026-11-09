@@ -17,6 +17,7 @@ from pathlib import Path
 
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 PORT = int(sys.argv[1])
 URL = f"http://127.0.0.1:{PORT}"
@@ -90,7 +91,7 @@ def seed(page, blobs):
 
 
 def open_menu(page):
-    page.click("#theme-toggle")
+    open_settings(page, "library")
 
 
 def main():
@@ -129,11 +130,12 @@ def main():
         page.get_by_role("button", name="Done", exact=True).click()
         page.locator("#image-gallery-browser .gallery-browse-toggle").click()
         open_menu(page)
-        assert page.get_by_role("menuitem", name="Export", exact=True).get_attribute("title") == (
+        assert page.get_by_role("button", name="Export", exact=True).get_attribute("title") == (
             "Save the whole gallery as one ZIP, records and media together, to restore in another browser."
         )
         with page.expect_download(timeout=60000) as download:
-            page.get_by_role("menuitem", name="Export", exact=True).click()
+            page.get_by_role("button", name="Export", exact=True).click()
+            page.keyboard.press("Escape")
         saved = download.value
         assert saved.suggested_filename.startswith("studio-gallery-"), saved.suggested_filename
         assert saved.suggested_filename.endswith(".zip"), saved.suggested_filename
@@ -164,7 +166,8 @@ def main():
         # as well as the gallery browser does.
         open_menu(target)
         with target.expect_file_chooser() as chooser:
-            target.get_by_role("menuitem", name="Import", exact=True).click()
+            target.get_by_role("button", name="Import", exact=True).click()
+            target.keyboard.press("Escape")
         chooser.value.set_files(saved.path())
         expect(target.locator("#toasts")).to_contain_text("Imported 4 items")
         target.wait_for_function(
@@ -226,7 +229,8 @@ def main():
         reader.wait_for_function("Boolean(document.querySelector('music-studio')?.capabilities)")
         open_menu(reader)
         with reader.expect_file_chooser() as chooser:
-            reader.get_by_role("menuitem", name="Import", exact=True).click()
+            reader.get_by_role("button", name="Import", exact=True).click()
+            reader.keyboard.press("Escape")
         chooser.value.set_files(legacy)
         expect(reader.locator("#toasts")).to_contain_text("Imported 1 items")
         reader.wait_for_function("gallery.length === 1")
@@ -253,7 +257,8 @@ def main():
         )
         open_menu(reader)
         with reader.expect_file_chooser() as chooser:
-            reader.get_by_role("menuitem", name="Import", exact=True).click()
+            reader.get_by_role("button", name="Import", exact=True).click()
+            reader.keyboard.press("Escape")
         chooser.value.set_files(version2)
         reader.wait_for_function("gallery.length === 2")
         print("PASS a version 2 bundle still imports.", flush=True)

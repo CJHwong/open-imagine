@@ -3,6 +3,7 @@
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
+from studio.l3_interface_adapters.gateways.image.qwen21.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.generator import Qwen21Generator
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_configuration import (
@@ -30,4 +31,12 @@ def qwen21_backend(config: ModelConfigurationGateway, **_) -> Qwen21BackendGatew
     )
 
 
-PROVIDER = ModelProvider("qwen21", "image", qwen21_backend, rewriter=build_rewriter, rewriter_cache=rewriter_cache)
+PROVIDER = ModelProvider(
+    "qwen21",
+    "image",
+    qwen21_backend,
+    rewriter=build_rewriter,
+    rewriter_cache=rewriter_cache,
+    storage_assets=storage_assets,
+    storage_name="Qwen-Image-2.1",
+)

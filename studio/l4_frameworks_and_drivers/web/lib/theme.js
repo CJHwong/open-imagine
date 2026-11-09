@@ -13,7 +13,7 @@
 // there. A slice of its own moves the toasts.
 
 import { get, set, subscribe } from './state.js';
-import { menuItem, toggleMenu } from '../components/popup-menu.js';
+import { menuItem } from '../components/popup-menu.js';
 import { t } from './i18n.js';
 
 const THEMES = [['', 'theme.name.darkroom'], ['leica', 'theme.name.leica'],
@@ -39,14 +39,14 @@ function paintTheme(id) {
 
 function markTheme() {
   const current = get('theme');
-  document.querySelectorAll('#theme-menu [data-theme]').forEach(function (item) {
+  document.querySelectorAll('#theme-menu [data-theme], #settings-dialog button[data-theme]').forEach(function (item) {
     item.setAttribute('aria-checked', String(item.dataset.theme === current));
+    item.tabIndex = item.dataset.theme === current ? 0 : -1;
   });
 }
 
 function mountMenu() {
   const menu = document.getElementById('theme-menu');
-  document.getElementById('theme-toggle').addEventListener('click', function () { toggleMenu(menu); });
   const section = document.createDocumentFragment();
   const head = document.createElement('div');
   head.className = 'menu-head';

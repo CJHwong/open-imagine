@@ -8,6 +8,7 @@ from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_configura
     build_rewriter,
     rewriter_cache,
 )
+from studio.l3_interface_adapters.gateways.image.viggle_turbo.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.viggle_turbo_backend_gateway import (
     ViggleTurboBackendGateway,
 )
@@ -45,5 +46,11 @@ def viggle_turbo_backend(config: ModelConfigurationGateway, **_) -> ViggleTurboB
 
 
 PROVIDER = ModelProvider(
-    "viggle_turbo", "image", viggle_turbo_backend, rewriter=build_rewriter, rewriter_cache=rewriter_cache
+    "viggle_turbo",
+    "image",
+    viggle_turbo_backend,
+    rewriter=build_rewriter,
+    rewriter_cache=rewriter_cache,
+    storage_assets=storage_assets,
+    storage_name="Viggle Turbo",
 )

@@ -6,6 +6,7 @@ Run against `uv run studio --stub --port <port> --all-backends`.
 import sys
 
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 URL = "http://127.0.0.1:" + sys.argv[1]
 
@@ -37,9 +38,9 @@ def main() -> None:
         page.goto(URL + "/")
         page.wait_for_function("document.documentElement.dataset.locale === 'en'")
 
-        page.locator("#theme-toggle").click()
-        expect(page.locator("#theme-menu")).to_contain_text("Language")
-        page.get_by_role("menuitemradio", name="繁體中文", exact=True).click()
+        open_settings(page, "appearance")
+        expect(page.locator("#settings-dialog")).to_contain_text("Language")
+        page.get_by_role("radio", name="繁體中文", exact=True).click()
         page.wait_for_load_state()
         page.wait_for_function("document.documentElement.dataset.locale === 'zh-TW'")
         expect(page.locator("html")).to_have_attribute("lang", "zh-TW")
@@ -49,12 +50,14 @@ def main() -> None:
         expect(page.locator("#media-music-mode")).to_have_text("音樂")
         expect(page.locator("#guide-toggle")).to_have_attribute("aria-label", "如何使用這個工作室")
         expect(page.locator("#theme-toggle")).to_have_attribute("aria-label", "設定")
-        page.locator("#theme-toggle").click()
-        expect(page.locator("#theme-menu")).to_contain_text("語言")
-        expect(page.get_by_role("menuitemradio", name="繁體中文", exact=True)).to_have_attribute("aria-checked", "true")
+        open_settings(page, "appearance")
+        expect(page.locator("#settings-dialog")).to_contain_text("語言")
+        expect(page.get_by_role("radio", name="繁體中文", exact=True)).to_have_attribute("aria-checked", "true")
         expect(page.locator("#workspace-tabs")).to_have_attribute("aria-label", "工作區")
         assert "locale-pending" not in (page.locator("html").get_attribute("class") or "")
         print("PASS the picker reloads into zh-TW and the sweep translated the chrome", flush=True)
+
+        page.keyboard.press("Escape")
 
         # Two strings no data-i18n attribute reaches, because a script writes them: the
         # guide's API line, and the parameters the voice model declares.
@@ -91,8 +94,8 @@ def main() -> None:
         # asks for en-US, so the browser decides and the page comes back English.
         page.goto(URL + "/")
         page.wait_for_function("document.documentElement.dataset.locale === 'zh-TW'")
-        page.locator("#theme-toggle").click()
-        page.get_by_role("menuitemradio", name="自動（瀏覽器語言）", exact=True).click()  # noqa: RUF001
+        open_settings(page, "appearance")
+        page.get_by_role("radio", name="自動（瀏覽器語言）", exact=True).click()  # noqa: RUF001
         page.wait_for_load_state()
         page.wait_for_function("document.documentElement.dataset.locale === 'en'")
         assert not [item for item in context.cookies() if item["name"] == "studio-locale"]

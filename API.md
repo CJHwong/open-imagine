@@ -1135,3 +1135,43 @@ With `true`, any unmeasured media run or batch item returns 503 before work star
 with instructions to change the setting. With `false`, those workflows may run
 without a memory check. Measured limits remain enforced in both modes. A policy
 change does not cancel operations already admitted.
+
+## Model storage and cleanup
+
+Settings is a modal with Appearance, Generation, Library and Model storage sections.
+Appearance and Library preferences belong to the browser; Generation policy and model
+files are shared by everyone using the server.
+
+`GET /api/v1/model-storage` lists provider-declared installed assets, including optional
+models hidden from the model picker. It returns `available`, an inventory `revision`,
+`models` (`id`, `name`, `workspace`) and `assets` (`id`, `label`, `location`, `kind`,
+`source`, `bytes`, owning `models`, and a `blocked` reason). Location is a cache repository
+ID or a local basename. Stub servers return `available: false` without reading real caches.
+
+`POST /api/v1/model-storage/plan` accepts model IDs and an optional runtime choice:
+
+```json
+{"models": ["qwen21_turbo"], "include_runtime": false}
+```
+
+The response has `remove`, `retain`, reclaimable `bytes` and `revision`. Retained assets
+include a `reason`: shared with an unselected model, runtime not selected, externally
+managed, or overlapping another declared path. Review this before deleting anything.
+
+`POST /api/v1/model-storage/remove` accepts the same selection plus the preview's
+`revision`. It returns removed asset IDs and reclaimed bytes. Changed files invalidate
+the preview (`400`); active operations or model loading block deletion (`409`). Studio
+releases resident engines before removal. No route accepts filesystem paths.
+
+Cleanup covers explicitly declared built-in weights and selected dedicated runtimes.
+Hugging Face repositories are removed through its cache API, retaining blobs referenced
+by other revisions. Repositories used outside Studio cannot be detected; other apps may
+need to download those files again. Shared built-in assets require selecting every owning
+model. Configured installed-plugin checkpoints are protected. Unmanaged paths, symlinked
+roots and overlapping declarations require manual management. Root cache folders are never
+removed. Generated results, browser galleries, configured user LoRAs, shared UV environments,
+and prompt-rewriter downloads are outside this cleanup scope. A declared weights folder
+containing a configured user LoRA or the private-result directory is protected as a whole. A later run can download
+missing weights again; configuration and model visibility are unchanged.
+
+All three endpoints refuse `X-Studio-Private-Key`. They do not inspect operation contents.

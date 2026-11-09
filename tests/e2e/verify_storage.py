@@ -12,6 +12,7 @@ import sys
 import zipfile
 
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 
 PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
@@ -43,12 +44,11 @@ def leave_blocked(page):
 
 
 def set_keep(page, on):
-    page.click("#theme-toggle")
+    open_settings(page, "library")
     item = page.locator("#keep-toggle")
     if (item.get_attribute("aria-checked") == "true") != on:
         item.click()
-    else:
-        page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
 
 
 with sync_playwright() as playwright:
@@ -59,7 +59,7 @@ with sync_playwright() as playwright:
     errors = []
     first.on("pageerror", lambda error: errors.append(str(error)))
     first.goto(URL)
-    first.click("#theme-toggle")
+    open_settings(first, "library")
     check("keeping is on by default", first.get_attribute("#keep-toggle", "aria-checked") == "true")
     first.keyboard.press("Escape")
     first.click("#advanced summary")

@@ -11,6 +11,7 @@ import time
 import wave
 
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 from voice_helpers import choose_voice_profile, create_voice_clips
 
 URL = "http://127.0.0.1:" + sys.argv[1]
@@ -214,8 +215,9 @@ with sync_playwright() as tool:
       voice.saved = new Promise(resolve => { window.releaseVoiceWrite = resolve; });
       voice.persist(true);
     }""")
-    owner.locator("#theme-toggle").click()
-    owner.get_by_role("menuitemcheckbox", name="Keep in this browser", exact=True).click()
+    open_settings(owner, "library")
+    owner.get_by_role("switch", name="Keep in this browser", exact=True).click()
+    owner.keyboard.press("Escape")
     owner.evaluate("window.releaseVoiceWrite()")
     owner.evaluate("document.getElementById('voice-studio').saved")
     owner.wait_for_timeout(300)

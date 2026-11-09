@@ -10,6 +10,7 @@ from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
+from studio.l2_use_cases.inspect_model_storage_use_case import InspectModelStorageUseCase
 from studio.l2_use_cases.model_services import ModelServices
 from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
 from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
@@ -17,6 +18,7 @@ from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
+from studio.l2_use_cases.remove_model_assets_use_case import RemoveModelAssetsUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageUseCase
 from studio.l2_use_cases.run_music_use_case import RunMusicUseCase
@@ -62,6 +64,10 @@ from studio.l3_interface_adapters.gateways.model_catalog.registry import (
     build_memory_estimates,
 )
 from studio.l3_interface_adapters.gateways.model_catalog.rewriters import build_rewriters as build_rewriters
+from studio.l3_interface_adapters.gateways.model_catalog.storage_definitions import (
+    protected_model_paths,
+    storage_definitions,
+)
 from studio.l3_interface_adapters.gateways.model_registration.installed_model_catalog import InstalledModelCatalog
 from studio.l3_interface_adapters.gateways.stub.image_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.stub.music_backend_gateway import StubMusicBackendGateway
@@ -74,6 +80,7 @@ from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
+from studio.l4_frameworks_and_drivers.model_asset_storage_gateway import ModelAssetStorageGateway
 from studio.l4_frameworks_and_drivers.python_entry_points import entry_points
 from studio.l4_frameworks_and_drivers.studio import Studio as Studio
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
@@ -219,6 +226,17 @@ def create_studio(
         private_results_dir=private_results_dir,
         resource_memory_headroom=None if stub else memory_headroom,
         memory_estimates=build_memory_estimates(config),
+        model_storage=None
+        if stub
+        else ModelAssetStorageGateway(
+            storage_definitions(BUILTIN_PROVIDERS, plugins, config),
+            [
+                Path.home() / "Library/Caches/models",
+                Path.home() / "Library/Caches/open-imagine/engines",
+                *(Path(root) for provider in BUILTIN_PROVIDERS for root in provider.storage_roots),
+            ],
+            protected_paths=(*protected_model_paths(BUILTIN_PROVIDERS, plugins, config), str(private_results_dir)),
+        ),
         settings=(
             JsonStudioSettingsGateway(config.settings_path, config.require_memory_estimate)
             if config.settings_path is not None and not stub
@@ -249,6 +267,7 @@ def assemble_studio(
     resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
     memory_estimates=None,
     settings: StudioSettingsGateway | None = None,
+    model_storage=None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     settings = settings if settings is not None else InMemoryStudioSettingsGateway()
@@ -362,6 +381,8 @@ def assemble_studio(
         batches=PrepareBatchUseCase(),
         resource_admission=resource_admission,
         settings=settings,
+        inspect_storage=InspectModelStorageUseCase(model_storage) if model_storage else None,
+        remove_assets=RemoveModelAssetsUseCase(model_storage, engine_lock, residency) if model_storage else None,
     )
     return Studio(
         handler=make_handler(controller, presenter, video_controller, api, allowed_origins),

@@ -65,6 +65,8 @@ class JsonApi:
         completion: CompleteOperationUseCase,
         batches: PrepareBatchUseCase,
         settings: StudioSettingsGateway | None = None,
+        inspect_storage=None,
+        remove_assets=None,
         resource_admission: Callable[[Mapping[str, object]], None] | None = None,
     ) -> None:
         self._controller = controller
@@ -76,6 +78,38 @@ class JsonApi:
         self._batches = batches
         self._resource_admission = resource_admission
         self._settings = settings
+        self._inspect_storage = inspect_storage
+        self._remove_assets = remove_assets
+
+    def model_storage(self):
+        if self._inspect_storage is None:
+            return {"available": False, "models": [], "assets": [], "revision": ""}
+        return {"available": True, **self._inspect_storage.execute()}
+
+    def storage_plan(self, payload):
+        if self._inspect_storage is None:
+            raise InvalidJob("Model cleanup is unavailable in this Studio instance.")
+        if set(payload) - {"models", "include_runtime"}:
+            raise InvalidJob("Provide model IDs and the runtime option only.")
+        return self._inspect_storage.execute(payload.get("models", []), payload.get("include_runtime", False))
+
+    def remove_model_assets(self, payload):
+        if self._remove_assets is None:
+            raise InvalidJob("Model cleanup is unavailable in this Studio instance.")
+        if set(payload) - {"models", "include_runtime", "revision"}:
+            raise InvalidJob("Provide a reviewed model cleanup selection only.")
+        remove_assets = self._remove_assets
+        result = {}
+
+        def remove():
+            result.update(
+                remove_assets.execute(
+                    payload.get("models", []), payload.get("include_runtime", False), payload.get("revision")
+                )
+            )
+
+        self._operations.exclusive(remove)
+        return result
 
     def settings(self) -> dict[str, bool]:
         return {"require_memory_estimate": self._settings.require_memory_estimate() if self._settings else True}
