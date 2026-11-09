@@ -72,7 +72,7 @@ function applyParams(preserveValues = false) {
     const value = Number(input.value);
     const fits = input.value !== '' && (param.minimum === null || value >= param.minimum)
       && (param.maximum === null || value <= param.maximum);
-    if (!preserveValues && (!fits || !input.dataset.applied)) input.value = param.default;
+    if (!input.dataset.applied || (!preserveValues && !fits)) input.value = param.default;
     input.dataset.applied = '1';
   });
   if (preserveValues) return;

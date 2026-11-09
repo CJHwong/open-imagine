@@ -252,6 +252,13 @@ def main():
         page.click("label[for=mode-edit]")
         check("guidance hides in edit", not visible(page, "#guidance"))
         check("edit guidance starts at the spec default", page.input_value("#cfg") == "1", page.input_value("#cfg"))
+        page.locator("#cfg").fill("4")
+        page.click("label[for=mode-generate]")
+        page.click("label[for=mode-edit]")
+        check(
+            "a chosen edit guidance survives mode switches", page.input_value("#cfg") == "4", page.input_value("#cfg")
+        )
+        page.locator("#cfg").fill("1")
         check(
             "edit calls its scale Guidance too",
             page.inner_text("label[for=cfg]") == "Guidance" and page.get_attribute("#cfg", "type") == "range",
