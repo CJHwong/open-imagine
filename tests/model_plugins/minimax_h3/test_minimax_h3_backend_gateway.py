@@ -7,12 +7,12 @@ from unittest.mock import Mock
 
 import pytest
 from open_imagine_h3 import plugin
-from open_imagine_h3.capabilities import CAPABILITIES
+from open_imagine_h3.capabilities import BASE_FORWARDS, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
 from open_imagine_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
 from open_imagine_h3.runtime import MAX_RESULT_BYTES, model_files
 
 from studio.plugins import PluginContext
-from studio.plugins.video import Cancelled, InvalidJob, VideoAudio, VideoJob, VideoReference
+from studio.plugins.video import Cancelled, InvalidJob, Lora, LoraUse, VideoAudio, VideoJob, VideoReference
 
 
 def job(**changes):
@@ -31,7 +31,28 @@ def ready(tmp_path, media_tools):
         '{"weight_map":{"test.weight":"model-1.safetensors"}}'
     )
     (models / "h3-dit-q8/model-1.safetensors").write_bytes(b"fixture weights")
-    return SimpleNamespace(settings={"engine_dir": str(engine), "model_dir": str(models)}, run_process=Mock())
+    return SimpleNamespace(
+        settings={"engine_dir": str(engine), "model_dir": str(models)},
+        run_process=Mock(),
+        capabilities=None,
+        lora_paths={},
+    )
+
+
+@pytest.fixture
+def offered(ready, tmp_path):
+    """The context that the host builds from two [[minimax_h3.loras]] tables."""
+    folder = tmp_path / "private-loras"
+    folder.mkdir()
+    for name in ("motion", "detail"):
+        (folder / f"private-{name}.safetensors").write_bytes(b"fixture adapter")
+    ready.capabilities = replace(
+        CAPABILITIES,
+        loras=(Lora("motion", "Motion", trigger="test motion"), Lora("detail", "Detail")),
+        max_loras=2,
+    )
+    ready.lora_paths = {name: str(folder / f"private-{name}.safetensors") for name in ("motion", "detail")}
+    return ready
 
 
 def test_plugin_declaration_and_factory_load_no_engine_or_model():
@@ -39,8 +60,18 @@ def test_plugin_declaration_and_factory_load_no_engine_or_model():
 
     assert plugin.capabilities == gateway.capabilities() == CAPABILITIES
     assert plugin.rewriter is None
+    # The host reads the LoRA tables, so the record itself declares none.
+    assert plugin.loras is True and not CAPABILITIES.loras and not CAPABILITIES.loras_with_audio
     assert CAPABILITIES.estimate is None
-    assert not CAPABILITIES.templates and not CAPABILITIES.fast_mode and not CAPABILITIES.can_skip_audio
+    assert not CAPABILITIES.templates and not CAPABILITIES.can_skip_audio
+    # Fast mode is fewer steps, so the form shows H3's own note and not LTX's float16 one.
+    assert CAPABILITIES.fast_mode and "half the denoise steps" in CAPABILITIES.fast_mode_note
+    assert FAST_FORWARDS * 2 == BASE_FORWARDS
+    assert CAPABILITIES.duration_presets == (73, 124, 175) and CAPABILITIES.max_frames == 175
+    # The engine encodes 17n+5 frames. It snaps any other count up, and the worker then refuses
+    # the clip only after the models load.
+    assert CAPABILITIES.frame_step == 17
+    assert all((frames - 5) % 17 == 0 for frames in (CAPABILITIES.min_frames, CAPABILITIES.max_frames))
     generate = CAPABILITIES.mode("generate")
     assert CAPABILITIES.modes == (generate,) and not generate.needs_clip
     assert generate.accepts_audio and generate.max_references == CAPABILITIES.max_references == 3
@@ -127,18 +158,19 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
     "changes,reason",
     [
         ({"edit": object()}, "no clip to change"),
-        ({"loras": (object(),)}, "no clip to change"),
         ({"references": (still(0), still(24), still(48), still(72))}, "at most 3 H3 keyframes"),
         ({"references": (still(36), still(36))}, "its own frame"),
         ({"references": (still(73),)}, "its own frame"),
         ({"references": (still(-1),)}, "its own frame"),
+        ({"num_frames": 175, "references": (still(175),)}, "its own frame"),
         ({"references": (still(True),)}, "its own frame"),
         ({"references": (still(0, strength=0.5),)}, "no strength setting"),
-        ({"fast_mode": True}, "base schedule"),
-        ({"include_audio": False}, "base schedule"),
+        ({"include_audio": False}, "always includes its sound"),
         ({"width": 256}, "offered H3 size"),
         ({"num_frames": 125}, "offered H3 size"),
         ({"num_frames": 74}, "offered H3 size"),
+        ({"num_frames": 56}, "a 73-175 frame clip"),
+        ({"num_frames": 192}, "a 73-175 frame clip"),
         ({"frame_rate": 30}, "offered H3 size"),
         ({"seed": -1}, "H3 seed"),
         ({"seed": True}, "H3 seed"),
@@ -149,6 +181,21 @@ def test_gateway_refuses_unsupported_inputs_before_starting_a_child(ready, chang
         MinimaxH3BackendGateway(ready).run(job(**changes))
 
     ready.run_process.assert_not_called()
+
+
+@pytest.mark.parametrize("frames", range(73, 176, 17))
+def test_gateway_runs_every_offered_length_with_a_still_on_its_last_frame(ready, frames):
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert request["frames"] == frames
+        assert [keyframe["frame"] for keyframe in request["keyframes"]] == [0, frames - 1]
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    result = MinimaxH3BackendGateway(ready).run(job(num_frames=frames, references=(still(0), still(frames - 1))))
+
+    assert result.num_frames == frames
 
 
 def test_gateway_refuses_cancellation_before_reading_weights(ready):
@@ -204,7 +251,12 @@ def test_shapes_keep_their_named_ratio_on_the_32_pixel_grid():
     for shape in CAPABILITIES.shapes:
         a, b = map(int, shape.ratio.split(":"))
         assert shape.width % 32 == shape.height % 32 == 0
-        assert abs(shape.width / shape.height / (a / b) - 1) < 0.01
+        assert CAPABILITIES.min_dimension <= min(shape.width, shape.height)
+        assert max(shape.width, shape.height) <= CAPABILITIES.max_dimension
+        # 1280 x 704 is LTX's own 16:9 class, 2.3 percent wide, so a clip from either model has
+        # the same frame. Every other size keeps its ratio within 1 percent.
+        tolerance = 0.025 if {shape.width, shape.height} == {1280, 704} else 0.01
+        assert abs(shape.width / shape.height / (a / b) - 1) < tolerance
 
 
 @pytest.mark.parametrize(
@@ -225,3 +277,186 @@ def test_gateway_refuses_a_wrong_quantization_or_incomplete_pack(ready, filename
     with pytest.raises(InvalidJob, match="weights"):
         MinimaxH3BackendGateway(ready).run(job())
     ready.run_process.assert_not_called()
+
+
+def test_gateway_offers_the_hosts_loras_and_sends_each_pick_as_its_file(offered):
+    seen = []
+
+    def execute(command, **options):
+        seen.append((command, options))
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+    gateway = MinimaxH3BackendGateway(offered)
+
+    gateway.run(job(loras=(LoraUse("detail", 0.4), LoraUse("motion", 0.7))))
+
+    command, options = seen[0]
+    request = json.loads(options["input_bytes"])
+    assert gateway.capabilities() == offered.capabilities
+    assert request["loras"] == [
+        {"path": offered.lora_paths["detail"], "scale": 0.4},
+        {"path": offered.lora_paths["motion"], "scale": 0.7},
+    ]
+    # The trigger words go after the prompt, as for every video model.
+    assert request["prompt"] == "private test words, test motion"
+    assert "private-" not in str(command) + str(options["environment"])
+
+
+def test_gateway_sends_no_loras_when_none_are_picked(offered):
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert request["loras"] == [] and request["prompt"] == "private test words"
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+
+    MinimaxH3BackendGateway(offered).run(job())
+
+
+@pytest.mark.parametrize(
+    "changes,reason",
+    [
+        ({"loras": (LoraUse("unknown", 1.0),)}, "no LoRA called unknown"),
+        ({"loras": (LoraUse("motion", 1.0),), "audio": VideoAudio(b"RIFF", "voice.wav")}, "follows a track"),
+    ],
+)
+def test_gateway_refuses_a_lora_it_cannot_apply_before_starting_a_child(offered, changes, reason):
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3BackendGateway(offered).run(job(**changes))
+
+    offered.run_process.assert_not_called()
+
+
+def test_gateway_refuses_a_missing_lora_file_by_its_id_and_logs_nothing(offered, capsys):
+    Path(offered.lora_paths["motion"]).unlink()
+
+    with pytest.raises(InvalidJob, match="LoRA motion are not on disk") as refused:
+        MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+
+    offered.run_process.assert_not_called()
+    assert "private-" not in str(refused.value)
+    assert capsys.readouterr() == ("", "")
+
+
+def test_gateway_refuses_a_lora_in_a_folder_it_cannot_read_by_its_id(offered):
+    folder = Path(offered.lora_paths["motion"]).parent
+    folder.chmod(0)
+    try:
+        with pytest.raises(InvalidJob, match="LoRA motion are not on disk") as refused:
+            MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+    finally:
+        folder.chmod(0o755)
+
+    # The error of a folder that cannot be read names the path, and a failure shows on the page.
+    offered.run_process.assert_not_called()
+    assert "private-" not in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "applied,unaccounted,reason",
+    [
+        (0, 0, "no layer that it can load in LoRA motion"),
+        (0, 12, "No part of LoRA motion matches a layer"),
+        (208, 51, "LoRA motion has 51 parts with no matching layer"),
+        # The real engine counts one adaLN pair this way, on a file with one fc2 pair beside it.
+        (1, 1, "LoRA motion has 1 part with no matching layer"),
+    ],
+)
+def test_gateway_names_the_lora_that_the_engine_could_not_apply(offered, applied, unaccounted, reason):
+    def execute(_command, **options):
+        event = {"event": "lora_unfit", "index": 1, "applied": applied, "unaccounted": unaccounted}
+        options["consume"](json.dumps(event) + "\n")
+        raise AssertionError("the gateway kept reading after an unfit LoRA")
+
+    offered.run_process = execute
+
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("detail", 1.0), LoraUse("motion", 0.5))))
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"event": "lora_unfit", "index": 1, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": -1, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": True, "applied": 0, "unaccounted": 0},
+        {"event": "lora_unfit", "index": 0, "applied": "0", "unaccounted": 0},
+        {"event": "lora_unfit", "index": 0, "applied": 0},
+    ],
+)
+def test_gateway_ignores_a_malformed_lora_event(offered, event):
+    def execute(_command, **options):
+        options["consume"](json.dumps(event) + "\n")
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+
+    result = MinimaxH3BackendGateway(offered).run(job(loras=(LoraUse("motion", 1.0),)))
+
+    assert result.mp4[4:8] == b"ftyp"
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_gateway_runs_fast_mode_as_half_the_forwards_and_reports_its_steps(ready, fast):
+    seen = []
+    forwards = FAST_FORWARDS if fast else BASE_FORWARDS
+
+    def execute(_command, **options):
+        seen.append(json.loads(options["input_bytes"]))
+        # A total from the other schedule is not this run's progress.
+        options["consume"](f'{{"event":"step","step":1,"total":{forwards}}}\n{{"event":"step","step":1,"total":12}}\n')
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+    progress = Mock()
+
+    MinimaxH3BackendGateway(ready).run(job(fast_mode=fast), progress)
+
+    assert seen[0]["forwards"] == forwards
+    progress.assert_called_once_with(1, forwards, 7)
+
+
+def test_fast_mode_takes_the_measured_clip_and_its_rows_cap_matches_it():
+    # The measured clip came from one still, and each still adds one latent frame of rows.
+    assert video_rows(1024, 576, 124, 1) == FAST_MAX_ROWS
+    assert video_rows(1024, 576, 124, 0) < FAST_MAX_ROWS < video_rows(1024, 576, 124, 2)
+    assert video_rows(1280, 704, 73, 2) <= FAST_MAX_ROWS < video_rows(1024, 576, 141, 0)
+
+
+@pytest.mark.parametrize(
+    "width,height,frames,stills,taken",
+    [
+        (512, 288, 175, 3, True),
+        (512, 512, 175, 0, True),
+        (1024, 576, 124, 0, True),
+        (1024, 576, 124, 1, True),
+        (576, 1024, 124, 1, True),
+        (1280, 704, 73, 2, True),
+        (1024, 576, 124, 2, False),
+        (1024, 576, 124, 3, False),
+        (1280, 704, 73, 3, False),
+        (1024, 576, 141, 0, False),
+        (1280, 704, 90, 0, False),
+        (704, 1280, 175, 0, False),
+    ],
+)
+def test_gateway_refuses_fast_mode_past_the_measured_clip_before_starting_a_child(
+    ready, width, height, frames, stills, taken
+):
+    def execute(_command, **options):
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = Mock(side_effect=execute)
+    references = tuple(still(frame) for frame in (0, frames // 2, frames - 1)[:stills])
+    clip = job(fast_mode=True, width=width, height=height, num_frames=frames, references=references)
+
+    if taken:
+        MinimaxH3BackendGateway(ready).run(clip)
+        ready.run_process.assert_called_once()
+    else:
+        with pytest.raises(InvalidJob, match="up to the size of 1024 x 576 at 124 frames with one keyframe"):
+            MinimaxH3BackendGateway(ready).run(clip)
+        ready.run_process.assert_not_called()
+        # The same clip at the base schedule runs.
+        MinimaxH3BackendGateway(ready).run(replace(clip, fast_mode=False))

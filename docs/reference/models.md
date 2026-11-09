@@ -13,7 +13,7 @@ Normal startup offers Qwen-Image-2.1-Turbo in Image, and one model in each other
 | Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
-| Video | [MiniMax H3 plugin](../../model_plugins/minimax_h3/README.md), experimental | `minimax_h3` | Short clips with native sound from text, up to three keyframes or an audio track | Staged Q8; 512 x 288 / 73-frame runs measured on M5 Pro 64 GiB |
+| Video | [MiniMax H3 plugin](../../model_plugins/minimax_h3/README.md), experimental | `minimax_h3` | Short clips with native sound from text, up to three keyframes or an audio track, and one LoRA from your settings | Staged Q8; 512 x 288 runs of 73 and 175 frames, and one run each of 1024 x 576 and 1280 x 704 at 175 frames, measured on M5 Pro 64 GiB. With one LoRA, one run each of 512 x 288 at 73 frames and 1024 x 576 at 175 |
 | Voice | **Drama-3 (default)** | `drama3` | Generate and Clone | Eight-bit MLX checkpoint |
 | Voice | AuK | `auk_base` | Design, Clone, Edit | Eight-bit base; 32 steps, guidance 2 |
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |

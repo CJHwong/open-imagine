@@ -12,8 +12,8 @@ example_qwen = "open_imagine_example.qwen:plugin"
 example_video = "open_imagine_example.video:plugin"
 example_ltx = "open_imagine_example.ltx:plugin"
 
-[project.entry-points."open_imagine.models.audio"]
-example_voice = "open_imagine_example.audio:plugin"
+[project.entry-points."open_imagine.models.voice"]
+example_voice = "open_imagine_example.voice:plugin"
 
 [build-system]
 requires = ["uv_build>=0.8,<0.13"]

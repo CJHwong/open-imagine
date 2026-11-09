@@ -5,6 +5,10 @@ metrics writer and media writer, and forwards only numerical progress and memory
 It also hands the engine its keyframes and its audio track from memory. The engine reads
 them in three places: a file check, `Image.open` and `read_audio`. Each one sees a path
 under MEMORY, which does not exist on disk, so a read that bypasses them fails.
+
+A LoRA is a file on disk, which the engine reads itself. The engine only prints a warning
+when it cannot apply all of one, and that text goes nowhere, so this adapter reads the
+engine's own count instead and stops the run before the denoise.
 """
 
 import base64
@@ -21,6 +25,8 @@ from pathlib import Path, PosixPath
 
 MEMORY = Path("/open-imagine-memory")
 TRACK = str(MEMORY / "track")
+# The base schedule: nine sigma points, so eight transformer evaluations.
+BASE_FORWARDS = 8
 
 
 def load_module(path, name):
@@ -34,13 +40,14 @@ def load_module(path, name):
 
 
 class ProgressSink(io.TextIOBase):
-    def __init__(self, emit):
+    def __init__(self, emit, total=BASE_FORWARDS):
         self.emit = emit
+        self.total = total
 
     def write(self, text):
-        match = re.match(r"^step ([1-8])/8: [0-9.]+s(?: |$)", text)
-        if match:
-            self.emit({"event": "step", "step": int(match[1]), "total": 8})
+        match = re.match(r"^step ([0-9]+)/([0-9]+): [0-9.]+s(?: |$)", text)
+        if match and int(match[2]) == self.total and 1 <= int(match[1]) <= self.total:
+            self.emit({"event": "step", "step": int(match[1]), "total": self.total})
         return len(text)
 
     def flush(self):
@@ -69,6 +76,10 @@ def render(engine, models, request, emit):
     track = base64.b64decode(request["audio"]) if request.get("audio") else None
     if track is not None:
         flags += ["--audio-drive", TRACK]
+    # Runtime adapters on the Q8 layers, in the order picked. The engine stacks them.
+    for lora in request.get("loras", ()):
+        flags += ["--lora", f"{lora['path']}:{lora['scale']}"]
+    forwards = request.get("forwards", BASE_FORWARDS)
 
     held = set(stills) | ({TRACK} if track is not None else set())
 
@@ -96,11 +107,25 @@ def render(engine, models, request, emit):
     streams = []
 
     class MemoryRecorder(original):
+        unfit = False
+
         def flush(self):
-            pass
+            # The engine counts each LoRA's layers once it has applied them, before the denoise.
+            # A LoRA that it applied in part, or not at all, still renders a plausible clip.
+            # The phase that raised flushes once more on its way out, so report only once.
+            accounting = self.data.get("lora_accounting")
+            for index, adapter in enumerate(accounting["adapters"] if accounting and not self.unfit else ()):
+                applied, unaccounted = int(adapter["applied"] or 0), int(adapter["unaccounted"])
+                if not applied or unaccounted:
+                    self.unfit = True
+                    emit({"event": "lora_unfit", "index": index, "applied": applied, "unaccounted": unaccounted})
+                    raise RuntimeError("H3 cannot apply all of a LoRA.")
 
         @contextlib.contextmanager
         def phase(self, name):
+            # The check above needs the engine's count. Without it, a LoRA goes unchecked, so stop.
+            if name == "joint_denoise" and request.get("loras") and "lora_accounting" not in self.data:
+                raise RuntimeError("H3 did not count the layers of the LoRAs.")
             with super().phase(name):
                 yield
             item = self.data["phases"][-1]
@@ -147,7 +172,8 @@ def render(engine, models, request, emit):
         "--seed",
         str(request["seed"]),
         "--steps",
-        "9",
+        # The engine counts sigma points, one more than the forwards.
+        str(forwards + 1),
         "--wired-gb",
         "40",
         "--memory-gb",
@@ -162,7 +188,7 @@ def render(engine, models, request, emit):
     ]
     Image.open = open_image  # ty: ignore[invalid-assignment]
     try:
-        with contextlib.redirect_stdout(ProgressSink(emit)), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(ProgressSink(emit, forwards)), contextlib.redirect_stderr(io.StringIO()):
             code = engine.main()
         if code != 0 or encoded is None:
             raise RuntimeError("H3 did not finish a clip.")

@@ -26,6 +26,7 @@
 <script type="module" src="/page/components/studio-guide.js"></script>
 <script type="module" src="/page/lib/htmx.js"></script>
 <script type="module" src="/page/lib/theme.js"></script>
+<script type="module" src="/page/lib/studio-settings.js"></script>
 <script type="module" src="/page/lib/locale.js"></script>
 <script type="module" src="/page/components/size-chips.js"></script>
 <script type="module" src="/page/components/advanced-panel.js"></script>
@@ -622,6 +623,9 @@
       });
       if (typeof capabilities.description === 'string' && typeof backend === 'string') {
         capabilities.description = label('backend', backend, capabilities.description);
+      }
+      if (capabilities.fast_mode_note && typeof capabilities.fast_mode_note === 'string' && typeof backend === 'string') {
+        capabilities.fast_mode_note = label('fastmode', backend, capabilities.fast_mode_note);
       }
       // The note a model shows before its first load belongs to the backend that wrote it.
       if (capabilities.loading && typeof capabilities.loading.note === 'string' && typeof backend === 'string') {
@@ -1538,9 +1542,23 @@
     return videoLoraDoor && !videoLoraHeld() ? videoLoraDoor.picks('video') : [];
   }
 
+  // Fast mode means a different thing on each model: float16 on LTX-2.5, fewer steps on H3.
+  // A choice made for one model does not carry to the next. A draft or an observed run of the
+  // new model sets it again after this.
+  let fastModeBackend = null;
+
   function syncVideoFastMode() {
     const supported = Boolean(videoCapabilities()?.fast_mode);
     document.getElementById('video-fast-field').hidden = !supported;
+    const backend = videoCapabilities()?.backend_id ?? null;
+    if (backend !== fastModeBackend) {
+      document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
+      fastModeBackend = backend;
+    }
+    // A backend whose Fast mode is not the LTX-2.5 float16 path says what it does instead.
+    const note = videoCapabilities()?.fast_mode_note;
+    document.getElementById('video-fast-note').textContent =
+      typeof note === 'string' && note ? note : window.studioI18n.t('page.video.fastModeNote');
     if (!supported) document.getElementById('video-fast-mode').setAttribute('aria-pressed', 'false');
     syncVideoLoras();
   }
@@ -1549,6 +1567,9 @@
   // Edit has no choice, and a run that follows a track keeps that track.
   function syncVideoAudioTrack() {
     const button = document.getElementById('video-audio-track');
+    // A model that always makes its sound takes no "off". A choice made on another model, or
+    // kept in a draft, must not reach a run on this one, which refuses it.
+    if (!videoCapabilities()?.can_skip_audio) button.setAttribute('aria-pressed', 'true');
     const supported = Boolean(videoCapabilities()?.can_skip_audio) && videoModeInForce().id === 'generate';
     document.getElementById('video-audio-field').hidden = !supported;
     if (!supported) return;
@@ -1982,31 +2003,34 @@
     try {
       // The run sheet reads what this page is about to send.
       videoStudio.rememberRun(settings);
+      // Capture controls and references before reading any media. A switch in another
+      // client may redraw the form while the bytes are being read.
+      const payload = videoStudio.requestPayload({
+        mode: settings.mode,
+        adapter: settings.adapter,
+        adapterStrength: settings.effectStrength,
+        maxReferences: videoModeInForce().max_references,
+        // The track goes only from the mode that takes one. An edit carries the clip, and
+        // the controller refuses audio there anyway.
+        prompt: prompt,
+        width: width,
+        height: height,
+        numFrames: numFrames,
+        frameRate: capabilities.frame_rate,
+        seed: seed,
+        backend: settings.backend,
+        enhance: true,
+        fastMode: settings.fastMode,
+        includeAudio: settings.includeAudio,
+        loras: settings.loras,
+        requestId: videoRunRequestId,
+            });
+      payload.clip = editing ? await selectedClipPayload() : undefined;
+      payload.audio = !editing ? await videoStudio.audioPayload() : undefined;
       const response = await fetch('/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Studio-Client': CLIENT_ID, 'X-Studio-Library': LIBRARY_ID },
-        body: JSON.stringify({...videoStudio.requestPayload({
-          mode: videoModeInForce().id,
-          adapter: videoAdapter,
-          adapterStrength: videoAdapterStrength(),
-          clip: videoModeInForce().needs_clip ? await selectedClipPayload() : undefined,
-          maxReferences: videoModeInForce().max_references,
-          // The track goes only from the mode that takes one. An edit carries the clip, and
-          // the controller refuses audio there anyway.
-          audio: !videoModeInForce().needs_clip ? await videoStudio.audioPayload() : undefined,
-          prompt: prompt,
-          width: width,
-          height: height,
-          numFrames: numFrames,
-          frameRate: capabilities.frame_rate,
-          seed: seed,
-          backend: STUDIO.video.backend.id,
-          enhance: true,
-          fastMode: settings.fastMode,
-          includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
-          loras: settings.loras,
-          requestId: videoRunRequestId,
-        }), draft_id: submittedDraftId}),
+        body: JSON.stringify({...payload, draft_id: submittedDraftId}),
       });
       settings.operationId = response.headers.get('X-Studio-Operation') || '';
       settings.createdAt = Number(response.headers.get('X-Studio-Completed')) * 1000 || Date.now();
@@ -2889,8 +2913,26 @@
             backends: video.backends.map(function (one) { return [one.id, one.name, one.description]; }),
             capabilities: video.capabilities, rewrite_modes: video.rewrite_modes || []};
           translateServerLabels(STUDIO);
-          syncVideoFastMode();
-          syncVideoMode();
+          // Another tab or an API caller switched the model, so this page draws the new
+          // model's lengths, shapes and limits, as a reload after a switch here does. Without
+          // them its next run sends the old model's size, and the new model refuses it.
+          videoResolutionRung = null;
+          applyVideoCapabilities();
+          if (typeof videoStudio.setModelCapabilities === 'function') {
+            videoStudio.setModelCapabilities(video.capabilities);
+            // The form keeps its inputs. Remove the ones the new model refuses: stills past its
+            // limit, and a track that its mode cannot follow. The drafts are paused, so the old
+            // model's draft keeps them.
+            const extra = videoStudio.imageReferences.slice(video.capabilities.max_references || 0);
+            extra.forEach(function (reference) { videoStudio.removeImageReference(reference.id); });
+            const mode = videoModeInForce();
+            const track = Boolean(videoStudio.audio) && !mode.needs_clip && !mode.accepts_audio;
+            if (track) videoStudio.clearAudio();
+            if (extra.length || track) {
+              showToast('info', t('page.video.switchRemoved', {name: STUDIO.video.backend.name}));
+            }
+          }
+          syncVideoFrameCount();
           if (drafts) drafts.restore('video');
         }
         if (changed) renderBackendSelector();

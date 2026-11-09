@@ -133,3 +133,18 @@ def test_model_lists_accept_startup_overrides_and_include_the_default(tmp_path, 
     config = load_config(path, **{f"visible_{family}": offered})
     expected = offered if "selected" in offered else ("selected", *offered)
     assert getattr(config, f"visible_{family}_backends") == expected
+
+
+def test_memory_policy_defaults_and_app_preferences_location(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS))
+    assert config.require_memory_estimate is True
+    assert config.settings_path == (Path.home() / ".config/open-imagine/settings.json").resolve()
+    config = load_config(write(tmp_path, 'require_memory_estimate = false\nsettings_path = "prefs.json"\n' + SETTINGS))
+    assert config.require_memory_estimate is False
+    assert config.settings_path == tmp_path / "prefs.json"
+
+
+@pytest.mark.parametrize("value", ['"false"', "1", "[]"])
+def test_memory_policy_requires_a_boolean(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"require_memory_estimate.*true or false"):
+        load_config(write(tmp_path, f"require_memory_estimate = {value}\n" + SETTINGS))

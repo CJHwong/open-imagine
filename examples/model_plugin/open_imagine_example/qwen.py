@@ -6,9 +6,9 @@ The record holds no code. The folder, the LoRAs and the rewriter models go in th
 schedule, it draws what qwen21 draws.
 """
 
-from studio.plugins.image import QwenCheckpoint
+from studio.plugins.image import QwenCheckpointRegistration
 
-plugin = QwenCheckpoint(
+plugin = QwenCheckpointRegistration(
     backend_id="example_qwen",
     name="Example Qwen checkpoint",
     description="Plugin example: a Qwen-Image-2.1 checkpoint from a folder, on the studio's mflux engine.",

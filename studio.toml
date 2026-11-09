@@ -14,6 +14,11 @@ default_voice_backend = "drama3"
 visible_voice_backends = ["drama3"]
 default_music_backend = "yue2"
 visible_music_backends = ["yue2"]
+# App-wide memory policy. Settings > Memory can change it for every caller.
+# Saved UI choices override this startup default and survive restarts.
+require_memory_estimate = true
+# The app preferences file contains no operation data. Stub mode keeps settings in memory.
+settings_path = "~/.config/open-imagine/settings.json"
 
 [mlx_video]
 # Image-aware LTX enhancement requires mlx-vlm==0.4.3 in this CLI environment.
@@ -125,7 +130,7 @@ rewrite_quantize = 8                      # as [qwen21]
 
 [auk]
 # AuK Flash runs its pinned environment in a lazy resident child.
-child_script = "studio/l3_interface_adapters/gateways/audio/auk_runtime/auk_child.py"
+child_script = "studio/l3_interface_adapters/gateways/voice/auk_runtime/auk_child.py"
 
 [auk_base]
 # AuK uses the same pinned child and shared encoder, with its 32-step Base weights.
@@ -134,7 +139,7 @@ child_script = "studio/l3_interface_adapters/gateways/audio/auk_runtime/auk_chil
 # The child bounds active wired memory by MLX’s recommendation and 75% of RAM,
 # then restores the prior limit while idle. Sampling and precision are unchanged.
 # Eight-bit Drama-3 in its separate pinned MLX Audio script environment.
-child_script = "studio/l3_interface_adapters/gateways/audio/drama3/drama3_child.py"
+child_script = "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.py"
 # Optional: an existing environment with the exact versions declared by the child.
 # python_path = "~/ltx-experiments/drama3-env/bin/python"
 

@@ -22,6 +22,8 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_backend`, `visible_backends` | Initial and available Image models. |
 | `default_video_backend`, `visible_video_backends` | Initial and available Video models. |
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
+| `require_memory_estimate` | `true`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
+| `settings_path` | `~/.config/open-imagine/settings.json`. Stores app preferences across restarts, without operation data. Relative paths resolve beside the TOML file. Stub servers keep preferences in memory and do not read or write this file. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
 | Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
@@ -39,6 +41,11 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 A workspace shows its model selector only when more than one model is offered.
 Selecting a model does not load it. Paths relative to the configuration file resolve from that file.
 
+Voice implementation modules live under `gateways/voice`. If an older copied configuration
+sets `child_script` to the former `audio` location, update it to the path in the shipped
+`studio.toml`, or remove that override to use the built-in default. Custom scripts outside
+the checkout keep their configured paths.
+
 ## LoRAs
 
 A built-in model can offer your own LoRA files. Add one `[[<backend>.loras]]` table for
@@ -51,6 +58,7 @@ each file under the model's section. These models take them:
 | `ltx23_mlx` | ltx-2-mlx | Generate, but not with an audio track |
 | An LTX pack plugin | ltx-2-mlx | As its family, `ltx25_mlx` or `ltx23_mlx` |
 | A Qwen checkpoint plugin | mflux | Generate and Edit; `modes` limits a LoRA to some of them |
+| `minimax_h3`, the [MiniMax H3 plugin](../../model_plugins/minimax_h3/README.md#loras) | Phosphene's staged H3 runner | Generate, but not with an audio track. The memory gate takes one LoRA per clip |
 
 `flux2` and `krea2` take no LoRAs, and a table under either one stops the studio at start.
 
@@ -121,3 +129,18 @@ values are rejected. The default runtime environment and weight setup are in
 [Music setup](../how-to/music.md).
 Startup loads no Music weights; generation uses installed local checkpoints only.
 See [Music setup](../how-to/music.md) for the default download recipe and input controls.
+
+## Memory policy
+
+The Settings menu's Memory section applies to every workspace and API caller.
+“Require a measured memory estimate” is on by default. A missing estimate returns
+503 with instructions for changing the setting; it is not a claim that a workflow
+is unsupported. Turn the setting off to run unmeasured workflows. Known estimates
+continue to enforce the model peak plus the macOS reserve in either mode.
+The current measurements apply to a 64 GiB Mac; other hosts have no calibrated
+estimate and require disabling this setting before running. Smaller output alone
+does not create an estimate for an unmeasured workflow.
+
+Changes take effect on the next admission check and do not stop a running operation.
+Saved preferences take precedence over `require_memory_estimate` in TOML; remove
+the preferences file to return to the configured default.

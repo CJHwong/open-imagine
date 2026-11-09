@@ -4,6 +4,16 @@ from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_R
 from studio.l3_interface_adapters.api.voice_prompt_guides import VOICE_START_HERE
 
 GUIDANCE = {
+    "readSettings": (
+        "Read the app-wide memory policy. require_memory_estimate defaults to true. "
+        "It applies to all workspaces and callers. This endpoint refuses private-key headers."
+    ),
+    "updateSettings": (
+        "Change the app-wide memory policy only when the user asks. Send exactly one boolean: "
+        "require_memory_estimate. True blocks unmeasured workflows; false permits them while known memory "
+        "limits remain enforced. The choice persists across restarts; stub servers keep it only for their "
+        "session. This endpoint refuses private-key headers and does not stop already admitted work."
+    ),
     "readOpenApi": (
         "Read this reference to choose an endpoint and a named request example. Start with readStudio for model IDs, "
         "then inspect only the chosen model's capabilities. Examples with media placeholders need real base64 bytes; "

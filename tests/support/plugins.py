@@ -5,10 +5,10 @@ from unittest.mock import Mock
 
 from studio.l1_entities.voice_capabilities import Capabilities as VoiceCapabilities
 from studio.l1_entities.voice_capabilities import ModeSpec as VoiceMode
-from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
-from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
+from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
+from studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog import GROUPS, InstalledModelCatalog
 from studio.plugins import ModelPlugin
 from studio.plugins.image import QwenCheckpoint
 from studio.plugins.video import LtxPack
@@ -34,12 +34,12 @@ def entry(kind: str, name: str, record) -> SimpleNamespace:
     return SimpleNamespace(name=name, group=GROUPS[kind], load=Mock(return_value=record))
 
 
-def install(monkeypatch, entries: list) -> ModelPlugins:
+def install(monkeypatch, entries: list) -> InstalledModelCatalog:
     monkeypatch.setattr(
-        "studio.l4_frameworks_and_drivers.model_plugins.metadata.entry_points",
+        "studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog.metadata.entry_points",
         lambda group: [item for item in entries if item.group == group],
     )
-    return ModelPlugins({})
+    return InstalledModelCatalog({})
 
 
 def pack_entries(*packs: LtxPack) -> list:

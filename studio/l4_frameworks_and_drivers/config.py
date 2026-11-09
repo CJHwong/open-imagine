@@ -23,6 +23,9 @@ class Config:
     default_music_backend: str = "yue2"
     visible_music_backends: tuple[str, ...] = ("yue2",)
 
+    require_memory_estimate: bool = True
+    settings_path: Path | None = None
+
     def backend(self, backend_id: str) -> dict:
         """One backend's settings. Paths are absolute, and a quantize of 0 means none."""
         return dict(self.sections.get(backend_id, {}))
@@ -58,6 +61,11 @@ def load_config(
     visible_voice = visible_voice if visible_voice else tuple(raw.get("visible_voice_backends", [default_voice]))
     if default_voice not in visible_voice:
         visible_voice = (default_voice, *visible_voice)
+    required = raw.get("require_memory_estimate", True)
+    if not isinstance(required, bool):
+        raise ConfigError("require_memory_estimate in studio.toml must be true or false")
+    settings_path = Path(raw.get("settings_path", "~/.config/open-imagine/settings.json")).expanduser()
+    settings_path = (path.parent / settings_path).resolve()
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}
     if quantize is not None:
         sections.setdefault(default, {})["quantize"] = quantize or None
@@ -67,6 +75,8 @@ def load_config(
         default_video_backend=default_video,
         visible_video_backends=visible_video,
         sections=sections,
+        require_memory_estimate=required,
+        settings_path=settings_path,
         default_voice_backend=default_voice,
         visible_voice_backends=visible_voice,
         default_music_backend=raw.get("default_music_backend", "yue2"),

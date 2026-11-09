@@ -12,9 +12,10 @@ import numpy as np
 import pytest
 import soundfile
 
-from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.config import load_config
-from studio.l4_frameworks_and_drivers.main import assemble_studio, music_yue2_backend
+from studio.l4_frameworks_and_drivers.main import assemble_studio
+from studio.l4_frameworks_and_drivers.model_factories.music.yue2 import music_yue2_backend
 from tests.support.fakes import FakeBackendGateway
 
 
@@ -27,7 +28,7 @@ def test_live_yue2_stereo_song_through_studio_operation():
         gateway = music_yue2_backend(config)
         studio = assemble_studio(
             {"fake": FakeBackendGateway()},
-            {"fake": NoPromptRewriter()},
+            {"fake": NoPromptRewriterGateway()},
             "fake",
             ("fake",),
             music_backends={"yue2": gateway},

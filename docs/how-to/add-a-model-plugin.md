@@ -37,9 +37,9 @@ Copy [the example package](../../examples/model_plugin/pyproject.toml). Keep one
 per model, under modules that identify Image, Video or Audio. Replace the example's engine
 work and capabilities with your model's actual implementation and supported settings.
 Do not import a built-in model gateway to advertise a different model. To run an LTX pack, such
-as a finetune, on the studio's own engine, export an `LtxPack` record and write no gateway. See
+as a finetune, on the studio's own engine, export an `LtxCheckpointRegistration` record and write no gateway. See
 [LTX packs](../reference/model-plugins.md#ltx-packs). To run a Qwen-Image-2.1 checkpoint the same
-way, export a `QwenCheckpoint` record. See
+way, export a `QwenCheckpointRegistration` record. See
 [Qwen checkpoints](../reference/model-plugins.md#qwen-checkpoints).
 
 Register the module-level `plugin` record in your package's `pyproject.toml`:
@@ -51,8 +51,8 @@ acme_image = "acme_models.image:plugin"
 [project.entry-points."open_imagine.models.video"]
 acme_video = "acme_models.video:plugin"
 
-[project.entry-points."open_imagine.models.audio"]
-acme_voice = "acme_models.audio:plugin"
+[project.entry-points."open_imagine.models.voice"]
+acme_voice = "acme_models.voice:plugin"
 ```
 
 A package can supply one model or several; omit unused groups. IDs use lowercase letters,
@@ -63,12 +63,12 @@ Names, badges, modes, sizes, parameters, templates, references and estimates com
 Export a record, not an already loaded engine:
 
 ```python
-from studio.plugins import ModelPlugin
+from studio.plugins import GatewayModelRegistration
 from studio.plugins.image import ImageBackendGateway
 
 # CAPABILITIES is a studio.plugins.image.Capabilities record.
 # AcmeImageGateway implements ImageBackendGateway.
-plugin = ModelPlugin(
+plugin = GatewayModelRegistration(
     capabilities=CAPABILITIES,
     create=lambda context: AcmeImageGateway(context.settings),
     api_version=1,

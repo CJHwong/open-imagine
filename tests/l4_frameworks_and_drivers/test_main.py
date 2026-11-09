@@ -5,17 +5,18 @@ import urllib.request
 from dataclasses import replace
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
 
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.video_job import VideoJob
-from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import (
     assemble_studio,
-    build_backends,
+    build_image_backends,
     build_rewriters,
     build_video_backends,
 )
@@ -31,7 +32,7 @@ def settings(tmp_path: Path, text: str, **flags):
 
 def test_only_the_offered_backends_are_built(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n')
-    assert list(build_backends(config)) == ["qwen21"]
+    assert list(build_image_backends(config)) == ["qwen21"]
 
 
 def test_video_models_have_an_independent_default_and_visible_list(tmp_path: Path):
@@ -74,7 +75,7 @@ def test_a_video_backend_the_app_does_not_know_is_named(tmp_path: Path):
 def test_a_missing_setting_is_named(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "qwen21"\n[qwen21]\nquantize = 0\n', backend="flux2")
     with pytest.raises(ConfigError, match=r"model_dir under \[flux2\]"):
-        build_backends(config)
+        build_image_backends(config)
 
 
 def test_the_viggle_backend_offers_the_same_prompt_rewriters(tmp_path: Path):
@@ -124,7 +125,7 @@ def test_the_rewriter_is_quantized_as_its_backend_section_says(tmp_path: Path, m
     from studio.l4_frameworks_and_drivers import main as main_module
 
     factory = Mock()
-    monkeypatch.setitem(main_module.REWRITERS, "qwen21_turbo", factory)
+    monkeypatch.setitem(main_module.IMAGE_REWRITER_FACTORIES, "qwen21_turbo", factory)
     models = 'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
     head = 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
 
@@ -155,7 +156,7 @@ def test_a_backend_with_no_rewriter_settings_gets_none(tmp_path: Path):
 def test_an_unknown_backend_is_named(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "mystery"\n')
     with pytest.raises(ConfigError, match="no backend called mystery"):
-        build_backends(config)
+        build_image_backends(config)
 
 
 def test_the_viggle_backend_is_built_from_its_own_settings(tmp_path: Path):
@@ -166,7 +167,7 @@ def test_the_viggle_backend_is_built_from_its_own_settings(tmp_path: Path):
         tmp_path,
         'default_backend = "viggle_turbo"\n[viggle_turbo]\nquantize = 0\nlora_path = "turbo.safetensors"\n',
     )
-    assert list(build_backends(config)) == ["viggle_turbo"]
+    assert list(build_image_backends(config)) == ["viggle_turbo"]
 
 
 def test_the_viggle_backend_cannot_be_built_without_its_adapter_path(tmp_path: Path):
@@ -174,7 +175,7 @@ def test_the_viggle_backend_cannot_be_built_without_its_adapter_path(tmp_path: P
     that names the backend and not its adapter says so."""
     config = settings(tmp_path, 'default_backend = "viggle_turbo"\n[viggle_turbo]\nquantize = 0\n')
     with pytest.raises(ConfigError, match=r"lora_path under \[viggle_turbo\]"):
-        build_backends(config)
+        build_image_backends(config)
 
 
 def test_official_turbo_backend_is_built_from_its_local_weight_directory(tmp_path: Path):
@@ -183,7 +184,7 @@ def test_official_turbo_backend_is_built_from_its_local_weight_directory(tmp_pat
         'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights/qwen-turbo"\n',
     )
 
-    backend = build_backends(config)["qwen21_turbo"]
+    backend = build_image_backends(config)["qwen21_turbo"]
 
     assert backend.capabilities().backend_id == "qwen21_turbo"
     assert backend._model_dir == (tmp_path / "weights/qwen-turbo").resolve()
@@ -200,7 +201,7 @@ def test_official_turbo_needs_a_local_weight_directory_setting(tmp_path: Path):
     config = settings(tmp_path, 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\n')
 
     with pytest.raises(ConfigError, match=r"model_dir under \[qwen21_turbo\]"):
-        build_backends(config)
+        build_image_backends(config)
 
 
 def test_official_turbo_gets_the_same_optional_prompt_rewriters(tmp_path: Path):
@@ -219,7 +220,7 @@ def served():
     """A real server on a free port, over a backend whose run lasts until it is cancelled."""
     started = threading.Event()
     backend = FakeBackendGateway(stop_check=lambda step: started.set() or time.sleep(0.2))
-    studio = assemble_studio({"fake": backend}, {"fake": NoPromptRewriter()}, "fake", ("fake",))
+    studio = assemble_studio({"fake": backend}, {"fake": NoPromptRewriterGateway()}, "fake", ("fake",))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield studio, server, backend, started
@@ -320,11 +321,11 @@ def test_voice_models_open_drama_by_default_and_keep_both_auk_models(tmp_path):
 
 
 def test_singular_voice_backend_assembly_still_uses_shared_residency():
-    from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
-        {"fake": NoPromptRewriter()},
+        {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
         voice_backend=StubVoiceBackendGateway(),
@@ -354,11 +355,19 @@ def test_drama_builder_keeps_the_engine_environment_separate(tmp_path, dedicated
 def test_each_model_has_its_own_gateway_class_under_its_media_family():
     from pathlib import Path
 
-    from studio.l4_frameworks_and_drivers.main import BACKENDS, VIDEO_BACKENDS, VOICE_BACKENDS
+    from studio.l4_frameworks_and_drivers.main import (
+        IMAGE_BACKEND_FACTORIES,
+        VIDEO_BACKEND_FACTORIES,
+        VOICE_BACKEND_FACTORIES,
+    )
 
     config = load_config(Path(__file__).parents[2] / "studio.toml")
     models = []
-    for family, builders in (("image", BACKENDS), ("video", VIDEO_BACKENDS), ("audio", VOICE_BACKENDS)):
+    for family, builders in (
+        ("image", IMAGE_BACKEND_FACTORIES),
+        ("video", VIDEO_BACKEND_FACTORIES),
+        ("voice", VOICE_BACKEND_FACTORIES),
+    ):
         for backend_id, builder in builders.items():
             gateway = builder(config)
             assert gateway.capabilities().backend_id == backend_id
@@ -376,7 +385,7 @@ def test_a_qwen_backend_offers_the_loras_of_its_section(tmp_path: Path, backend_
         f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "turbo"\nlora_path = "speed.safetensors"\n'
         + LORA_TABLE.format(id=backend_id, modes='modes = ["edit"]\n')
     )
-    backend = build_backends(settings(tmp_path, text))[backend_id]
+    backend = build_image_backends(settings(tmp_path, text))[backend_id]
 
     record = backend.capabilities()
     assert [lora.id for lora in record.mode("edit").loras] == ["example_warm"]
@@ -386,7 +395,7 @@ def test_a_qwen_backend_offers_the_loras_of_its_section(tmp_path: Path, backend_
 def test_a_lora_that_names_a_mode_the_model_lacks_stops_the_start(tmp_path: Path):
     text = 'default_backend = "qwen21"\n' + LORA_TABLE.format(id="qwen21", modes='modes = ["inpaint"]\n')
     with pytest.raises(ConfigError, match=r"\[qwen21\]: A LoRA names a mode"):
-        build_backends(settings(tmp_path, text))
+        build_image_backends(settings(tmp_path, text))
 
 
 @pytest.mark.parametrize("backend_id", ["flux2", "krea2"])
@@ -395,7 +404,7 @@ def test_a_flux_style_backend_refuses_a_lora_table(tmp_path: Path, backend_id):
         id=backend_id, modes=""
     )
     with pytest.raises(ConfigError, match="takes no LoRAs"):
-        build_backends(settings(tmp_path, text))
+        build_image_backends(settings(tmp_path, text))
 
 
 KREA2 = 'default_backend = "krea2"\n[krea2]\nmodel_dir = "weights"\n'
@@ -406,12 +415,12 @@ def test_krea2_refuses_a_quantize_it_would_ignore(tmp_path: Path, section, flags
     # The weights are stored at int8 and mflux runs the stored bits. A bf16 or int4
     # request would start, show int8 and run int8, so it stops the start instead.
     with pytest.raises(ConfigError, match=r"\[krea2\] runs its weights at int8"):
-        build_backends(settings(tmp_path, KREA2 + section, **flags))
+        build_image_backends(settings(tmp_path, KREA2 + section, **flags))
 
 
 @pytest.mark.parametrize(("section", "flags"), [("", {}), ("quantize = 8\n", {}), ("", {"quantize": 8})])
 def test_krea2_takes_no_quantize_or_its_own_eight(tmp_path: Path, section, flags):
-    assert build_backends(settings(tmp_path, KREA2 + section, **flags))["krea2"].capabilities().badge == "int8"
+    assert build_image_backends(settings(tmp_path, KREA2 + section, **flags))["krea2"].capabilities().badge == "int8"
 
 
 @pytest.mark.parametrize("backend_id", ["ltx25_mlx", "ltx23_mlx"])
@@ -548,7 +557,7 @@ def test_an_engine_error_names_the_pack_and_its_lora_by_id_and_never_by_path(mon
 def test_the_example_pack_is_a_valid_record(monkeypatch, tmp_path: Path):
     from importlib import import_module
 
-    from studio.l4_frameworks_and_drivers.main import ltx_pack_backend
+    from studio.l4_frameworks_and_drivers.model_factories.video.ltx_checkpoint import ltx_pack_backend
 
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
     pack = import_module("open_imagine_example.ltx").plugin
@@ -605,7 +614,7 @@ def test_a_checkpoint_is_built_like_the_qwen_models_from_its_own_section(
         id="example_qwen", modes='modes = ["edit"]\n'
     )
 
-    backend = build_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
+    backend = build_image_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
 
     assert isinstance(backend, QwenCheckpointBackendGateway)
     record = backend.capabilities()
@@ -628,7 +637,7 @@ def test_each_field_of_the_record_reaches_the_checkpoint_s_capabilities(monkeypa
     checkpoint = replace(
         CHECKPOINT, description="A finetune.", steps=(12, 8, 40), generate_size="1024x1536", max_edit_references=3
     )
-    backend = build_backends(checkpoint_settings(tmp_path), install(monkeypatch, checkpoint_entries(checkpoint)))[
+    backend = build_image_backends(checkpoint_settings(tmp_path), install(monkeypatch, checkpoint_entries(checkpoint)))[
         "example_qwen"
     ]
 
@@ -642,7 +651,7 @@ def test_each_field_of_the_record_reaches_the_checkpoint_s_capabilities(monkeypa
 def test_a_checkpoint_that_its_record_cannot_build_stops_the_start(monkeypatch, tmp_path: Path):
     registry = install(monkeypatch, checkpoint_entries(replace(CHECKPOINT, generate_sampler="euler_ancestral")))
     with pytest.raises(ConfigError, match="Cannot build the Qwen checkpoint example_qwen: generate_sampler"):
-        build_backends(checkpoint_settings(tmp_path), registry)
+        build_image_backends(checkpoint_settings(tmp_path), registry)
 
 
 @pytest.mark.parametrize("section", ["", '[example_qwen]\nmodel_dir = ""\n'])
@@ -650,7 +659,7 @@ def test_a_checkpoint_with_no_folder_setting_still_starts_and_its_run_names_the_
     from studio.l1_entities.image_job import ImageJob
 
     registry = install(monkeypatch, checkpoint_entries())
-    backend = build_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
+    backend = build_image_backends(checkpoint_settings(tmp_path, section), registry)["example_qwen"]
     with pytest.raises(StudioError, match=r"Set model_dir under \[example_qwen\]"):
         backend.run(
             ImageJob("generate", "a pear", 5, {"size": "1024x1024", "steps": 40, "strength": 0.4}, ()), None, None
@@ -660,11 +669,11 @@ def test_a_checkpoint_with_no_folder_setting_still_starts_and_its_run_names_the_
 def test_a_checkpoint_s_table_that_names_a_missing_mode_stops_the_start(monkeypatch, tmp_path: Path):
     section = LORA_TABLE.format(id="example_qwen", modes='modes = ["inpaint"]\n')
     with pytest.raises(ConfigError, match=r"\[example_qwen\]: A LoRA names a mode"):
-        build_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
+        build_image_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
 
 
 def test_a_checkpoint_gets_a_stub_rewriter_on_the_stub_and_hidden_ones_are_not_imported(monkeypatch, tmp_path: Path):
-    from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
+    from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
     from studio.l4_frameworks_and_drivers import main
 
     entries = checkpoint_entries(CHECKPOINT, replace(CHECKPOINT, backend_id="hidden_qwen"))
@@ -672,7 +681,7 @@ def test_a_checkpoint_gets_a_stub_rewriter_on_the_stub_and_hidden_ones_are_not_i
     try:
         assert studio.catalog.get("example_qwen").capabilities().name == "Example Qwen checkpoint"
         catalog = studio.rewriter._rewriter  # ty: ignore[unresolved-attribute] - the thread wrapper's catalog
-        assert isinstance(catalog._rewriters["example_qwen"], StubPromptRewriter)
+        assert isinstance(catalog._rewriters["example_qwen"], StubPromptRewriterGateway)
     finally:
         studio.shutdown()
     assert not next(item for item in entries if item.name == "hidden_qwen").load.called
@@ -694,7 +703,7 @@ def test_a_real_checkpoint_needs_the_host_platform_and_gets_the_qwen_rewriter_it
     platform = Mock()
     monkeypatch.setattr(main, "require_mlx", platform)
     rewriters = main.build_rewriters(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
-    assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriter)
+    assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriterGateway)
 
     studio = main.create_studio(
         checkpoint_settings(tmp_path, section),
@@ -715,7 +724,7 @@ def test_an_engine_error_names_the_checkpoint_and_its_lora_by_id_and_never_by_pa
     checkpoint_folder(tmp_path / "example-checkpoint")
     (tmp_path / "warm.safetensors").write_bytes(b"weights")
     section = '[example_qwen]\nmodel_dir = "example-checkpoint"\n' + LORA_TABLE.format(id="example_qwen", modes="")
-    backend = build_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))[
+    backend = build_image_backends(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))[
         "example_qwen"
     ]
 
@@ -741,7 +750,7 @@ def test_an_engine_error_names_the_checkpoint_and_its_lora_by_id_and_never_by_pa
 def test_the_example_checkpoint_is_a_valid_record(monkeypatch, tmp_path: Path):
     from importlib import import_module
 
-    from studio.l4_frameworks_and_drivers.main import qwen_checkpoint_backend
+    from studio.l4_frameworks_and_drivers.model_factories.image.qwen_checkpoint import qwen_checkpoint_backend
 
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
     checkpoint = import_module("open_imagine_example.qwen").plugin
@@ -749,3 +758,31 @@ def test_the_example_checkpoint_is_a_valid_record(monkeypatch, tmp_path: Path):
     backend = qwen_checkpoint_backend(checkpoint_settings(tmp_path), checkpoint)
     assert backend.capabilities().backend_id == "example_qwen"
     assert backend._generator._scheduler == "linear"
+
+
+@pytest.mark.parametrize("backend_id", ("auk", "auk_base", "drama3"))
+def test_shipping_voice_factories_launch_existing_child_scripts(backend_id):
+    from studio.l4_frameworks_and_drivers.model_factories.registry import VOICE_BACKEND_FACTORIES
+
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+    gateway = VOICE_BACKEND_FACTORIES[backend_id](config)
+    child = cast(Any, getattr(gateway, "_engine", gateway))._child
+    script = next(Path(argument) for argument in child._command if argument.endswith(".py"))
+    assert script.is_file(), f"{backend_id} starts a missing child script: {script}"
+
+
+@pytest.mark.parametrize("stub", [False, True])
+@pytest.mark.parametrize("required", [False, True])
+def test_startup_wires_app_memory_settings_and_isolates_the_stub(tmp_path, monkeypatch, stub, required):
+    from studio.l4_frameworks_and_drivers import main
+    from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
+
+    path = tmp_path / "app-settings.json"
+    JsonStudioSettingsGateway(path).set_require_memory_estimate(not required)
+    config = replace(pack_settings(tmp_path), settings_path=path, require_memory_estimate=required)
+    assembly = Mock()
+    monkeypatch.setattr(main, "assemble_studio", assembly)
+    monkeypatch.setattr(main, "require_mlx", lambda: None)
+    main.create_studio(config, stub=stub, plugins=install(monkeypatch, pack_entries()))
+    preferences = assembly.call_args.kwargs["settings"]
+    assert preferences.require_memory_estimate() is (required if stub else not required)

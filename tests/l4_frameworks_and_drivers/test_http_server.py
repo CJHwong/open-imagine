@@ -16,7 +16,7 @@ from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
 from studio.l1_entities.lora import Lora
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
 from studio.l1_entities.video_job import VideoJob, VideoResult
-from studio.l3_interface_adapters.gateways.prompt_rewriters import StubPromptRewriter
+from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
 from studio.l4_frameworks_and_drivers import http_server
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway, fake_video_capabilities
@@ -54,7 +54,7 @@ def served():
     clocks to zero. A route test reads status and body, and never the clock.
     """
     backends = {"fake": FakeBackendGateway(), "other": FakeBackendGateway("other", "Other")}
-    rewriters = {name: fast(StubPromptRewriter()) for name in backends}
+    rewriters = {name: fast(StubPromptRewriterGateway()) for name in backends}
     video_backend = FakeVideoBackend()
     other_video = FakeVideoBackendGateway("video-other", "Other video")
     studio = assemble_studio(
@@ -402,7 +402,7 @@ def test_workspace_route_releases_the_resident_model(served):
 
 def test_video_route_is_unavailable_without_a_video_backend():
     backends = {"fake": FakeBackendGateway()}
-    rewriters = {"fake": fast(StubPromptRewriter())}
+    rewriters = {"fake": fast(StubPromptRewriterGateway())}
     studio = assemble_studio(backends, rewriters, "fake", ("fake",))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -422,7 +422,7 @@ def test_video_route_is_unavailable_without_a_video_backend():
 
 def test_video_model_switch_is_unavailable_without_a_video_backend():
     backends = {"fake": FakeBackendGateway()}
-    rewriters = {"fake": fast(StubPromptRewriter())}
+    rewriters = {"fake": fast(StubPromptRewriterGateway())}
     studio = assemble_studio(backends, rewriters, "fake", ("fake",))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -1009,11 +1009,11 @@ def test_native_video_timestamp_survives_immediate_result_eviction(served, monke
 
 @pytest.fixture
 def voice_served():
-    from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
-        {"fake": fast(StubPromptRewriter())},
+        {"fake": fast(StubPromptRewriterGateway())},
         "fake",
         ("fake",),
         voice_backends={"auk": StubVoiceBackendGateway(), "auk_base": StubVoiceBackendGateway("base")},
@@ -1650,3 +1650,60 @@ def test_the_server_checks_expiry_at_most_once_per_minute(monkeypatch):
         assert server.expire.call_count == 2
     finally:
         server.server_close()
+
+
+def test_app_settings_apply_to_other_callers_and_discovery(served):
+    server = served[1]
+    assert json.loads(call(server, "/api/v1/settings")[2]) == {"require_memory_estimate": True}
+    status, _, body = post_json(server, "/api/v1/settings", {"require_memory_estimate": False})
+    assert status == 200 and json.loads(body) == {"require_memory_estimate": False}
+    assert json.loads(call(server, "/api/v1/settings")[2])["require_memory_estimate"] is False
+    assert json.loads(call(server, "/api/v1/studio")[2])["settings"]["require_memory_estimate"] is False
+    assert post_json(server, "/api/v1/settings", {"require_memory_estimate": True})[0] == 200
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"require_memory_estimate": "false"},
+        {"require_memory_estimate": 0},
+        {"require_memory_estimate": False, "other": True},
+    ],
+)
+def test_app_settings_refuse_ambiguous_or_unknown_values(served, payload):
+    assert post_json(served[1], "/api/v1/settings", payload)[0] == 400
+    assert json.loads(call(served[1], "/api/v1/settings")[2])["require_memory_estimate"] is True
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_app_settings_refuse_private_keys(served, method):
+    response = call(served[1], "/api/v1/settings", method=method, **{"X-Studio-Private-Key": "x" * 32})
+    assert response[0] == 400
+
+
+def test_app_policy_changes_admission_without_a_restart(tmp_path):
+    from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
+
+    studio = assemble_studio(
+        {"fake": FakeBackendGateway()},
+        {"fake": fast(StubPromptRewriterGateway())},
+        "fake",
+        ("fake",),
+        settings=JsonStudioSettingsGateway(tmp_path / "settings.json"),
+        resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        payload = {"kind": "image", "prompt": "a pear", "seed": 12}
+        status, _, body = post_json(server, "/api/v1/operations", payload)
+        assert status == 503 and "Settings > Memory" in json.loads(body)["error"]
+        assert studio.operations.recent() == []
+        assert post_json(server, "/api/v1/settings", {"require_memory_estimate": False})[0] == 200
+        assert post_json(server, "/api/v1/operations", payload)[0] == 202
+        assert JsonStudioSettingsGateway(tmp_path / "settings.json").require_memory_estimate() is False
+    finally:
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()

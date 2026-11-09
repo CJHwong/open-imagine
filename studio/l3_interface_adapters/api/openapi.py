@@ -20,6 +20,7 @@ from studio.l3_interface_adapters.api.openapi_examples import (
     video_examples,
     voice_examples,
 )
+from studio.l3_interface_adapters.api.settings_paths import settings_paths
 from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_REFERENCES, VIDEO_PROMPT_REFERENCES
 from studio.l3_interface_adapters.api.voice_prompt_guides import (
     VOICE_API_CONTRACT,
@@ -100,6 +101,7 @@ def openapi_document() -> dict[str, Any]:
             },
         ],
         "paths": {
+            **settings_paths(),
             **operation_paths(),
             **voice_paths(),
             **music_paths(),
@@ -394,7 +396,7 @@ def openapi_document() -> dict[str, Any]:
                         "fast_mode": {
                             "type": "boolean",
                             "default": False,
-                            "description": "Fast mode: optional LTX-2.5 rendering with float16 transformer computation and unchanged q8 weights. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
+                            "description": "Fast mode: an optional faster render path. On LTX-2.5 it is float16 transformer computation with unchanged q8 weights. A backend that sends fast_mode_note does it another way, which the note describes; on MiniMax H3 it runs half the denoise steps. May change generated details and motion even with the same seed; speed varies by geometry and conditioning. Off preserves default computation. Check the backend capability fast_mode before enabling. Applies to Generate, image/audio-conditioned Generate, and Edit; use one value for the whole batch. Set on each request; no server restart is needed. Not the Rewrite or prompt-enhancement switch.",
                         },
                         "include_audio": {
                             "type": "boolean",
@@ -537,6 +539,11 @@ def openapi_document() -> dict[str, Any]:
                 "Studio": {
                     "type": "object",
                     "properties": {
+                        "settings": {
+                            "type": "object",
+                            "required": ["require_memory_estimate"],
+                            "properties": {"require_memory_estimate": {"type": "boolean", "default": True}},
+                        },
                         "private_operations": {
                             "type": "boolean",
                             "description": "The studio honors X-Studio-Private-Key on POST /api/v1/operations.",

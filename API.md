@@ -752,6 +752,13 @@ capability before using it. It uses reduced transformer compute precision with t
 weights and sampling steps. Generated details and motion may differ even at the same seed;
 speed varies by output size and conditioning. It is separate from Rewrite and prompt enhancement.
 
+MiniMax H3, an optional plugin, also offers `fast_mode: true`, and it works another way. It runs
+half the denoise steps on the same weights. It refuses a clip with more packed video rows than
+1024 x 576 at 124 frames with one keyframe; each keyframe adds one frame of rows. So 1280 x 704
+takes Fast mode only at 73 frames. A backend like this sends `fast_mode_note` in its capabilities, a sentence that says what
+its Fast mode does. The page shows that sentence in place of its own. An empty `fast_mode_note`
+means the LTX-2.5 path.
+
 ```json
 {
   "kind": "video",
@@ -1100,3 +1107,24 @@ with urlopen(request, timeout=3600) as response:
 metadata = read_json(f"/api/v1/operations/{operation_id}/metadata")
 Path("synchronous-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 ```
+
+## App-wide settings
+
+`GET /api/v1/settings` returns `{"require_memory_estimate": true}` by default.
+The same object is included as `settings` in `GET /api/v1/studio`.
+
+`POST /api/v1/settings` accepts exactly one boolean:
+
+```json
+{"require_memory_estimate": false}
+```
+
+This changes the policy for all workspaces and callers and persists it across
+restarts. The UI exposes it in Settings → Memory. Stub servers keep the setting
+only for their session. Unknown keys and non-boolean values return 400; these
+routes refuse `X-Studio-Private-Key`. The file holds no operation data.
+
+With `true`, any unmeasured media run or batch item returns 503 before work starts,
+with instructions to change the setting. With `false`, those workflows may run
+without a memory check. Measured limits remain enforced in both modes. A policy
+change does not cancel operations already admitted.

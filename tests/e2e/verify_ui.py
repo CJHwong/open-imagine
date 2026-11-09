@@ -2691,16 +2691,16 @@ with sync_playwright() as playwright:
         len({text for text in edited}) == 2 and all("Edited from" in text for text in edited),
         f"{edited[0][:50]!r} / {edited[1][:50]!r}",
     )
-    # The choice belongs to the mode that declares it, and it goes back with the words when the
-    # mode changes, or a stale choice would outlive the references it was made about.
+    # Switching modes keeps references and settings. Returning to Edit restores the
+    # per-image choice made about those same references, rather than silently resetting it.
     batched.click("label[for=mode-generate]")
     batched.wait_for_timeout(300)
     batched.click("label[for=mode-edit]")
     batched.wait_for_timeout(300)
     check(
-        "a mode switch puts the choice back with the words it was made about",
-        batched.locator("#each-all").is_checked() or not batched.locator("#each-choice").is_visible(),
-        f"all checked {batched.locator('#each-all').is_checked()}, visible {batched.locator('#each-choice').is_visible()}",
+        "a mode switch preserves the per-image choice with its references",
+        batched.locator("#each-each").is_checked() and batched.locator("#each-choice").is_visible(),
+        f"each checked {batched.locator('#each-each').is_checked()}, visible {batched.locator('#each-choice').is_visible()}",
     )
 
     batch_context.close()
