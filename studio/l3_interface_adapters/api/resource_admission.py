@@ -9,7 +9,7 @@ from collections.abc import Callable, Mapping
 
 from PIL import Image, UnidentifiedImageError
 
-from studio.l1_entities.errors import InsufficientMemory, InvalidJob, ResourceEstimateUnavailable
+from studio.l1_entities.errors import InsufficientMemory, InvalidJob
 from studio.l1_entities.video_estimate import tokens
 
 GIB = 1024**3
@@ -18,7 +18,7 @@ OS_RESERVE_GIB = 8.0
 CALIBRATED_PLATFORM = "darwin"
 CALIBRATED_TOTAL_MEMORY_GIB = 64.0
 # Office M5 Pro, BF16 Qwen Turbo: 53.1 GiB at 1328 square.
-# A two-reference edit reached 10% free before cancellation took effect, so edits fail closed.
+# Edits have no calibrated peak; admission leaves them to the engine's memory policy.
 QWEN_TURBO_WEIGHTS_GIB = 30_000_000_000 / GIB
 QWEN_TURBO_GENERATE_PEAK_GIB = 53.1
 QWEN_TURBO_CALIBRATED_QUANTIZE = None
@@ -64,15 +64,17 @@ class ResourceAdmission:
         total_bytes, available_bytes = self._memory_headroom()
         estimate_gib = estimate_peak_gib(payload, total_bytes / GIB, qwen_turbo_quantize=self._qwen_turbo_quantize)
         if estimate_gib is None:
-            raise ResourceEstimateUnavailable(
-                "No safe memory estimate is available for this model setup. The operation was not started."
-            )
+            # Missing measurements do not make a validated workflow unsupported.
+            # Enforce measured limits without inventing a peak for other requests.
+            return
         available_gib = available_bytes / GIB
         required_gib = estimate_gib + OS_RESERVE_GIB
         if required_gib > available_gib:
             raise InsufficientMemory(
-                f"This request needs about {estimate_gib:.1f} GiB plus an {OS_RESERVE_GIB:.0f} GiB reserve. "
-                f"macOS reports about {available_gib:.1f} GiB free. Reduce the request or free memory."
+                f"Not enough memory to start this request. It needs about {estimate_gib:.1f} GiB "
+                f"plus {OS_RESERVE_GIB:.0f} GiB reserved for macOS; about {available_gib:.1f} GiB is available. "
+                "Close other memory-heavy apps or release the loaded model, then retry. "
+                "For images or video, try a smaller output or fewer references."
             )
 
 
@@ -90,13 +92,13 @@ def estimate_peak_gib(
         if not isinstance(item, Mapping):
             return None
         estimate = _estimate_one({**shared, **item}, qwen_turbo_quantize)
-        if estimate is None:
-            return None
-        estimates.append(estimate)
+        if estimate is not None:
+            estimates.append(estimate)
     if not estimates:
         return None
-    # Batches retain finished media while the next item runs.
-    return max(estimates) + max(0, len(estimates) - 1) * 0.125
+    # An unmeasured item must not hide a measured item's memory requirement.
+    # Batches retain finished media while the next item runs, including unmeasured items.
+    return max(estimates) + max(0, len(items) - 1) * 0.125
 
 
 def _estimate_one(payload: Mapping[str, object], qwen_turbo_quantize: int | None) -> float | None:

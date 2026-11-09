@@ -5,7 +5,7 @@ import json
 import pytest
 from PIL import Image
 
-from studio.l1_entities.errors import InsufficientMemory, InvalidJob, ResourceEstimateUnavailable
+from studio.l1_entities.errors import InsufficientMemory, InvalidJob
 from studio.l3_interface_adapters.api import resource_admission
 from studio.l3_interface_adapters.api.resource_admission import GIB, ResourceAdmission, estimate_peak_gib
 
@@ -46,11 +46,10 @@ def test_qwen_estimate_fails_closed_for_an_unmeasured_quantization():
     assert estimate_peak_gib(payload, 64, qwen_turbo_quantize=8) is None
 
 
-def test_admission_fails_closed_when_qwen_quantization_is_not_calibrated():
+def test_admission_allows_qwen_when_quantization_is_not_calibrated():
     admission = ResourceAdmission(lambda: (64 * GIB, 64 * GIB), qwen_turbo_quantize=8)
 
-    with pytest.raises(ResourceEstimateUnavailable):
-        admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
+    assert admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"}) is None
 
 
 def test_yue2_uses_the_engine_default_token_budget_for_each_mode():
@@ -73,6 +72,21 @@ def test_qwen_generation_blocks_when_free_memory_cannot_hold_the_peak_and_reserv
                 "size": "1024x1024",
             }
         )
+
+
+def test_memory_rejection_explains_the_shortfall_and_how_to_retry():
+    admission = ResourceAdmission(lambda: (64 * GIB, 59 * GIB))
+
+    with pytest.raises(InsufficientMemory) as rejected:
+        admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
+
+    message = str(rejected.value)
+    assert "Not enough memory to start" in message
+    assert "53.1 GiB" in message and "8 GiB reserved" in message
+    assert "59.0 GiB is available" in message
+    assert "Close other memory-heavy apps" in message
+    assert "release the loaded model" in message
+    assert "smaller output or fewer references" in message
 
 
 def test_qwen_generation_fails_closed_for_an_unmeasured_lora():
@@ -158,11 +172,10 @@ def test_admission_accepts_a_request_that_fits_with_the_reserve():
     assert admission({"kind": "image", "backend": "qwen21_turbo", "size": "512x512"}) is None
 
 
-def test_admission_rejects_a_request_without_a_safe_model_estimate():
+def test_admission_allows_a_request_without_a_measured_model_estimate():
     admission = ResourceAdmission(lambda: (64 * GIB, 64 * GIB))
 
-    with pytest.raises(ResourceEstimateUnavailable):
-        admission({"kind": "image", "backend": "optional-model"})
+    assert admission({"kind": "image", "backend": "optional-model"}) is None
 
 
 def test_batch_estimate_uses_the_largest_item_and_output_reserve():
@@ -176,6 +189,22 @@ def test_batch_estimate_uses_the_largest_item_and_output_reserve():
     )
 
     assert result == pytest.approx(36.48, abs=0.01)
+
+
+def test_unmeasured_batch_items_do_not_bypass_known_memory_limits():
+    payload = {
+        "kind": "image",
+        "backend": "qwen21_turbo",
+        "items": [
+            {"mode": "edit", "resolution": "512", "references": [encoded_png(512, 512)]},
+            {"mode": "generate", "size": "1024x1024"},
+        ],
+    }
+
+    assert estimate_peak_gib(payload, 64) == pytest.approx(53.225)
+    with pytest.raises(InsufficientMemory):
+        ResourceAdmission(lambda: (64 * GIB, 59 * GIB))(payload)
+    assert ResourceAdmission(lambda: (64 * GIB, 64 * GIB))(payload) is None
 
 
 @pytest.mark.parametrize("items", ([], ["bad"], [{"size": "not-a-size"}]))
@@ -248,24 +277,19 @@ def test_qwen_edit_fails_closed_for_unmeasured_resolutions(resolution):
     assert estimate("image", "qwen21_turbo", "edit", references=[reference], resolution=resolution) is None
 
 
-def test_qwen_edits_fail_closed_until_a_safe_peak_is_measured():
-    reference = {"png_base64": encoded_png(512, 512)}
+@pytest.mark.parametrize("resolution", ("match", "512", "768"))
+@pytest.mark.parametrize("count", (1, 2))
+def test_admission_allows_qwen_edits_without_claiming_a_measured_peak(resolution, count):
+    payload = {
+        "kind": "image",
+        "backend": "qwen21_turbo",
+        "mode": "edit",
+        "resolution": resolution,
+        "references": [{"png_base64": encoded_png(512, 512)}] * count,
+    }
 
-    one = estimate("image", "qwen21_turbo", "edit", references=[reference], resolution="match")
-    two = estimate("image", "qwen21_turbo", "edit", references=[reference, reference], resolution=512)
-
-    assert one is None
-    assert two is None
-    with pytest.raises(ResourceEstimateUnavailable):
-        ResourceAdmission(lambda: (64 * GIB, 64 * GIB))(
-            {
-                "kind": "image",
-                "backend": "qwen21_turbo",
-                "mode": "edit",
-                "resolution": "match",
-                "references": [reference, reference],
-            }
-        )
+    assert estimate_peak_gib(payload, 64) is None
+    assert ResourceAdmission(lambda: (64 * GIB, 50 * GIB))(payload) is None
 
 
 @pytest.mark.parametrize(
