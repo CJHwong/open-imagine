@@ -20,13 +20,12 @@ def test_the_file_names_the_backend_the_page_opens_with(tmp_path: Path):
     assert config.default_backend == "qwen21" and config.visible_backends == ("qwen21",)
 
 
-def test_the_shipping_config_opens_on_turbo_and_offers_krea2_beside_it():
-    """Image offers Qwen Turbo and Krea 2 Turbo, so the page draws a picker of two, and opens
-    on Turbo. `--all-backends` is how a person asks for the others, flux2 included."""
+def test_the_shipping_config_opens_on_turbo_without_a_picker():
+    """Optional Image models need an explicit visible list or command-line selection."""
     config = load_config(Path(__file__).parents[2] / "studio.toml")
 
     assert config.default_backend == "qwen21_turbo"
-    assert config.visible_backends == ("qwen21_turbo", "krea2")
+    assert config.visible_backends == ("qwen21_turbo",)
     assert config.default_video_backend == "ltx25_mlx"
     assert config.visible_video_backends == ("ltx25_mlx",)
 

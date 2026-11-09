@@ -168,7 +168,8 @@ Set `[flux3].model_dir` and `python_path` if you install elsewhere. The defaults
 
 ## Image: Krea 2 Turbo
 
-Image offers Krea 2 Turbo next to the default model, so its picker shows it from the first start.
+Krea 2 Turbo is optional. Add `krea2` to `visible_backends` in `studio.toml`, select it with
+`--backend krea2`, or use `--all-backends` to expose it alongside the other optional models.
 Krea 2 runs on the mflux the studio already pins, so it needs no runtime of its own.
 Download the eight-bit weights (about 22 GB):
 

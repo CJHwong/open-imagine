@@ -1,6 +1,6 @@
 # Models
 
-Normal startup offers Qwen-Image-2.1-Turbo and Krea 2 Turbo in Image, and one model in each other workspace. `--all-backends` exposes optional models; it does not install their weights.
+Normal startup offers Qwen-Image-2.1-Turbo in Image, and one model in each other workspace. Krea 2 Turbo is optional: add `krea2` to `visible_backends` or select it with `--backend krea2`. `--all-backends` exposes optional models; it does not install their weights.
 [Set up models](../how-to/set-up-models.md) before using optional engines or checkpoints.
 
 | Workspace | Model | API backend ID | Modes | Precision |
