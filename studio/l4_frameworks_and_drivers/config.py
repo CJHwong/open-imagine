@@ -22,6 +22,8 @@ class Config:
 
     default_music_backend: str = "yue2"
     visible_music_backends: tuple[str, ...] = ("yue2",)
+    # Start a request that the memory gate has no estimate for, with no memory check.
+    allow_unmeasured_setups: bool = False
 
     def backend(self, backend_id: str) -> dict:
         """One backend's settings. Paths are absolute, and a quantize of 0 means none."""
@@ -58,6 +60,9 @@ def load_config(
     visible_voice = visible_voice if visible_voice else tuple(raw.get("visible_voice_backends", [default_voice]))
     if default_voice not in visible_voice:
         visible_voice = (default_voice, *visible_voice)
+    unmeasured = raw.get("allow_unmeasured_setups", False)
+    if not isinstance(unmeasured, bool):
+        raise ConfigError("allow_unmeasured_setups in studio.toml must be true or false")
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}
     if quantize is not None:
         sections.setdefault(default, {})["quantize"] = quantize or None
@@ -73,6 +78,7 @@ def load_config(
         visible_music_backends=tuple(
             dict.fromkeys((raw.get("default_music_backend", "yue2"), *raw.get("visible_music_backends", ["yue2"])))
         ),
+        allow_unmeasured_setups=unmeasured,
     )
 
 

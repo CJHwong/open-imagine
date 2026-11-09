@@ -53,6 +53,20 @@ def test_admission_fails_closed_when_qwen_quantization_is_not_calibrated():
         admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
 
 
+def test_admission_with_unmeasured_setups_allowed_starts_a_request_that_has_no_estimate():
+    admission = ResourceAdmission(lambda: (64 * GIB, 1 * GIB), allow_unmeasured=True)
+
+    # LTX-2.5 has no estimate for a clip with a reference, so not even 1 GiB free stops it.
+    admission({"kind": "video", "backend": "ltx25_mlx", "num_frames": 121, "references": ["x"]})
+
+
+def test_admission_with_unmeasured_setups_allowed_keeps_the_check_of_a_measured_request():
+    admission = ResourceAdmission(lambda: (64 * GIB, 40 * GIB), allow_unmeasured=True)
+
+    with pytest.raises(InsufficientMemory, match=r"about 53\.1 GiB"):
+        admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
+
+
 def test_yue2_uses_the_engine_default_token_budget_for_each_mode():
     plan = estimate("music", "yue2", mode="plan")
     generate = estimate("music", "yue2", mode="generate")

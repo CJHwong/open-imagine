@@ -30,6 +30,20 @@ def test_the_shipping_config_opens_on_turbo_without_a_picker():
     assert config.visible_video_backends == ("ltx25_mlx",)
 
 
+def test_the_memory_gate_refuses_an_unmeasured_setup_unless_the_file_allows_it(tmp_path: Path):
+    assert load_config(write(tmp_path, SETTINGS)).allow_unmeasured_setups is False
+    assert load_config(Path(__file__).parents[2] / "studio.toml").allow_unmeasured_setups is False
+    allowed = load_config(write(tmp_path, "allow_unmeasured_setups = true\n" + SETTINGS))
+    assert allowed.allow_unmeasured_setups is True
+
+
+@pytest.mark.parametrize("value", ['"true"', '"false"', "1"])
+def test_allow_unmeasured_setups_takes_only_true_or_false(tmp_path: Path, value):
+    """A quoted "false" is a true string. Read as a flag, it would turn the gate off."""
+    with pytest.raises(ConfigError, match=r"allow_unmeasured_setups in studio\.toml must be true or false"):
+        load_config(write(tmp_path, f"allow_unmeasured_setups = {value}\n" + SETTINGS))
+
+
 def test_the_shipping_config_loads_the_image_weights_at_full_precision():
     """bf16 by default, because the 2026-10-19 measurement found no level faster than another:
     a quantized level costs accuracy and buys no time. `-q 8` asks for int8 when memory is the

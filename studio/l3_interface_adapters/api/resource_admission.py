@@ -53,9 +53,18 @@ KREA2_DEFAULT_SIZE = "1024x1024"
 
 
 class ResourceAdmission:
-    def __init__(self, memory_headroom: Callable[[], tuple[int, int]], qwen_turbo_quantize: int | None = None):
+    """`allow_unmeasured` starts a request that has no estimate, with no memory check. A
+    request that has an estimate keeps its check."""
+
+    def __init__(
+        self,
+        memory_headroom: Callable[[], tuple[int, int]],
+        qwen_turbo_quantize: int | None = None,
+        allow_unmeasured: bool = False,
+    ):
         self._memory_headroom = memory_headroom
         self._qwen_turbo_quantize = qwen_turbo_quantize
+        self._allow_unmeasured = allow_unmeasured
 
     def __call__(self, payload: Mapping[str, object]) -> None:
         self.check(payload)
@@ -64,6 +73,8 @@ class ResourceAdmission:
         total_bytes, available_bytes = self._memory_headroom()
         estimate_gib = estimate_peak_gib(payload, total_bytes / GIB, qwen_turbo_quantize=self._qwen_turbo_quantize)
         if estimate_gib is None:
+            if self._allow_unmeasured:
+                return
             raise ResourceEstimateUnavailable(
                 "No safe memory estimate is available for this model setup. The operation was not started."
             )

@@ -501,6 +501,18 @@ def test_a_pack_takes_the_base_packs_rewriter_and_only_visible_packs_are_importe
     assert not next(item for item in entries if item.name == "hidden_pack").load.called
 
 
+@pytest.mark.parametrize("allowed", [False, True])
+def test_the_studio_takes_the_unmeasured_setups_setting_from_the_file(monkeypatch, tmp_path: Path, allowed):
+    from studio.l4_frameworks_and_drivers import main
+
+    assemble = Mock()
+    monkeypatch.setattr(main, "assemble_studio", assemble)
+    config = replace(pack_settings(tmp_path), allow_unmeasured_setups=allowed)
+    main.create_studio(config, stub=True, plugins=install(monkeypatch, pack_entries()))
+
+    assert assemble.call_args.kwargs["allow_unmeasured_setups"] is allowed
+
+
 def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeypatch, tmp_path: Path):
     """A plugin of its own has no rewriter, so its modes are empty. The Gemma rewriter offers Generate."""
     from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway

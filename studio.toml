@@ -14,6 +14,11 @@ default_voice_backend = "drama3"
 visible_voice_backends = ["drama3"]
 default_music_backend = "yue2"
 visible_music_backends = ["yue2"]
+# The memory gate refuses a request that it has no measured estimate for, with a 503.
+# True starts such a request with no memory check, as the studio did before the gate.
+# A request that has an estimate keeps its check either way. The estimates hold only on a
+# 64 GiB Mac, so on any other machine true turns the check off for every request.
+allow_unmeasured_setups = false
 
 [mlx_video]
 # Image-aware LTX enhancement requires mlx-vlm==0.4.3 in this CLI environment.

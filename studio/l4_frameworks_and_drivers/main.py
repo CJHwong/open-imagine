@@ -659,6 +659,7 @@ def create_studio(
         private_results_dir=private_results_dir,
         resource_memory_headroom=None if stub else memory_headroom,
         qwen_turbo_quantize=config.backend("qwen21_turbo").get("quantize"),
+        allow_unmeasured_setups=config.allow_unmeasured_setups,
     )
 
 
@@ -683,6 +684,7 @@ def assemble_studio(
     private_results_dir: Path | None = None,
     resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
     qwen_turbo_quantize: int | None = None,
+    allow_unmeasured_setups: bool = False,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     gpu = GpuThread()
@@ -717,7 +719,9 @@ def assemble_studio(
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
     resource_admission = (
-        ResourceAdmission(resource_memory_headroom, qwen_turbo_quantize) if resource_memory_headroom else None
+        ResourceAdmission(resource_memory_headroom, qwen_turbo_quantize, allow_unmeasured_setups)
+        if resource_memory_headroom
+        else None
     )
     rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())

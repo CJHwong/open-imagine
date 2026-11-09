@@ -800,6 +800,30 @@ def test_the_api_video_route_needs_no_request_id(served):
     assert served[2].jobs[-1].prompt == "A kite rises"
 
 
+@pytest.mark.parametrize("allowed, status", [(False, 503), (True, 202)])
+def test_a_request_with_no_memory_estimate_starts_only_when_the_settings_allow_it(allowed, status):
+    """The fake backend has no measured estimate, so the memory gate has no figure for it."""
+    studio = assemble_studio(
+        {"fake": FakeBackendGateway()},
+        {"fake": fast(StubPromptRewriter())},
+        "fake",
+        ("fake",),
+        resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
+        allow_unmeasured_setups=allowed,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        answer, _, body = post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "pear", "seed": 12})
+        assert answer == status
+        if not allowed:
+            assert "No safe memory estimate" in json.loads(body)["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()
+
+
 def test_async_operations_return_shared_results_and_client_identity(served):
     import time
 

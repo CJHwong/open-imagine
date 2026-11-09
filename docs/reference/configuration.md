@@ -22,6 +22,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_backend`, `visible_backends` | Initial and available Image models. |
 | `default_video_backend`, `visible_video_backends` | Initial and available Video models. |
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
+| `allow_unmeasured_setups` | Off. The memory gate refuses a request that it has no measured estimate for, with a 503. On, such a request starts with no memory check. A request that has an estimate keeps its check. The estimates hold only on a 64 GiB Mac, so on any other machine On turns the check off for every request. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
 | Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
