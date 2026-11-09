@@ -5,6 +5,7 @@ from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.model_configuration.lora_table import parse_lora_tables
 from studio.l3_interface_adapters.gateways.model_configuration.lora_table_policy import LoraTablePolicy
 from studio.l3_interface_adapters.gateways.video.ltx23.ltx23_backend_gateway import Ltx23BackendGateway
+from studio.l3_interface_adapters.gateways.video.ltx23.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.video.ltx_runtime.construction import (
     _mlx_video_runner,
     validate_lora_section,
@@ -34,4 +35,11 @@ def ltx23_mlx_backend(
     return Ltx23BackendGateway(runner, loras)
 
 
-PROVIDER = ModelProvider("ltx23_mlx", "video", ltx23_mlx_backend, rewriter=build_rewriter)
+PROVIDER = ModelProvider(
+    "ltx23_mlx",
+    "video",
+    ltx23_mlx_backend,
+    rewriter=build_rewriter,
+    storage_assets=storage_assets,
+    storage_name="LTX-2.3",
+)

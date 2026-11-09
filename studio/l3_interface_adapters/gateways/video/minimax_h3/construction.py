@@ -9,6 +9,7 @@ from studio.l3_interface_adapters.gateways.model_configuration.lora_table_policy
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import CAPABILITIES
 from studio.l3_interface_adapters.gateways.video.minimax_h3.memory_estimate import estimate_peak_gib
 from studio.l3_interface_adapters.gateways.video.minimax_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
+from studio.l3_interface_adapters.gateways.video.minimax_h3.storage_assets import storage_assets
 
 LORA_POLICY = LoraTablePolicy(mode_scoped=False)
 
@@ -29,4 +30,11 @@ def memory_estimator(config):
     return estimate_peak_gib
 
 
-PROVIDER = ModelProvider("minimax_h3", "video", minimax_h3_backend, estimator=memory_estimator)
+PROVIDER = ModelProvider(
+    "minimax_h3",
+    "video",
+    minimax_h3_backend,
+    estimator=memory_estimator,
+    storage_assets=storage_assets,
+    storage_name="MiniMax H3",
+)

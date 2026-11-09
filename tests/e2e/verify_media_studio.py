@@ -20,6 +20,7 @@ from pathlib import Path
 from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 
 PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
@@ -2978,8 +2979,9 @@ with sync_playwright() as playwright:
         reset_image,
     )
     page.wait_for_timeout(500)
-    page.click("#theme-toggle")
-    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    open_settings(page, "generation")
+    page.get_by_role("button", name="Reset inputs", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_timeout(500)
     video_reset = page.evaluate(
         """() => ({prompt: document.getElementById('video-prompt').value,
@@ -2995,8 +2997,9 @@ with sync_playwright() as playwright:
         json.dumps(video_reset),
     )
     dialogs_before = len(reset_dialogs)
-    page.click("#theme-toggle")
-    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    open_settings(page, "generation")
+    page.get_by_role("button", name="Reset inputs", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_timeout(300)
     check(
         "an empty form resets without a confirm",
@@ -3024,8 +3027,9 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(150)
     page.fill("#seed", "12345")
     page.wait_for_timeout(500)
-    page.click("#theme-toggle")
-    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    open_settings(page, "generation")
+    page.get_by_role("button", name="Reset inputs", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_timeout(400)
     image_reset = page.evaluate(
         """() => ({prompt: document.getElementById('prompt').value,

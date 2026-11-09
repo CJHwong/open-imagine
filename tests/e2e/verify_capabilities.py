@@ -14,7 +14,7 @@ import threading
 from http.server import ThreadingHTTPServer
 
 from PIL import Image
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
@@ -383,6 +383,7 @@ def main():
         check("the film edge names the backend", "TINY" in page.inner_text(".stage"))
         # A generate-only backend has no edit mode to switch to. Krea 2 is one: before the
         # stage asked, Edit this checked a disabled radio and the form threw on a missing mode.
+        expect(page.get_by_role("button", name="Edit this", exact=True)).to_have_count(0)
         check(
             "a backend with no edit mode offers no Edit this",
             page.get_by_role("button", name="Edit this", exact=True).count() == 0

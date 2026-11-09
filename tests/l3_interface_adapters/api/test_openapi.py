@@ -312,3 +312,13 @@ def test_every_plan_example_passes_the_checks_of_the_model_it_names():
         request = image_plan_request(image_form(values, body["mode"]))
         options = qwen21_turbo_capabilities().mode(request.mode).parse_options(request.options)
         assert options["resolution"] == "match"
+
+
+def test_model_cleanup_requires_ids_and_a_reviewed_revision():
+    paths = openapi_document()["paths"]
+    plan = paths["/api/v1/model-storage/plan"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    remove = paths["/api/v1/model-storage/remove"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    assert plan["additionalProperties"] is False
+    assert plan["properties"]["include_runtime"]["default"] is False
+    assert remove["required"] == ["models", "revision"]
+    assert "get" in paths["/api/v1/model-storage"]

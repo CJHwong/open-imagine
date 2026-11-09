@@ -15,6 +15,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 
 from studio.l1_entities.errors import Cancelled
 from studio.l3_interface_adapters.gateways.stub.video_backend_gateway import StubVideoBackendGateway
@@ -91,12 +92,11 @@ with delayed_stub() as url, sync_playwright() as p:
     check("Fast mode switches on", page.get_attribute("#video-fast-mode", "aria-pressed") == "true")
     check("tradeoff is explained", "details and motion may differ" in page.inner_text("#video-fast-note"))
     # The existing preference controls whether drafts survive reload.
-    page.click("#theme-toggle")
-    keep = page.get_by_role("menuitemcheckbox", name="Keep in this browser")
+    open_settings(page, "library")
+    keep = page.get_by_role("switch", name="Keep in this browser")
     if keep.get_attribute("aria-checked") != "true":
         keep.click()
-    else:
-        page.keyboard.press("Escape")
+    page.keyboard.press("Escape")
     page.fill("#video-prompt", "A blue ceramic teapot on a table.")
     page.dispatch_event("#video-prompt", "input")
     page.wait_for_timeout(700)

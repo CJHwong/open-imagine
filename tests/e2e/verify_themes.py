@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 URL = f"http://127.0.0.1:{sys.argv[1]}/"
 SHOTS = Path(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -26,8 +27,9 @@ def contrast(first, second):
 
 
 def select_theme(page, name):
-    page.locator("#theme-toggle").click()
-    page.get_by_role("menuitemradio", name=name, exact=True).click()
+    open_settings(page, "appearance")
+    page.get_by_role("radio", name=name, exact=True).click()
+    page.keyboard.press("Escape")
     expect(page.locator("#theme-menu")).to_be_hidden()
 
 
@@ -46,7 +48,7 @@ with sync_playwright() as playwright:
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(URL)
     # The settings menu also carries the language entries; the themes carry data-theme.
-    expect(page.locator("#theme-menu [role=menuitemradio][data-theme]")).to_have_count(8)
+    expect(page.locator("#settings-dialog [role=radio][data-theme]")).to_have_count(8)
     # Populate real components through the stub, so media styles are checked too.
     page.locator("#prompt").fill("A red pear on a wooden table.")
     page.locator("#go").click()
@@ -63,8 +65,8 @@ with sync_playwright() as playwright:
     for theme, name in THEMES:
         select_theme(page, name)
         expect(page.locator("html")).to_have_attribute("data-theme", theme)
-        page.locator("#theme-toggle").click()
-        expect(page.get_by_role("menuitemradio", name=name, exact=True)).to_have_attribute("aria-checked", "true")
+        open_settings(page, "appearance")
+        expect(page.get_by_role("radio", name=name, exact=True)).to_have_attribute("aria-checked", "true")
         page.keyboard.press("Escape")
         for workspace in ("Image", "Video", "Voice", "Music"):
             tab = page.locator("#workspace-tabs button").filter(has_text=workspace)
@@ -141,14 +143,16 @@ with sync_playwright() as playwright:
         assert surfaces(page) == legacy_surfaces[name], (name, "legacy surfaces did not reset")
     print("PASS switching back restores all four legacy themes", flush=True)
     page.set_viewport_size({"width": 390, "height": 360})
-    page.locator("#theme-toggle").click()
-    menu = page.locator("#theme-menu")
-    last = page.get_by_role("menuitemradio", name="Risograph", exact=True)
+    open_settings(page, "appearance")
+    menu = page.locator("#settings-dialog")
+    last = page.get_by_role("radio", name="Risograph", exact=True)
     last.scroll_into_view_if_needed()
     expect(last).to_be_visible()
     bounds = menu.bounding_box()
     assert bounds and bounds["y"] >= 0 and bounds["y"] + bounds["height"] <= 360
-    assert menu.evaluate("el => el.scrollHeight > el.clientHeight"), "short menu must scroll"
+    assert page.locator(".settings-content").evaluate("el => el.scrollHeight > el.clientHeight"), (
+        "short settings content must scroll"
+    )
     last.click()
     expect(page.locator("html")).to_have_attribute("data-theme", "risograph")
     print("PASS final theme remains reachable in a short phone viewport", flush=True)

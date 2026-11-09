@@ -6,6 +6,7 @@ Run against a fresh `uv run studio --stub --all-backends --backend qwen21 --port
 import sys
 
 from playwright.sync_api import sync_playwright
+from settings_controls import open_settings
 
 URL = "http://127.0.0.1:" + sys.argv[1]
 
@@ -81,7 +82,7 @@ with sync_playwright() as tool:
     assert fresh.locator("#strip .frame").count() == 0
     print("PASS deleted UI results stay deleted after reload and in a new tab", flush=True)
 
-    first.locator("#theme-toggle").click()
+    open_settings(first, "library")
     first.locator("#keep-toggle").click()
     first.keyboard.press("Escape")
     run(first, "a temporary pear")

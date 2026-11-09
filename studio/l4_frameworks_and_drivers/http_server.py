@@ -226,12 +226,13 @@ def make_handler(
             if status != 200:
                 self._send_json(viewer, status=status)
                 return
-            if path == "/api/v1/settings" and self._refused_private_key():
+            if path in ("/api/v1/settings", "/api/v1/model-storage") and self._refused_private_key():
                 return
             readers = {
                 "/api/v1/openapi.json": api.openapi,
                 "/api/v1/studio": api.studio,
                 "/api/v1/settings": api.settings,
+                "/api/v1/model-storage": api.model_storage,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": lambda: api.progress(viewer),
@@ -323,6 +324,12 @@ def make_handler(
                 body, status = self._api_result(lambda: api.switch_backend(self._read_json(), workspace))
             elif path == "/api/v1/settings":
                 body, status = self._api_result(lambda: api.update_settings(self._read_json(include_identity=False)))
+            elif path == "/api/v1/model-storage/plan":
+                body, status = self._api_result(lambda: api.storage_plan(self._read_json(include_identity=False)))
+            elif path == "/api/v1/model-storage/remove":
+                body, status = self._api_result(
+                    lambda: api.remove_model_assets(self._read_json(include_identity=False))
+                )
             elif path == "/api/v1/memory/release":
                 body, status = self._api_result(api.release_model)
             elif path in ("/api/v1/images/generate", "/api/v1/images/edit"):

@@ -93,7 +93,7 @@ def test_app_policy_blocks_unmeasured_requests_until_disabled():
     settings = InMemoryStudioSettingsGateway()
     admission = ResourceAdmission(lambda: (64 * GIB, GIB), build_memory_estimates(Config("", (), "", (), {})), settings)
     payload = {"kind": "video", "backend": "ltx25_mlx", "references": ["unmeasured"]}
-    with pytest.raises(ResourceEstimateUnavailable, match="Settings > Memory"):
+    with pytest.raises(ResourceEstimateUnavailable, match="Settings > Generation"):
         admission(payload)
     settings.set_require_memory_estimate(False)
     admission(payload)

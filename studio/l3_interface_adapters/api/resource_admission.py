@@ -37,7 +37,7 @@ class ResourceAdmission:
             if required:
                 raise ResourceEstimateUnavailable(
                     "Memory use has not been measured for this model and setup, so Studio cannot check whether it fits. "
-                    "To run it anyway, open Settings > Memory and turn off 'Require a measured memory estimate', "
+                    "To run it anyway, open Settings > Generation and turn off 'Require a measured memory estimate', "
                     "then retry. This applies to all workspaces and API callers; known memory limits still apply."
                 )
             return

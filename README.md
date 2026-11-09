@@ -42,3 +42,14 @@ The rendered API reference with request examples is at **http://127.0.0.1:8765/a
 ## License
 
 The code is under the [MIT License](LICENSE). Each model's weights have their own license: see [model licenses](docs/reference/model-licenses.md).
+
+### Settings and model storage
+
+Open **Settings** in the header for theme previews and language, shared generation policy,
+and browser gallery preferences. **Model storage** lists downloaded built-in models,
+including optional models hidden from the picker. Select models, review the files and
+estimated space to reclaim, then choose **Remove files**. Dedicated runtimes are opt-in;
+shared assets stay until every owning model is selected. Studio must be idle to remove
+files. Generated results and configured user LoRAs are preserved. Downloads can be restored
+by running the model again or following its weight setup recipe. See [API.md](API.md#model-storage-and-cleanup)
+for cleanup scope and protected locations.

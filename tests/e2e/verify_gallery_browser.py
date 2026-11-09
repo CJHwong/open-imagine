@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 URL = f"http://127.0.0.1:{sys.argv[1]}"
 SHOTS = Path(sys.argv[2]) if len(sys.argv) > 2 else None
@@ -324,13 +325,14 @@ with sync_playwright() as playwright:
             arg={"selector": selector, "target": target},
         )
     print("PASS compact scroll restoration waits for media and workspace visibility", flush=True)
-    page.locator("#theme-toggle").click()
-    autoplay = page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True)
+    open_settings(page, "library")
+    autoplay = page.get_by_role("switch", name="Play new results automatically", exact=True)
     assert autoplay.get_attribute("aria-checked") == "true"
     autoplay.click()
     assert page.evaluate("localStorage.getItem('studio-autoplay')") == "off"
-    page.locator("#theme-toggle").click()
-    page.get_by_role("menuitemcheckbox", name="Play new results automatically", exact=True).click()
+    open_settings(page, "library")
+    page.get_by_role("switch", name="Play new results automatically", exact=True).click()
+    page.keyboard.press("Escape")
     assert page.evaluate("localStorage.getItem('studio-autoplay')") == "on"
     print("PASS the Media menu turns autoplay off and restores it", flush=True)
     # The image strip is content-sized, and its window must still reach the first
@@ -356,8 +358,9 @@ with sync_playwright() as playwright:
     print("PASS unavailable presentation storage is non-fatal; no page errors", flush=True)
     page.evaluate("Object.defineProperty(window, 'sessionStorage', window.__sessionDescriptor)")
     page.once("dialog", lambda dialog: dialog.accept())
-    page.locator("#theme-toggle").click()
-    page.get_by_role("menuitemcheckbox", name="Keep in this browser", exact=True).click()
+    open_settings(page, "library")
+    page.get_by_role("switch", name="Keep in this browser", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_function(
         '["image", "video", "voice"].every(kind => !sessionStorage.getItem("studio-gallery-view-" + kind))'
     )

@@ -6,6 +6,7 @@ from studio.l3_interface_adapters.gateways.model_configuration.lora_table import
 from studio.l3_interface_adapters.gateways.model_configuration.lora_table_policy import LoraTablePolicy
 from studio.l3_interface_adapters.gateways.video.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
 from studio.l3_interface_adapters.gateways.video.ltx25.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.video.ltx25.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.video.ltx_runtime.construction import (
     _mlx_video_runner,
     validate_lora_section,
@@ -40,4 +41,12 @@ def memory_estimator(config):
     return estimate_peak_gib
 
 
-PROVIDER = ModelProvider("ltx25_mlx", "video", ltx25_mlx_backend, estimator=memory_estimator, rewriter=build_rewriter)
+PROVIDER = ModelProvider(
+    "ltx25_mlx",
+    "video",
+    ltx25_mlx_backend,
+    estimator=memory_estimator,
+    rewriter=build_rewriter,
+    storage_assets=storage_assets,
+    storage_name="LTX-2.5",
+)

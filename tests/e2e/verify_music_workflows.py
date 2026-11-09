@@ -10,6 +10,7 @@ import sys
 import wave
 
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 
 def stored_sources(page):
@@ -393,8 +394,9 @@ def verify_reset(browser, base):
     page.locator("#music-lyrics").fill("[Verse]\nA line to reset")
     page.locator("label[for=music-mode-plan]").click()
     page.wait_for_timeout(500)
-    page.locator("#theme-toggle").click()
-    page.get_by_role("menuitem", name="Reset inputs", exact=True).click()
+    open_settings(page, "generation")
+    page.get_by_role("button", name="Reset inputs", exact=True).click()
+    page.keyboard.press("Escape")
     page.wait_for_timeout(400)
     assert page.input_value("#music-style") == ""
     assert page.input_value("#music-lyrics") == ""

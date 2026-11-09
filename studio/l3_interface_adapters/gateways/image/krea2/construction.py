@@ -6,6 +6,7 @@ from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.image.krea2.krea2_backend_gateway import Krea2BackendGateway
 from studio.l3_interface_adapters.gateways.image.krea2.krea2_model import Krea2Model
 from studio.l3_interface_adapters.gateways.image.krea2.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.image.krea2.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.model_configuration.lora_table import reject_lora_tables
 
 
@@ -25,4 +26,6 @@ def memory_estimator(config):
     return estimate_peak_gib
 
 
-PROVIDER = ModelProvider("krea2", "image", krea2_backend, estimator=memory_estimator)
+PROVIDER = ModelProvider(
+    "krea2", "image", krea2_backend, estimator=memory_estimator, storage_assets=storage_assets, storage_name="Krea 2"
+)

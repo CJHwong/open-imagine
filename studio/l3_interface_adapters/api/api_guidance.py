@@ -4,6 +4,9 @@ from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_R
 from studio.l3_interface_adapters.api.voice_prompt_guides import VOICE_START_HERE
 
 GUIDANCE = {
+    "inspectModelStorage": "Inspect declared downloads, including hidden optional models. Read-only; private-key headers are refused. Stub servers report unavailable.",
+    "modelStoragePlan": "Preview cleanup only when the user asks to remove downloads. Send model IDs and optional include_runtime=false. Review remove and retain entries, ownership, locations and bytes. Shared assets require every owner selected. External, installed-plugin and overlapping paths are protected. No files are deleted by this request.",
+    "modelStorageRemove": "Remove only the user-reviewed model selection. Send the same models/runtime choice and plan revision. Changed files invalidate the review; active work returns 409. Weights can download again. Runtime removal is opt-in. This excludes generated media and configured user LoRAs. Private-key headers are refused.",
     "readSettings": (
         "Read the app-wide memory policy. require_memory_estimate defaults to true. "
         "It applies to all workspaces and callers. This endpoint refuses private-key headers."

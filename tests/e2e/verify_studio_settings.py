@@ -9,6 +9,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
@@ -17,7 +18,7 @@ from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonSt
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
 
-def serve(path):
+def serve(path, storage=None):
     settings = JsonStudioSettingsGateway(path)
     studio = assemble_studio(
         {"qwen21": StubBackendGateway(qwen21_capabilities("CPU"))},
@@ -25,6 +26,7 @@ def serve(path):
         "qwen21",
         ("qwen21",),
         settings=settings,
+        model_storage=storage,
         resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
@@ -44,13 +46,13 @@ def main():
             page = context.new_page()
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.goto(url)
-            page.click("#theme-toggle")
+            open_settings(page, "generation")
             toggle = page.locator("#require-memory-estimate-toggle")
             expect(toggle).to_be_enabled()
             expect(toggle).to_have_attribute("aria-checked", "true")
             payload = {"kind": "image", "backend": "qwen21", "prompt": "a pear", "steps": 1, "seed": 7}
             denied = context.request.post(url + "/api/v1/operations", data=payload)
-            assert denied.status == 503 and "Settings > Memory" in denied.json()["error"]
+            assert denied.status == 503 and "Settings > Generation" in denied.json()["error"]
             print("PASS strict default blocks an unmeasured operation with actionable guidance")
             page.keyboard.press("Escape")
             page.fill("#prompt", "a pear")
@@ -61,7 +63,7 @@ def main():
             assert blocked.value.status == 200
             assert "Memory use has not been measured" in blocked.value.text()
             expect(page.get_by_text("Memory use has not been measured", exact=False)).to_be_visible()
-            page.click("#theme-toggle")
+            open_settings(page, "generation")
             print("PASS the page run reports the same actionable policy rejection")
             toggle.click()
             expect(toggle).to_have_attribute("aria-checked", "false")
@@ -72,7 +74,7 @@ def main():
             # A second page reads the server policy rather than a browser-local preference.
             second = context.new_page()
             second.goto(url)
-            second.click("#theme-toggle")
+            open_settings(second, "generation")
             expect(second.locator("#require-memory-estimate-toggle")).to_have_attribute("aria-checked", "false")
             print("PASS another page sees the app-wide setting")
             # Failed writes must not make the control claim the setting changed.
@@ -85,9 +87,7 @@ def main():
                 ),
             )
             second.click("#require-memory-estimate-toggle")
-            expect(
-                second.get_by_text("Could not update Studio memory settings: test save failure", exact=True)
-            ).to_be_visible()
+            expect(second.get_by_text("test save failure", exact=True)).to_be_visible()
             expect(second.locator("#require-memory-estimate-toggle")).to_have_attribute("aria-checked", "false")
             print("PASS a failed save leaves the current policy intact")
             second.close()
@@ -103,7 +103,7 @@ def main():
         try:
             page = context.new_page()
             page.goto(f"http://127.0.0.1:{server.server_port}")
-            page.click("#theme-toggle")
+            open_settings(page, "generation")
             toggle = page.locator("#require-memory-estimate-toggle")
             expect(toggle).to_be_enabled()
             expect(toggle).to_have_attribute("aria-checked", "false")
@@ -112,7 +112,7 @@ def main():
             assert JsonStudioSettingsGateway(path).require_memory_estimate() is True
             print("PASS app settings survive a server restart and can be enabled again")
             page.set_viewport_size({"width": 390, "height": 844})
-            page.click("#theme-toggle")
+            open_settings(page, "generation")
             toggle.scroll_into_view_if_needed()
             bounds = toggle.bounding_box()
             assert bounds and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= 390, bounds

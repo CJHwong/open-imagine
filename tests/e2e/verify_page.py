@@ -41,6 +41,7 @@ import urllib.parse
 
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
+from settings_controls import open_settings
 
 PORT = sys.argv[1]
 OUT = tempfile.mkdtemp(prefix="studio-e2e-") + "/"
@@ -1431,8 +1432,9 @@ with sync_playwright() as playwright:
     # theme block below reads it the same way, and reads the custom properties it
     # drives, which is computed style.
     check("Kodak is the default theme", page.evaluate("document.documentElement.dataset.theme") == "kodak")
-    page.click("#theme-toggle")
-    page.get_by_role("menuitemradio", name="Darkroom").click()
+    open_settings(page, "appearance")
+    page.get_by_role("radio", name="Darkroom").click()
+    page.keyboard.press("Escape")
     check("Darkroom clears the theme", page.evaluate("document.documentElement.dataset.theme") is None)
     check_contrast(page, "Darkroom dark")
     page.emulate_media(color_scheme="light")
@@ -1441,8 +1443,8 @@ with sync_playwright() as playwright:
     check_contrast(page, "Darkroom light")
     page.emulate_media(color_scheme="dark")
 
-    page.click("#theme-toggle")
-    themes = page.locator("#theme-menu [role=menuitemradio][data-theme]").all_inner_texts()
+    open_settings(page, "appearance")
+    themes = page.locator("#settings-dialog [role=radio][data-theme]").all_inner_texts()
     check(
         "the theme menu offers all eight themes",
         themes
@@ -1461,8 +1463,9 @@ with sync_playwright() as playwright:
     page.keyboard.press("Escape")
     darkroom = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--chrome')")
     for name, slug in (("Leica M", "leica"), ("Kodak Instamatic", "kodak"), ("Polaroid SX-70", "polaroid")):
-        page.click("#theme-toggle")
-        page.get_by_role("menuitemradio", name=name).click()
+        open_settings(page, "appearance")
+        page.get_by_role("radio", name=name).click()
+        page.keyboard.press("Escape")
         chrome = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--chrome')")
         check(f"{name} sets its theme", page.evaluate("document.documentElement.dataset.theme") == slug)
         check(f"{name} changes the chrome", chrome != darkroom, chrome)
@@ -1483,8 +1486,9 @@ with sync_playwright() as playwright:
     fresh.goto(f"http://127.0.0.1:{PORT}/")
     check("a new tab keeps the theme", fresh.evaluate("document.documentElement.dataset.theme") == "polaroid")
     fresh.close()
-    page.click("#theme-toggle")
-    page.get_by_role("menuitemradio", name="Darkroom").click()
+    open_settings(page, "appearance")
+    page.get_by_role("radio", name="Darkroom").click()
+    page.keyboard.press("Escape")
     fresh = page.context.new_page()
     fresh.goto(f"http://127.0.0.1:{PORT}/")
     check("a new tab keeps Darkroom", fresh.evaluate("document.documentElement.dataset.theme") is None)

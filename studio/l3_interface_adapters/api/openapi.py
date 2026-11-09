@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from studio.l3_interface_adapters.api.api_guidance import GUIDANCE
 from studio.l3_interface_adapters.api.discovery_schemas import discovery_schemas
+from studio.l3_interface_adapters.api.model_storage_paths import model_storage_paths
 from studio.l3_interface_adapters.api.openapi_examples import (
     image_examples,
     music_examples,
@@ -102,6 +103,7 @@ def openapi_document() -> dict[str, Any]:
         ],
         "paths": {
             **settings_paths(),
+            **model_storage_paths(),
             **operation_paths(),
             **voice_paths(),
             **music_paths(),

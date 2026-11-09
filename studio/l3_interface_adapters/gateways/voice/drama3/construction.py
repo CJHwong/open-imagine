@@ -7,6 +7,7 @@ from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 from studio.l3_interface_adapters.gateways.voice.drama3.drama3_backend_gateway import Drama3BackendGateway
 from studio.l3_interface_adapters.gateways.voice.drama3.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.voice.drama3.storage_assets import storage_assets
 
 
 def voice_drama_backend(config: ModelConfigurationGateway, **_):
@@ -22,4 +23,11 @@ def memory_estimator(config):
     return estimate_peak_gib
 
 
-PROVIDER = ModelProvider("drama3", "voice", voice_drama_backend, estimator=memory_estimator)
+PROVIDER = ModelProvider(
+    "drama3",
+    "voice",
+    voice_drama_backend,
+    estimator=memory_estimator,
+    storage_assets=storage_assets,
+    storage_name="Drama-3",
+)

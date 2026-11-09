@@ -4,6 +4,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from studio.l1_entities.model_asset import ModelAsset
+from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
+
 
 @dataclass(frozen=True)
 class ModelProvider:
@@ -14,3 +17,6 @@ class ModelProvider:
     rewriter: Callable[..., Any] | None = None
     rewriter_cache: Callable[..., str] | None = None
     requires_mlx: bool = True
+    storage_assets: Callable[[ModelConfigurationGateway], tuple[ModelAsset, ...]] | None = None
+    storage_name: str = ""
+    storage_roots: tuple[str, ...] = ()
