@@ -4,9 +4,9 @@ The record holds no code. The folder and any LoRAs go in the [example_ltx] secti
 settings, and the engine's settings stay under [mlx_video].
 """
 
-from studio.plugins.video import LtxPack
+from studio.plugins.video import LtxCheckpointRegistration
 
-plugin = LtxPack(
+plugin = LtxCheckpointRegistration(
     backend_id="example_ltx",
     name="Example LTX pack",
     family="ltx25",

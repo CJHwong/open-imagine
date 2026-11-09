@@ -269,7 +269,7 @@ def test_visual_prompt_guides_are_available_at_model_discovery_and_generation():
 
 
 def test_drama_token_default_matches_capabilities_and_named_example():
-    from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
+    from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import drama_capabilities
 
     document = openapi_document()
     default = document["components"]["schemas"]["VoiceRequest"]["properties"]["max_tokens"]["default"]

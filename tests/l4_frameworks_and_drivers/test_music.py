@@ -13,9 +13,10 @@ import pytest
 
 from studio.l1_entities.errors import StudioError
 from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
-from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
-from studio.l4_frameworks_and_drivers.main import assemble_studio, build_music_backends, music_yue2_backend
+from studio.l4_frameworks_and_drivers.main import assemble_studio, build_music_backends
+from studio.l4_frameworks_and_drivers.model_factories.music.yue2 import music_yue2_backend
 from tests.support.fakes import FakeBackendGateway
 
 PAYLOAD = {"kind": "music", "style": "piano", "lyrics": "[Verse]\nhello", "seed": 7}
@@ -28,7 +29,7 @@ def server(monkeypatch):
     )
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
-        {"fake": NoPromptRewriter()},
+        {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
         music_backends={"yue2": StubMusicBackendGateway()},
@@ -151,7 +152,7 @@ def test_music_id_cannot_be_replaced_by_an_installed_plugin(monkeypatch):
 
     plugin = entry("image", "yue2", fake_plugins()["image"])
     monkeypatch.setattr(
-        "studio.l4_frameworks_and_drivers.model_plugins.metadata.entry_points",
+        "studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog.metadata.entry_points",
         lambda group: [plugin] if group == plugin.group else [],
     )
     with pytest.raises(ConfigError, match="Duplicate model id"):

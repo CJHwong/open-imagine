@@ -19,18 +19,18 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from studio.l1_entities.errors import StudioError
-from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import cache_line
-from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
+from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
 from studio.l4_frameworks_and_drivers.main import (
-    BACKENDS,
-    REWRITERS,
-    VIDEO_BACKENDS,
-    VOICE_BACKENDS,
+    IMAGE_BACKEND_FACTORIES,
+    VIDEO_BACKEND_FACTORIES,
+    VOICE_BACKEND_FACTORIES,
     create_studio,
     discover_plugins,
-    qwen21_rewrite_models,
+)
+from studio.l4_frameworks_and_drivers.model_factories.rewriter_cache_status import (
+    rewriter_cache_line as rewriter_cache_line,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
@@ -108,18 +108,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def rewriter_cache_line(config: Config) -> str:
-    """What the page's rewriters will have to fetch, or "" when it has none.
-
-    The line belongs beside the loading one, before the click rather than during
-    it: the first rewrite in a mode fetches about 19 GB with the terminal kept
-    quiet, so the button looks merely busy for minutes.
-    """
-    backend_id = config.default_backend
-    models = qwen21_rewrite_models(config, backend_id) if backend_id in REWRITERS else None
-    return cache_line(models) if models else ""
-
-
 def main():
     args = parse_args()
     try:
@@ -128,9 +116,9 @@ def main():
             args.config,
             backend=args.backend,
             quantize=args.quantize,
-            visible=(*BACKENDS, *plugins.ids("image")) if args.all_backends else None,
-            visible_video=(*VIDEO_BACKENDS, *plugins.ids("video")) if args.all_backends else None,
-            visible_voice=(*VOICE_BACKENDS, *plugins.ids("voice")) if args.all_backends else None,
+            visible=(*IMAGE_BACKEND_FACTORIES, *plugins.ids("image")) if args.all_backends else None,
+            visible_video=(*VIDEO_BACKEND_FACTORIES, *plugins.ids("video")) if args.all_backends else None,
+            visible_voice=(*VOICE_BACKEND_FACTORIES, *plugins.ids("voice")) if args.all_backends else None,
         )
         studio = create_studio(
             config,

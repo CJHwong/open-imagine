@@ -1,17 +1,21 @@
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
 
 from studio.l1_entities.voice_capabilities import Capabilities as VoiceCapabilities
 from studio.l1_entities.voice_capabilities import ModeSpec as VoiceMode
-from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
-from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter, StubPromptRewriter
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
+from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
-from studio.l4_frameworks_and_drivers.model_plugins import GROUPS, ModelPlugins
+from studio.l4_frameworks_and_drivers.model_registration.factory_context import create_context
+from studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog import GROUPS, InstalledModelCatalog
+from studio.l4_frameworks_and_drivers.model_registration.model_backend_factory import ModelBackendFactory
 from studio.plugins import ModelPlugin
 from tests.support.fakes import fake_capabilities, fake_video_capabilities
 from tests.support.plugins import CHECKPOINT, PACK, checkpoint_entries, entry, install, pack_entries
@@ -51,10 +55,10 @@ def installed(monkeypatch, plugins=None, entries=None):
         ]
     )
     monkeypatch.setattr(
-        "studio.l4_frameworks_and_drivers.model_plugins.metadata.entry_points",
+        "studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog.metadata.entry_points",
         lambda group: [entry for entry in entries if entry.group == group],
     )
-    return ModelPlugins({}), entries
+    return InstalledModelCatalog({}), entries
 
 
 def test_discovery_does_not_import_models_and_selected_declarations_are_cached(monkeypatch):
@@ -78,7 +82,7 @@ def test_duplicate_ids_cannot_shadow_builtins_or_other_media(monkeypatch):
         installed(monkeypatch, entries=entries)
     installed(monkeypatch, entries=entries[:1])
     with pytest.raises(ConfigError, match="Duplicate model id"):
-        ModelPlugins({"image": {"same": object()}})
+        InstalledModelCatalog({"image": {"same": object()}})
 
 
 @pytest.mark.parametrize(
@@ -115,17 +119,16 @@ def test_each_media_uses_its_boundary_and_stub_never_constructs_the_engine(monke
     factory = Mock(side_effect=original.create)
     plugins[kind] = replace(original, create=factory)
     registry, _ = installed(monkeypatch, plugins)
-    gateway = registry.build(kind, original.capabilities.backend_id, configuration(), stub)
+    gateway = ModelBackendFactory(registry).build(kind, original.capabilities.backend_id, configuration(), stub)
     assert gateway.capabilities() == original.capabilities
     assert factory.call_count == (0 if stub else 1)
 
 
 def test_context_has_resolved_settings_and_cancellable_host_process_driver(monkeypatch):
-    registry, _ = installed(monkeypatch)
-    context = registry.context(configuration(), "example_image")
+    context = create_context(configuration(), "example_image")
     assert context.settings == {"key": "value"} and callable(context.run_process)
     with pytest.raises(TypeError):
-        context.settings["key"] = "changed"
+        cast(dict, context.settings)["key"] = "changed"
 
 
 @pytest.mark.parametrize(
@@ -139,23 +142,30 @@ def test_context_has_resolved_settings_and_cancellable_host_process_driver(monke
 def test_factory_errors_and_capability_mismatches_are_rejected(monkeypatch, factory):
     registry, _ = installed(monkeypatch, {"image": replace(declarations()["image"], create=factory)})
     with pytest.raises(ConfigError, match="Cannot construct image model plugin"):
-        registry.build("image", "example_image", configuration())
+        ModelBackendFactory(registry).build("image", "example_image", configuration())
 
 
 def test_rewriters_are_optional_typed_lazy_and_stubbed(monkeypatch):
     registry, _ = installed(monkeypatch)
-    assert isinstance(registry.rewriter("image", "example_image", configuration()), NoPromptRewriter)
-    factory = Mock(return_value=NoPromptRewriter())
+    assert isinstance(
+        ModelBackendFactory(registry).rewriter("image", "example_image", configuration()), NoPromptRewriterGateway
+    )
+    factory = Mock(return_value=NoPromptRewriterGateway())
     registry, _ = installed(monkeypatch, {"image": replace(declarations()["image"], rewriter=factory)})
-    assert isinstance(registry.rewriter("image", "example_image", configuration(), True), StubPromptRewriter)
+    assert isinstance(
+        ModelBackendFactory(registry).rewriter("image", "example_image", configuration(), True),
+        StubPromptRewriterGateway,
+    )
     factory.assert_not_called()
-    assert isinstance(registry.rewriter("image", "example_image", configuration()), NoPromptRewriter)
+    assert isinstance(
+        ModelBackendFactory(registry).rewriter("image", "example_image", configuration()), NoPromptRewriterGateway
+    )
     factory.return_value = object()
     with pytest.raises(ConfigError, match="rewriter must return"):
-        registry.rewriter("image", "example_image", configuration())
+        ModelBackendFactory(registry).rewriter("image", "example_image", configuration())
     factory.side_effect = RuntimeError("rewrite failed")
     with pytest.raises(ConfigError, match="rewrite failed"):
-        registry.rewriter("image", "example_image", configuration())
+        ModelBackendFactory(registry).rewriter("image", "example_image", configuration())
 
 
 def test_public_media_sdk_imports_the_host_contracts():
@@ -212,7 +222,7 @@ def test_image_plugin_rewriter_follows_the_selected_backend(monkeypatch):
     from studio.l4_frameworks_and_drivers.main import build_rewriters
 
     registry, _ = installed(
-        monkeypatch, {"image": replace(declarations()["image"], rewriter=lambda context: StubPromptRewriter())}
+        monkeypatch, {"image": replace(declarations()["image"], rewriter=lambda context: StubPromptRewriterGateway())}
     )
     assert build_rewriters(configuration(), registry)["example_image"].modes() == ("generate", "edit")
 
@@ -241,7 +251,7 @@ def test_video_plugin_rewrite_and_release_share_the_model_thread(monkeypatch, tm
 
     calls = []
 
-    class Rewriter(StubPromptRewriter):
+    class Rewriter(StubPromptRewriterGateway):
         def rewrite(self, prompt, mode, references, on_writing, should_stop):
             calls.append(threading.get_ident())
             return super().rewrite(prompt, mode, references, on_writing, should_stop)
@@ -286,25 +296,26 @@ def test_an_ltx_pack_is_a_video_declaration_that_the_host_builds(monkeypatch):
     registry = install(monkeypatch, pack_entries())
 
     assert registry.declaration("video", "example_pack") is PACK
-    assert registry.pack("video", "example_pack") is PACK
-    assert registry.pack("video", "ltx25_mlx") is None
     with pytest.raises(ConfigError, match="own engine, so the host builds it"):
-        registry.build("video", "example_pack", configuration())
+        ModelBackendFactory(registry).build("video", "example_pack", configuration())
     with pytest.raises(ConfigError, match="own engine, so the host builds it"):
-        registry.rewriter("video", "example_pack", configuration())
-    assert installed(monkeypatch)[0].pack("video", "example_video") is None
+        ModelBackendFactory(registry).rewriter("video", "example_pack", configuration())
 
 
 @pytest.mark.parametrize(
     ("pack", "group", "message"),
     [
-        (PACK, "image", "an LtxPack is a video model"),
-        (replace(PACK, api_version=2), "video", "expected LtxPack API version 1"),
-        (replace(PACK, backend_id="other"), "video", "expected an LtxPack with backend_id 'example_pack'"),
-        (replace(PACK, family=["ltx25"]), "video", "an LtxPack's family must be text"),
-        (replace(PACK, description=None), "video", "an LtxPack's description must be text"),
-        (replace(PACK, edit="no"), "video", "an LtxPack's edit must be True or False"),
-        (replace(PACK, fast_mode=1), "video", "an LtxPack's fast_mode must be True or False"),
+        (PACK, "image", "an LtxCheckpointRegistration is a video model"),
+        (replace(PACK, api_version=2), "video", "expected LtxCheckpointRegistration API version 1"),
+        (
+            replace(PACK, backend_id="other"),
+            "video",
+            "expected an LtxCheckpointRegistration with backend_id 'example_pack'",
+        ),
+        (replace(PACK, family=["ltx25"]), "video", "an LtxCheckpointRegistration's family must be text"),
+        (replace(PACK, description=None), "video", "an LtxCheckpointRegistration's description must be text"),
+        (replace(PACK, edit="no"), "video", "an LtxCheckpointRegistration's edit must be True or False"),
+        (replace(PACK, fast_mode=1), "video", "an LtxCheckpointRegistration's fast_mode must be True or False"),
     ],
 )
 def test_a_pack_record_that_the_host_cannot_trust_is_refused_by_name(monkeypatch, pack, group, message):
@@ -317,33 +328,53 @@ def test_a_qwen_checkpoint_is_an_image_declaration_that_the_host_builds(monkeypa
     registry = install(monkeypatch, checkpoint_entries())
 
     assert registry.declaration("image", "example_qwen") is CHECKPOINT
-    assert registry.checkpoint("image", "example_qwen") is CHECKPOINT
-    assert registry.checkpoint("image", "qwen21") is None
-    assert registry.pack("image", "example_qwen") is None
     with pytest.raises(ConfigError, match="own engine, so the host builds it"):
-        registry.build("image", "example_qwen", configuration())
+        ModelBackendFactory(registry).build("image", "example_qwen", configuration())
     with pytest.raises(ConfigError, match="own engine, so the host builds it"):
-        registry.rewriter("image", "example_qwen", configuration())
-    assert installed(monkeypatch)[0].checkpoint("image", "example_image") is None
+        ModelBackendFactory(registry).rewriter("image", "example_qwen", configuration())
 
 
 @pytest.mark.parametrize(
     ("checkpoint", "group", "message"),
     [
-        (CHECKPOINT, "video", "a QwenCheckpoint is an image model"),
-        (replace(CHECKPOINT, api_version=2), "image", "expected QwenCheckpoint API version 1"),
-        (replace(CHECKPOINT, backend_id="other"), "image", "expected a QwenCheckpoint with backend_id 'example_qwen'"),
-        (replace(CHECKPOINT, name=None), "image", "a QwenCheckpoint's name must be text"),
-        (replace(CHECKPOINT, scheduler=1), "image", "a QwenCheckpoint's scheduler must be text"),
-        (replace(CHECKPOINT, generate_size=(1024, 1024)), "image", "a QwenCheckpoint's generate_size must be text"),
-        (replace(CHECKPOINT, steps=[12, 8, 40]), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
-        (replace(CHECKPOINT, steps=(12, 8)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
-        (replace(CHECKPOINT, steps=(12.0, 8, 40)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
-        (replace(CHECKPOINT, steps=(12, True, 40)), "image", "a QwenCheckpoint.s steps must be three whole numbers"),
+        (CHECKPOINT, "video", "a QwenCheckpointRegistration is an image model"),
+        (replace(CHECKPOINT, api_version=2), "image", "expected QwenCheckpointRegistration API version 1"),
+        (
+            replace(CHECKPOINT, backend_id="other"),
+            "image",
+            "expected a QwenCheckpointRegistration with backend_id 'example_qwen'",
+        ),
+        (replace(CHECKPOINT, name=None), "image", "a QwenCheckpointRegistration's name must be text"),
+        (replace(CHECKPOINT, scheduler=1), "image", "a QwenCheckpointRegistration's scheduler must be text"),
+        (
+            replace(CHECKPOINT, generate_size=(1024, 1024)),
+            "image",
+            "a QwenCheckpointRegistration's generate_size must be text",
+        ),
+        (
+            replace(CHECKPOINT, steps=[12, 8, 40]),
+            "image",
+            "a QwenCheckpointRegistration.s steps must be three whole numbers",
+        ),
+        (
+            replace(CHECKPOINT, steps=(12, 8)),
+            "image",
+            "a QwenCheckpointRegistration.s steps must be three whole numbers",
+        ),
+        (
+            replace(CHECKPOINT, steps=(12.0, 8, 40)),
+            "image",
+            "a QwenCheckpointRegistration.s steps must be three whole numbers",
+        ),
+        (
+            replace(CHECKPOINT, steps=(12, True, 40)),
+            "image",
+            "a QwenCheckpointRegistration.s steps must be three whole numbers",
+        ),
         (
             replace(CHECKPOINT, max_edit_references=True),
             "image",
-            "a QwenCheckpoint.s max_edit_references must be a whole number",
+            "a QwenCheckpointRegistration.s max_edit_references must be a whole number",
         ),
     ],
 )

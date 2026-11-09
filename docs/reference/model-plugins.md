@@ -9,13 +9,13 @@ only explicitly visible plugins are imported. `--all-backends` makes all install
 |---|---|---|---|
 | Image | `open_imagine.models.image` | `studio.plugins.image` | `ImageBackendGateway` |
 | Video | `open_imagine.models.video` | `studio.plugins.video` | `VideoBackendGateway` |
-| Voice | `open_imagine.models.audio` | `studio.plugins.audio` | `VoiceBackendGateway` |
+| Voice | `open_imagine.models.voice` | `studio.plugins.voice` | `VoiceBackendGateway` |
 
-Each entry point resolves to `studio.plugins.ModelPlugin`. A video model that runs an LTX pack
-on the studio's own engine resolves to a `studio.plugins.video.LtxPack` instead. See
+Each entry point resolves to `studio.plugins.GatewayModelRegistration`. A video model that runs an LTX pack
+on the studio's own engine resolves to a `studio.plugins.video.LtxCheckpointRegistration` instead. See
 [LTX packs](#ltx-packs). An image model that runs a Qwen-Image-2.1 checkpoint on the studio's
-own engine resolves to a `studio.plugins.image.QwenCheckpoint`. See
-[Qwen checkpoints](#qwen-checkpoints). The `ModelPlugin` frozen record has:
+own engine resolves to a `studio.plugins.image.QwenCheckpointRegistration`. See
+[Qwen checkpoints](#qwen-checkpoints). The `GatewayModelRegistration` frozen record has:
 
 | Field | Contract |
 |---|---|
@@ -28,6 +28,27 @@ Wrong media types, missing dependencies of a visible plugin, conflicting IDs, in
 and changed capability records produce named startup errors. Hidden plugin code is not imported.
 Stub mode imports the declaration but calls neither its gateway nor rewriter factory.
 A declaration must therefore import no model engine or load any weights.
+
+## Terms and compatibility
+
+A **plugin package** is an installed Python distribution. It may export several
+**model registrations**, one per selectable model. A **backend gateway** implements
+Studio's execution contract; a **runtime** is the library or owned process that
+performs inference. A **checkpoint** is a set of weights used by an existing runtime.
+A registration is data and factories, never an already loaded model.
+
+`GatewayModelRegistration` supplies a backend factory. `QwenCheckpointRegistration`
+and `LtxCheckpointRegistration` describe weights for a host-provided runtime.
+`ModelFactoryContext` supplies immutable settings and the cancellable process driver.
+`ModelRegistration` is the union of the three registration records.
+
+API version 1 remains supported. `ModelPlugin`, `PluginContext`, `QwenCheckpoint`
+and `LtxPack` remain identity aliases of the canonical records, and
+`studio.plugins.audio` re-exports `studio.plugins.voice`. The legacy
+`open_imagine.models.audio` group is still discovered as Voice. Register an ID
+under one group only: declaring the same ID in both groups is a duplicate error.
+The `plugins/open-imagine` directory holds an assistant skill plugin, a separate
+system from model plugin packages under `model_plugins/`.
 
 ## Gateway lifecycle
 
@@ -67,7 +88,7 @@ where supported; additional custom UI widgets require host support.
 
 The HTTP API remains unchanged. Select the installed backend ID in ordinary requests,
 inspect `/api/v1/studio` first, and use `/api/v1/operations` for batches and shared status.
-A missing rewriter is model-specific. A video `ModelPlugin` never inherits LTX's Gemma rewriter.
+A missing rewriter is model-specific. A video `GatewayModelRegistration` never inherits LTX's Gemma rewriter.
 An LTX pack does, because it runs on the LTX engine. A Qwen checkpoint takes the Qwen rewriters
 when its section names them.
 Automatic native enhancement inside generation is the model gateway's responsibility.
@@ -128,24 +149,24 @@ a visible result without a trained model.
 
 A video plugin can run an LTX pack on the studio's own engine, and bring no engine of its own.
 A pack is a folder of weights in the layout of `dgrauet/ltx-2.5-mlx-q8`, such as a finetune.
-The entry point exports a `studio.plugins.video.LtxPack` record in place of a `ModelPlugin`:
+The entry point exports a `studio.plugins.video.LtxCheckpointRegistration` record in place of a `GatewayModelRegistration`:
 
 ```python
-from studio.plugins.video import LtxPack
+from studio.plugins.video import LtxCheckpointRegistration
 
-plugin = LtxPack(backend_id="acme_pack", name="Acme pack", family="ltx25")
+plugin = LtxCheckpointRegistration(backend_id="acme_pack", name="Acme pack", family="ltx25")
 ```
 
 | Field | Contract |
 |---|---|
-| `backend_id` | Equals the entry point name, as for a `ModelPlugin`. |
+| `backend_id` | Equals the entry point name, as for a `GatewayModelRegistration`. |
 | `name`, `description` | What the page shows. A blank description gets one from the family. |
 | `family` | `ltx25` or `ltx23`, the base model of the weights. It sets the keyframe path, and whether `edit` and `fast_mode` are allowed. Both families have the same sizes and frame rules. |
 | `precision` | The label for the precision of the weights, `int8` by default. It does not change how the engine loads the pack. |
 | `edit` | Offers the LTX-2.5 effects. Only an `ltx25` pack can set it. |
 | `audio` | Lets Generate take an audio track. |
 | `fast_mode` | Offers the LTX-2.5 float16 path. Only an `ltx25` pack can set it. |
-| `api_version` | `1`, as for a `ModelPlugin`. |
+| `api_version` | `1`, as for a `GatewayModelRegistration`. |
 
 The host checks the record when the plugin loads. A text field that is not text, or a switch
 that is not `True` or `False`, stops the studio at start with the plugin's name.
@@ -183,12 +204,12 @@ A run names the setting when it is missing.
 An image plugin can run a Qwen-Image-2.1 checkpoint on the studio's own engine, and bring no
 engine of its own. A checkpoint is a folder of weights in the mflux layout, such as a finetune
 whose transformer replaces the base one. The entry point exports a
-`studio.plugins.image.QwenCheckpoint` record in place of a `ModelPlugin`:
+`studio.plugins.image.QwenCheckpointRegistration` record in place of a `GatewayModelRegistration`:
 
 ```python
-from studio.plugins.image import QwenCheckpoint
+from studio.plugins.image import QwenCheckpointRegistration
 
-plugin = QwenCheckpoint(
+plugin = QwenCheckpointRegistration(
     backend_id="acme_qwen",
     name="Acme Qwen",
     scheduler="linear_quadratic",
@@ -199,14 +220,14 @@ plugin = QwenCheckpoint(
 
 | Field | Contract |
 |---|---|
-| `backend_id` | Equals the entry point name, as for a `ModelPlugin`. |
+| `backend_id` | Equals the entry point name, as for a `GatewayModelRegistration`. |
 | `name`, `description` | What the page shows. A blank description gets a default one. |
 | `scheduler` | `linear`, mflux's own sigmas with the base model's shift, or `linear_quadratic`, ComfyUI's sigmas with no shift. `linear` by default. |
 | `generate_sampler` | `euler`, or `euler_ancestral`, ComfyUI's rectified-flow Euler ancestral. Ancestral needs `linear_quadratic`. An edit always samples Euler on the same sigmas, because the edit engine has no other loop. |
 | `steps` | `(default, minimum, maximum)`, for both modes. `(40, 1, 100)` by default. An edit never goes below 2 steps, because mflux refuses an edit of one. |
 | `generate_size` | The default Generate size, one of the Qwen sizes, such as `"1024x1536"`. An edit matches its reference. |
 | `max_edit_references` | 1 to 10. 10 by default. |
-| `api_version` | `1`, as for a `ModelPlugin`. |
+| `api_version` | `1`, as for a `GatewayModelRegistration`. |
 
 The host checks the field types when the plugin loads, and the values when it builds the model.
 A wrong one stops the studio at start with the plugin's name.
@@ -248,8 +269,8 @@ without it.
 
 ## Process context
 
-`PluginContext.settings` contains a copy of that model's `studio.toml` section, with paths
-resolved using the same rules as built-ins. `PluginContext.run_process` takes a command list,
+`ModelFactoryContext.settings` contains a copy of that model's `studio.toml` section, with paths
+resolved using the same rules as built-ins. `ModelFactoryContext.run_process` takes a command list,
 optional `cancelled` and stderr `consume` callbacks, and keyword arguments including
 `timeout_seconds`, `environment`, and required `failure_message` (a callable accepting `(return_code, recent_lines)` and returning an error message).
 It returns no value; use temporary files for binary output, as the example Video gateway does.

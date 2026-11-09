@@ -2,12 +2,10 @@
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 
-from studio.l1_entities.errors import StudioError
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
+from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSettingsGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
@@ -33,55 +31,20 @@ from studio.l3_interface_adapters.controllers.form_controller import FormControl
 from studio.l3_interface_adapters.controllers.music_controller import MusicController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
-from studio.l3_interface_adapters.gateways.audio.auk.auk_backend_gateway import AukBackendGateway
-from studio.l3_interface_adapters.gateways.audio.auk_flash.auk_flash_backend_gateway import AukFlashBackendGateway
-from studio.l3_interface_adapters.gateways.audio.drama3.drama3_backend_gateway import Drama3BackendGateway
-from studio.l3_interface_adapters.gateways.audio.stdio_child import StdioChild
-from studio.l3_interface_adapters.gateways.audio.stub_voice_backend_gateway import StubVoiceBackendGateway
+from studio.l3_interface_adapters.gateways.catalog_prompt_rewriter_gateway import CatalogPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
-from studio.l3_interface_adapters.gateways.image.flux2.flux2_backend_gateway import Flux2BackendGateway
-from studio.l3_interface_adapters.gateways.image.flux2.klein_models import KleinModels
-from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway import Flux3BackendGateway
-from studio.l3_interface_adapters.gateways.image.krea2.krea2_backend_gateway import Krea2BackendGateway
-from studio.l3_interface_adapters.gateways.image.krea2.krea2_model import Krea2Model
-from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
-from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
-    OfficialQwenTurboBackendGateway,
-)
-from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.capabilities import qwen_checkpoint_capabilities
-from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.qwen_checkpoint_backend_gateway import (
-    QwenCheckpointBackendGateway,
-)
-from studio.l3_interface_adapters.gateways.image.qwen_runtime import edit as qwen_edit
-from studio.l3_interface_adapters.gateways.image.qwen_runtime import generator as qwen_generator
-from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
-from studio.l3_interface_adapters.gateways.image.qwen_runtime.generator import Qwen21Generator
-from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import Qwen21Rewriter
-from studio.l3_interface_adapters.gateways.image.shared import qwen21_turbo_schedule
-from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config
-from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (
-    AncestralSeedHook,
-    edit_scheduler,
-    generate_scheduler,
-)
 from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.image.thread_confined_backend_gateway import ThreadConfinedBackendGateway
-from studio.l3_interface_adapters.gateways.image.viggle_turbo.viggle_turbo_backend_gateway import (
-    ViggleTurboBackendGateway,
-)
 from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
-    InMemoryModelResidencyGateway,
-)
+from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import InMemoryModelResidencyGateway
 from studio.l3_interface_adapters.gateways.in_memory_music_backend_catalog_gateway import (
     InMemoryMusicBackendCatalogGateway,
 )
 from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
 from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
 from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
-from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import (
-    InMemoryRewriteProgressGateway,
-)
+from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import InMemoryRewriteProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
 from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
@@ -89,387 +52,45 @@ from studio.l3_interface_adapters.gateways.in_memory_voice_backend_catalog_gatew
     InMemoryVoiceBackendCatalogGateway,
 )
 from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
-from studio.l3_interface_adapters.gateways.music.yue2.yue2_backend_gateway import Yue2BackendGateway
-from studio.l3_interface_adapters.gateways.prompt_rewriters import (
-    CatalogPromptRewriter,
-    NoPromptRewriter,
-    StubPromptRewriter,
-)
+from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.gateways.video.gemma3.gemma3_prompt_rewriter_gateway import (
     Gemma3PromptRewriterGateway,
 )
 from studio.l3_interface_adapters.gateways.video.gemma3.prompt_enhancer import Gemma3PromptEnhancer
-from studio.l3_interface_adapters.gateways.video.ltx23.ltx23_backend_gateway import Ltx23BackendGateway
-from studio.l3_interface_adapters.gateways.video.ltx25.ltx25_backend_gateway import Ltx25BackendGateway
-from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
-from studio.l3_interface_adapters.gateways.video.ltx_runtime.runner import MlxVideoRunner
-from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx_pack_capabilities
 from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
+from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
-from studio.l4_frameworks_and_drivers.lora_table import lora_files, no_loras
-from studio.l4_frameworks_and_drivers.model_plugins import ModelPlugins
+from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
+from studio.l4_frameworks_and_drivers.memory_estimates import build_memory_estimates
+from studio.l4_frameworks_and_drivers.model_factories.plugin_factories import plugin_factories
+from studio.l4_frameworks_and_drivers.model_factories.registry import IMAGE_BACKEND_FACTORIES as IMAGE_BACKEND_FACTORIES
+from studio.l4_frameworks_and_drivers.model_factories.registry import (
+    IMAGE_REWRITER_FACTORIES as IMAGE_REWRITER_FACTORIES,
+)
+from studio.l4_frameworks_and_drivers.model_factories.registry import MUSIC_BACKEND_FACTORIES as MUSIC_BACKEND_FACTORIES
+from studio.l4_frameworks_and_drivers.model_factories.registry import VIDEO_BACKEND_FACTORIES as VIDEO_BACKEND_FACTORIES
+from studio.l4_frameworks_and_drivers.model_factories.registry import VOICE_BACKEND_FACTORIES as VOICE_BACKEND_FACTORIES
+from studio.l4_frameworks_and_drivers.model_factories.rewriters import build_rewriters as build_rewriters
+from studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog import InstalledModelCatalog
+from studio.l4_frameworks_and_drivers.model_registration.model_backend_factory import ModelBackendFactory
+from studio.l4_frameworks_and_drivers.studio import Studio as Studio
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from studio.l4_frameworks_and_drivers.system_memory import memory_headroom
-from studio.plugins.image import QwenCheckpoint
-from studio.plugins.video import LtxPack
+from studio.plugins.ltx_checkpoint_registration import LtxCheckpointRegistration
+from studio.plugins.qwen_checkpoint_registration import QwenCheckpointRegistration
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
 
-@dataclass(frozen=True)
-class Studio:
-    handler: type
-    catalog: InMemoryBackendCatalogGateway
-    video_catalog: InMemoryVideoBackendCatalogGateway | None
-    residency: InMemoryModelResidencyGateway
-    cancel: CancelRunUseCase
-    operations: InMemoryOperationGateway
-    rewriter: PromptRewriterGateway | None = None
-
-    video_rewriter: PromptRewriterGateway | None = None
-
-    def active_capabilities(self):
-        return self.catalog.get(self.catalog.active_id()).capabilities()
-
-    def expire(self) -> None:
-        self.operations.expire()
-
-    def shutdown(self) -> None:
-        """Free the one resident model and the prompt rewriter.
-
-        The frees wait in line on the GPU thread, behind any run, so the run is
-        cancelled first. Without that, Ctrl-C waited for the image to finish.
-        """
-        self.cancel.execute()
-        self.residency.release()
-        self.operations.close()
-        if self.rewriter is not None:
-            self.rewriter.release()
-        if self.video_rewriter is not None:
-            self.video_rewriter.release()
-
-
-def badge(quantize: int | None) -> str:
-    return f"int{quantize}" if quantize else "bf16"
-
-
-def offering(gateway, backend_id: str):
-    """The gateway, once its record took the LoRA table. A table that names a mode the
-    model lacks fails at start, with the section to look in."""
-    try:
-        gateway.capabilities()
-    except StudioError as error:
-        raise ConfigError(f"[{backend_id}]: {error}") from None
-    return gateway
-
-
-def qwen21_backend(config: Config) -> Qwen21BackendGateway:
-    quantize = config.backend("qwen21").get("quantize")
-    loras = lora_files(config, "qwen21")
-    return offering(
-        Qwen21BackendGateway(
-            Qwen21Generator(quantize, lora_files=loras),
-            Qwen21Edit(quantize, lora_files=loras),
-            badge=badge(quantize),
-            loras=loras,
-        ),
-        "qwen21",
-    )
-
-
-def qwen21_turbo_backend(config: Config) -> OfficialQwenTurboBackendGateway:
-    """The official Turbo checkpoint, which samples the sigma table it ships.
-
-    The generator is told the schedule by name, and the gateway registers it when a
-    run starts. Not here: building a backend must not import mflux, because the stub
-    builds every backend on machines that cannot run a model at all, and its whole
-    point is that the page still works there.
-    """
-    settings = config.backend("qwen21_turbo")
-    from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit_input_cache import cache_edit_inputs
-    from studio.l3_interface_adapters.gateways.image.qwen_runtime.encoder_restore import restore_text_encoder
-    from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import active_mlx_memory
-
-    model_dir = config.required("qwen21_turbo", "model_dir")
-    quantize = settings.get("quantize")
-    loras = lora_files(config, "qwen21_turbo")
-    return offering(
-        OfficialQwenTurboBackendGateway(
-            Qwen21Generator(
-                quantize,
-                model_path=model_dir,
-                scheduler=qwen21_turbo_schedule.SCHEDULER_NAME,
-                restore_encoder=partial(restore_text_encoder, model_path=model_dir, quantize=quantize),
-                lora_files=loras,
-            ),
-            Qwen21Edit(quantize, model_path=model_dir, prepare_model=cache_edit_inputs, lora_files=loras),
-            badge=badge(quantize),
-            model_dir=model_dir,
-            memory_scope=active_mlx_memory,
-            loras=loras,
-        ),
-        "qwen21_turbo",
-    )
-
-
-def flux2_backend(config: Config) -> Flux2BackendGateway:
-    quantize = config.backend("flux2").get("quantize")
-    no_loras(config, "flux2")
-    return Flux2BackendGateway(KleinModels(config.required("flux2", "model_dir"), quantize), badge=badge(quantize))
-
-
-def krea2_backend(config: Config) -> Krea2BackendGateway:
-    """Krea 2 Turbo from weights stored at int8. mflux runs the stored bits whatever it is
-    asked for, so a quantize other than 8 is refused rather than shown and then ignored."""
-    no_loras(config, "krea2")
-    settings = config.backend("krea2")
-    if "quantize" in settings and settings["quantize"] != 8:
-        raise ConfigError("[krea2] runs its weights at int8, as they are stored. Remove its quantize, or use 8.")
-    return Krea2BackendGateway(Krea2Model(config.required("krea2", "model_dir")))
-
-
-def flux3_backend(config: Config) -> Flux3BackendGateway:
-    quantize = config.backend("flux3").get("quantize", 8)
-    return Flux3BackendGateway(
-        config.required("flux3", "model_dir"),
-        config.required("flux3", "python_path"),
-        quantize,
-        badge=badge(quantize),
-        execute_process=SubprocessRunner().execute,
-    )
-
-
-def viggle_turbo_backend(config: Config) -> ViggleTurboBackendGateway:
-    """The two models qwen21 drives, built with Viggle's adapter and its schedule.
-
-    The generator is told to sample the turbo schedule, which its command accepts.
-    The edit half cannot be told, so its gateway supplies the schedule another way.
-
-    The adapter's file is checked when this backend loads, not here. A backend is
-    built whether or not it is used, and the stub builds every one of them, so a
-    check here would stop page work on a machine that never asked for the model.
-    """
-    settings = config.backend("viggle_turbo")
-    lora_path = config.required("viggle_turbo", "lora_path")
-    quantize = settings.get("quantize")
-    loras = lora_files(config, "viggle_turbo")
-    return offering(
-        ViggleTurboBackendGateway(
-            Qwen21Generator(quantize, lora_path=lora_path, scheduler="viggle_turbo", lora_files=loras),
-            Qwen21Edit(quantize, lora_path=lora_path, lora_files=loras),
-            badge=badge(quantize),
-            lora_path=lora_path,
-            loras=loras,
-        ),
-        "viggle_turbo",
-    )
-
-
-def qwen_checkpoint_backend(config: Config, checkpoint: QwenCheckpoint) -> QwenCheckpointBackendGateway:
-    """A checkpoint that a plugin names, run by the two models that qwen21 drives.
-
-    The folder, the quantization, the LoRAs and the rewriter models come from the plugin's
-    own section. The folder gets the base model's config, because the weights come from the
-    base model. The gateway checks the folder when a run starts, as the LTX packs do:
-    `--all-backends` offers every installed checkpoint, with or without a section.
-    """
-    backend_id = checkpoint.backend_id
-    settings = config.backend(backend_id)
-    model_dir = str(settings.get("model_dir", ""))
-    quantize = settings.get("quantize")
-    try:
-        capabilities = qwen_checkpoint_capabilities(
-            backend_id,
-            checkpoint.name,
-            badge=badge(quantize),
-            description=checkpoint.description,
-            scheduler=checkpoint.scheduler,
-            generate_sampler=checkpoint.generate_sampler,
-            steps=checkpoint.steps,
-            generate_size=checkpoint.generate_size,
-            max_edit_references=checkpoint.max_edit_references,
-        )
-    except ValueError as error:
-        raise ConfigError(f"Cannot build the Qwen checkpoint {backend_id}: {error}") from None
-    loras = lora_files(config, backend_id)
-    callbacks = (AncestralSeedHook(),) if checkpoint.generate_sampler == "euler_ancestral" else ()
-    return offering(
-        QwenCheckpointBackendGateway(
-            Qwen21Generator(
-                quantize,
-                build=partial(qwen_generator.build_model, model_config=base_model_config, callbacks=callbacks),
-                scheduler=generate_scheduler(checkpoint.scheduler, checkpoint.generate_sampler),
-                model_path=model_dir,
-                lora_files=loras,
-            ),
-            Qwen21Edit(
-                quantize,
-                build=partial(qwen_edit.build_model, model_config=base_model_config),
-                model_path=model_dir,
-                lora_files=loras,
-            ),
-            capabilities,
-            model_dir,
-            edit_scheduler=edit_scheduler(checkpoint.scheduler),
-            loras=loras,
-        ),
-        backend_id,
-    )
-
-
-BACKENDS = {
-    "qwen21": qwen21_backend,
-    "qwen21_turbo": qwen21_turbo_backend,
-    "flux2": flux2_backend,
-    "flux3": flux3_backend,
-    "krea2": krea2_backend,
-    "viggle_turbo": viggle_turbo_backend,
-}
-
-
-def ltx25_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx25BackendGateway:
-    # The engine's settings are shared under [mlx_video]; each model's LoRAs are its own.
-    loras = lora_files(config, "ltx25_mlx", video=True)
-    model = str(config.backend("mlx_video").get("model_ltx25", ""))
-    runner = _mlx_video_runner(
-        config, model, "model_ltx25", keyframe_two_stage=False, enhanced_prompt=enhanced_prompt, loras=loras
-    )
-    return Ltx25BackendGateway(runner, loras)
-
-
-def ltx23_mlx_backend(config: Config, enhanced_prompt=None) -> Ltx23BackendGateway:
-    loras = lora_files(config, "ltx23_mlx", video=True)
-    model = str(config.backend("mlx_video").get("model_ltx23", ""))
-    runner = _mlx_video_runner(
-        config, model, "model_ltx23", keyframe_two_stage=True, enhanced_prompt=enhanced_prompt, loras=loras
-    )
-    return Ltx23BackendGateway(runner, loras)
-
-
-def ltx_pack_backend(config: Config, pack: LtxPack, enhanced_prompt=None) -> LtxPackBackendGateway:
-    """A pack that a plugin names, run by the base packs' runner, with the same enhancer.
-
-    The folder and the LoRAs come from the plugin's own section. The engine's settings stay
-    under [mlx_video]. The gateway checks the folder when a run starts, as the base packs check
-    their own setting: `--all-backends` offers every installed pack, with or without a section.
-    """
-    pack_dir = str(config.backend(pack.backend_id).get("pack_dir", ""))
-    try:
-        capabilities = ltx_pack_capabilities(
-            pack.backend_id,
-            pack.name,
-            pack.family,
-            description=pack.description,
-            precision=pack.precision,
-            edit=pack.edit,
-            audio=pack.audio,
-            fast_mode=pack.fast_mode,
-        )
-    except ValueError as error:
-        raise ConfigError(f"Cannot build the LTX pack {pack.backend_id}: {error}") from None
-    loras = lora_files(config, pack.backend_id, video=True)
-    runner = _mlx_video_runner(
-        config,
-        pack_dir,
-        "pack_dir",
-        keyframe_two_stage=pack.family == "ltx23",
-        enhanced_prompt=enhanced_prompt,
-        loras=loras,
-    )
-    return LtxPackBackendGateway(runner, capabilities, pack_dir, loras)
-
-
-def _mlx_video_runner(
-    config: Config, model: str, model_key: str, *, keyframe_two_stage: bool, enhanced_prompt=None, loras=None
-) -> MlxVideoRunner:
-    settings = config.backend("mlx_video")
-    return MlxVideoRunner(
-        settings,
-        model,
-        True,
-        keyframe_two_stage,
-        model_key=model_key,
-        enhanced_prompt=enhanced_prompt,
-        execute_process=SubprocessRunner().execute,
-        lora_files=loras,
-    )
-
-
-VIDEO_BACKENDS = {
-    "ltx25_mlx": ltx25_mlx_backend,
-    "ltx23_mlx": ltx23_mlx_backend,
-}
-
-# Which backends offer a prompt rewriter, and where their weights come from. The
-# rewriter is a model of its own and does not read the image engine at all, so
-# every backend driving this model family offers the same two. A backend left out
-# here reports no modes and the page hides its toggle rather than offering a button
-# that always refuses.
-REWRITERS = {"qwen21": Qwen21Rewriter, "qwen21_turbo": Qwen21Rewriter, "viggle_turbo": Qwen21Rewriter}
-# MLX quantizes to these widths only; 0 keeps full precision.
-REWRITE_QUANTIZE_BITS = (0, 2, 3, 4, 5, 6, 8)
-
-
-def qwen21_rewrite_models(config: Config, backend_id: str) -> dict | None:
-    """One rewriter model per mode: the text one rewrites a request, the image one
-    reads the picture an edit will be of.
-
-    Read from the section of the backend that will use it, since that is where a
-    reader would look for it. None when studio.toml names neither. A settings file
-    written before the rewriters existed has no keys for them, and that studio
-    starts as it did, with no toggle, rather than refusing to boot.
-
-    `rewrite_generate_local` and `rewrite_edit_local` name a converted checkpoint
-    on disk. When that directory exists it is used instead of the repo id, which
-    stays as the fallback for a machine that has not converted one.
-    """
-    settings = config.backend(backend_id)
-    models = {
-        "generate": settings.get("rewrite_generate_model"),
-        "edit": settings.get("rewrite_edit_model"),
-    }
-    # A converted checkpoint is a local directory, and it answers first when it is
-    # there. The repo id stays in the map for a machine that does not hold one, so a
-    # fresh install still downloads and quantizes the bf16 card as it always did.
-    for mode in ("generate", "edit"):
-        local = settings.get(f"rewrite_{mode}_local")
-        if local and Path(str(local)).expanduser().is_dir():
-            models[mode] = str(Path(str(local)).expanduser())
-    return models if all(models.values()) else None
-
-
-def rewrite_quantize(config: Config, backend_id: str) -> int:
-    quantize = config.backend(backend_id).get("rewrite_quantize", 0)
-    # bool is an int in Python: `false` equals 0 and would pass as full precision.
-    if isinstance(quantize, bool) or quantize not in REWRITE_QUANTIZE_BITS:
-        raise ConfigError(f"rewrite_quantize under [{backend_id}] must be 0, 2, 3, 4, 5, 6 or 8, not {quantize!r}")
-    return quantize
-
-
-def build_rewriters(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
-    built = {}
-    for backend_id in config.visible_backends:
-        # A checkpoint runs on the Qwen engine, so it takes the Qwen rewriters as well.
-        checkpoint = plugins is not None and plugins.checkpoint("image", backend_id) is not None
-        if plugins and backend_id in plugins.ids("image") and not checkpoint:
-            built[backend_id] = plugins.rewriter("image", backend_id, config, stub)
-        else:
-            rewriter = Qwen21Rewriter if checkpoint else REWRITERS.get(backend_id)
-            models = qwen21_rewrite_models(config, backend_id) if rewriter else None
-            quantize = rewrite_quantize(config, backend_id)
-            built[backend_id] = rewriter(models, quantize=quantize) if rewriter and models else NoPromptRewriter()
-    return built
-
-
-def build_backends(config: Config, plugins: ModelPlugins | None = None, stub: bool = False) -> dict:
+def build_image_backends(config: Config, plugins: InstalledModelCatalog | None = None, stub: bool = False) -> dict:
     """The backends the page offers, and no others: an unused one needs no settings.
     Each loads nothing until it is used."""
-    registry = {**BACKENDS, **plugin_factories(plugins, "image", stub)}
+    registry = {**IMAGE_BACKEND_FACTORIES, **plugin_factories(plugins, "image", stub)}
     unknown = [backend_id for backend_id in config.visible_backends if backend_id not in registry]
     if unknown:
         raise ConfigError(f"no backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
@@ -477,9 +98,9 @@ def build_backends(config: Config, plugins: ModelPlugins | None = None, stub: bo
 
 
 def build_video_backends(
-    config: Config, enhanced_prompt=None, plugins: ModelPlugins | None = None, stub: bool = False
+    config: Config, enhanced_prompt=None, plugins: InstalledModelCatalog | None = None, stub: bool = False
 ) -> dict:
-    registry = {**VIDEO_BACKENDS, **plugin_factories(plugins, "video", stub)}
+    registry = {**VIDEO_BACKEND_FACTORIES, **plugin_factories(plugins, "video", stub)}
     unknown = [backend_id for backend_id in config.visible_video_backends if backend_id not in registry]
     if unknown:
         raise ConfigError(f"no video backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
@@ -489,126 +110,65 @@ def build_video_backends(
     }
 
 
-def voice_auk_backend(config: Config) -> AukBackendGateway:
-    return AukBackendGateway(_auk_child(config, "auk_base", "base"))
-
-
-def voice_auk_flash_backend(config: Config) -> AukFlashBackendGateway:
-    return AukFlashBackendGateway(_auk_child(config, "auk", "flash"))
-
-
-def _auk_child(config: Config, backend_id: str, variant: str) -> StdioChild:
-    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/audio/auk_runtime/auk_child.py"
-    settings = {**config.backend("auk"), **config.backend(backend_id)}
-    return StdioChild(["uv", "run", "--script", str(settings.get("child_script", child_path)), "--variant", variant])
-
-
-def voice_drama_backend(config: Config):
-    child_path = Path(__file__).parents[1] / "l3_interface_adapters/gateways/audio/drama3/drama3_child.py"
-    settings = config.backend("drama3")
-    script = str(settings.get("child_script", child_path))
-    python = settings.get("python_path")
-    command = [str(python), script] if python else ["uv", "run", "--script", script]
-    return Drama3BackendGateway(StdioChild(command))
-
-
-VOICE_BACKENDS = {
-    "auk": voice_auk_flash_backend,
-    "auk_base": voice_auk_backend,
-    "drama3": voice_drama_backend,
-}
-
-
-def build_voice_backends(config: Config, plugins: ModelPlugins | None = None, stub: bool = False):
-    registry = {**VOICE_BACKENDS, **plugin_factories(plugins, "voice", stub)}
+def build_voice_backends(config: Config, plugins: InstalledModelCatalog | None = None, stub: bool = False):
+    registry = {**VOICE_BACKEND_FACTORIES, **plugin_factories(plugins, "voice", stub)}
     unknown = [name for name in config.visible_voice_backends if name not in registry]
     if unknown:
         raise ConfigError(f"no voice backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
     return {name: registry[name](config) for name in config.visible_voice_backends}
 
 
-def music_yue2_backend(config: Config):
-    settings = config.backend("yue2")
-    if settings.get("engine", "mlx-q8") != "mlx-q8":
-        raise ConfigError("YuE2 only supports the mlx-q8 engine. Remove the old PyTorch settings.")
-    script = Path(__file__).parents[1] / "l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py"
-    python = settings.get("python_path")
-    command = [str(python), str(script)] if python else ["uv", "run", "--script", str(script)]
-    model_dir = str(settings.get("model_dir", Path.home() / "Library/Caches/models/yue2-mlx"))
-    vae_dir = str(settings.get("vae_dir", model_dir + "-vae"))
-    if Path(vae_dir).resolve().is_relative_to(Path(model_dir).resolve()):
-        raise ConfigError(
-            "[yue2].vae_dir must be outside model_dir; converted model integrity requires a clean directory."
-        )
-    transcription_cache = str(
-        settings.get("transcription_cache_dir", Path.home() / "Library/Caches/models/yue2-transcription")
-    )
-    command += ["--transcription-cache-dir", transcription_cache]
-    command += ["--model-dir", model_dir, "--vae-dir", vae_dir]
-    return Yue2BackendGateway(StdioChild(command), model_dir, vae_dir)
-
-
-MUSIC_BACKENDS = {"yue2": music_yue2_backend}
-
-
 def build_music_backends(config: Config, stub=False):
-    unknown = set(config.visible_music_backends) - MUSIC_BACKENDS.keys()
+    unknown = set(config.visible_music_backends) - MUSIC_BACKEND_FACTORIES.keys()
     if unknown:
         raise ConfigError(f"no music backend called {', '.join(sorted(unknown))}")
     return {
-        name: StubMusicBackendGateway() if stub else MUSIC_BACKENDS[name](config)
+        name: StubMusicBackendGateway() if stub else MUSIC_BACKEND_FACTORIES[name](config)
         for name in config.visible_music_backends
     }
 
 
-def discover_plugins() -> ModelPlugins:
-    return ModelPlugins({"image": BACKENDS, "video": VIDEO_BACKENDS, "voice": VOICE_BACKENDS, "music": MUSIC_BACKENDS})
-
-
-def plugin_factories(plugins: ModelPlugins | None, kind: str, stub: bool) -> dict:
-    """One factory per installed model. A factory imports its plugin only when it is called,
-    so a hidden model's code is never imported."""
-    return (
-        {name: partial(plugin_backend, plugins, kind, name, stub=stub) for name in plugins.ids(kind)} if plugins else {}
+def discover_plugins() -> InstalledModelCatalog:
+    return InstalledModelCatalog(
+        {
+            "image": IMAGE_BACKEND_FACTORIES,
+            "video": VIDEO_BACKEND_FACTORIES,
+            "voice": VOICE_BACKEND_FACTORIES,
+            "music": MUSIC_BACKEND_FACTORIES,
+        }
     )
-
-
-def plugin_backend(
-    plugins: ModelPlugins, kind: str, name: str, config: Config, stub: bool = False, enhanced_prompt=None
-):
-    """A plugin's model. An LTX pack or a Qwen checkpoint is built here, as the built-in models
-    are, also for the stub: building it loads nothing. Every other plugin builds its own."""
-    pack = plugins.pack(kind, name)
-    if pack is not None:
-        return ltx_pack_backend(config, pack, enhanced_prompt)
-    checkpoint = plugins.checkpoint(kind, name)
-    if checkpoint is not None:
-        return qwen_checkpoint_backend(config, checkpoint)
-    return plugins.build(kind, name, config, stub)
 
 
 def create_studio(
     config: Config,
     stub: bool = False,
-    plugins: ModelPlugins | None = None,
+    plugins: InstalledModelCatalog | None = None,
     allowed_origins: tuple[str, ...] = (),
     private_results_dir: Path | None = None,
 ) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page.
     `allowed_origins` are the pages at another address that may post, such as a proxy."""
     plugins = plugins if plugins is not None else discover_plugins()
-    backends = build_backends(config, plugins, stub)
+    backends = build_image_backends(config, plugins, stub)
     enhancer = Gemma3PromptEnhancer(config.backend("mlx_video"), SubprocessRunner().execute)
     video_backends = build_video_backends(config, enhancer.is_enhanced, plugins, stub)
-    video_rewriter = StubPromptRewriter() if stub else Gemma3PromptRewriterGateway(enhancer)
+    video_rewriter = StubPromptRewriterGateway() if stub else Gemma3PromptRewriterGateway(enhancer)
     voice_backends = build_voice_backends(config, plugins, stub)
     music_backends = build_music_backends(config, stub)
     rewriters = build_rewriters(config, plugins, stub)
     # An LTX pack runs on the base packs' engine, so it takes their enhancer as well.
-    packs = {name for name in video_backends if plugins.pack("video", name) is not None}
-    checkpoints = {name for name in backends if plugins.checkpoint("image", name) is not None}
+    packs = {
+        name
+        for name in video_backends
+        if name in plugins.ids("video") and isinstance(plugins.declaration("video", name), LtxCheckpointRegistration)
+    }
+    checkpoints = {
+        name
+        for name in backends
+        if name in plugins.ids("image") and isinstance(plugins.declaration("image", name), QwenCheckpointRegistration)
+    }
     video_rewriters = {
-        name: plugins.rewriter("video", name, config, stub)
+        name: ModelBackendFactory(plugins).rewriter("video", name, config, stub)
         if name in plugins.ids("video") and name not in packs
         else video_rewriter
         for name in video_backends
@@ -622,7 +182,7 @@ def create_studio(
         rewriters = {
             backend_id: rewriters[backend_id]
             if backend_id in plugins.ids("image") and backend_id not in checkpoints
-            else StubPromptRewriter()
+            else StubPromptRewriterGateway()
             for backend_id in rewriters
         }
         video_backends = {
@@ -633,7 +193,7 @@ def create_studio(
         packs
         or checkpoints
         or any(
-            name in BACKENDS or name in VIDEO_BACKENDS or name in VOICE_BACKENDS
+            name in IMAGE_BACKEND_FACTORIES or name in VIDEO_BACKEND_FACTORIES or name in VOICE_BACKEND_FACTORIES
             for name in (*backends, *video_backends, *voice_backends)
         )
     ):
@@ -659,6 +219,11 @@ def create_studio(
         private_results_dir=private_results_dir,
         resource_memory_headroom=None if stub else memory_headroom,
         qwen_turbo_quantize=config.backend("qwen21_turbo").get("quantize"),
+        settings=(
+            JsonStudioSettingsGateway(config.settings_path, config.require_memory_estimate)
+            if config.settings_path is not None and not stub
+            else InMemoryStudioSettingsGateway(config.require_memory_estimate)
+        ),
     )
 
 
@@ -683,8 +248,10 @@ def assemble_studio(
     private_results_dir: Path | None = None,
     resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
     qwen_turbo_quantize: int | None = None,
+    settings: StudioSettingsGateway | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
+    settings = settings if settings is not None else InMemoryStudioSettingsGateway()
     gpu = GpuThread()
     engine_lock = threading.Lock()
     confined = {name: ThreadConfinedBackendGateway(backend, gpu) for name, backend in backends.items()}
@@ -706,7 +273,7 @@ def assemble_studio(
             voice_backends, default_voice_id, visible_voice_ids or tuple(voice_backends)
         )
     if video_rewriters is not None and video_catalog is not None:
-        video_rewriter = CatalogPromptRewriter(video_rewriters, video_catalog)
+        video_rewriter = CatalogPromptRewriterGateway(video_rewriters, video_catalog)
     if video_rewriter is not None:
         video_rewriter = ThreadConfinedPromptRewriter(video_rewriter, gpu)
     music_catalog = None
@@ -717,9 +284,11 @@ def assemble_studio(
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
     resource_admission = (
-        ResourceAdmission(resource_memory_headroom, qwen_turbo_quantize) if resource_memory_headroom else None
+        ResourceAdmission(resource_memory_headroom, build_memory_estimates(qwen_turbo_quantize), settings)
+        if resource_memory_headroom
+        else None
     )
-    rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriter(rewriters, catalog), gpu)
+    rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriterGateway(rewriters, catalog), gpu)
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())
     # The rewrite publishes its own phase, because the page draws that button from
     # it: a rewrite is worth stopping, and only once the model is writing.
@@ -788,6 +357,7 @@ def assemble_studio(
         completion=CompleteOperationUseCase(operations),
         batches=PrepareBatchUseCase(),
         resource_admission=resource_admission,
+        settings=settings,
     )
     return Studio(
         handler=make_handler(controller, presenter, video_controller, api, allowed_origins),

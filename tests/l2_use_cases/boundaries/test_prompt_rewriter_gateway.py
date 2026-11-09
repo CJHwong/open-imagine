@@ -10,15 +10,13 @@ from typing import Any
 import pytest
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
-from studio.l3_interface_adapters.gateways.prompt_rewriters import (
-    CatalogPromptRewriter,
-    NoPromptRewriter,
-    StubPromptRewriter,
-)
+from studio.l3_interface_adapters.gateways.catalog_prompt_rewriter_gateway import CatalogPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 
 OPERATIONS = frozenset({"modes", "rewrite", "release"})
-CLASS_ONLY_ADAPTERS = (CatalogPromptRewriter, ThreadConfinedPromptRewriter)
+CLASS_ONLY_ADAPTERS = (CatalogPromptRewriterGateway, ThreadConfinedPromptRewriter)
 
 
 def test_the_port_cannot_be_instantiated():
@@ -33,7 +31,7 @@ def test_the_port_declares_the_operations_the_core_calls():
     assert PromptRewriterGateway.__abstractmethods__ == OPERATIONS
 
 
-@pytest.mark.parametrize("adapter", [NoPromptRewriter, StubPromptRewriter])
+@pytest.mark.parametrize("adapter", [NoPromptRewriterGateway, StubPromptRewriterGateway])
 def test_a_rewriter_with_no_model_satisfies_the_port(adapter):
     built = adapter()
     assert isinstance(built, PromptRewriterGateway)

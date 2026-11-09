@@ -20,6 +20,7 @@ from studio.l3_interface_adapters.api.openapi_examples import (
     video_examples,
     voice_examples,
 )
+from studio.l3_interface_adapters.api.settings_paths import settings_paths
 from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_REFERENCES, VIDEO_PROMPT_REFERENCES
 from studio.l3_interface_adapters.api.voice_prompt_guides import (
     VOICE_API_CONTRACT,
@@ -100,6 +101,7 @@ def openapi_document() -> dict[str, Any]:
             },
         ],
         "paths": {
+            **settings_paths(),
             **operation_paths(),
             **voice_paths(),
             **music_paths(),
@@ -537,6 +539,11 @@ def openapi_document() -> dict[str, Any]:
                 "Studio": {
                     "type": "object",
                     "properties": {
+                        "settings": {
+                            "type": "object",
+                            "required": ["require_memory_estimate"],
+                            "properties": {"require_memory_estimate": {"type": "boolean", "default": True}},
+                        },
                         "private_operations": {
                             "type": "boolean",
                             "description": "The studio honors X-Studio-Private-Key on POST /api/v1/operations.",

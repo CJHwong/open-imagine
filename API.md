@@ -1100,3 +1100,24 @@ with urlopen(request, timeout=3600) as response:
 metadata = read_json(f"/api/v1/operations/{operation_id}/metadata")
 Path("synchronous-metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 ```
+
+## App-wide settings
+
+`GET /api/v1/settings` returns `{"require_memory_estimate": true}` by default.
+The same object is included as `settings` in `GET /api/v1/studio`.
+
+`POST /api/v1/settings` accepts exactly one boolean:
+
+```json
+{"require_memory_estimate": false}
+```
+
+This changes the policy for all workspaces and callers and persists it across
+restarts. The UI exposes it in Settings → Memory. Stub servers keep the setting
+only for their session. Unknown keys and non-boolean values return 400; these
+routes refuse `X-Studio-Private-Key`. The file holds no operation data.
+
+With `true`, any unmeasured media run or batch item returns 503 before work starts,
+with instructions to change the setting. With `false`, those workflows may run
+without a memory check. Measured limits remain enforced in both modes. A policy
+change does not cancel operations already admitted.

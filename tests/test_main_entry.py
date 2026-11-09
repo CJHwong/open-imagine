@@ -275,10 +275,10 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
     with pytest.raises(SystemExit):
         entry.main()
 
-    assert seen["visible"] == tuple(entry.BACKENDS)
+    assert seen["visible"] == tuple(entry.IMAGE_BACKEND_FACTORIES)
     assert "flux2" in seen["visible"]
-    assert seen["visible_video"] == tuple(entry.VIDEO_BACKENDS)
-    assert seen["visible_voice"] == tuple(entry.VOICE_BACKENDS)
+    assert seen["visible_video"] == tuple(entry.VIDEO_BACKEND_FACTORIES)
+    assert seen["visible_voice"] == tuple(entry.VOICE_BACKEND_FACTORIES)
 
 
 def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch):
@@ -302,10 +302,10 @@ def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch)
     with pytest.raises(SystemExit):
         entry.main()
 
-    assert seen["visible"] == (*entry.BACKENDS, "external_image")
+    assert seen["visible"] == (*entry.IMAGE_BACKEND_FACTORIES, "external_image")
     assert "flux2" in seen["visible"]
-    assert seen["visible_video"] == (*entry.VIDEO_BACKENDS, "external_video")
-    assert seen["visible_voice"] == (*entry.VOICE_BACKENDS, "external_voice")
+    assert seen["visible_video"] == (*entry.VIDEO_BACKEND_FACTORIES, "external_video")
+    assert seen["visible_voice"] == (*entry.VOICE_BACKEND_FACTORIES, "external_voice")
 
 
 def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, monkeypatch):

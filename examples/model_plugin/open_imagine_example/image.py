@@ -3,7 +3,7 @@
 import struct
 import zlib
 
-from studio.plugins import ModelPlugin
+from studio.plugins import GatewayModelRegistration
 from studio.plugins.image import (
     Cancelled,
     Capabilities,
@@ -77,4 +77,4 @@ class ExampleImageGateway(ImageBackendGateway):
         pass
 
 
-plugin = ModelPlugin(CAPABILITIES, lambda context: ExampleImageGateway())
+plugin = GatewayModelRegistration(CAPABILITIES, lambda context: ExampleImageGateway())

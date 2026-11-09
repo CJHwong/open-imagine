@@ -681,7 +681,7 @@ def test_model_switch_and_release_cannot_race_an_operation_reservation(monkeypat
 
 class FakeVoice(VoiceController):
     def __init__(self):
-        from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
+        from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 
         self._catalog = None
         self._switch = None
@@ -922,8 +922,8 @@ def test_voice_batch_progress_never_repeats_a_finished_take_on_the_next_index(mo
 
     from studio.l1_entities.voice_job import SpeechResult
     from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
-    from studio.l3_interface_adapters.gateways.audio.auk_runtime.capabilities import auk_capabilities
     from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+    from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 
     progress = InMemoryProgressGateway()
     backend = Mock()
@@ -1045,7 +1045,7 @@ def test_native_image_progress_label_does_not_change_other_operations(kind, sour
 def test_omitted_voice_mode_uses_the_active_backend_default():
     from unittest.mock import Mock
 
-    from studio.l3_interface_adapters.gateways.audio.drama3.capabilities import drama_capabilities
+    from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import drama_capabilities
 
     voice = VoiceController(Mock(), drama_capabilities())
     api = api_for(FakeController(), voice=voice)
@@ -1469,3 +1469,10 @@ def test_public_operations_do_not_support_private_deletion():
     operation = api.reserve({"kind": "image"})
     with pytest.raises(InvalidJob, match="Only private"):
         api.delete_operation(operation["id"])
+
+
+def test_an_embedded_api_without_app_settings_reports_the_default_but_cannot_change_it():
+    api = api_for(FakeController())
+    assert api.settings() == {"require_memory_estimate": True}
+    with pytest.raises(InvalidJob, match="settings are not configured"):
+        api.update_settings({"require_memory_estimate": False})

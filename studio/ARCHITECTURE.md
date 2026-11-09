@@ -10,7 +10,7 @@ Each layer imports only the layers inside it. `.importlinter` enforces this, and
 |---|---|---|
 | 1. Entities | `l1_entities/` | The job, the result, the progress, the errors, the capabilities record: modes, params, Looks, templates, estimate, and the time formulas of an image request and a clip |
 | 2. Use cases | `l2_use_cases/` | Run image, video, Voice, or Music jobs, plan an image or video request without a run, describe the studio, switch backends, release model memory, rewrite prompts, and read progress. `boundaries/` holds their ports. |
-| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, `gateways/audio`, and `gateways/music`, in-memory stores, and the GPU thread for MLX calls |
+| 3. Interface adapters | `l3_interface_adapters/` | The form and video controllers, the HTML presenter, the JSON API, model gateways, grouped under `gateways/image`, `gateways/video`, `gateways/voice`, and `gateways/music`, in-memory stores, and the GPU thread for MLX calls |
 | 4. Frameworks and drivers | `l4_frameworks_and_drivers/` | The HTTP server, generic subprocess driver, config file, platform probe, page, and `main.py`, which wires everything |
 
 The entities and use cases import no engine: no mlx, mflux, PIL, http or subprocess. The backend adapters do not import each other; what two of them share sits next to them in `gateways/`.
@@ -20,6 +20,36 @@ The engine choice is made in layer 4, from the probe in `engines.py`, not in a g
 Image, Video, Voice, and Music have separate backend catalogs and selections. Voice offers Drama-3 by default, AuK, and AuK Flash. They share one model-memory slot and one non-queueing lock. The server starts without loading weights. A model loads only when its run starts. Selecting another model releases the current one but does not load the new one. Leaving a workspace releases its model. The LTX pipelines run in a child process, which releases its weights when it exits. The MLX q8 packs run the same way through their port. A prompt rewrite takes the same lock and releases its weights when it ends.
 
 Names follow the role. A gateway ends in `_gateway.py` and its class in `Gateway`. A use case ends in `_use_case.py` and `UseCase`. Controllers and presenters do the same. Entities and the records passed between layers have no suffix.
+
+## Responsibility and terminology
+
+Each module owns one responsibility. Each public concrete gateway or registration record
+has its own file. Closely related value records may share a contract module; registries
+and composition modules may name multiple concrete implementations because their job is
+selection and wiring. A generic policy must depend on a port or injected callable rather
+than branch on model IDs. A shared runtime module implements one inference mechanism;
+it does not select between unrelated models. Compatibility facades re-export names and
+contain no second implementation.
+
+Use **model** for the selectable model/weights, **backend gateway** for Studio's execution
+adapter, **runtime** for its inference library/process, **plugin package** for an installed
+distribution, and **registration** for the declaration its entry point exports. A checkpoint
+is weights for an existing runtime; LTX's on-disk "pack" layout remains `pack_dir` in
+configuration. Voice is the workspace name; Audio describes media data. Public API-v1
+SDK aliases and configuration keys remain supported.
+
+`main.py` assembles the application; `studio.py` owns the assembled application's lifecycle.
+`model_factories/<workspace>/<model>.py` owns each model's construction and settings.
+The explicit factory registry is the composition layer's list of built-ins.
+`InstalledModelCatalog` owns metadata discovery and lazy registration loading.
+`ModelRegistrationCatalog` is the structural catalog contract used by `ModelBackendFactory`;
+construction and per-format validation have separate modules.
+
+`ResourceAdmission` depends on the inner `MemoryEstimateGateway` port and an injected host
+memory probe. `CatalogMemoryEstimateGateway` handles calibrated host limits, estimator lookup
+and retained batch outputs. Each model's `memory_estimate.py` owns its measured formula;
+`memory_estimates.py` in layer 4 wires them. Neither the API nor the generic catalog imports
+concrete model estimators. Missing estimates retain the accepted-run policy.
 
 ## Model gateway ownership
 
@@ -34,7 +64,7 @@ Every generation model has one concrete gateway in its own media/model package:
 gateways/
   image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,krea2,qwen_checkpoint}/
   video/{ltx25,ltx23,ltx_pack}/
-  audio/{drama3,auk,auk_flash}/
+  voice/{drama3,auk,auk_flash}/
   music/yue2/
 ```
 
@@ -43,7 +73,7 @@ LTX-2.3 and LTX-2.5 do too. A gateway fixes its model identity rather than selec
 between models at runtime. `video/ltx_pack` and `image/qwen_checkpoint` are the exceptions: each
 takes its identity from the plugin record that names the weights. Existing public backend IDs remain stable.
 Shared engine helpers live in `image/qwen_runtime`, `image/shared`, `video/shared`,
-`video/ltx_runtime`, and `audio/auk_runtime`. These packages are implementation helpers, not additional
+`video/ltx_runtime`, and `voice/auk_runtime`. These packages are implementation helpers, not additional
 model gateways. `.importlinter` forbids imports between the twelve model packages, `video/ltx_pack` and
 `image/qwen_checkpoint`.
 Layer 4 constructs the model-specific gateway and injects its engine dependencies.
@@ -59,9 +89,9 @@ when it shares an engine or publisher with an existing model.
 
 ## External model plugins
 
-Installed entry points under `open_imagine.models.image`, `.video`, and `.audio` extend
-workspace catalogs without changing the source tree. `model_plugins.py` reads metadata and
-imports only visible declarations. The public `studio.plugins` SDK exposes versioned immutable
+Installed entry points under `open_imagine.models.image`, `.video`, and `.voice` extend
+workspace catalogs without changing the source tree. `model_registration/installed_model_catalog.py` reads metadata and
+imports only visible registrations. The public `studio.plugins` SDK exposes versioned immutable
 registration/context records and media-specific inner gateway/job/capability types. Discovery
 and concrete factory validation belong in layer 4; core use cases never inspect packages.
 Plugin IDs are globally unique because all media share one residency map. Stub mode uses
@@ -300,7 +330,7 @@ Existing single-stage effects retain their sampling paths. The external engine c
 
 Music owns separate `MusicJob`, `MusicResult`, `MusicCapabilities`, catalog and gateway ports,
 controller and run/switch use cases. Its model packages live under `gateways/music/<id>` and
-are independent of speech model packages. `gateways/audio/stdio_child.py` is the shared JSON
+are independent of speech model packages. `gateways/stdio_child.py` is the shared JSON
 pipe process helper, used by both media. Music shares the operation reservation, non-queueing
 engine lock and model residency map. All model IDs, including Music, are globally reserved.
 The current plugin SDK still extends Image, Video and Voice only.
@@ -339,3 +369,12 @@ Visible idle tabs poll every five seconds. A busy server or local run selects a 
 Changes to local run controls trigger a status refresh before the server reports the new operation.
 Hidden tabs cancel the timer and refresh immediately when visible.
 The worker and model lifecycle keep their existing behavior.
+
+## App-wide memory settings
+
+`StudioSettingsGateway` holds the shared memory policy. `ResourceAdmission` reads
+it on each request; `JsonApi` reads and updates the same instance. The production
+JSON driver persists only preferences through an atomic replacement; embedded
+and stub instances use an isolated in-memory gateway. The page has no independent
+policy in local storage. `require_memory_estimate` defaults to true. Disabling it
+permits missing measurements while keeping all known memory checks.

@@ -226,9 +226,12 @@ def make_handler(
             if status != 200:
                 self._send_json(viewer, status=status)
                 return
+            if path == "/api/v1/settings" and self._refused_private_key():
+                return
             readers = {
                 "/api/v1/openapi.json": api.openapi,
                 "/api/v1/studio": api.studio,
+                "/api/v1/settings": api.settings,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": lambda: api.progress(viewer),
@@ -318,6 +321,8 @@ def make_handler(
                     else "video"
                 )
                 body, status = self._api_result(lambda: api.switch_backend(self._read_json(), workspace))
+            elif path == "/api/v1/settings":
+                body, status = self._api_result(lambda: api.update_settings(self._read_json(include_identity=False)))
             elif path == "/api/v1/memory/release":
                 body, status = self._api_result(api.release_model)
             elif path in ("/api/v1/images/generate", "/api/v1/images/edit"):
@@ -632,7 +637,7 @@ def make_handler(
             form["library_id"] = self.headers.get("X-Studio-Library", "")
             return form
 
-        def _read_json(self) -> dict:
+        def _read_json(self, *, include_identity: bool = True) -> dict:
             if not self.headers.get("Content-Type", "").startswith("application/json"):
                 raise InvalidJob("The video request must use application/json")
             length = int(self.headers.get("Content-Length", 0))
@@ -644,8 +649,9 @@ def make_handler(
                 raise InvalidJob("The video request must contain valid JSON") from None
             if not isinstance(payload, dict):
                 raise InvalidJob("The video request must be a JSON object")
-            payload["client_id"] = self.headers.get("X-Studio-Client") or payload.get("client_id", "")
-            payload["library_id"] = self.headers.get("X-Studio-Library") or payload.get("library_id", "")
+            if include_identity:
+                payload["client_id"] = self.headers.get("X-Studio-Client") or payload.get("client_id", "")
+                payload["library_id"] = self.headers.get("X-Studio-Library") or payload.get("library_id", "")
             return payload
 
         def _send_page_asset(self, name: str) -> None:

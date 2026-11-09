@@ -30,6 +30,7 @@ from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
+from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSettingsGateway
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.prepare_batch_use_case import BATCH_LIMIT, PrepareBatchUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageResponse
@@ -63,6 +64,7 @@ class JsonApi:
         operations: OperationGateway,
         completion: CompleteOperationUseCase,
         batches: PrepareBatchUseCase,
+        settings: StudioSettingsGateway | None = None,
         resource_admission: Callable[[Mapping[str, object]], None] | None = None,
     ) -> None:
         self._controller = controller
@@ -73,6 +75,18 @@ class JsonApi:
         self._completion = completion
         self._batches = batches
         self._resource_admission = resource_admission
+        self._settings = settings
+
+    def settings(self) -> dict[str, bool]:
+        return {"require_memory_estimate": self._settings.require_memory_estimate() if self._settings else True}
+
+    def update_settings(self, payload: Mapping[str, object]) -> dict[str, bool]:
+        if set(payload) != {"require_memory_estimate"} or not isinstance(payload["require_memory_estimate"], bool):
+            raise InvalidJob("Provide require_memory_estimate as true or false; no other settings are accepted.")
+        if self._settings is None:
+            raise InvalidJob("Studio settings are not configured.")
+        self._settings.set_require_memory_estimate(payload["require_memory_estimate"])
+        return self.settings()
 
     def trim_audio(self, payload: Mapping[str, Any]) -> tuple[bytes, float]:
         return trim_audio(payload)
@@ -389,6 +403,7 @@ class JsonApi:
     def studio(self) -> dict[str, Any]:
         document = studio_document(self._controller.page())
         document["private_operations"] = True
+        document["settings"] = self.settings()
         if self._voice is not None:
             document["voice"] = {
                 "active": self._voice.active_id(),

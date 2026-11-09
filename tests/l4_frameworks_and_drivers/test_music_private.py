@@ -12,7 +12,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
-from studio.l3_interface_adapters.gateways.prompt_rewriters import NoPromptRewriter
+from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway
 
@@ -25,7 +25,7 @@ PAYLOAD = {"kind": "music", "style": "private-test-style", "lyrics": "[Verse]\np
 def music_server(directory):
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
-        {"fake": NoPromptRewriter()},
+        {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
         music_backends={"yue2": StubMusicBackendGateway()},

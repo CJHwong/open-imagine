@@ -74,9 +74,9 @@ modules =
     studio.l3_interface_adapters.gateways.video.ltx25
     studio.l3_interface_adapters.gateways.video.ltx23
     studio.l3_interface_adapters.gateways.video.ltx_pack
-    studio.l3_interface_adapters.gateways.audio.auk
-    studio.l3_interface_adapters.gateways.audio.auk_flash
-    studio.l3_interface_adapters.gateways.audio.drama3
+    studio.l3_interface_adapters.gateways.voice.auk
+    studio.l3_interface_adapters.gateways.voice.auk_flash
+    studio.l3_interface_adapters.gateways.voice.drama3
     studio.l3_interface_adapters.gateways.music.yue2
 
 [importlinter:contract:api-isolation]
@@ -107,3 +107,25 @@ source_modules =
 forbidden_modules =
     studio.l3_interface_adapters
     studio.l4_frameworks_and_drivers
+
+[importlinter:contract:registration-discovery-isolation]
+name = Installed model discovery does not construct gateways or runtimes
+type = forbidden
+source_modules =
+    studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog
+forbidden_modules =
+    studio.l3_interface_adapters.gateways
+    studio.l4_frameworks_and_drivers.model_registration.model_backend_factory
+    studio.l4_frameworks_and_drivers.model_factories
+    studio.l4_frameworks_and_drivers.subprocess_runner
+
+[importlinter:contract:memory-catalog-model-independence]
+name = The memory catalog selects injected estimators rather than importing models
+type = forbidden
+source_modules =
+    studio.l3_interface_adapters.gateways.memory
+forbidden_modules =
+    studio.l3_interface_adapters.gateways.image
+    studio.l3_interface_adapters.gateways.video
+    studio.l3_interface_adapters.gateways.voice
+    studio.l3_interface_adapters.gateways.music

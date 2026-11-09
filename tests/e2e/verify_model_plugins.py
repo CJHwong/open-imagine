@@ -183,16 +183,10 @@ with sync_playwright() as tool:
             "frame_rate": 8,
         },
     )
-    assert invalid.status == 202, invalid.text()
-    deadline = time.monotonic() + 30
-    while True:
-        state = context.request.get(URL + invalid.json()["status_url"]).json()
-        if state["status"] in ("succeeded", "failed"):
-            break
-        assert time.monotonic() < deadline, state
-        time.sleep(0.1)
-    assert state["status"] == "failed", state
-    assert "256" in state["error"], state
+    # Admission validates capabilities before reserving an operation, including when
+    # this plugin has no calibrated memory estimate. Invalid dimensions never start work.
+    assert invalid.status == 400, invalid.text()
+    assert "256" in invalid.json()["error"], invalid.json()
     assert not errors, errors
     print("PASS plugin capability limits are enforced; no page errors", flush=True)
     browser.close()

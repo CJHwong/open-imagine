@@ -4,7 +4,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from studio.plugins import ModelPlugin
+from studio.plugins import GatewayModelRegistration
 from studio.plugins.video import InvalidJob, Lora, VideoBackendGateway, VideoCapabilities, VideoResult, VideoShape
 
 CAPABILITIES = VideoCapabilities(
@@ -89,4 +89,4 @@ class ExampleVideoGateway(VideoBackendGateway):
         pass
 
 
-plugin = ModelPlugin(CAPABILITIES, ExampleVideoGateway)
+plugin = GatewayModelRegistration(CAPABILITIES, ExampleVideoGateway)
