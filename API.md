@@ -1,6 +1,11 @@
 # Studio API
 
 The API and page use the same controllers, model checks, download policy, and shared model memory.
+
+Memory checks reject a request only when its calibrated peak plus the macOS reserve exceeds
+current headroom. The error states the required and available memory and suggests ways to retry.
+Valid workflows without a calibrated estimate, including Qwen Turbo edits, can run; acceptance
+does not guarantee enough memory. Model validation and the shared operation lock still apply.
 Qwen remains at full precision. Selecting a model does not load its weights.
 Official Qwen Turbo temporarily raises the MLX wired-memory budget during Generate, Edit, and batch prompt preparation, bounded by MLX’s recommended working set and 75% of physical RAM. It synchronizes outstanding work and restores the previous process limit after success, failure, or cancellation. This internal memory policy also applies to UI requests; it adds no request parameter and changes no sampling settings.
 
