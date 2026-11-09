@@ -118,6 +118,9 @@ with delayed_stub() as url, sync_playwright() as p:
         page.click("#video-generate")
     body = request.value.post_data_json
     check("UI sends fast_mode true", body["fast_mode"] is True)
+    # The idle poll is five seconds; this stub finishes in four. Wake the observer
+    # through the normal page-show hook so this tests synchronization deterministically.
+    other.evaluate("window.dispatchEvent(new Event('pageshow'))")
     other.wait_for_function(
         "document.querySelector('#video-fast-mode').getAttribute('aria-pressed')==='true' && document.querySelector('form').dataset.panelHeld==='true'"
     )
@@ -144,6 +147,8 @@ with delayed_stub() as url, sync_playwright() as p:
     response = page.request.post(url + "/api/v1/operations", data=payload)
     check("API accepts default mode without restart", response.status == 202)
     op = response.json()
+    for observer in (page, other):
+        observer.evaluate("window.dispatchEvent(new Event('pageshow'))")
     other.wait_for_function("document.querySelector('#video-fast-mode').getAttribute('aria-pressed')==='false'")
     check("API default mode clears observed Fast mode", True)
     check("API default render completes", wait_done(page, op)["status"] == "succeeded")
@@ -151,6 +156,7 @@ with delayed_stub() as url, sync_playwright() as p:
     check("observer recovers its own Fast mode after remote default render", True)
     # Hold this observer's polling until a remote render and model change are complete.
     op = page.request.post(url + "/api/v1/operations", data=payload).json()
+    page.evaluate("window.dispatchEvent(new Event('pageshow'))")
     page.wait_for_function(
         "document.querySelector('#video-fast-mode').getAttribute('aria-pressed')==='false' && document.querySelector('#video-fast-mode').disabled"
     )
