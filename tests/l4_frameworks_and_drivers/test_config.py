@@ -20,9 +20,8 @@ def test_the_file_names_the_backend_the_page_opens_with(tmp_path: Path):
     assert config.default_backend == "qwen21" and config.visible_backends == ("qwen21",)
 
 
-def test_the_shipping_config_opens_on_turbo_and_offers_no_picker():
-    """One model is offered, so the page draws no picker: the file hides nothing, it is the
-    default. `--all-backends` is how a person asks for the others, flux2 included."""
+def test_the_shipping_config_opens_on_turbo_without_a_picker():
+    """Optional Image models need an explicit visible list or command-line selection."""
     config = load_config(Path(__file__).parents[2] / "studio.toml")
 
     assert config.default_backend == "qwen21_turbo"

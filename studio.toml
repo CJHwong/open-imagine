@@ -1,8 +1,9 @@
 # The backend the page opens with, and the backends it may offer. The page
-# shows a model picker only when it may offer more than one, so the default is
-# the one model and no picker. `--backend` opens on another one and adds it to
-# the list, and `--all-backends` enables selection in Image, Video and Voice.
-# Optional models require their weights before generation; startup loads no weights.
+# shows a model picker only when it may offer more than one. Image offers Qwen
+# Turbo only by default. `--backend` opens on another
+# one and adds it to the list, and `--all-backends` enables selection in Image,
+# Video and Voice. Each model requires its weights before generation; startup
+# loads no weights.
 default_backend = "qwen21_turbo"
 visible_backends = ["qwen21_turbo"]
 # Video offers LTX-2.5 only, so its header shows the model name without a picker.
@@ -100,6 +101,12 @@ model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # docs/ho
 quantize = 8
 model_dir = "~/Library/Caches/models/flux3-image-klein"
 python_path = "~/Library/Caches/models/flux3-runtime/bin/python"
+
+[krea2]
+# Optional 8-step Krea 2 Turbo, text-to-image and img2img from one reference. The
+# weights are stored at int8, so this section takes no quantize. About 22 GB; the
+# model setup guide has the download.
+model_dir = "~/Library/Caches/models/krea-2-turbo-mflux-q8"
 
 [viggle_turbo]
 quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged

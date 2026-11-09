@@ -166,6 +166,24 @@ uv run studio --backend flux3
 
 Set `[flux3].model_dir` and `python_path` if you install elsewhere. The defaults are eight-bit weights and 16 steps. Write a full scene caption, including for edits.
 
+## Image: Krea 2 Turbo
+
+Krea 2 Turbo is optional. Add `krea2` to `visible_backends` in `studio.toml`, select it with
+`--backend krea2`, or use `--all-backends` to expose it alongside the other optional models.
+Krea 2 runs on the mflux the studio already pins, so it needs no runtime of its own.
+Download the eight-bit weights (about 22 GB):
+
+```sh
+uv run hf download mflux-community/krea-2-turbo-mflux-q8 \
+  --exclude .DS_Store \
+  --local-dir ~/Library/Caches/models/krea-2-turbo-mflux-q8
+uv run studio --backend krea2
+```
+
+Set `[krea2].model_dir` if you install elsewhere. The weights are stored at eight bits, so the
+section takes no `quantize`. The model runs the 8 steps it was distilled for, without guidance.
+Add one reference to start from it; the strength sets how close the result stays.
+
 ## Offer the installed models
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
