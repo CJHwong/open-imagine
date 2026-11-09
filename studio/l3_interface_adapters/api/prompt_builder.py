@@ -49,6 +49,7 @@ def _append(lead: str, tail: str, *, video: bool = False) -> str:
 def _template(body: dict[str, Any], mode: Mapping[str, Any]) -> str:
     name = body.pop("template", None)
     values = body.pop("template_values", {})
+    locale = body.pop("template_locale", "en")
     if name is None:
         prompt = body.get("prompt", "")
         if not isinstance(prompt, str):
@@ -60,13 +61,20 @@ def _template(body: dict[str, Any], mode: Mapping[str, Any]) -> str:
     if not isinstance(values, Mapping):
         raise InvalidJob("template_values must map each bracket name to text")
 
+    if not isinstance(locale, str):
+        raise InvalidJob("template_locale must be a language code")
+    translated = next(
+        (item for item in template.get("translations", ()) if item["locale"].lower() == locale.lower()), None
+    )
+    text = translated["text"] if translated else template["text"]
+
     def substitute(match: re.Match) -> str:
         value = values.get(match.group(1))
         if not isinstance(value, str) or not value.strip():
             raise InvalidJob("Fill template field: " + match.group(1))
         return value.strip()
 
-    return re.sub(r"\[([^\]\n]+)\]", substitute, template["text"])
+    return re.sub(r"\[([^\]\n]+)\]", substitute, text)
 
 
 def _looks(selections: object, mode: Mapping[str, Any]) -> tuple[str, str]:

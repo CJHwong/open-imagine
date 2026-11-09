@@ -9,7 +9,7 @@ from studio.l1_entities.voice_job import SpeechJob, SpeechResult
 from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.voice_backend_gateway import VoiceBackendGateway
 from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
 
 
 def setup():
@@ -156,7 +156,7 @@ def test_batch_preserves_distinct_voice_descriptions_and_character_conversion():
 
 def test_catalog_voice_run_activates_the_selected_model_and_refuses_stale_choice():
     from studio.l1_entities.errors import BackendChanged
-    from studio.l3_interface_adapters.gateways.in_memory_voice_backend_catalog_gateway import (
+    from studio.l3_interface_adapters.gateways.in_memory.voice_backend_catalog_gateway import (
         InMemoryVoiceBackendCatalogGateway,
     )
 

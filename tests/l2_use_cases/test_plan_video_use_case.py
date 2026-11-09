@@ -8,7 +8,7 @@ from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.lora import Lora, LoraUse
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoEstimate, VideoMode
 from studio.l2_use_cases.plan_video_use_case import PlanVideoRequest, PlanVideoUseCase
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
 from tests.support.fakes import FakeVideoBackendGateway, fake_video_capabilities

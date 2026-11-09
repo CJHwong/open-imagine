@@ -988,6 +988,11 @@ def prompt_aid_properties() -> dict[str, Any]:
             },
         },
         "template": {"type": "string", "description": "A template name from this model capabilities"},
+        "template_locale": {
+            "type": "string",
+            "default": "en",
+            "description": "Template content language, for example zh-TW. Keep canonical template names and field IDs. Unknown languages fall back to English.",
+        },
         "template_values": {
             "type": "object",
             "additionalProperties": {"type": "string"},
@@ -1058,6 +1063,11 @@ def voice_schemas() -> dict[str, Any]:
                 "template": {
                     "type": "string",
                     "description": "Exact template name from the selected Voice mode. Template.target declares the destination. AuK Design fills voice; Edit and Drama delivery templates fill text. Unknown names reject the request.",
+                },
+                "template_locale": {
+                    "type": "string",
+                    "default": "en",
+                    "description": "Language of template text and text-field defaults. Keep canonical template names and choice values; unknown languages fall back to English.",
                 },
                 "template_values": {
                     "type": "object",

@@ -1,3 +1,4 @@
+import {galleryStepIndex} from '../lib/gallery-navigation.js';
 import {LitElement, html, svg, nothing, render} from '/page/vendor/lit.js';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
 import {clearVoice, exportVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
@@ -212,7 +213,7 @@ class VoiceStudio extends LitElement {
   get instruction() {
     const template = this.templates.find(item => item.name === this.templateName);
     if (!template) return this.editText.trim();
-    return template.text.replace(/\{([^}]+)\}/g, (_, name) => String(this.fieldValues[name] ?? ''));
+    return this.templateText(template);
   }
   get templateComplete() {
     const template = this.templates.find(item => item.name === this.templateName);
@@ -440,7 +441,11 @@ class VoiceStudio extends LitElement {
   }
 
   templateText(template, values = this.fieldValues) {
-    return template.text.replace(/\{([^}]+)\}/g, (_, name) => String(values[name] ?? template.fields.find(field => field.id === name)?.default ?? ''));
+    return template.text.replace(/\{([^}]+)\}/g, (_, name) => {
+      const field = template.fields.find(field => field.id === name);
+      const value = values[name] ?? field?.default ?? '';
+      return String(field?.prompt_values?.[value] ?? value);
+    });
   }
 
   setTemplateValue(name, value) {
@@ -648,6 +653,7 @@ class VoiceStudio extends LitElement {
       if (this.templateName) {
         payload.template = this.templateName;
         payload.template_values = {...this.fieldValues};
+        payload.template_locale = this.templates.find(item => item.name === this.templateName)?.template_locale || 'en';
       }
       if (this.seed !== '') payload.seed = Number(this.seed);
       const reference = this.needsReference ? this.reference : null;
@@ -852,27 +858,37 @@ class VoiceStudio extends LitElement {
     this.persist(false, {segmentId, takeId});
   }
 
+  galleryEntries() {
+    const clips = this.segments.flatMap(segment => segment.takes.map(take => ({id: take.id, segment, take})))
+      .sort((first, second) => second.take.createdAt - first.take.createdAt);
+    return this.voiceRunning ? [{id: '__pending__', pending: true}, ...clips] : clips;
+  }
+
   galleryKey(event) {
-    const buttons = Array.from(this.querySelectorAll('.voice-clip, .voice-render-pending'));
-    const index = buttons.indexOf(event.target.closest('button'));
-    if (index < 0) return;
-    const moves = {ArrowRight: Math.min(index + 1, buttons.length - 1), ArrowLeft: Math.max(0, index - 1), Home: 0, End: buttons.length - 1};
-    if (!(event.key in moves)) return;
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!event.target.closest('.voice-clip, .voice-render-pending')) return;
+    if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
     event.preventDefault();
     event.stopPropagation();
-    const button = buttons[moves[event.key]];
-    button.click();
-    button.focus();
-    button.scrollIntoView({block: 'nearest', inline: 'nearest'});
+    this.stepTake(event.key === 'ArrowRight' ? 1 : -1);
   }
 
   stepTake(delta) {
-    const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})))
-      .sort((a, b) => b.take.createdAt - a.take.createdAt);
-    const next = clips[clips.findIndex(({take}) => take.id === this.previewItem?.take?.id) + delta];
-    if (!next) return false;
-    this.selectTake(next.segment.id, next.take.id);
-    this.updateComplete.then(() => this.querySelector('.voice-clip.selected')?.scrollIntoView({block: 'nearest', inline: 'nearest'}));
+    const entries = this.galleryEntries();
+    const current = this.showingGeneration ? '__pending__' : this.previewItem?.take?.id;
+    const next = entries[galleryStepIndex(entries.length, entries.findIndex(entry => entry.id === current), delta)];
+    if (!next || next.id === current) return false;
+    const keepFocus = this.querySelector('.voice-clips')?.contains(document.activeElement);
+    if (next.pending) {
+      this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false;
+    } else this.selectTake(next.segment.id, next.take.id);
+    this.updateComplete.then(async () => {
+      const window = this.querySelector('.voice-clips gallery-window');
+      if (window) await window.updateComplete;
+      const selected = this.querySelector('.voice-clips .frame.selected');
+      selected?.scrollIntoView({block: 'nearest', inline: 'nearest'});
+      if (keepFocus) selected?.focus({preventScroll: true});
+    });
     return true;
   }
 
@@ -1046,7 +1062,7 @@ class VoiceStudio extends LitElement {
   templateFields(template) {
     if (!template) return nothing;
     return html`<p class="caption voice-note">${template.hint}</p>
-      ${template.fields.map(field => html`<label class="field voice-template-field">${this.mode === 'design' ? field.id[0].toUpperCase() + field.id.slice(1) : field.id}
+      ${template.fields.map(field => html`<label class="field voice-template-field">${field.label || (this.mode === 'design' ? field.id[0].toUpperCase() + field.id.slice(1) : field.id)}
         ${field.choices?.length ? html`<select .value=${String(this.fieldValues[field.id] ?? '')} ?disabled=${this.locked}
           @change=${event => this.setTemplateValue(field.id, event.target.value)}>
           ${field.choices.map(choice => html`<option value=${choice.value} ?selected=${String(choice.value) === String(this.fieldValues[field.id] ?? '')}>${choice.label}</option>`)}</select>`
@@ -1059,7 +1075,7 @@ class VoiceStudio extends LitElement {
     if (!this.templates.length) return nothing;
     return html`<div class="head-actions"><button type="button" class="pill" id="voice-templates-toggle" aria-expanded="false" aria-controls="voice-templates"
       ?disabled=${this.locked} @click=${() => toggleMenu(document.getElementById('voice-templates'))}>
-      <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>${this.templateName || t('voice.action.templates')}</button></div>`;
+      <svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg>${this.templates.find(item => item.name === this.templateName)?.display_name || this.templateName || t('voice.action.templates')}</button></div>`;
   }
 
   templateMenu() {
@@ -1067,7 +1083,7 @@ class VoiceStudio extends LitElement {
     return html`<div class="menu" id="voice-templates" role="menu" hidden>
       <button type="button" role="menuitem" ?disabled=${this.locked} @click=${() => this.selectTemplate('')}>${this.mode === 'design' ? t('voice.template.writeOwn') : this.mode === 'edit' ? t('voice.template.customInstruction') : t('voice.template.writeOwnScript')}</button>
       ${this.templates.map(item => html`<button type="button" role="menuitem" ?disabled=${this.locked}
-        @click=${() => this.selectTemplate(item.name)}>${item.name}</button>`)}
+        @click=${() => this.selectTemplate(item.name)}>${item.display_name || item.name}</button>`)}
     </div>`;
   }
 
@@ -1367,8 +1383,8 @@ class VoiceStudio extends LitElement {
 
   renderGallery(item) {
     const rendering = this.voiceRunning;
-    const clips = this.segments.flatMap(segment => segment.takes.map(take => ({segment, take})));
-    clips.sort((first, second) => (second.take?.createdAt ?? Infinity) - (first.take?.createdAt ?? Infinity));
+    const entries = this.galleryEntries();
+    const clips = entries.filter(entry => !entry.pending);
     // The head names what the shelf holds and what happens to it, as the Image strip does.
     const shelfNote = this.options.keeping?.() !== false
       ? plural(this.takesCount, t('voice.gallery.shelfKept'))
@@ -1393,13 +1409,13 @@ class VoiceStudio extends LitElement {
               if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
             }}>${t('voice.action.clearAll')}</button></span></div>
       <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
-        ${rendering ? html`<gallery-tile extra="voice-render-pending" ?pending=${true}
+        <gallery-window .items=${entries} .selected=${this.showingGeneration ? '__pending__' : item?.take?.id}
+          .renderItem=${({segment, take, pending}) => pending ? html`        <gallery-tile extra="voice-render-pending" ?pending=${true}
           ?selected=${this.showingGeneration} label=${t('voice.gallery.showGenerationAria')}
           .footer=${() => String(this.takesCount + 1).padStart(2, '0')}
           .mark=${() => pencilLoop()}
           .onPick=${() => { this.pausePlayback(); this.showGeneration = true; this.detailsOpen = false; }}
-          .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span>`}></gallery-tile>` : nothing}
-        <gallery-window .items=${clips} .selected=${item?.take?.id} .renderItem=${({segment, take}) => html`
+          .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span>`}></gallery-tile>` : html`
           <gallery-tile extra="voice-clip" stillClass="voice-clip-thumb"
             ?selected=${item?.take?.id === take.id && !this.showingGeneration}
             label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}

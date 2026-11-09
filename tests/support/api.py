@@ -3,7 +3,7 @@
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
 from studio.l3_interface_adapters.api.json_api import JsonApi
-from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
+from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway
 
 
 def api_for(controller, video=None, voice=None, music=None):

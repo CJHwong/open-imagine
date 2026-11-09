@@ -12,7 +12,7 @@ from studio.l1_entities.video_capabilities import (
     VideoMode,
     VideoShape,
 )
-from studio.l3_interface_adapters.gateways.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
+from studio.l3_interface_adapters.gateways.video.ltx_runtime.prompt_aids import VIDEO_LOOKS, VIDEO_TEMPLATES
 
 # The time of a clip, as `VideoEstimate` reads it. Every figure is provisional.
 #
@@ -380,7 +380,7 @@ def ltx23_mlx_capabilities() -> VideoCapabilities:
     return _capabilities("ltx23_mlx", "LTX-2.3", "ltx23")
 
 
-def ltx_pack_capabilities(
+def ltx_checkpoint_capabilities(
     backend_id: str,
     name: str,
     family: str,

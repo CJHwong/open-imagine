@@ -277,3 +277,49 @@ def test_drama_reference_limit_is_checked_before_the_engine():
             },
             drama_capabilities(),
         )
+
+
+def test_voice_template_locale_compiles_local_defaults_and_keeps_canonical_identity():
+    job = voice_job(
+        {"mode": "design", "text": "一段測試台詞。", "template": "Voice profile", "template_locale": "zh-TW"}
+    )
+    assert job.options["voice"] == "一位旁白員以溫暖而清晰的聲音說話。語速平穩、適中，表達方式自然、沉穩而精確。"  # noqa: RUF001
+    assert job.text == "一段測試台詞。"
+    english = voice_job({"mode": "design", "text": "Hello", "template": "Voice profile", "template_locale": "unknown"})
+    assert english.options["voice"].startswith("A narrator speaks")
+    with pytest.raises(InvalidJob, match="template_locale"):
+        voice_job({"mode": "design", "text": "Hello", "template": "Voice profile", "template_locale": 123})
+
+
+def test_localized_voice_choices_validate_wire_values_then_render_their_local_words():
+    reference = {"wav_base64": base64.b64encode(wav()).decode()}
+    job = voice_job(
+        {
+            "mode": "edit",
+            "template": "Emotion",
+            "template_locale": "zh-TW",
+            "template_values": {"emotion": "happy"},
+            "reference": reference,
+        }
+    )
+    assert job.text == "將情緒改為開心。"
+    with pytest.raises(InvalidJob, match="emotion must be one of"):
+        voice_job(
+            {
+                "mode": "edit",
+                "template": "Emotion",
+                "template_locale": "zh-TW",
+                "template_values": {"emotion": "not-an-option"},
+                "reference": reference,
+            }
+        )
+    pitch = voice_job({"mode": "edit", "template": "Pitch", "template_locale": "zh-TW", "reference": reference})
+    assert pitch.text == "將音高提高 2 個半音。"
+
+
+def test_localized_delivery_preserves_engine_tag_and_uses_the_local_spoken_default():
+    from studio.l3_interface_adapters.controllers.voice_controller import voice_job as parse
+    from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import drama_capabilities
+
+    job = parse({"mode": "generate", "template": "Whisper", "template_locale": "zh-TW"}, drama_capabilities())
+    assert job.text == "[whispers] 小聲一點，有人在聽。"  # noqa: RUF001

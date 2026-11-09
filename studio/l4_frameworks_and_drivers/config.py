@@ -5,9 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-
-class ConfigError(Exception):
-    """studio.toml lacks something the server needs. The message names it."""
+from studio.l1_entities.model_configuration_error import ModelConfigurationError as ConfigError
 
 
 @dataclass(frozen=True)

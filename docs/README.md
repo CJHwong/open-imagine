@@ -9,7 +9,11 @@ Choose a page for the task you have. The documentation follows [Diátaxis](https
 | **Reference — look up a contract or setting** | [CLI and configuration](reference/configuration.md) · [Models](reference/models.md) · [Plugin contract](reference/model-plugins.md) · [Model licenses](reference/model-licenses.md) · [API specification and recipes](../API.md) |
 | **Explanation — understand how and why** | [Shared operations and storage](explanation/operations-and-storage.md) · [Design decisions and measurements](explanation/design-decisions.md) · [Architecture](../studio/ARCHITECTURE.md) |
 
-[Model-specific prompt aids](../studio/l3_interface_adapters/gateways/PROMPTS.md) records the tested Looks and templates.
+[Model integration ownership](explanation/model-integration-design.md) explains providers, model packages and external SDK boundaries.
+
+[Use templates and Looks](how-to/use-prompt-aids.md) describes the controls.
+[Test a LoRA on Qwen Turbo](how-to/test-qwen-turbo-lora.md) records a real adapter check and a repeatable setup.
+[Model-specific prompt evaluations](../studio/l3_interface_adapters/gateways/PROMPTS.md) records the tested Looks and templates.
 
 For agent-led image work, use [Studio Image](../plugins/open-imagine/skills/studio-image/SKILL.md).
 Ask your agent to read that file and use it with your running Studio URL. The skill covers

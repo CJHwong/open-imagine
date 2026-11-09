@@ -18,9 +18,9 @@ This is a real external package, discovered from its installed metadata. It supp
 Video requires `ffmpeg` on PATH. Add `--stub` to exercise their forms without calling their factories.
 Example Image and Example Video also offer LoRAs that only shift the color, so the LoRA section
 of each form has something to pick. See [LoRAs](../reference/model-plugins.md#loras) for the contract.
-The package also holds **Example LTX pack**, which runs an LTX-2.5 pack from a folder on the GPU,
-and **Example Qwen checkpoint**, which runs a Qwen-Image-2.1 checkpoint from a folder on the GPU.
-The example settings do not offer them. Their sections say how to add each one.
+Checkpoint declaration snippets live in the SDK reference. The runnable examples
+contain CPU demonstrations only. Real integrations maintained in this repository
+ship as built-in models.
 
 To offer the example alongside the built-in models:
 
@@ -34,11 +34,11 @@ records must stay cheap; put engine imports, downloads and weight loading inside
 ## Create your package
 
 Copy [the example package](../../examples/model_plugin/pyproject.toml). Keep one gateway
-per model, under modules that identify Image, Video or Audio. Replace the example's engine
+per model, under modules that identify Image, Video or Voice. Replace the example's engine
 work and capabilities with your model's actual implementation and supported settings.
 Do not import a built-in model gateway to advertise a different model. To run an LTX pack, such
 as a finetune, on the studio's own engine, export an `LtxCheckpointRegistration` record and write no gateway. See
-[LTX packs](../reference/model-plugins.md#ltx-packs). To run a Qwen-Image-2.1 checkpoint the same
+[LTX checkpoints](../reference/model-plugins.md#ltx-checkpoints). To run a Qwen-Image-2.1 checkpoint the same
 way, export a `QwenCheckpointRegistration` record. See
 [Qwen checkpoints](../reference/model-plugins.md#qwen-checkpoints).
 

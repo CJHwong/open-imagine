@@ -579,8 +579,28 @@
     function translateTemplate(template) {
       if (!template || typeof template.name !== 'string') return;
       const name = template.name;
+      template.display_name = label('template', name, name);
       if (typeof template.hint === 'string') template.hint = label('template', name + '.hint', template.hint);
-      template.name = label('template', name, name);
+      const translated = (template.translations || []).find(item => item.locale.toLowerCase() === window.studioI18n.locale().toLowerCase());
+      template.template_locale = translated?.locale || 'en';
+      if (!translated) return;
+      template.display_name = translated.name;
+      template.hint = translated.hint;
+      let placeholder = 0;
+      template.text = translated.text.replace(/\[([^\]\n]+)\]/g, match => {
+        const field = translated.placeholders?.[placeholder++];
+        return field ? '[' + field[1] + ']' : match;
+      });
+      (template.fields || []).forEach(field => {
+        const content = (translated.fields || []).find(item => item.id === field.id);
+        if (!content) return;
+        field.label = content.label;
+        if (content.default != null) field.default = content.default;
+        field.prompt_values = Object.fromEntries(content.choices || []);
+        (field.choices || []).forEach(choice => {
+          choice.label = field.prompt_values[choice.value] ?? choice.label;
+        });
+      });
     }
     function translateLook(row) {
       if (!row || typeof row.name !== 'string') return;
@@ -1094,8 +1114,7 @@
   // carries none, the way an image template that names the region token is left out while
   // the brush is unavailable: without a still there is no frame to hold or to reach.
   function videoTemplateOffered(template) {
-    if (!/reference image/.test(template.text)) return true;
-    return videoStudio.imageReferences.length > 0;
+    return videoStudio.imageReferences.length >= (template.min_references || 0);
   }
 
   // ---- Modes and adapters ------------------------------------------------------
@@ -1312,7 +1331,7 @@
     videoTemplatesMenu.append(head);
     (capabilities ? capabilities.templates : []).forEach(function (template) {
       if (!videoTemplateOffered(template)) return;
-      const option = menus.menuItem('', template.name, function () { useVideoTemplate(template.text); });
+      const option = menus.menuItem('', template.display_name || template.name, function () { useVideoTemplate(template.text); });
       const note = document.createElement('span');
       note.className = 'item-note';
       note.textContent = template.hint;

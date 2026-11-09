@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from studio.l2_use_cases.boundaries.reference_store_gateway import ReferenceStoreGateway
-from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
+from studio.l3_interface_adapters.gateways.in_memory.reference_store_gateway import InMemoryReferenceStoreGateway
 
 OPERATIONS = frozenset({"add", "get", "drop"})
 

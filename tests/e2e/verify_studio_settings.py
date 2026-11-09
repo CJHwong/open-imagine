@@ -11,8 +11,8 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
-from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.stub.image_backend_gateway import StubBackendGateway
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 

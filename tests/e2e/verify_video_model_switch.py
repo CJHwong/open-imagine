@@ -1,8 +1,8 @@
 """Check that an open video form follows a model switch made elsewhere. Run against a fresh
 stub that offers two video models with different lengths and sizes:
 
-PYTHONPATH=model_plugins/minimax_h3 uv run --with ./model_plugins/minimax_h3 studio --stub \
-    --config model_plugins/minimax_h3/studio.toml --port <port>
+uv run studio --stub \
+    --config studio/l3_interface_adapters/gateways/video/minimax_h3/studio.toml --port <port>
 uv run --with playwright python tests/e2e/verify_video_model_switch.py <port>
 
 Another tab or an API caller can switch the video model. The open page learns of it from its

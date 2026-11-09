@@ -1,3 +1,4 @@
+import {galleryStepIndex} from '../lib/gallery-navigation.js';
 // The gallery: the strip's frames, which image is shown, and the before and
 // after wipe on an edit's print.
 //
@@ -104,8 +105,8 @@ class ImageStrip extends LitElement {
   // drawn. The page does not sequence a render it does not own.
   step(delta) {
     const order = (get('busy') ? ['progress'] : []).concat(this.entries().map((entry) => entry.id));
-    const next = order[order.indexOf(page.view()) + delta];
-    if (next === undefined) return false;
+    const next = order[galleryStepIndex(order.length, order.indexOf(page.view()), delta)];
+    if (next === undefined || next === page.view()) return false;
     this.pendingStep = { focus: this.contains(document.activeElement) };
     page.show(next);
     return true;

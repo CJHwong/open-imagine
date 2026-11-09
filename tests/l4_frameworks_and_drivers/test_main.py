@@ -13,6 +13,7 @@ import pytest
 from studio.l1_entities.errors import StudioError
 from studio.l1_entities.video_job import VideoJob
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import (
     assemble_studio,
@@ -20,6 +21,7 @@ from studio.l4_frameworks_and_drivers.main import (
     build_rewriters,
     build_video_backends,
 )
+from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from tests.support.fakes import FakeBackendGateway
 from tests.support.plugins import CHECKPOINT, PACK, checkpoint_entries, install, pack_entries
 
@@ -122,10 +124,11 @@ def test_a_missing_converted_directory_keeps_the_repo_id(tmp_path: Path):
 
 
 def test_the_rewriter_is_quantized_as_its_backend_section_says(tmp_path: Path, monkeypatch):
-    from studio.l4_frameworks_and_drivers import main as main_module
 
     factory = Mock()
-    monkeypatch.setitem(main_module.IMAGE_REWRITER_FACTORIES, "qwen21_turbo", factory)
+    monkeypatch.setattr(
+        "studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_configuration.Qwen21Rewriter", factory
+    )
     models = 'rewrite_generate_model = "Qwen/PE-T2I"\nrewrite_edit_model = "Qwen/PE-I2I"\n'
     head = 'default_backend = "qwen21_turbo"\n[qwen21_turbo]\nquantize = 0\nmodel_dir = "weights"\n'
 
@@ -321,14 +324,14 @@ def test_voice_models_open_drama_by_default_and_keep_both_auk_models(tmp_path):
 
 
 def test_singular_voice_backend_assembly_still_uses_shared_residency():
-    from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.stub.voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
         {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
-        voice_backend=StubVoiceBackendGateway(),
+        voice_backend=StubVoiceBackendGateway(auk_capabilities("flash")),
     )
     studio.residency.activate("auk")
     assert studio.residency.active_id() == "auk"
@@ -373,7 +376,7 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
-    assert len(models) == len(set(models)) == 11
+    assert len(models) == len(set(models)) == 12
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
@@ -447,7 +450,9 @@ def pack_settings(tmp_path: Path, section: str = "") -> Config:
 
 @pytest.mark.parametrize("family", ["ltx25", "ltx23"])
 def test_a_pack_is_built_like_the_base_packs_from_its_own_section(monkeypatch, tmp_path: Path, family):
-    from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
+    from studio.l3_interface_adapters.gateways.video.ltx_checkpoint.ltx_checkpoint_backend_gateway import (
+        LtxCheckpointBackendGateway,
+    )
 
     registry = install(monkeypatch, pack_entries(replace(PACK, family=family)))
     section = '[example_pack]\npack_dir = "pack"\n' + LORA_TABLE.format(id="example_pack", modes="")
@@ -457,7 +462,7 @@ def test_a_pack_is_built_like_the_base_packs_from_its_own_section(monkeypatch, t
 
     backend = build_video_backends(pack_settings(tmp_path, section), enhanced, registry)["example_pack"]
 
-    assert isinstance(backend, LtxPackBackendGateway)
+    assert isinstance(backend, LtxCheckpointBackendGateway)
     assert backend.capabilities().name == "Example pack"
     assert [lora.id for lora in backend.capabilities().loras] == ["example_warm"]
     runner = backend._runner
@@ -512,7 +517,9 @@ def test_a_pack_takes_the_base_packs_rewriter_and_only_visible_packs_are_importe
 
 def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeypatch, tmp_path: Path):
     """A plugin of its own has no rewriter, so its modes are empty. The Gemma rewriter offers Generate."""
-    from studio.l3_interface_adapters.gateways.video.ltx_pack.ltx_pack_backend_gateway import LtxPackBackendGateway
+    from studio.l3_interface_adapters.gateways.video.ltx_checkpoint.ltx_checkpoint_backend_gateway import (
+        LtxCheckpointBackendGateway,
+    )
     from studio.l4_frameworks_and_drivers import main
 
     platform = Mock()
@@ -522,7 +529,7 @@ def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeyp
     )
     try:
         assert studio.video_catalog is not None and studio.video_rewriter is not None
-        assert isinstance(studio.video_catalog.get("example_pack"), LtxPackBackendGateway)
+        assert isinstance(studio.video_catalog.get("example_pack"), LtxCheckpointBackendGateway)
         assert studio.video_rewriter.modes() == ("generate",)
     finally:
         studio.shutdown()
@@ -557,12 +564,12 @@ def test_an_engine_error_names_the_pack_and_its_lora_by_id_and_never_by_path(mon
 def test_the_example_pack_is_a_valid_record(monkeypatch, tmp_path: Path):
     from importlib import import_module
 
-    from studio.l4_frameworks_and_drivers.model_factories.video.ltx_checkpoint import ltx_pack_backend
+    from studio.l3_interface_adapters.gateways.video.ltx_checkpoint.construction import ltx_checkpoint_backend
 
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
-    pack = import_module("open_imagine_example.ltx").plugin
+    pack = import_module("tests.support.checkpoint_declarations.ltx").plugin
 
-    backend = ltx_pack_backend(pack_settings(tmp_path), pack)
+    backend = ltx_checkpoint_backend(pack_settings(tmp_path), pack, execute_process=SubprocessRunner().execute)
     assert backend.capabilities().backend_id == "example_ltx"
     assert [mode.id for mode in backend.capabilities().modes] == ["generate"]
 
@@ -673,7 +680,7 @@ def test_a_checkpoint_s_table_that_names_a_missing_mode_stops_the_start(monkeypa
 
 
 def test_a_checkpoint_gets_a_stub_rewriter_on_the_stub_and_hidden_ones_are_not_imported(monkeypatch, tmp_path: Path):
-    from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
+    from studio.l3_interface_adapters.gateways.stub.prompt_rewriter_gateway import StubPromptRewriterGateway
     from studio.l4_frameworks_and_drivers import main
 
     entries = checkpoint_entries(CHECKPOINT, replace(CHECKPOINT, backend_id="hidden_qwen"))
@@ -750,10 +757,10 @@ def test_an_engine_error_names_the_checkpoint_and_its_lora_by_id_and_never_by_pa
 def test_the_example_checkpoint_is_a_valid_record(monkeypatch, tmp_path: Path):
     from importlib import import_module
 
-    from studio.l4_frameworks_and_drivers.model_factories.image.qwen_checkpoint import qwen_checkpoint_backend
+    from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.construction import qwen_checkpoint_backend
 
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "examples/model_plugin"))
-    checkpoint = import_module("open_imagine_example.qwen").plugin
+    checkpoint = import_module("tests.support.checkpoint_declarations.qwen").plugin
 
     backend = qwen_checkpoint_backend(checkpoint_settings(tmp_path), checkpoint)
     assert backend.capabilities().backend_id == "example_qwen"
@@ -762,7 +769,7 @@ def test_the_example_checkpoint_is_a_valid_record(monkeypatch, tmp_path: Path):
 
 @pytest.mark.parametrize("backend_id", ("auk", "auk_base", "drama3"))
 def test_shipping_voice_factories_launch_existing_child_scripts(backend_id):
-    from studio.l4_frameworks_and_drivers.model_factories.registry import VOICE_BACKEND_FACTORIES
+    from studio.l4_frameworks_and_drivers.main import VOICE_BACKEND_FACTORIES
 
     config = load_config(Path(__file__).parents[2] / "studio.toml")
     gateway = VOICE_BACKEND_FACTORIES[backend_id](config)

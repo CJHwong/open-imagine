@@ -40,3 +40,9 @@ Completed private results survive restart. Public requests never show private op
 The server checks expiry during requests, once per minute in the background, and on startup.
 Requests reject expired results immediately. Background deletion can follow expiry by about one minute.
 The GPU worker blocks on its queue between calls. These scheduling changes leave model caching unchanged.
+
+Video thumbnail motion uses small cached contact sheets. Two decoders prepare visible
+previews concurrently, and each prepared group starts moving together. A shared clock
+draws each frame into a fixed canvas viewport, avoiding a translated sprite. Static posters
+remain visible during preparation, reduced motion and generation. Hidden or offscreen
+previews stop drawing and release their active resources.

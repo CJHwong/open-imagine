@@ -1,6 +1,8 @@
 """Only the Drama-3 controls exposed and checked by the selected MLX engine."""
 
 from studio.l1_entities.voice_capabilities import Capabilities, Estimate, LoadingPolicy, ModeSpec, ParamSpec, Template
+from studio.l3_interface_adapters.gateways.template_translations import translate_templates
+from studio.l3_interface_adapters.gateways.voice.drama3.template_translations import TRANSLATIONS
 
 SAMPLING = (
     ParamSpec(
@@ -52,6 +54,9 @@ TEMPLATES = (
         (ParamSpec("script", "text", "We finally made it! This is wonderful!"),),
     ),
 )
+TEMPLATES = translate_templates(TEMPLATES, TRANSLATIONS, locale="zh-TW")
+
+
 # M5 Pro 64 GiB, eight-bit weights, seed 7, native 44.1 kHz, 0.5s codec chunks:
 # warm whisper 3.07s audio / 2.72s wall; excited 4.09 / 4.66;
 # cached Clone 3.39 / 3.87. Primitive load 20.61s; first generation 16.00s.

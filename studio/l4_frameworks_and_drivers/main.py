@@ -10,6 +10,7 @@ from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
+from studio.l2_use_cases.model_services import ModelServices
 from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
 from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
@@ -33,56 +34,62 @@ from studio.l3_interface_adapters.controllers.video_controller import VideoContr
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
 from studio.l3_interface_adapters.gateways.catalog_prompt_rewriter_gateway import CatalogPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.gpu_thread import GpuThread
-from studio.l3_interface_adapters.gateways.image.stub_backend_gateway import StubBackendGateway
 from studio.l3_interface_adapters.gateways.image.thread_confined_backend_gateway import ThreadConfinedBackendGateway
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import InMemoryModelResidencyGateway
-from studio.l3_interface_adapters.gateways.in_memory_music_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import InMemoryModelResidencyGateway
+from studio.l3_interface_adapters.gateways.in_memory.music_backend_catalog_gateway import (
     InMemoryMusicBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
-from studio.l3_interface_adapters.gateways.in_memory_rewrite_progress_gateway import InMemoryRewriteProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_studio_settings_gateway import InMemoryStudioSettingsGateway
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.reference_store_gateway import InMemoryReferenceStoreGateway
+from studio.l3_interface_adapters.gateways.in_memory.rewrite_progress_gateway import InMemoryRewriteProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_voice_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.voice_backend_catalog_gateway import (
     InMemoryVoiceBackendCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
-from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
-from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
-from studio.l3_interface_adapters.gateways.video.gemma3.gemma3_prompt_rewriter_gateway import (
-    Gemma3PromptRewriterGateway,
+from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gateway import CatalogMemoryEstimateGateway
+from studio.l3_interface_adapters.gateways.model_catalog.composite_model_catalog_gateway import (
+    CompositeModelCatalogGateway,
 )
-from studio.l3_interface_adapters.gateways.video.gemma3.prompt_enhancer import Gemma3PromptEnhancer
-from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
-from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
+from studio.l3_interface_adapters.gateways.model_catalog.plugin_factories import plugin_factories
+from studio.l3_interface_adapters.gateways.model_catalog.registry import (
+    BUILTIN_PROVIDERS,
+    backend_factories,
+    build_memory_estimates,
+)
+from studio.l3_interface_adapters.gateways.model_catalog.rewriters import build_rewriters as build_rewriters
+from studio.l3_interface_adapters.gateways.model_registration.installed_model_catalog import InstalledModelCatalog
+from studio.l3_interface_adapters.gateways.stub.image_backend_gateway import StubBackendGateway
+from studio.l3_interface_adapters.gateways.stub.music_backend_gateway import StubMusicBackendGateway
+from studio.l3_interface_adapters.gateways.stub.video_backend_gateway import StubVideoBackendGateway
+from studio.l3_interface_adapters.gateways.stub.voice_backend_gateway import StubVoiceBackendGateway
+from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
-from studio.l4_frameworks_and_drivers.memory_estimates import build_memory_estimates
-from studio.l4_frameworks_and_drivers.model_factories.plugin_factories import plugin_factories
-from studio.l4_frameworks_and_drivers.model_factories.registry import IMAGE_BACKEND_FACTORIES as IMAGE_BACKEND_FACTORIES
-from studio.l4_frameworks_and_drivers.model_factories.registry import (
-    IMAGE_REWRITER_FACTORIES as IMAGE_REWRITER_FACTORIES,
-)
-from studio.l4_frameworks_and_drivers.model_factories.registry import MUSIC_BACKEND_FACTORIES as MUSIC_BACKEND_FACTORIES
-from studio.l4_frameworks_and_drivers.model_factories.registry import VIDEO_BACKEND_FACTORIES as VIDEO_BACKEND_FACTORIES
-from studio.l4_frameworks_and_drivers.model_factories.registry import VOICE_BACKEND_FACTORIES as VOICE_BACKEND_FACTORIES
-from studio.l4_frameworks_and_drivers.model_factories.rewriters import build_rewriters as build_rewriters
-from studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog import InstalledModelCatalog
-from studio.l4_frameworks_and_drivers.model_registration.model_backend_factory import ModelBackendFactory
+from studio.l4_frameworks_and_drivers.python_entry_points import entry_points
 from studio.l4_frameworks_and_drivers.studio import Studio as Studio
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from studio.l4_frameworks_and_drivers.system_memory import memory_headroom
-from studio.plugins.ltx_checkpoint_registration import LtxCheckpointRegistration
-from studio.plugins.qwen_checkpoint_registration import QwenCheckpointRegistration
+
+IMAGE_BACKEND_FACTORIES = backend_factories("image", SubprocessRunner().execute)
+VIDEO_BACKEND_FACTORIES = backend_factories("video", SubprocessRunner().execute)
+VOICE_BACKEND_FACTORIES = backend_factories("voice", SubprocessRunner().execute)
+MUSIC_BACKEND_FACTORIES = backend_factories("music", SubprocessRunner().execute)
+
+_build_rewriters = build_rewriters
+
+
+def build_rewriters(config, plugins=None, stub=False):
+    return _build_rewriters(config, plugins, stub, execute_process=SubprocessRunner().execute)
+
 
 PAGE = Path(__file__).with_name("web") / "page.html"
 
@@ -90,7 +97,7 @@ PAGE = Path(__file__).with_name("web") / "page.html"
 def build_image_backends(config: Config, plugins: InstalledModelCatalog | None = None, stub: bool = False) -> dict:
     """The backends the page offers, and no others: an unused one needs no settings.
     Each loads nothing until it is used."""
-    registry = {**IMAGE_BACKEND_FACTORIES, **plugin_factories(plugins, "image", stub)}
+    registry = {**IMAGE_BACKEND_FACTORIES, **plugin_factories(plugins, "image", stub, SubprocessRunner().execute)}
     unknown = [backend_id for backend_id in config.visible_backends if backend_id not in registry]
     if unknown:
         raise ConfigError(f"no backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
@@ -98,20 +105,28 @@ def build_image_backends(config: Config, plugins: InstalledModelCatalog | None =
 
 
 def build_video_backends(
-    config: Config, enhanced_prompt=None, plugins: InstalledModelCatalog | None = None, stub: bool = False
+    config: Config,
+    enhanced_prompt=None,
+    plugins: InstalledModelCatalog | None = None,
+    stub: bool = False,
+    *,
+    services=None,
 ) -> dict:
-    registry = {**VIDEO_BACKEND_FACTORIES, **plugin_factories(plugins, "video", stub)}
+    registry = {
+        **VIDEO_BACKEND_FACTORIES,
+        **plugin_factories(plugins, "video", stub, SubprocessRunner().execute, services),
+    }
     unknown = [backend_id for backend_id in config.visible_video_backends if backend_id not in registry]
     if unknown:
         raise ConfigError(f"no video backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
     return {
-        backend_id: registry[backend_id](config, enhanced_prompt=enhanced_prompt)
+        backend_id: registry[backend_id](config, enhanced_prompt=enhanced_prompt, services=services)
         for backend_id in config.visible_video_backends
     }
 
 
 def build_voice_backends(config: Config, plugins: InstalledModelCatalog | None = None, stub: bool = False):
-    registry = {**VOICE_BACKEND_FACTORIES, **plugin_factories(plugins, "voice", stub)}
+    registry = {**VOICE_BACKEND_FACTORIES, **plugin_factories(plugins, "voice", stub, SubprocessRunner().execute)}
     unknown = [name for name in config.visible_voice_backends if name not in registry]
     if unknown:
         raise ConfigError(f"no voice backend called {', '.join(unknown)}. Known: {', '.join(registry)}")
@@ -123,7 +138,9 @@ def build_music_backends(config: Config, stub=False):
     if unknown:
         raise ConfigError(f"no music backend called {', '.join(sorted(unknown))}")
     return {
-        name: StubMusicBackendGateway() if stub else MUSIC_BACKEND_FACTORIES[name](config)
+        name: StubMusicBackendGateway(MUSIC_BACKEND_FACTORIES[name](config).capabilities())
+        if stub
+        else MUSIC_BACKEND_FACTORIES[name](config)
         for name in config.visible_music_backends
     }
 
@@ -135,7 +152,8 @@ def discover_plugins() -> InstalledModelCatalog:
             "video": VIDEO_BACKEND_FACTORIES,
             "voice": VOICE_BACKEND_FACTORIES,
             "music": MUSIC_BACKEND_FACTORIES,
-        }
+        },
+        entry_points,
     )
 
 
@@ -150,52 +168,34 @@ def create_studio(
     `allowed_origins` are the pages at another address that may post, such as a proxy."""
     plugins = plugins if plugins is not None else discover_plugins()
     backends = build_image_backends(config, plugins, stub)
-    enhancer = Gemma3PromptEnhancer(config.backend("mlx_video"), SubprocessRunner().execute)
-    video_backends = build_video_backends(config, enhancer.is_enhanced, plugins, stub)
-    video_rewriter = StubPromptRewriterGateway() if stub else Gemma3PromptRewriterGateway(enhancer)
+    services = ModelServices(SubprocessRunner().execute)
+    catalog = CompositeModelCatalogGateway(BUILTIN_PROVIDERS, plugins, services.run_process)
+    # Backend constructors and rewriters share only this instance's runtime resources.
+    video_backends = build_video_backends(config, plugins=plugins, stub=stub, services=services)
     voice_backends = build_voice_backends(config, plugins, stub)
     music_backends = build_music_backends(config, stub)
-    rewriters = build_rewriters(config, plugins, stub)
-    # An LTX pack runs on the base packs' engine, so it takes their enhancer as well.
-    packs = {
-        name
-        for name in video_backends
-        if name in plugins.ids("video") and isinstance(plugins.declaration("video", name), LtxCheckpointRegistration)
-    }
-    checkpoints = {
-        name
-        for name in backends
-        if name in plugins.ids("image") and isinstance(plugins.declaration("image", name), QwenCheckpointRegistration)
-    }
-    video_rewriters = {
-        name: ModelBackendFactory(plugins).rewriter("video", name, config, stub)
-        if name in plugins.ids("video") and name not in packs
-        else video_rewriter
-        for name in video_backends
-    }
+    rewriters = _build_rewriters(config, plugins, stub, execute_process=services.run_process, services=services)
+    video_rewriters = _build_rewriters(
+        config,
+        plugins,
+        stub,
+        execute_process=services.run_process,
+        services=services,
+        kind="video",
+        names=config.visible_video_backends,
+    )
     if stub:
         voice_backends = {
-            name: StubVoiceBackendGateway(capabilities=backend.capabilities())
-            for name, backend in voice_backends.items()
+            name: StubVoiceBackendGateway(backend.capabilities()) for name, backend in voice_backends.items()
         }
-        backends = {backend_id: StubBackendGateway(backend.capabilities()) for backend_id, backend in backends.items()}
-        rewriters = {
-            backend_id: rewriters[backend_id]
-            if backend_id in plugins.ids("image") and backend_id not in checkpoints
-            else StubPromptRewriterGateway()
-            for backend_id in rewriters
-        }
+        backends = {name: StubBackendGateway(backend.capabilities()) for name, backend in backends.items()}
         video_backends = {
-            backend_id: StubVideoBackendGateway(backend.capabilities())
-            for backend_id, backend in video_backends.items()
+            name: StubVideoBackendGateway(backend.capabilities()) for name, backend in video_backends.items()
         }
-    elif (
-        packs
-        or checkpoints
-        or any(
-            name in IMAGE_BACKEND_FACTORIES or name in VIDEO_BACKEND_FACTORIES or name in VOICE_BACKEND_FACTORIES
-            for name in (*backends, *video_backends, *voice_backends)
-        )
+    elif any(
+        catalog.provider(kind, name).requires_mlx
+        for kind, gateways in (("image", backends), ("video", video_backends), ("voice", voice_backends))
+        for name in gateways
     ):
         require_mlx()
     if private_results_dir is None and not stub:
@@ -218,7 +218,7 @@ def create_studio(
         allowed_origins=allowed_origins,
         private_results_dir=private_results_dir,
         resource_memory_headroom=None if stub else memory_headroom,
-        qwen_turbo_quantize=config.backend("qwen21_turbo").get("quantize"),
+        memory_estimates=build_memory_estimates(config),
         settings=(
             JsonStudioSettingsGateway(config.settings_path, config.require_memory_estimate)
             if config.settings_path is not None and not stub
@@ -247,7 +247,7 @@ def assemble_studio(
     allowed_origins: tuple[str, ...] = (),
     private_results_dir: Path | None = None,
     resource_memory_headroom: Callable[[], tuple[int, int]] | None = None,
-    qwen_turbo_quantize: int | None = None,
+    memory_estimates=None,
     settings: StudioSettingsGateway | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
@@ -284,7 +284,11 @@ def assemble_studio(
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
     residency = InMemoryModelResidencyGateway(runtimes)
     resource_admission = (
-        ResourceAdmission(resource_memory_headroom, build_memory_estimates(qwen_turbo_quantize), settings)
+        ResourceAdmission(
+            resource_memory_headroom,
+            memory_estimates if memory_estimates is not None else CatalogMemoryEstimateGateway({}),
+            settings,
+        )
         if resource_memory_headroom
         else None
     )

@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
+from studio.l1_entities.template_translation import TemplateTranslation
 from studio.l1_entities.voice_job import OptionValue
 
 
@@ -88,6 +89,7 @@ class Template:
     fields: tuple[ParamSpec, ...] = ()
     length_by: str = ""
     target: str = "text"
+    translations: tuple[TemplateTranslation, ...] = ()
 
 
 @dataclass(frozen=True)

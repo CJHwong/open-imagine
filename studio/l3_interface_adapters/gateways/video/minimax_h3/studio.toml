@@ -1,0 +1,19 @@
+default_backend = "qwen21_turbo"
+visible_backends = ["qwen21_turbo"]
+default_video_backend = "minimax_h3"
+visible_video_backends = ["minimax_h3", "ltx25_mlx"]
+
+[minimax_h3]
+engine_dir = "~/Library/Caches/open-imagine/engines/minimax-h3-63893b3"
+model_dir = "~/Library/Caches/models/minimax-h3"
+# One table for each LoRA file. See "LoRAs" in the integration README.
+# [[minimax_h3.loras]]
+# id = "example_style"
+# label = "Example style"
+# path = "~/Library/Caches/models/minimax-h3/loras/example-style.safetensors"
+
+[mlx_video]
+model_ltx25 = "~/Library/Caches/models/ltx-2.5-q8"
+
+[qwen21_turbo]
+model_dir = "~/Library/Caches/models/qwen-image-2.1-turbo"

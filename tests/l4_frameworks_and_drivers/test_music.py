@@ -12,11 +12,12 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l1_entities.errors import StudioError
-from studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway import StubMusicBackendGateway
+from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
+from studio.l3_interface_adapters.gateways.music.yue2.construction import music_yue2_backend
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.stub.music_backend_gateway import StubMusicBackendGateway
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError, load_config
 from studio.l4_frameworks_and_drivers.main import assemble_studio, build_music_backends
-from studio.l4_frameworks_and_drivers.model_factories.music.yue2 import music_yue2_backend
 from tests.support.fakes import FakeBackendGateway
 
 PAYLOAD = {"kind": "music", "style": "piano", "lyrics": "[Verse]\nhello", "seed": 7}
@@ -24,15 +25,13 @@ PAYLOAD = {"kind": "music", "style": "piano", "lyrics": "[Verse]\nhello", "seed"
 
 @pytest.fixture
 def server(monkeypatch):
-    monkeypatch.setattr(
-        "studio.l3_interface_adapters.gateways.music.stub_music_backend_gateway.time.sleep", lambda _: None
-    )
+    monkeypatch.setattr("studio.l3_interface_adapters.gateways.stub.music_backend_gateway.time.sleep", lambda _: None)
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
         {"fake": NoPromptRewriterGateway()},
         "fake",
         ("fake",),
-        music_backends={"yue2": StubMusicBackendGateway()},
+        music_backends={"yue2": StubMusicBackendGateway(yue2_capabilities())},
     )
     http = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     thread = threading.Thread(target=http.serve_forever, daemon=True)
@@ -152,7 +151,7 @@ def test_music_id_cannot_be_replaced_by_an_installed_plugin(monkeypatch):
 
     plugin = entry("image", "yue2", fake_plugins()["image"])
     monkeypatch.setattr(
-        "studio.l4_frameworks_and_drivers.model_registration.installed_model_catalog.metadata.entry_points",
+        "studio.l4_frameworks_and_drivers.python_entry_points.metadata.entry_points",
         lambda group: [plugin] if group == plugin.group else [],
     )
     with pytest.raises(ConfigError, match="Duplicate model id"):

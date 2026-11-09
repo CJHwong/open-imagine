@@ -16,12 +16,12 @@ from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageUseCase
-from studio.l3_interface_adapters.gateways.in_memory_backend_catalog_gateway import InMemoryBackendCatalogGateway
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_reference_store_gateway import InMemoryReferenceStoreGateway
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.reference_store_gateway import InMemoryReferenceStoreGateway
 from tests.support.fakes import FakeBackendGateway, FakeModelResidencyGateway
 
 

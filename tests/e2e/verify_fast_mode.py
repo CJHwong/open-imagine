@@ -17,7 +17,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 from studio.l1_entities.errors import Cancelled
-from studio.l3_interface_adapters.gateways.video.stub_video_backend_gateway import StubVideoBackendGateway
+from studio.l3_interface_adapters.gateways.stub.video_backend_gateway import StubVideoBackendGateway
 from studio.l4_frameworks_and_drivers.config import load_config
 from studio.l4_frameworks_and_drivers.main import IMAGE_BACKEND_FACTORIES, create_studio
 

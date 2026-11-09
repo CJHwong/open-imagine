@@ -13,6 +13,8 @@ from studio.l1_entities.voice_capabilities import (
     ParamSpec,
     Template,
 )
+from studio.l3_interface_adapters.gateways.template_translations import translate_templates
+from studio.l3_interface_adapters.gateways.voice.auk_runtime.template_translations import TRANSLATIONS
 
 SECONDS = ParamSpec(
     id="seconds",
@@ -289,6 +291,10 @@ EDIT_TEMPLATES = (
         "Clean-up",
     ),
 )
+
+
+DESIGN_TEMPLATES = translate_templates(DESIGN_TEMPLATES, TRANSLATIONS, locale="zh-TW")
+EDIT_TEMPLATES = translate_templates(EDIT_TEMPLATES, TRANSLATIONS, locale="zh-TW")
 
 
 def auk_capabilities(variant: str) -> Capabilities:

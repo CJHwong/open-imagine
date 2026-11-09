@@ -12,7 +12,7 @@ from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidenc
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.rewrite_progress_gateway import RewriteProgressGateway
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
 

@@ -13,7 +13,7 @@ only explicitly visible plugins are imported. `--all-backends` makes all install
 
 Each entry point resolves to `studio.plugins.GatewayModelRegistration`. A video model that runs an LTX pack
 on the studio's own engine resolves to a `studio.plugins.video.LtxCheckpointRegistration` instead. See
-[LTX packs](#ltx-packs). An image model that runs a Qwen-Image-2.1 checkpoint on the studio's
+[LTX checkpoints](#ltx-checkpoints). An image model that runs a Qwen-Image-2.1 checkpoint on the studio's
 own engine resolves to a `studio.plugins.image.QwenCheckpointRegistration`. See
 [Qwen checkpoints](#qwen-checkpoints). The `GatewayModelRegistration` frozen record has:
 
@@ -49,7 +49,10 @@ and `LtxPack` remain identity aliases of the canonical records, and
 `open_imagine.models.audio` group is still discovered as Voice. Register an ID
 under one group only: declaring the same ID in both groups is a duplicate error.
 The `plugins/open-imagine` directory holds an assistant skill plugin, a separate
-system from model plugin packages under `model_plugins/`.
+system from external model plugin distributions. Integrations maintained in this
+repository ship as built-ins. The package under `examples/model_plugin/` contains
+CPU demonstrations only; checkpoint declarations below illustrate the SDK without
+registering additional real models from the examples package.
 
 ## Gateway lifecycle
 
@@ -128,6 +131,11 @@ the configuration file, and `context.settings` holds the absolute path.
 
 ### LoRA tables
 
+`loras=True` opts into Studio's common table schema; it is not a universal LoRA
+weight format. The host parses configuration and publishes choices. Your runtime
+must validate and load compatible tensors and report unsupported formats clearly.
+For a different schema, omit this opt-in and read your own resolved settings.
+
 A video model can leave its list of LoRAs to the person who runs it. Declare `loras=True` on
 the `GatewayModelRegistration`, and declare no LoRAs on the capability record. The host then reads the
 `[[<backend_id>.loras]]` tables of the plugin's section, with the rules of a built-in video
@@ -173,7 +181,7 @@ Two more rules apply to video only:
 The example package declares neutral LoRAs that shift the color of its output, so a pick has
 a visible result without a trained model.
 
-## LTX packs
+## LTX checkpoints
 
 A video plugin can run an LTX pack on the studio's own engine, and bring no engine of its own.
 A pack is a folder of weights in the layout of `dgrauet/ltx-2.5-mlx-q8`, such as a finetune.
@@ -308,7 +316,7 @@ For an engine that keeps private inputs and results in memory, pass `input_bytes
 `consume_output` instead. The driver writes input and drains binary stdout concurrently,
 while `consume` continues to receive stderr. Both options are optional. Set
 `terminate_group=True` to start an owned process session and stop its group on cancellation,
-timeout or a consumer error. The H3 plugin uses this path, so its prompt and media need no files.
+timeout or a consumer error. The built-in H3 integration uses this path, so its prompt and media need no files.
 
 ## Compatibility and installation
 

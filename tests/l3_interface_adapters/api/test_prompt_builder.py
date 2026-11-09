@@ -133,3 +133,34 @@ def test_instruction_count_must_match_the_references():
 
 def test_a_request_with_no_prompt_or_selections_stays_empty():
     assert prepare_prompt({"looks": {}}, MODE) == {}
+
+
+def test_localized_image_template_uses_canonical_field_ids_even_when_order_changes():
+    from dataclasses import asdict
+
+    from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import GENERATE_TEMPLATES
+
+    template = GENERATE_TEMPLATES[0]
+    import re
+
+    values = {key: "VALUE:" + key for key in re.findall(r"\[([^\]\n]+)\]", template.text)}
+    result = prepare_prompt(
+        {"template": template.name, "template_locale": "zh-TW", "template_values": values},
+        {"templates": [asdict(template)]},
+    )
+    assert result["prompt"].startswith("在VALUE:place、VALUE:time of day拍攝VALUE:who: age, hair, look")
+    assert "template_locale" not in result
+
+
+def test_unknown_template_language_falls_back_to_canonical_text_and_rejects_bad_type():
+    from studio.l1_entities.errors import InvalidJob
+
+    mode = {"templates": [{"name": "sample", "text": "A [subject]"}]}
+    assert (
+        prepare_prompt(
+            {"template": "sample", "template_locale": "unknown", "template_values": {"subject": "teapot"}}, mode
+        )["prompt"]
+        == "A teapot"
+    )
+    with pytest.raises(InvalidJob, match="template_locale"):
+        prepare_prompt({"template": "sample", "template_locale": True}, mode)

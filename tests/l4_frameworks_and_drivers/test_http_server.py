@@ -16,8 +16,11 @@ from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
 from studio.l1_entities.lora import Lora
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoMode
 from studio.l1_entities.video_job import VideoJob, VideoResult
-from studio.l3_interface_adapters.gateways.stub_prompt_rewriter_gateway import StubPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
+from studio.l3_interface_adapters.gateways.stub.prompt_rewriter_gateway import StubPromptRewriterGateway
+from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 from studio.l4_frameworks_and_drivers import http_server
+from studio.l4_frameworks_and_drivers.config import Config
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway, fake_video_capabilities
 
@@ -988,7 +991,7 @@ def test_operation_sources_distinguish_native_and_api_requests(served):
 
 
 def test_native_video_timestamp_survives_immediate_result_eviction(served, monkeypatch):
-    from studio.l3_interface_adapters.gateways.in_memory_operation_gateway import InMemoryOperationGateway as Operations
+    from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway as Operations
 
     retain = Operations.retain
 
@@ -1009,14 +1012,17 @@ def test_native_video_timestamp_survives_immediate_result_eviction(served, monke
 
 @pytest.fixture
 def voice_served():
-    from studio.l3_interface_adapters.gateways.voice.stub_voice_backend_gateway import StubVoiceBackendGateway
+    from studio.l3_interface_adapters.gateways.stub.voice_backend_gateway import StubVoiceBackendGateway
 
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
         {"fake": fast(StubPromptRewriterGateway())},
         "fake",
         ("fake",),
-        voice_backends={"auk": StubVoiceBackendGateway(), "auk_base": StubVoiceBackendGateway("base")},
+        voice_backends={
+            "auk": StubVoiceBackendGateway(auk_capabilities("flash")),
+            "auk_base": StubVoiceBackendGateway(auk_capabilities("base")),
+        },
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -1692,6 +1698,7 @@ def test_app_policy_changes_admission_without_a_restart(tmp_path):
         ("fake",),
         settings=JsonStudioSettingsGateway(tmp_path / "settings.json"),
         resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
+        memory_estimates=build_memory_estimates(Config("", (), "", (), {})),
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

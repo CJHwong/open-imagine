@@ -60,6 +60,14 @@ The LTX-2.5 pack must include `spatial_upscaler_x2_v1_0.safetensors` and its `_c
 Studio checks both before this adapter runs; the pinned engine otherwise silently leaves the upscaler untrained.
 LTX-2.3 requires its own pack and is optional.
 
+## Optional Video: MiniMax H3
+
+H3 ships with Studio. Follow its [pinned engine and weight setup](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-engine),
+then add `minimax_h3` to `visible_video_backends`, or use `--all-backends`.
+Its separate engine environment remains necessary; no model plugin installation is needed.
+If you previously installed `open-imagine-minimax-h3`, remove that distribution from
+Studio's environment and remove its old `--with` option to avoid a duplicate model ID.
+
 ## Default Voice: Drama-3
 
 The child pins MLX Audio commit `2209e6d76c18d0a24f7ff64d35b4176258acd909` and checkpoint revision `fedc7cc92bab5a180709cbaae6208d10b390bb97`. Its separate environment is declared in the script. To download the weights into the default Hugging Face cache before a run:

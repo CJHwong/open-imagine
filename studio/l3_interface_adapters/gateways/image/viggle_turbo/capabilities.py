@@ -33,8 +33,8 @@ model.
 """
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import EDIT_LOOKS, pick_looks, pick_templates
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import EDIT_MATCH_CAP, EDIT_RESOLUTIONS, SIZES
-from studio.l3_interface_adapters.gateways.prompt_aids import EDIT_LOOKS, pick_looks, pick_templates
 
 MATCH = "match"
 MAX_BATCH = 4

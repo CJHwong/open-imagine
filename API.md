@@ -133,7 +133,7 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 The key keeps your work from other callers.
 It does not keep your work from a person who can read the memory, disk or process list of this machine.
 
-The optional MiniMax H3 plugin transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
+The optional built-in MiniMax H3 backend transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
 It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
 Its results follow the same private ownership and encrypted retention rules as other Video results.
 
@@ -146,6 +146,13 @@ Send `template` as an offered template name.
 Send `template_values` as a mapping from bracket names to replacement text.
 For example, `[subject]` uses `{"subject":"a blue teapot"}`.
 Unknown options and missing replacements fail explicitly.
+
+`template_locale` selects the template language and defaults to `en`. Built-in templates also offer
+`zh-TW`; an unavailable language falls back to English. Capability records publish `translations`
+with localized names, hints, text, placeholder labels, and Voice field labels/defaults/choice labels.
+Keep the canonical `template` name, `template_values` keys, and choice values from the base record
+when requesting another language. Engine control tags remain unchanged.
+Video templates declare `min_references` when they require reference images.
 
 An image edit accepts `references` as base64 strings or objects with `png_base64`.
 Data URLs also work. With `each_reference: true`, `per_reference_prompts` accepts one instruction per reference.

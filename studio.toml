@@ -47,8 +47,8 @@ lora_dir = "~/Library/Caches/models/ltx-2.5-loras"
 fetch_loras = false
 
 [minimax_h3]
-# Optional external Video plugin. See model_plugins/minimax_h3/README.md.
-# Install it before adding minimax_h3 to visible_video_backends.
+# Optional built-in Video model. See studio/l3_interface_adapters/gateways/video/minimax_h3/README.md.
+# Add minimax_h3 to visible_video_backends after installing its engine and weights.
 engine_dir = "~/Library/Caches/open-imagine/engines/minimax-h3-63893b3"
 model_dir = "~/Library/Caches/models/minimax-h3"
 

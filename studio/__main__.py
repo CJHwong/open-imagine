@@ -19,6 +19,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from studio.l1_entities.errors import StudioError
+from studio.l3_interface_adapters.gateways.model_catalog.rewriter_cache_status import (
+    rewriter_cache_line as rewriter_cache_line,
+)
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
@@ -28,9 +31,6 @@ from studio.l4_frameworks_and_drivers.main import (
     VOICE_BACKEND_FACTORIES,
     create_studio,
     discover_plugins,
-)
-from studio.l4_frameworks_and_drivers.model_factories.rewriter_cache_status import (
-    rewriter_cache_line as rewriter_cache_line,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"

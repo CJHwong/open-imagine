@@ -14,11 +14,11 @@ from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
 from studio.l3_interface_adapters.controllers import video_controller as video_controller_module
 from studio.l3_interface_adapters.controllers.video_controller import VideoController, plan_request, video_job
-from studio.l3_interface_adapters.gateways.in_memory_model_residency_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import (
     InMemoryModelResidencyGateway,
 )
-from studio.l3_interface_adapters.gateways.in_memory_progress_gateway import InMemoryProgressGateway
-from studio.l3_interface_adapters.gateways.in_memory_video_backend_catalog_gateway import (
+from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
 from tests.support.fakes import FakeVideoBackendGateway, fake_video_capabilities

@@ -91,9 +91,7 @@ gallery-browser { display: contents; color-scheme: dark; }
 /* Sixteen small frames cover at most two seconds; full video decoders are released. */
 video-gallery-preview { display: grid; place-items: center; width: 100%; height: 100%; overflow: hidden; }
 video-gallery-preview > img { width: 100%; height: 100%; object-fit: contain; }
-.video-gallery-sheet { display: block; width: 100%; height: 100%; overflow: hidden; }
-.video-gallery-sheet image { animation: video-gallery-loop var(--loop-duration, 2s) steps(16, end) infinite; }
-@keyframes video-gallery-loop { from { transform: translateX(0); } to { transform: translateX(-2048px); } }
+.video-gallery-sheet { display: block; width: 100%; height: 100%; object-fit: contain; }
 
 /* Fixed card geometry allows bounded DOM windows without losing the scrollbar. */
 gallery-window { display: contents; }
