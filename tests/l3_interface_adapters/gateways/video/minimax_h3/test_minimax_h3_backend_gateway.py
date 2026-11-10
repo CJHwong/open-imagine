@@ -181,12 +181,14 @@ def test_gateway_sends_no_keyframes_and_no_track_for_a_text_clip(ready):
         ({"references": (still(True),)}, "its own frame"),
         ({"references": (still(0, strength=0.5),)}, "no strength setting"),
         ({"include_audio": False}, "always includes its sound"),
-        ({"width": 256}, "offered H3 size"),
-        ({"num_frames": 125}, "offered H3 size"),
-        ({"num_frames": 74}, "offered H3 size"),
+        ({"width": 528}, "32 pixel grid"),
+        ({"width": 224}, "256-1280 pixels a side"),
+        ({"width": 1280, "height": 960}, "at most 901120 pixels"),
+        ({"num_frames": 125}, "H3 size"),
+        ({"num_frames": 74}, "H3 size"),
         ({"num_frames": 56}, "a 73-175 frame clip"),
         ({"num_frames": 192}, "a 73-175 frame clip"),
-        ({"frame_rate": 30}, "offered H3 size"),
+        ({"frame_rate": 30}, "at 24 fps"),
         ({"seed": -1}, "H3 seed"),
         ({"seed": True}, "H3 seed"),
     ],
@@ -211,6 +213,23 @@ def test_gateway_runs_every_offered_length_with_a_still_on_its_last_frame(ready,
     result = MinimaxH3BackendGateway(ready).run(job(num_frames=frames, references=(still(0), still(frames - 1))))
 
     assert result.num_frames == frames
+
+
+@pytest.mark.parametrize("size", [(640, 480), (480, 640), (1024, 768), (1280, 704)])
+def test_gateway_runs_a_size_of_any_ratio_up_to_the_largest_shape(ready, size):
+    """A clip from a 4:3 picture keeps 4:3. The shapes are the page's menu, not a limit."""
+    width, height = size
+
+    def execute(_command, **options):
+        request = json.loads(options["input_bytes"])
+        assert (request["width"], request["height"]) == size
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    result = MinimaxH3BackendGateway(ready).run(job(width=width, height=height))
+
+    assert (result.width, result.height) == size
 
 
 def test_gateway_refuses_cancellation_before_reading_weights(ready):

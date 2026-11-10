@@ -19,6 +19,10 @@ The built-in integration drives Phosphene's staged runner at commit
 - Landscape, portrait and square canvases. The initial landscape canvas is 512 x 288. The high
   quality class is 1280 x 704 and 704 x 1280, the same sizes as LTX's. On a 64 GiB Mac the
   memory gate takes them up to 158 frames. See "Memory gate" below.
+- These canvases are the page's menu, not a limit. Through the API a clip can have any ratio,
+  for example 640 x 480 for a 4:3 picture. Each side is from 256 to 1280 pixels, on the 32 pixel
+  grid, and the clip has no more pixels than 1280 x 704. The memory gate estimates such a size
+  by its packed rows, as it does for the sizes on the menu.
 - The base schedule uses nine sigma points and eight transformer evaluations.
 - Fast mode runs four on the same weights, for clips up to the size of 1024 x 576 at 124 frames with one keyframe. See
   "Fast mode" below.
@@ -289,6 +293,7 @@ GiB footprint. Other programs moved free memory by up to 4 percent over the run.
 about 1.5 times the tokens of 1024 x 576, and the step took twice as long. 704 x 1280 has the
 same tokens as 1280 x 704. It, 576 x 1024, 288 x 512 and 512 x 512 are offered, but no run
 measured them at any length.
+A size off the menu, such as 640 x 480, has no run either.
 
 ### Memory gate
 

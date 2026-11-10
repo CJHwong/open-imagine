@@ -30,6 +30,19 @@ def unfit(lora_id, applied, unaccounted):
     return f"LoRA {lora_id} has {parts} with no matching layer in H3. No clip was made."
 
 
+# A clip keeps any ratio. The shapes are the page's menu, and the largest one bounds the pixels,
+# because the memory figures come from those runs. The host checks the same rule first.
+MOST_PIXELS = max(shape.width * shape.height for shape in CAPABILITIES.shapes)
+
+
+def _fits(width, height):
+    step = CAPABILITIES.dimension_step
+    sides = all(
+        CAPABILITIES.min_dimension <= side <= CAPABILITIES.max_dimension and not side % step for side in (width, height)
+    )
+    return sides and width * height <= MOST_PIXELS
+
+
 class MinimaxH3BackendGateway(VideoBackendGateway):
     def __init__(self, context):
         self._context = context
@@ -49,14 +62,15 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
             raise InvalidJob("Install ffmpeg and ffprobe before generating an H3 clip.")
         if (
-            (job.width, job.height) not in {(shape.width, shape.height) for shape in CAPABILITIES.shapes}
+            not _fits(job.width, job.height)
             or not CAPABILITIES.min_frames <= job.num_frames <= CAPABILITIES.max_frames
             or (job.num_frames - CAPABILITIES.min_frames) % CAPABILITIES.frame_step
             or job.frame_rate != 24
         ):
             raise InvalidJob(
-                f"Choose an offered H3 size and a {CAPABILITIES.min_frames}-{CAPABILITIES.max_frames} "
-                "frame clip at 24 fps."
+                f"Choose an H3 size of {CAPABILITIES.min_dimension}-{CAPABILITIES.max_dimension} pixels a side "
+                f"on the {CAPABILITIES.dimension_step} pixel grid, with at most {MOST_PIXELS} pixels, "
+                f"and a {CAPABILITIES.min_frames}-{CAPABILITIES.max_frames} frame clip at 24 fps."
             )
         frames = [reference.frame_index for reference in job.references]
         if (
