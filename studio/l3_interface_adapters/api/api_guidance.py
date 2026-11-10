@@ -100,7 +100,8 @@ GUIDANCE = {
         "Inspect a listed video model without selecting/loading it. For camera moves or dialogue, inspect Generate "
         "templates before writing a freehand prompt; send template plus named template_values. For a visual effect "
         "on an existing clip, inspect adapters and use the chosen adapter's own prompt, strength, width, height, "
-        "and num_frames. Choose an exact offered shape and frame grid; do not invent a nearby resolution."
+        "and num_frames. A size can keep any ratio: put each side on the dimension_step grid within "
+        "min_dimension and max_dimension, with no more pixels than the largest shape. Use the frame grid."
     ),
     "readVoiceBackend": (
         "Inspect a listed speech model before selecting/loading it. Read default_mode, modes, params, templates, "

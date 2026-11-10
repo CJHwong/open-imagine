@@ -367,7 +367,11 @@ def openapi_document() -> dict[str, Any]:
                         **prompt_aid_properties(),
                         "prompt": {"type": "string", "minLength": 1},
                         "backend": {"type": "string"},
-                        "width": {"type": "integer", "description": "One of the model's shapes, from /api/v1/studio"},
+                        "width": {
+                            "type": "integer",
+                            "description": "Any ratio. Each side is on the model's dimension_step grid, from "
+                            "min_dimension to max_dimension, with no more pixels than its largest shape",
+                        },
                         "height": {"type": "integer"},
                         "num_frames": {"type": "integer", "description": "On the model's frame grid"},
                         "frame_rate": {"type": "integer"},

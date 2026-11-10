@@ -752,6 +752,22 @@ on the pinned checkpoint. Studio enhances LTX Generate prompts by default, inclu
 send enhance=false to keep a prompt word for word. The page always enhances. Rewrite remains
 a separate API operation. References checked 2026-10-22.
 
+## Video size
+
+A video's `width` and `height` can have any ratio. Send the ratio of your picture to keep its
+shape. The model's `shapes` are the sizes that the page offers. They do not limit the API.
+
+A size must obey three rules:
+
+- Each side is in the range from `min_dimension` to `max_dimension`.
+- Each side is a multiple of `dimension_step`.
+- The size has no more pixels than the largest size in `shapes`.
+
+On MiniMax H3, for example, 640 x 480 keeps a 4:3 picture. The largest shape is 1280 x 704, so
+1024 x 768 is also valid, but 1280 x 960 is too large. An effect with its own size keeps that
+size. An adapter that doubles its reference accepts twice any size that obeys the rules, up to the
+pixels of the largest shape that stays in range when it doubles.
+
 ## Video Fast mode
 
 LTX-2.5 offers optional Fast mode through `fast_mode: true`. Check the backend's `fast_mode`

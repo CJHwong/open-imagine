@@ -257,7 +257,7 @@ def discovery_schemas() -> dict[str, Any]:
                 },
                 "estimate": {"$ref": "#/components/schemas/VideoEstimate"},
             },
-            "description": "Choose an exact shape pair. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
+            "description": "The shapes are a menu: a size can keep any ratio, with each side on the dimension_step grid from min_dimension to max_dimension and no more pixels than the largest shape. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
         },
         "MediaInput": {
             "type": "object",

@@ -210,7 +210,7 @@ def test_controller_normalizes_transparent_keyframes_and_assigns_a_random_seed(m
         {"width": 961},
         {"height": 543},
         {"height": 1281},
-        {"width": 640, "height": 640},
+        {"width": 1280, "height": 1280},
         {"num_frames": 8},
         {"num_frames": 145.0},
         {"num_frames": 146},
@@ -476,11 +476,27 @@ def test_an_edit_is_never_enhanced_even_when_the_page_sends_true():
     assert video_job({**edit, "enhance": True}, ltx25_mlx_capabilities()).enhance is False
 
 
-def test_a_doubling_edit_may_ask_for_twice_a_declared_shape():
-    """The upscaler's card wants a reference at half the target's linear resolution, so the
-    one adapter that declares it may ask for a shape the ladder does not hold: twice one
-    that it does. A shape that is not twice a declared rung is still refused."""
-    capabilities = editing_capabilities(
+@pytest.mark.parametrize("size", [(640, 480), (480, 640), (640, 640), (1280, 288)])
+def test_a_clip_may_keep_any_ratio_on_the_grid(size):
+    """The declared shapes are the page's menu. A picture's own ratio is a valid size."""
+    width, height = size
+
+    job = video_job(payload(width=width, height=height), fake_video_capabilities())
+
+    assert (job.width, job.height) == size
+
+
+def test_a_clip_may_hold_the_pixels_of_the_largest_shape_and_no_more():
+    # The largest declared shape is 768 x 768, which is 589,824 pixels.
+    job = video_job(payload(width=1024, height=576), fake_video_capabilities())
+
+    assert (job.width, job.height) == (1024, 576)
+    with pytest.raises(InvalidJob, match="at most 589824 pixels"):
+        video_job(payload(width=1024, height=608), fake_video_capabilities())
+
+
+def upscale_capabilities():
+    return editing_capabilities(
         VideoAdapter(
             id="upscale",
             label="Upscale",
@@ -493,17 +509,56 @@ def test_a_doubling_edit_may_ask_for_twice_a_declared_shape():
         shapes=(VideoShape("1:1", 512, 512),),
     )
 
+
+@pytest.mark.parametrize("size", [(1024, 1024), (896, 896), (768, 576)])
+def test_a_doubling_edit_may_ask_for_twice_a_size_that_fits(size):
+    """The upscaler's card wants a reference at half the target's linear resolution, so the
+    one adapter that declares it may ask for more pixels than the largest shape: twice a size
+    that fits, in any ratio."""
+    width, height = size
+
     job = video_job(
-        payload(mode="edit", adapter="upscale", clip=clip_payload(), width=1024, height=1024),
-        capabilities,
+        payload(mode="edit", adapter="upscale", clip=clip_payload(), width=width, height=height), upscale_capabilities()
     )
+
+    assert (job.width, job.height) == size
+
+
+@pytest.mark.parametrize(
+    "size",
+    [
+        (1088, 1088),  # half is 544 x 544, more pixels than 512 x 512
+        (1056, 512),  # half is 528 wide, off the 32 pixel grid
+        (448, 1024),  # half is 224 wide, under the 256 pixel minimum
+    ],
+)
+def test_a_doubling_edit_refuses_a_size_whose_half_does_not_fit(size):
+    width, height = size
+
+    with pytest.raises(InvalidJob, match="supported video shape"):
+        video_job(
+            payload(mode="edit", adapter="upscale", clip=clip_payload(), width=width, height=height),
+            upscale_capabilities(),
+        )
+
+
+def test_a_doubling_edit_holds_no_more_pixels_than_the_largest_doubled_shape():
+    """Half of 1280 x 1024 fits under 1024 x 576, but the result would hold more pixels than
+    twice 512 x 512, the largest shape that stays in range when it doubles."""
+    capabilities = replace(upscale_capabilities(), shapes=(VideoShape("16:9", 1024, 576), VideoShape("1:1", 512, 512)))
+
+    job = video_job(payload(mode="edit", adapter="upscale", clip=clip_payload(), width=1024, height=1024), capabilities)
 
     assert (job.width, job.height) == (1024, 1024)
     with pytest.raises(InvalidJob, match="supported video shape"):
-        video_job(
-            payload(mode="edit", adapter="upscale", clip=clip_payload(), width=896, height=896),
-            capabilities,
-        )
+        video_job(payload(mode="edit", adapter="upscale", clip=clip_payload(), width=1280, height=1024), capabilities)
+
+
+def test_a_doubling_edit_refuses_every_doubled_size_when_no_shape_doubles_in_range():
+    capabilities = replace(upscale_capabilities(), shapes=(VideoShape("16:9", 1024, 576),))
+
+    with pytest.raises(InvalidJob, match="supported video shape"):
+        video_job(payload(mode="edit", adapter="upscale", clip=clip_payload(), width=1280, height=1024), capabilities)
 
 
 def test_an_edit_that_does_not_double_refuses_the_doubled_shape():
