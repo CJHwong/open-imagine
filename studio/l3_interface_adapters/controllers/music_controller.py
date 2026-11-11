@@ -31,7 +31,11 @@ class MusicController:
         return self._catalog.active_id()
 
     def backends(self):
-        return [{"id": name, "name": self.model_capabilities(name).name} for name in self._catalog.visible_ids()]
+        return [self._backend_record(name) for name in self._catalog.visible_ids()]
+
+    def _backend_record(self, backend_id):
+        capabilities = self.model_capabilities(backend_id)
+        return {"id": backend_id, "name": capabilities.name, "description": capabilities.description}
 
     def model_capabilities(self, backend_id=""):
         if not isinstance(backend_id, str):

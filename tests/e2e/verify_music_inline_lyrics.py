@@ -66,18 +66,18 @@ def main():
                 expect(current.locator(".music-style-panel")).to_be_visible()
                 expect(toggle).to_be_visible()
                 expect(toggle).to_have_attribute("aria-pressed", "false")
-                assert toggle.get_attribute("title") == "Show lyrics"
+                expect(toggle).to_have_text("Show lyrics")
                 toggle.click()
                 expect(inline).to_be_visible()
                 expect(current.locator(".music-artwork")).to_be_hidden()
                 expect(current.locator(".music-song-title")).to_be_hidden()
                 expect(toggle).to_have_attribute("aria-pressed", "true")
-                assert toggle.get_attribute("title") == "Show artwork"
+                expect(toggle).to_have_text("Show artwork")
                 assert current.locator(".music-track-text").evaluate("node=>node.scrollHeight>node.clientHeight")
                 expect(inline.get_by_role("heading", name="Verse", exact=True)).to_be_visible()
                 expect(inline.locator(".music-lyrics-line")).to_have_count(33)
             else:
-                assert toggle.inner_text() == ""
+                expect(toggle).to_have_text("Show lyrics")
                 expect(toggle.locator("svg use")).to_have_attribute("href", "#i-text")
                 expect(current.get_by_role("button", name="Style", exact=True)).to_have_count(0)
                 expect(toggle).to_have_attribute("aria-pressed", "false")
@@ -86,6 +86,7 @@ def main():
                 expect(current.locator(".music-style-panel")).to_be_visible()
                 toggle.click()
                 expect(toggle).to_have_attribute("aria-pressed", "true")
+                expect(toggle).to_have_text("Show style")
                 expect(inline).to_be_visible()
                 expect(page.locator(".music-lyrics-dialog")).to_have_count(0)
                 assert current.locator(".music-track-text").evaluate("node=>node.clientHeight") == content_height
@@ -128,7 +129,8 @@ def main():
                 assert page.evaluate("window.inlineAudio.isConnected && !window.inlineAudio.paused")
             expect(page.get_by_role("button", name="Expand lyrics", exact=True)).to_have_count(0)
             expect(page.locator(".music-lyrics-dialog")).to_have_count(0)
-            page.locator(".music-output-details:not([hidden]) .prompt-line").click()
+            details_trigger = ".preview-details-toggle" if mobile else ".prompt-line"
+            page.locator(".music-output-details:not([hidden]) " + details_trigger).click()
             details = page.get_by_role("dialog", name="Music details", exact=True)
             expect(details.locator("dd").filter(has_text="Detailed style stays in the metadata")).to_be_visible()
             page.get_by_role("button", name="Close music details", exact=True).click()
@@ -202,7 +204,7 @@ def main():
             page.close()
         browser.close()
     print(
-        "PASS inline lyrics: full lines, section labels, scrolling, playback, icon toggle, style details, and empty states"
+        "PASS inline lyrics: full lines, section labels, scrolling, playback, labeled toggle, style details, and empty states"
     )
 
 

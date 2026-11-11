@@ -56,7 +56,7 @@ def main():
         page.wait_for_selector("#shared-operation-details", state="visible", timeout=15000)
         page.click("#shared-operation-details")
         music = sheet(page)
-        check("Music opens one run sheet", music["open"] and music["title"] == "This run", music)
+        check("Music opens one run sheet", music["open"] and music["title"] == "Current task", music)
         check("the style is the sentence that was sent", row(music, "Style") == "Progressive house EDM, 126 BPM")
         check("the lyric keeps its line break", row(music, "Lyrics") == "[Verse]\nMidnight on the wire")
         check("planning and steps are named", row(music, "Planning") == "full" and row(music, "Steps") == "32")
@@ -144,7 +144,7 @@ def main():
         check("Voice opens the sheet from the top bar", voice["open"], voice)
         check(
             "the script is the line that was sent",
-            row(voice, "Text") == "A calm narrator with a warm, clear voice.",
+            row(voice, "Text to read") == "A calm narrator with a warm, clear voice.",
             voice,
         )
         page.keyboard.press("Escape")

@@ -101,7 +101,7 @@ with sync_playwright() as p:
     page.wait_for_function('document.querySelector("#voice-studio").capabilities.backend_id === "auk_base"')
     assert sheet.count() == 0
     toggle.click()
-    assert "does not require a transcript" in sheet.inner_text()
+    assert "without a transcript" in sheet.inner_text()
     assert "Audio token limit" not in sheet.inner_text()
     page.keyboard.press("Escape")
     print("PASS a model change reaches its own help", flush=True)
@@ -114,7 +114,7 @@ with sync_playwright() as p:
         page.wait_for_function('STUDIO.video.backend.id === "ltx23_mlx"')
         toggle.click()
         entries = sheet.locator("dt").all_inner_texts()
-        assert "Generate, or Edit" not in entries and "Fast mode" not in entries
+        assert "Generate or Edit" not in entries and "Fast mode" not in entries
         assert "edit" not in sheet.inner_text().lower()
         print("PASS LTX-2.3 hides unsupported Edit and Fast mode instructions", flush=True)
     assert not errors, errors

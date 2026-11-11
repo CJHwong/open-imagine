@@ -217,7 +217,7 @@ only those components.
 | Form | `mode`, `prompt`, `typed`, `size`, `resolution`, `steps`, `guidance`, `cfg`, `seed`, `negative`, `count`, `looks` |
 | References | `references`, and `marks` and `marking` as the region module's own (below) |
 | Results | `gallery`, `view`, `busy`, `progress` |
-| Kept | `keeping`, `theme`, `fullscreen` |
+| Kept | `keeping`, `theme` |
 | Run | `cleared`, `cancelRestore`, `runLook` |
 
 The rule that replaces today's hand-ordered calls: a mutation names the groups it

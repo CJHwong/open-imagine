@@ -338,21 +338,23 @@ class AudioPreview extends LitElement {
       </div>
       <div class="audio-preview-controls">
       <div class="audio-preview-player" role="group" aria-label=${t('audio.preview.playback')} style=${`--player-progress:${cursor}%`}>
-        <button type="button" class="icon-btn" aria-label=${this.playing ? t('audio.preview.pause') : t('audio.preview.play')} title=${this.playing ? t('audio.preview.pause') : t('audio.preview.play')}
+        <button type="button" class="icon-btn labeled-action" aria-label=${this.playing ? t('audio.preview.pause') : t('audio.preview.play')}
           ?disabled=${!ready} @click=${this.play}>
           <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d=${this.playing ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z'}></path></svg>
+          <span class="control-label">${t(this.playing ? 'ui.action.pause' : 'ui.action.play')}</span>
         </button>
         <input type="range" aria-label=${t('audio.preview.position')} min="0" max=${this.duration} step="0.01"
           .value=${String(this.position)} ?disabled=${!ready} aria-valuetext=${t('audio.preview.seconds', {seconds: this.position.toFixed(2)})}
           @input=${this._positionInput}>
         <output class="audio-preview-position-value">${this.position.toFixed(2)} / ${this.duration.toFixed(2)} s</output>
-        <span class=${'audio-preview-speed-control' + (this.speed === 1 ? '' : ' is-adjusted')}>
-          <select class="audio-preview-speed" aria-label=${t('audio.preview.speed')} title=${t('audio.preview.speed')}
+        <label class=${'audio-preview-speed-control' + (this.speed === 1 ? '' : ' is-adjusted')}>
+          <span class="control-label">${t('ui.action.speed')}</span>
+          <select class="audio-preview-speed" aria-label=${t('audio.preview.speed')}
             .value=${String(this.speed)} @change=${this._setSpeed}>
             ${[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => html`<option value=${String(speed)} ?selected=${speed === this.speed}>${speed}×</option>`)}
           </select>
           <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m3 4.5 3 3 3-3"></path></svg>
-        </span>
+        </label>
       </div>
       <div class="audio-preview-times">
         <label>${t('audio.preview.start')} <input type="number" aria-label=${t('audio.preview.selection_start')} min="0" max=${Math.max(0, this.end - MINIMUM_SECONDS)} step="0.01"

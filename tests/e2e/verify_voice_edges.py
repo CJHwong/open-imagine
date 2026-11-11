@@ -113,7 +113,7 @@ with sync_playwright() as tool:
     check(
         "the shared audio tile uses the reference clear button",
         owner.locator(".voice-reference-group .video-audio-remove").get_attribute("aria-label")
-        == "Clear voice reference",
+        == "Remove voice reference",
     )
     check(
         "a selected reference has no Replace action",
@@ -122,7 +122,7 @@ with sync_playwright() as tool:
     check(
         "a selected reference disables recording", owner.get_by_role("button", name="Record", exact=True).is_disabled()
     )
-    owner.get_by_role("button", name="Clear voice reference", exact=True).click()
+    owner.get_by_role("button", name="Remove voice reference", exact=True).click()
     check(
         "clearing the reference enables recording", owner.get_by_role("button", name="Record", exact=True).is_enabled()
     )
@@ -148,7 +148,7 @@ with sync_playwright() as tool:
     )
     owner.evaluate("window.finishReference()")
     owner.wait_for_function("document.getElementById('voice-studio').reference?.name === 'replacement.wav'")
-    owner.get_by_role("button", name="Clear voice reference", exact=True).click()
+    owner.get_by_role("button", name="Remove voice reference", exact=True).click()
     check("clearing a reference preserves generated takes", owner.locator(".voice-clip[data-take-id]").count() == 2)
     check("Clone without a reference cannot run", owner.locator("#voice-generate").is_disabled())
     owner.get_by_role("button", name="Select audio 1", exact=True).click()

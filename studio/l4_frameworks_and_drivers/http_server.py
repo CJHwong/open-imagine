@@ -15,6 +15,10 @@ from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l3_interface_adapters.api.json_api import JsonApi
 from studio.l3_interface_adapters.controllers.form_controller import FormController
+from studio.l3_interface_adapters.controllers.image_import_controller import (
+    MAX_IMAGE_IMPORT_BYTES,
+    ImageImportController,
+)
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.json_presenter import lora_document, rewrite_document
@@ -138,6 +142,9 @@ def make_handler(
                 self._api_post(path)
                 return
             if self._refused_private_key():
+                return
+            if path == "/image/normalize":
+                self._normalize_image()
                 return
             if self.path in ("/voice/operations", "/image/operations", "/music/operations"):
                 self._start_operation(source="ui")
@@ -635,6 +642,21 @@ def make_handler(
                 if as_json:
                     return json.dumps({"error": f"{type(error).__name__}: {error}"}, ensure_ascii=False)
                 return presenter.failure(error)
+
+        def _normalize_image(self) -> None:
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                length = 0
+            if not 0 < length <= MAX_IMAGE_IMPORT_BYTES:
+                self._send_json({"error": "The image size must be between 1 byte and 64 MB."}, status=400)
+                return
+            try:
+                image = ImageImportController().normalize(self.rfile.read(length))
+            except StudioError as error:
+                self._send_json({"error": str(error)}, status=400)
+                return
+            self._send_bytes(image, 200, "image/png")
 
         def _read_form(self) -> dict[str, str]:
             length = int(self.headers.get("Content-Length", 0))

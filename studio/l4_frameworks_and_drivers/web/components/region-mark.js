@@ -61,14 +61,14 @@ function colourLabel(colour) {
 }
 // What the user types for each marked colour. Each row becomes a clause the page
 // writes, so the examples below show the shape of an instruction, nothing else.
-const REGION_EXAMPLES = [
-  'change the background to blue',
-  'make this part darker',
-  'remove the object here',
-  'turn it into a wooden texture',
-  'add a small red apple here',
-  'replace this with a woven pattern',
-  'change this part, and keep the rest of it exactly as it is',
+const REGION_EXAMPLE_KEYS = [
+  'image.region.example.blue_background',
+  'image.region.example.darker',
+  'image.region.example.remove_object',
+  'image.region.example.wood_texture',
+  'image.region.example.red_apple',
+  'image.region.example.woven_pattern',
+  'image.region.example.keep_rest',
 ];
 
 let markColour = MARK_COLOURS[0][0];
@@ -200,7 +200,10 @@ function syncMarkToggle() {
   if (size) {
     const label = widthLabel(MARK_WIDTHS[markWidth].label);
     size.setAttribute('aria-label', t('image.region.width_label', {width: label}));
-    size.title = t('image.region.width_title', {width: label, pixels: brushWidth()});
+    size.querySelector('.control-label').textContent = t('ui.action.width') + ': ' + label;
+    const note = document.getElementById('region-tool-note');
+    if (note) note.textContent = t('image.region.width_title', {width: label, pixels: brushWidth()})
+      + ' ' + t('image.region.swatch_title', {colour: colourLabel(markColour)});
   }
 }
 
@@ -215,20 +218,19 @@ function regionTools(host) {
     paintMarks();
     syncMarkToggle();
     page.refresh();
-  });
+  }, '', t('ui.action.undo'));
   undo.id = 'mark-undo';
-  undo.title = t('image.region.undo_title');
-  const clear = page.iconButton('trash', t('image.region.clear'), clearMarks);
+  const clear = page.iconButton('trash', t('image.region.clear'), clearMarks, '', t('ui.action.clear'));
   clear.id = 'mark-clear';
-  clear.title = t('image.region.clear_title');
   // One button cycling the three widths, so the bar keeps its shape. The next stroke
   // takes the new width and the strokes already drawn keep theirs.
   const size = page.iconButton('brush', t('image.region.width'), function () {
     markWidth = (markWidth + 1) % MARK_WIDTHS.length;
     syncMarkToggle();
     page.refresh();
-  });
+  }, '', t('ui.action.width'));
   size.id = 'mark-size';
+  size.setAttribute('aria-describedby', 'region-tool-note');
   bar.append(undo, clear, size);
   MARK_COLOURS.forEach(function (pair) {
     const swatch = document.createElement('button');
@@ -237,16 +239,21 @@ function regionTools(host) {
     swatch.style.background = pair[0] || 'var(--marker)';
     swatch.setAttribute('aria-label', t('image.region.swatch', {colour: colourLabel(pair[1])}));
     swatch.setAttribute('aria-pressed', String(markColour === pair[0]));
-    swatch.title = t('image.region.swatch_title', {colour: colourLabel(pair[1])});
+    swatch.setAttribute('aria-describedby', 'region-tool-note');
     swatch.addEventListener('click', function () {
       markColour = pair[0];
       page.refresh();
       bar.querySelectorAll('.swatch').forEach(function (other) {
         other.setAttribute('aria-pressed', String(other === swatch));
       });
+      syncMarkToggle();
     });
     bar.append(swatch);
   });
+  const note = document.createElement('p');
+  note.className = 'region-tool-note caption';
+  note.id = 'region-tool-note';
+  bar.append(note);
   host.append(bar);
   syncMarkToggle();
 }
@@ -278,7 +285,8 @@ function regionRow(colour) {
   // A whole instruction, because the page writes a sentence around the row, and
   // a generic one drawn at random, so the example never describes the picture the
   // person is working on.
-  input.placeholder = t('image.region.example', {example: REGION_EXAMPLES[Math.floor(Math.random() * REGION_EXAMPLES.length)]});
+  const example = t(REGION_EXAMPLE_KEYS[Math.floor(Math.random() * REGION_EXAMPLE_KEYS.length)]);
+  input.placeholder = t('image.region.example', {example});
   input.setAttribute('aria-label', t('image.region.question', {colour: colourLabel(colour)}));
   input.addEventListener('input', function () {
     regionText[colour] = input.value;

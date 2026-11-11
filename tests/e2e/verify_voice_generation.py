@@ -186,7 +186,7 @@ with sync_playwright() as tool:
     )
     check(
         "the animation is identified as illustrative",
-        "Illustrative waveform" in observer.locator(".voice-generation-note").inner_text(),
+        "Example waveform, not generated audio" in observer.locator(".voice-generation-note").inner_text(),
     )
     check(
         "progress and elapsed time stay in the shared operation bar",
@@ -202,7 +202,7 @@ with sync_playwright() as tool:
     )
     check(
         "complete engine steps show a finishing label",
-        observer.locator(".voice-generation-status strong").inner_text() == "Finishing audio",
+        observer.locator(".voice-generation-status strong").inner_text() == "Finishing audio processing",
     )
     check(
         "finishing holds the waveform with a subtle shimmer",

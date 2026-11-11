@@ -107,5 +107,5 @@ def flux2_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Uncensored and quantized. Edits with up to 4 references.",
+        description="Diverse image generation and editing with multiple references.",
     )

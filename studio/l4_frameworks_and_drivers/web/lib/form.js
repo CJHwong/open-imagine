@@ -15,6 +15,7 @@
 import './focus-editor.js';
 import {t, plural} from './i18n.js';
 import {navigate} from './navigation.js';
+import {isImageFile, readImageFile} from './image-import.js';
 
 const page = {};
 
@@ -144,7 +145,7 @@ function probeSize(entry) {
 }
 
 // `source` is the id of the frame the image came from; an upload has none.
-function addReference(b64, name, source) {
+function addReference(b64, name, source, dimensions) {
   if (referenceLimit() === 1) page.setReferences([]);
   if (page.references().length >= referenceLimit()) {
     page.notify('info', plural(maxReferences(), t('form.reference.limit')));
@@ -154,8 +155,8 @@ function addReference(b64, name, source) {
     id: 'reference-' + nextReferenceId++,
     b64: b64,
     name: name,
-    width: 0,
-    height: 0,
+    width: dimensions?.width || 0,
+    height: dimensions?.height || 0,
     source: source || null,
   };
   page.references().push(entry);
@@ -163,34 +164,20 @@ function addReference(b64, name, source) {
   renderReferences();
 }
 
-// One file, read, or nothing when the browser will not read it.
-function readReference(file) {
-  return new Promise(function (resolve) {
-    const reader = new FileReader();
-    reader.onload = function () { resolve({ b64: reader.result.split(',')[1], name: file.name }); };
-    reader.onerror = function () { resolve(null); };
-    reader.readAsDataURL(file);
-  });
-}
-
-// The reads finish in their own order, and a list built in that order would put the third
-// picture a person picked in the second place. So they are all kept and the list is built
-// from them in the order they were picked, which is the order they were shown the picker in.
-// A file that is not an image, or that the browser cannot read, says so instead of
-// disappearing.
-function addFiles(files) {
-  const chosen = Array.from(files);
-  const images = chosen.filter(function (file) {
-    return file.type.startsWith('image/');
-  });
-  chosen.filter(function (file) { return !file.type.startsWith('image/'); })
-    .forEach(function (file) { page.notify('error', t('form.error.notImage', {name: file.name})); });
-  Promise.all(images.map(readReference)).then(function (read) {
-    read.forEach(function (reference, index) {
-      if (reference) addReference(reference.b64, reference.name);
-      else page.notify('error', t('form.error.imageUnreadable', {name: images[index].name}));
-    });
-  });
+// Each size choice finishes before the next file opens, so picker order stays intact.
+async function addFiles(files) {
+  for (const file of Array.from(files)) {
+    if (!isImageFile(file)) {
+      page.notify('error', t('form.error.notImage', {name: file.name}));
+      continue;
+    }
+    try {
+      const reference = await readImageFile(file);
+      if (reference) addReference(reference.b64, reference.name, null, reference);
+    } catch (error) {
+      page.notify('error', error.message);
+    }
+  }
 }
 
 // ---- Size -----------------------------------------------------------------
@@ -439,6 +426,12 @@ function openCount() {
   const countMenu = page.el.countMenu;
   const current = clampCount();
   countMenu.replaceChildren();
+  const help = document.createElement('p');
+  help.className = 'control-help menu-help';
+  help.id = 'count-help';
+  help.textContent = t('page.count.title');
+  countMenu.append(help);
+  page.el.countToggle.setAttribute('aria-describedby', help.id);
   for (let count = 1; count <= countLimit(); count++) {
     const option = menus.menuItem('check', plural(count, t('form.count.option')), function () {
       page.el.countInput.value = count;
@@ -978,15 +971,19 @@ function applyMode(preserveParams = false) {
 // A mode the backend lacks stays in view, disabled, so the page keeps its shape.
 function setupModes() {
   const form = page.el.form;
+  const unavailable = [];
   form.querySelectorAll('input[name=mode]').forEach(function (radio) {
     const spec = page.modes[radio.value];
     const label = form.querySelector('label[for=' + radio.id + ']');
     radio.disabled = !spec;
     if (spec) label.lastChild.textContent = spec.label;
-    else label.title = t('form.mode.missing', {
+    else unavailable.push(t('form.mode.missing', {
       backend: page.studio.backend.name, mode: label.textContent.trim().toLowerCase(),
-    });
+    }));
   });
+  const help = document.getElementById('image-mode-help');
+  help.textContent = unavailable.join(' ');
+  help.hidden = !unavailable.length;
   const first = form.querySelector('input[name=mode]:not(:disabled)');
   if (form.querySelector('input[name=mode]:checked').disabled) first.checked = true;
 }
@@ -1085,11 +1082,20 @@ function runInFlight() {
 
 // Which verb shows is the DOM's and never the cascade's. The run button's labels
 // follow the same rule: `hidden` picks the label. A stylesheet that never loads
-// then leaves one verb in the button's name and not three run together.
+// then leaves one verb in the button's name and not four run together.
 function showRewriteVerb(button, stage) {
-  button.querySelector('.rewrite-idle').hidden = stage !== 'idle' && stage !== 'preparing';
+  button.querySelector('.rewrite-idle').hidden = stage !== 'idle';
+  button.querySelector('.rewrite-preparing').hidden = stage !== 'preparing';
   button.querySelector('.rewrite-cancel').hidden = stage !== 'writing';
   button.querySelector('.rewrite-stopping').hidden = stage !== 'stopping';
+}
+
+function rewriteBlocker(items) {
+  if (rewriteStage === 'preparing' || rewriteStage === 'stopping') return t(rewriteStages[rewriteStage].key);
+  if (rewriteStage === 'writing') return '';
+  if (page.sharedBusy()) return t('form.busy.shared');
+  if (runInFlight()) return t('form.rewrite.waitRun');
+  return items.length ? '' : rewriteGuidance(items);
 }
 
 function renderRewriteButton() {
@@ -1110,15 +1116,17 @@ function renderRewriteButton() {
   // same job, so they are drawn from the same state here rather than twice.
   const items = rewriteItems();
   const stage = rewriteStages[rewriteStage];
-  const busy = runInFlight() || page.sharedBusy();
+  const reason = rewriteBlocker(items);
   ['rewrite-toggle', 'video-rewrite-toggle'].forEach(function (id) {
     const button = document.getElementById(id);
     if (!button) return;
     button.hidden = !rewriteOffered();
     showRewriteVerb(button, rewriteStage);
-    button.disabled = rewriteStage === 'preparing' || rewriteStage === 'stopping'
-      || (rewriteStage === 'idle' && (busy || !items.length));
-    button.title = stage ? t(stage.key) : rewriteTitle(items);
+    button.disabled = false;
+    button.setAttribute('aria-disabled', String(Boolean(reason)));
+    const help = document.getElementById(id + '-help');
+    help.textContent = reason || (stage ? t(stage.key) : rewriteGuidance(items));
+    help.hidden = button.hidden;
   });
 
 }
@@ -1127,7 +1135,7 @@ function renderRewriteButton() {
 // no marked areas, so there the words in the box are the only thing a press can write out.
 // A batch is the third case: the pictures differ, so the press writes one instruction for
 // each of them, and one press over four images is four times the wait.
-function rewriteTitle(items) {
+function rewriteGuidance(items) {
   if (video()) {
     return items.length
       ? t('form.rewrite.title.longer')
@@ -1331,6 +1339,9 @@ let held = [];
 function holdPanel(reason, on) {
   if (on) holds.add(reason);
   else holds.delete(reason);
+  const notice = document.getElementById('panel-notice');
+  notice.textContent = Array.from(holds).join(' ');
+  notice.hidden = !holds.size;
   if (holds.size && !held.length) applyHold();
   else if (!holds.size && held.length) releaseHold();
 }
@@ -1341,14 +1352,12 @@ function holdPanel(reason, on) {
 // `readonly` keeps the value in the request, and a pointer-events block covers
 // the controls readonly cannot reach, which is the selects and the buttons.
 function applyHold() {
-  const reason = Array.from(holds).join(' ');
   held = [];
   page.el.form.dataset.panelHeld = 'true';
   page.el.form.querySelectorAll('input, textarea, select, button').forEach(function (control) {
     // The Run button is Cancel while a run is going, and each rewrite button is
     // Cancel while its own rewrite is writing, so holding any of them would trap the
-    // user with no way out. The video rewrite's button needs no rule of its own here:
-    // a run of either kind leaves it disabled, which a pointer block cannot undo.
+    // user with no way out. Rewrite also stays reachable to explain why it must wait.
     if (
       control.id === 'go' || control.id === 'rewrite-toggle'
       || control.id === 'video-generate' || control.id === 'video-rewrite-toggle'
@@ -1362,8 +1371,6 @@ function applyHold() {
       control.style.pointerEvents = 'none';
       held.push([control, 'pointer']);
     }
-    control.dataset.heldTitle = control.getAttribute('title') || '';
-    control.title = reason;
   });
 }
 
@@ -1373,9 +1380,6 @@ function releaseHold() {
     const control = entry[0];
     if (entry[1] === 'readOnly') control.readOnly = false;
     else control.style.pointerEvents = '';
-    if (control.dataset.heldTitle) control.title = control.dataset.heldTitle;
-    else control.removeAttribute('title');
-    delete control.dataset.heldTitle;
   });
   held = [];
   // The page's own rules decide which controls stay disabled, so they are asked
@@ -1578,9 +1582,7 @@ function wire() {
   document.addEventListener('paste', function (event) {
     if (document.getElementById('form').dataset.mediaMode !== 'image') return;
     const files = event.clipboardData ? event.clipboardData.files : [];
-    const images = Array.from(files || []).filter(function (file) {
-      return file.type.startsWith('image/');
-    });
+    const images = Array.from(files || []).filter(isImageFile);
     if (!images.length) return;  // a text paste goes to the field as usual
     event.preventDefault();
     addFiles(images);
@@ -1624,17 +1626,16 @@ function wire() {
 
   document.getElementById('each-choice').addEventListener('change', renderEachChoice);
 
-  // One handler for both buttons: each press is Cancel once the rewriter writes, and
-  // dead while it loads its weights, because a load has nothing to stop. Which prompt
-  // the press reads is the workspace's answer, not the button's.
-  // One handler for both buttons: each press is Cancel once the rewriter writes, and
-  // dead while it loads its weights, because a load has nothing to stop. Which prompt
-  // the press reads is the workspace's answer, not the button's.
+  // Native disabled would swallow the tap before it can explain why Rewrite must wait.
   ['rewrite-toggle', 'video-rewrite-toggle'].forEach(function (id) {
     document.getElementById(id).addEventListener('click', function () {
       if (rewriteStage === 'writing') { cancelRewrite(); return; }
-      if (rewriteStage !== 'idle') return;
-      if (runInFlight() || !rewriteItems().length) return;
+      const reason = rewriteBlocker(rewriteItems());
+      if (reason) {
+        renderRewriteButton();
+        page.notify('info', reason);
+        return;
+      }
       startRewrite();
     });
   });

@@ -96,7 +96,9 @@ def main():
             page.click("#settings-review")
             expect(page.locator("#settings-cleanup-preview")).to_be_visible()
             page.click("#settings-remove")
-            expect(page.locator("#settings-storage-models")).to_contain_text("No declared model downloads")
+            expect(page.locator("#settings-storage-models")).to_contain_text(
+                "No downloaded files found for the configured models."
+            )
             assert not runtime.exists() and not shared.exists()
             print("PASS runtime opt-in and selecting every owner permits complete cleanup")
             page.keyboard.press("Escape")

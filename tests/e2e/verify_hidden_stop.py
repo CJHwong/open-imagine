@@ -45,8 +45,8 @@ with sync_playwright() as p:
 
     operation = start_private(page.request)
     page.locator("#shared-operation[data-status=hidden]").wait_for()
-    expect(page.locator("#shared-operation-label")).to_have_text("Busy with another client")
-    expect(page.locator("#shared-operation-detail")).to_have_text("This page cannot see its work.")
+    expect(page.locator("#shared-operation-label")).to_have_text("Studio is busy with another task")
+    expect(page.locator("#shared-operation-detail")).to_have_text("This page cannot view that task's content.")
     assert page.locator("#shared-operation-percent").inner_text() == ""
     assert page.locator("#shared-operation-elapsed").inner_text() == ""
     assert page.locator("#shared-operation-details").is_hidden()
@@ -91,7 +91,7 @@ with sync_playwright() as p:
     phone.wait_for_function("typeof formApi !== 'undefined' && Boolean(formApi)")
     operation = start_private(phone.request)
     phone.locator("#shared-operation[data-status=hidden]").wait_for()
-    expect(phone.locator("#shared-operation-label")).to_have_text("其他用戶端正在使用")
+    expect(phone.locator("#shared-operation-label")).to_have_text("Studio 正在執行其他工作")
     assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
     shot(phone, "hidden-mobile-zh.png")
     phone.locator("#shared-operation-cancel").tap()
@@ -110,7 +110,7 @@ with sync_playwright() as p:
     expect(cancel).to_be_disabled()
     expect(cancel).to_be_enabled(timeout=15000)
     assert time.monotonic() - pressed >= 9, time.monotonic() - pressed
-    expect(page.locator("#shared-operation-label")).to_have_text("Busy with another client")
+    expect(page.locator("#shared-operation-label")).to_have_text("Studio is busy with another task")
     print("PASS Stopping lasts about ten seconds, then Cancel works again for the next hidden run", flush=True)
 
     # A visible operation after a hidden one brings Details back and names its own id.

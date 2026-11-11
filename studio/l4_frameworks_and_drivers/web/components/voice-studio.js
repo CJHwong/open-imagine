@@ -1070,7 +1070,7 @@ class VoiceStudio extends LitElement {
   templateFields(template) {
     if (!template) return nothing;
     return html`<p class="caption voice-note">${template.hint}</p>
-      ${template.fields.map(field => html`<label class="field voice-template-field">${field.label || (this.mode === 'design' ? field.id[0].toUpperCase() + field.id.slice(1) : field.id)}
+      ${template.fields.map(field => html`<label class="field voice-template-field">${field.id === 'script' ? t('voice.script.label') : field.label || (this.mode === 'design' ? field.id[0].toUpperCase() + field.id.slice(1) : field.id)}
         ${field.choices?.length ? html`<select .value=${String(this.fieldValues[field.id] ?? '')} ?disabled=${this.locked}
           @change=${event => this.setTemplateValue(field.id, event.target.value)}>
           ${field.choices.map(choice => html`<option value=${choice.value} ?selected=${String(choice.value) === String(this.fieldValues[field.id] ?? '')}>${choice.label}</option>`)}</select>`
@@ -1146,16 +1146,15 @@ class VoiceStudio extends LitElement {
           ${this.reference ? html`<div class="voice-reference-card video-audios">
             <div class="video-audio">
               <div class="video-audio-picture">
-                <button type="button" class="video-audio-badge voice-reference-play" id="voice-reference-play"
+                <button type="button" class="video-audio-badge voice-reference-play labeled-action" id="voice-reference-play"
                   aria-label=${this.referencePlaying ? t('audio.preview.pause') : t('audio.preview.play')}
-                  title=${this.referencePlaying ? t('audio.preview.pause') : t('audio.preview.play')}
                   @click=${() => this.toggleReferencePlayback()}>
-                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d=${this.referencePlaying ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z'}></path></svg></button>
-                <button type="button" class="video-audio-remove" aria-label=${t('voice.reference.clearAria')} ?disabled=${this.locked}
-                  @click=${() => { this.referenceVersion += 1; this.referencePending = false; this.releaseReferenceAudio(); this.reference = null; this.editSegmentId = null; this.persist(true); }}>
-                  <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+                  <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d=${this.referencePlaying ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z'}></path></svg><span class="control-label">${this.referencePlaying ? t('ui.action.pause') : t('ui.action.play')}</span></button>
               </div>
               <div><span class="video-audio-name">${this.reference.name}</span><span class="caption">${this.reference.trimmed ? t('voice.reference.trimmed', {duration: durationLabel(this.reference.duration)}) : durationLabel(this.reference.duration)}</span></div>
+              <button type="button" class="video-audio-remove labeled-action" aria-label=${t('voice.reference.clearAria')} ?disabled=${this.locked}
+                @click=${() => { this.referenceVersion += 1; this.referencePending = false; this.releaseReferenceAudio(); this.reference = null; this.editSegmentId = null; this.persist(true); }}>
+                <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="control-label">${t('ui.action.remove')}</span></button>
             </div>
           </div>` : html`<button type="button" class="refs" id="voice-reference-choose" ?disabled=${this.locked || this.recording}
             aria-label=${t('voice.reference.add')} @click=${() => document.getElementById('voice-reference').click()}>
@@ -1211,8 +1210,8 @@ class VoiceStudio extends LitElement {
       @cancel=${event => { event.preventDefault(); this.cancelRecording(); }}
       @close=${() => { if (this.recording || this.recordingPending) this.cancelRecording(); }}>
       <div class="sheet-head"><h2 id="voice-record-title">${t('voice.record.title')}</h2>
-        <button type="button" class="icon-btn close" id="voice-record-close" aria-label=${t('record.close')} title=${t('record.close')}
-          @click=${() => this.cancelRecording()}><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+        <button type="button" class="icon-btn close labeled-action" id="voice-record-close" aria-label=${t('record.close')}
+          @click=${() => this.cancelRecording()}><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg><span class="control-label">${t('ui.action.close')}</span></button></div>
       <div class="sheet-body">
         <p class="record-script" id="voice-record-script">${t('voice.record.script')}</p>
         <div class="record-stage">
@@ -1319,8 +1318,8 @@ class VoiceStudio extends LitElement {
     return html`<dialog class="sheet" id="voice-details-sheet" aria-label=${t('voice.details.aria')}
       @cancel=${event => { event.preventDefault(); this.closeDetails(); }}>
       <div class="sheet-head"><h2>${t('voice.details.aria')}</h2>
-        <button type="button" class="icon-btn close" id="voice-details-close" aria-label=${t('voice.details.closeAria')} title=${t('voice.details.closeTitle')} @click=${() => this.closeDetails()}>
-          <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+        <button type="button" class="icon-btn close labeled-action" id="voice-details-close" aria-label=${t('voice.details.closeAria')} @click=${() => this.closeDetails()}>
+          <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg><span class="control-label">${t('ui.action.close')}</span></button></div>
       <div class="sheet-body"><dl><dt>${t('voice.details.script')}</dt><dd>${item.segment.text}</dd>
         ${item.take?.voice ? html`<dt>${t('voice.details.voiceDescription')}</dt><dd>${item.take.voice}</dd>` : nothing}
         ${item.take ? html`<dt>${t('voice.details.model')}</dt><dd>${item.take.model || this.capabilities?.name || ''}</dd>
@@ -1336,9 +1335,9 @@ class VoiceStudio extends LitElement {
     const canReuse = !this.locked && !this.recording && !this.referenceBusy;
     const selectionReady = this.previewReady && this.previewSource === item.take.blob && !this.previewBusy;
     return html`<div class="menu-anchor">
-      <button type="button" class="icon-btn" id="voice-track-toggle" aria-label=${t('voice.menu.moreActions')} title=${t('voice.menu.moreActions')}
+      <button type="button" class="icon-btn labeled-action" id="voice-track-toggle" aria-label=${t('voice.menu.moreActions')}
         aria-controls="voice-track-menu" aria-expanded="false" @click=${() => toggleMenu(this.querySelector('#voice-track-menu'))}>
-        <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg></button>
+        <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg><span class="control-label">${t('ui.action.more')}</span></button>
       <div id="voice-track-menu" class="voice-track-menu menu up" role="menu" aria-label=${t('voice.menu.aria')} hidden>
         <button type="button" role="menuitem" id="voice-selected-reuse" ?disabled=${!canReuse}
           @click=${() => this.reuseSettings(item)}>${t('voice.action.reuse')}</button>
@@ -1361,10 +1360,10 @@ class VoiceStudio extends LitElement {
     const selectionReady = this.previewReady && this.previewSource === take?.blob && !this.previewBusy;
     return html`<section class="stage-bar voice-output-details" id="voice-output-details" aria-label=${t('voice.preview.detailsAria')}>
       <div class="about">
-        <p class="prompt-line voice-output-script" title=${segment.text} role="button" tabindex="0"
+        <p class="prompt-line voice-output-script" role="button" tabindex="0"
           aria-controls="voice-details-sheet" aria-expanded=${String(this.detailsOpen)} @click=${this.openDetails}
           @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}>${segment.text}</p>
-        ${take?.voice ? html`<p class="prompt-line voice-output-description" title=${take.voice} role="button" tabindex="0"
+        ${take?.voice ? html`<p class="prompt-line voice-output-description" role="button" tabindex="0"
           aria-controls="voice-details-sheet" aria-expanded=${String(this.detailsOpen)} @click=${this.openDetails}
           @keydown=${event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); this.openDetails(event); } }}><span class="caption">${t('voice.preview.voiceDescriptionLabel')}</span>${take.voice}</p>` : nothing}
         <div class="facts num" aria-label=${t('voice.preview.metadataAria')}>
@@ -1374,20 +1373,20 @@ class VoiceStudio extends LitElement {
             ${Number.isFinite(take.elapsed) ? html`<span>${t('voice.preview.took', {duration: durationLabel(take.elapsed)})}</span>` : nothing}` : html`<span>${t('voice.preview.notGenerated')}</span>`}
         </div>
       </div>
-      <div class="actions voice-output-actions">
-        <button type="button" class="btn quiet preview-details-toggle" @click=${this.openDetails}>
-          <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>${t('run.details')}</button>
-        ${take && this.capabilities.modes.some(mode => mode.id === 'edit') ? html`          <button type="button" class="btn quiet preview-primary-action" id="voice-selected-edit" ?disabled=${!selectionReady || this.locked}
-            aria-label=${t('voice.action.edit')} title=${t('voice.action.edit')}
+      <div class="actions voice-output-actions preview-actions">
+        <button type="button" class="btn quiet preview-details-toggle labeled-action" @click=${this.openDetails}>
+          <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span class="control-label">${t('run.details')}</span></button>
+        ${take && this.capabilities.modes.some(mode => mode.id === 'edit') ? html`          <button type="button" class="btn quiet preview-primary-action labeled-action" id="voice-selected-edit" ?disabled=${!selectionReady || this.locked}
+            aria-label=${t('voice.action.edit')}
             @click=${() => this.querySelector('audio-preview')?.action('edit')}>
-            <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg><span class="action-label">${t('voice.action.edit')}</span></button>` : nothing}
+            <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg><span class="control-label">${t('ui.action.edit')}</span></button>` : nothing}
         ${take ? this.renderTrackMenu(item) : nothing}
         ${take ? html`<span class="rule" aria-hidden="true"></span>
-          <button type="button" class="icon-btn preview-secondary-action" id="voice-selected-download" aria-label=${t('voice.preview.downloadAria')} title=${t('voice.preview.downloadTitle')}
+          <button type="button" class="icon-btn preview-secondary-action labeled-action" id="voice-selected-download" aria-label=${t('voice.preview.downloadAria')}
             ?disabled=${!selectionReady} @click=${() => this.querySelector('audio-preview')?.action('download')}>
-            <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg></button>
-          <button type="button" class="icon-btn danger preview-secondary-action" id="voice-selected-remove" aria-label=${t('voice.preview.removeAria')} title=${t('voice.preview.removeTitle')}
-            @click=${() => this.removeTake(take.id)}><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg></button>` : nothing}
+            <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span class="control-label">${t('ui.action.download')}</span></button>
+          <button type="button" class="icon-btn danger preview-secondary-action labeled-action" id="voice-selected-remove" aria-label=${t('voice.preview.removeAria')}
+            @click=${() => this.removeTake(take.id)}><svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg><span class="control-label">${t('ui.action.remove')}</span></button>` : nothing}
       </div>
     </section>`;
   }
@@ -1417,13 +1416,13 @@ class VoiceStudio extends LitElement {
           .choose=${id => { const found = clips.find(({take}) => take.id === id); if (found) this.selectTake(found.segment.id, id); }}
           .removeItem=${id => { this.removeTake(id); return !this.segments.some(segment => segment.takes.some(take => take.id === id)); }}
           .download=${ids => this.downloadTakes(clips, ids)} .playback=${() => this.togglePreviewPlayback()}></gallery-browser>
-        <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all"
-          title=${t('gallery.downloadAll.title')} ?disabled=${!this.takesCount}
+        <span class="strip-actions"><button type="button" class="text-btn" id="voice-download-all" ?disabled=${!this.takesCount}
           @click=${() => this.downloadTakes(clips, clips.map(({take}) => take.id))}>${t('voice.action.downloadAll')}</button>
-          <button type="button" class="text-btn" title=${t('gallery.clearAll.title')}
+          <button type="button" class="text-btn"
             ?disabled=${!this.takesCount} @click=${() => {
               if (confirm(t('voice.gallery.confirmClear'))) this.clearCompleted();
             }}>${t('voice.action.clearAll')}</button></span></div>
+      <p class="caption control-help gallery-action-help"><span>${t('gallery.downloadAll.title')}</span> <span>${t('gallery.clearAll.title')}</span></p>
       <div class="strip voice-clips" role="group" aria-label=${t('voice.gallery.generatedAria')} @keydown=${event => this.galleryKey(event)}>
         <gallery-window .items=${entries} .selected=${this.showingGeneration ? '__pending__' : item?.take?.id}
           .renderItem=${({segment, take, pending}) => pending ? html`        <gallery-tile extra="voice-render-pending" ?pending=${true}
@@ -1434,7 +1433,7 @@ class VoiceStudio extends LitElement {
           .content=${() => html`<span class="video-pending-indicator" aria-hidden="true"></span><span>${t('voice.gallery.generating')}</span>`}></gallery-tile>` : html`
           <gallery-tile extra="voice-clip" stillClass="voice-clip-thumb"
             ?selected=${item?.take?.id === take.id && !this.showingGeneration}
-            label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})} title=${segment.text}
+            label=${t('voice.preview.selectAria', {number: this.clipNumber(take)})}
             .takeId=${take.id} .segmentId=${segment.id}
             .footer=${() => String(this.clipNumber(take)).padStart(2, '0')}
             .mark=${() => pencilLoop(true)}

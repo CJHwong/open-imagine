@@ -315,6 +315,11 @@ def auk_capabilities(variant: str) -> Capabilities:
         backend_id="auk" if variant == "flash" else "auk_base",
         name="AuK Flash" if variant == "flash" else "AuK",
         badge="int8",
+        description=(
+            "Fast voice design, cloning, and recording edits in four steps."
+            if variant == "flash"
+            else "Voice design, cloning, and recording edits, with a focus on quality."
+        ),
         max_batch=16,
         modes=(
             ModeSpec(

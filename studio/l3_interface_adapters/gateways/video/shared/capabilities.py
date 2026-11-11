@@ -373,11 +373,23 @@ def _capabilities(
 
 
 def ltx25_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx25_mlx", "LTX-2.5", "ltx25", edit=True, fast_mode=True)
+    return _capabilities(
+        "ltx25_mlx",
+        "LTX-2.5",
+        "ltx25",
+        edit=True,
+        fast_mode=True,
+        description="Connected video shots with synchronized sound and image or audio guidance.",
+    )
 
 
 def ltx23_mlx_capabilities() -> VideoCapabilities:
-    return _capabilities("ltx23_mlx", "LTX-2.3", "ltx23")
+    return _capabilities(
+        "ltx23_mlx",
+        "LTX-2.3",
+        "ltx23",
+        description="Continuous video shots with synchronized sound and image or audio guidance.",
+    )
 
 
 def ltx_checkpoint_capabilities(

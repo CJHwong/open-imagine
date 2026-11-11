@@ -24,6 +24,7 @@ import {t} from '../lib/i18n.js';
 
 const mobile = matchMedia('(max-width: 900px)');
 let mobilePicker = null;
+let noteNumber = 0;
 
 function closePicker(restoreFocus = false) {
   if (!mobilePicker) return;
@@ -36,6 +37,13 @@ function closePicker(restoreFocus = false) {
   dialog.remove();
   trigger.setAttribute('aria-expanded', 'false');
   if (restoreFocus && trigger.isConnected) trigger.focus();
+}
+
+function isBackdrop(event) {
+  if (event.target !== event.currentTarget) return false;
+  const bounds = event.currentTarget.getBoundingClientRect();
+  return event.clientX < bounds.left || event.clientX > bounds.right
+    || event.clientY < bounds.top || event.clientY > bounds.bottom;
 }
 
 function openPicker(menu, trigger, title, temporary = false) {
@@ -59,6 +67,15 @@ function openPicker(menu, trigger, title, temporary = false) {
   mobilePicker = {dialog, menu, marker, trigger, temporary};
   trigger.setAttribute('aria-expanded', 'true');
   dialog.addEventListener('cancel', event => { event.preventDefault(); closePicker(true); });
+  // Native selects open on pointerdown. Ignore the click that completes that same tap.
+  let backdropPressed = false;
+  dialog.addEventListener('pointerdown', event => { backdropPressed = isBackdrop(event); });
+  dialog.addEventListener('pointercancel', () => { backdropPressed = false; });
+  dialog.addEventListener('click', event => {
+    const dismiss = backdropPressed && isBackdrop(event);
+    backdropPressed = false;
+    if (dismiss) closePicker(true);
+  });
   dialog.showModal();
 }
 
@@ -81,13 +98,21 @@ function enabledItems(menu) {
 // One item of a menu. `name` is the glyph, or empty for a menu that reads as
 // text only, as a template does. The caller sets `menuitemradio` or
 // `menuitemcheckbox` and `aria-checked` on what this returns.
-export function menuItem(name, label, onPick, title = '') {
+export function menuItem(name, label, onPick, detail = '') {
   const button = document.createElement('button');
   button.type = 'button';
   button.setAttribute('role', 'menuitem');
-  if (title) button.title = title;
   button.innerHTML = (name ? glyph(name) : '') + '<span class="item-text"></span>';
   button.querySelector('.item-text').textContent = label;
+  if (detail && detail !== label) {
+    const note = document.createElement('span');
+    note.className = 'item-note';
+    note.id = 'menu-note-' + ++noteNumber;
+    note.textContent = detail;
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-describedby', note.id);
+    button.querySelector('.item-text').append(note);
+  }
   button.addEventListener('click', function () {
     closeMenus();
     onPick();
@@ -105,7 +130,8 @@ export function toggleMenu(menu) {
   menu.hidden = false;
   const trigger = toggleOf(menu);
   trigger.setAttribute('aria-expanded', 'true');
-  if (mobile.matches) openPicker(menu, trigger, trigger.getAttribute('aria-label') || trigger.title || trigger.textContent.trim());
+  if (mobile.matches) openPicker(menu, trigger, trigger.querySelector('.label')?.textContent.trim()
+    || trigger.getAttribute('aria-label') || trigger.textContent.trim());
   else fitMenu(menu);
   enabledItems(menu)[0]?.focus();
 }
@@ -163,7 +189,7 @@ mobile.addEventListener('change', () => {
 });
 
 document.addEventListener('click', function (event) {
-  if (event.target.closest('.menu, .mobile-menu-dialog, [aria-controls]')) return;
+  if (mobilePicker || event.target.closest('.menu, .mobile-menu-dialog, [aria-controls]')) return;
   closeMenus();
 });
 

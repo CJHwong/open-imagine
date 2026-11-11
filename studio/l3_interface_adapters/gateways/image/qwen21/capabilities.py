@@ -80,5 +80,5 @@ def qwen21_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Full quality: 40 steps. Edits with up to 10 references.",
+        description="Precise image edits and readable text with multiple references.",
     )

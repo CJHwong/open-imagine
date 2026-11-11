@@ -9,12 +9,12 @@ TRANSLATIONS: dict[str, TemplateTranslationSource] = {
         "name": "耳語",
         "hint": "以輕聲說話，不把語氣指示唸出來。",
         "text": "[whispers] {script}",
-        "fields": (F("script", "台詞", "小聲一點，有人在聽。"),),
+        "fields": (F("script", "朗讀內容", "小聲一點，有人在聽。"),),
     },
     "Excited": {
         "name": "興奮",
         "hint": "以充滿熱情的語氣說話。",
         "text": "[excited] {script}",
-        "fields": (F("script", "台詞", "我們終於做到了！真是太棒了！"),),
+        "fields": (F("script", "朗讀內容", "我們終於做到了！真是太棒了！"),),
     },
 }

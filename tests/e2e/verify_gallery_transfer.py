@@ -15,6 +15,7 @@ import wave
 import zipfile
 from pathlib import Path
 
+from help_controls import visible_description
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 from settings_controls import open_settings
@@ -117,21 +118,19 @@ def main():
             "&& document.querySelector('music-studio').songs.length === 1"
         )
         # The menu names the difference: a download gives files, Export gives the
-        # restorable archive, and the titles say so.
-        assert page.locator("#download-gallery").get_attribute("title") == (
-            "Save every file in this shelf to this computer, one by one. Settings are not included."
-        )
+        # restorable archive. The control's visible description states which one it writes.
+        assert "Download all media as one ZIP file." in visible_description(page.locator("#download-gallery"))
         page.locator("#image-gallery-browser .gallery-browse-toggle").click()
         page.get_by_role("button", name="Select", exact=True).click()
         page.locator(".gallery-check input").first.check()
-        assert page.get_by_role("button", name="Download 1", exact=True).get_attribute("title") == (
-            "Save the checked files to this computer, one by one. Settings are not included."
+        assert "Download selected media as one ZIP file." in visible_description(
+            page.get_by_role("button", name="Download 1", exact=True)
         )
         page.get_by_role("button", name="Done", exact=True).click()
         page.locator("#image-gallery-browser .gallery-browse-toggle").click()
         open_menu(page)
-        assert page.get_by_role("button", name="Export", exact=True).get_attribute("title") == (
-            "Save the whole gallery as one ZIP, records and media together, to restore in another browser."
+        assert visible_description(page.get_by_role("button", name="Export", exact=True)) == (
+            "Export the whole gallery as one ZIP with records and media. Import it in another browser to restore it."
         )
         with page.expect_download(timeout=60000) as download:
             page.get_by_role("button", name="Export", exact=True).click()

@@ -401,7 +401,7 @@ def verify_reset(browser, base):
     assert page.input_value("#music-style") == ""
     assert page.input_value("#music-lyrics") == ""
     assert page.locator('input[name="music-workflow"]:checked').get_attribute("value") == "generate"
-    assert dialogs and "Reset this form?" in dialogs[-1]
+    assert dialogs and "Reset this workspace's inputs?" in dialogs[-1]
     page.reload()
     page.wait_for_function("Boolean(document.querySelector('music-studio').capabilities)")
     page.wait_for_timeout(900)
@@ -469,7 +469,7 @@ def main():
         expect(page.locator("#workspace-tabs button")).to_have_text(["Image", "Video", "Voice", "Music"])
         expect(page.locator("#backend-toggle .name")).to_have_text("YuE2")
         expect(page.locator("#music-empty-hint")).to_have_text(
-            "Write a style and lyrics, or add a recording to cover it."
+            "Describe the music style. Add lyrics, or leave them blank for instrumental music."
         )
         expect(page.get_by_text("Write a style and lyrics, then generate music.", exact=True)).to_have_count(0)
         expect(page.get_by_role("radiogroup", name="Music mode")).to_have_class("modes")
@@ -514,7 +514,7 @@ def main():
         bar.get_by_role("button", name="More actions", exact=True).click()
         expect(bar.get_by_role("menuitem", name="Use this score", exact=True)).to_be_enabled()
         # A score has no recording to send, so the item is absent, not disabled.
-        expect(bar.get_by_role("menuitem", name="Send to Video", exact=True)).to_have_count(0)
+        expect(bar.get_by_role("menuitem", name="Use as video audio", exact=True)).to_have_count(0)
         page.keyboard.press("Escape")
         assert submitted[-1]["mode"] == "plan"
         assert submitted[-1]["steps"] == 32 and submitted[-1]["cfg_scale"] == 1
@@ -711,7 +711,7 @@ def main():
             {"name": "notes.txt", "mimeType": "text/plain", "buffer": b"not audio"}
         )
         expect(page.locator("#music-reference-name")).to_have_text("")
-        expect(page.get_by_text("Choose an audio recording.", exact=True)).to_be_visible()
+        expect(page.get_by_text("Choose an audio file.", exact=True)).to_be_visible()
 
         # The recording that made a song comes back from one stored record, not from the
         # rendered song. Every song made from this file points at that one record.

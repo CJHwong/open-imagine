@@ -43,11 +43,11 @@ class GalleryCard extends LitElement {
         </span>
         ${this.selected && !row.batch ? pencilLoop(false) : nothing}
       </button>
-      ${this.selecting && !row.batch ? html`<label class="gallery-check" title=${t('gallery.selectResult')}>
+      ${this.selecting && !row.batch ? html`<label class="gallery-check">
         <input type="checkbox" aria-label=${t('gallery.select', {workspace: workspaceName(this.workspace), number: item.number})}
           .checked=${this.checked} ?disabled=${this.working}
           @change=${() => this.dispatchEvent(new CustomEvent('check', {detail: item.id}))}></label>` : nothing}
-      <p class="gallery-card-text" title=${item.text || item.name || ''}>${item.text || item.name || t('gallery.untitled')}</p>
+      <p class="gallery-card-text">${item.text || item.name || t('gallery.untitled')}</p>
     </article>`;
   }
 }

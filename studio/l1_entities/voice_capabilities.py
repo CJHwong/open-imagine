@@ -143,6 +143,7 @@ class Capabilities:
     default_mode: str = "design"
     reference_sample_rate: int = 24000
     max_reference_seconds: float = 120
+    description: str = ""
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

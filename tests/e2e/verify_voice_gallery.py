@@ -152,7 +152,7 @@ with sync_playwright() as tool:
     check("a retake keeps every gallery clip", gallery.locator(".voice-clip[data-take-id]").count() == 3)
     first.click()
     page.wait_for_function("document.getElementById('voice-audio-preview').duration > .7")
-    start = page.locator("#voice-audio-preview").get_by_role("spinbutton", name="Selection start", exact=True)
+    start = page.locator("#voice-audio-preview").get_by_role("spinbutton", name="Selection start time", exact=True)
     start.fill("0.2")
     start.press("Tab")
     gallery.get_by_role("button", name="Select audio 3", exact=True).click()
@@ -300,7 +300,7 @@ with sync_playwright() as tool:
     check(
         "history without a current script asks for a script",
         page.locator("#voice-generate").is_disabled()
-        and "Write a script" in page.locator("#voice-go-sub").inner_text(),
+        and "Write the text to read" in page.locator("#voice-go-sub").inner_text(),
     )
     check(
         "history without a current script has no joined track actions",

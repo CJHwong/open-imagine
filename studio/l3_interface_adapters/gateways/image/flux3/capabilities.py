@@ -37,7 +37,7 @@ def flux3_capabilities(badge: str) -> Capabilities:
         name="FLUX3 Image Klein",
         badge=badge,
         max_batch=4,
-        description="Optional distilled model. Generate and compose with up to 2 references; describe the full scene.",
+        description="Fast instruction edits and image composition from multiple references.",
         modes=(
             ModeSpec(
                 "generate",
