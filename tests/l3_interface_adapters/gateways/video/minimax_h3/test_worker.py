@@ -394,3 +394,46 @@ def test_worker_stops_before_the_denoise_when_the_engine_counted_no_lora(fake_en
         worker.render(fake_engine, tmp_path, request(loras=LORAS), events.append)
 
     assert events == [{"event": "phase", "phase": "adaln_cache_and_noise", "seconds": 1, "peak_gib": 2}]
+
+
+def test_worker_runs_the_flash_pack_on_the_changed_engine(fake_engine, tmp_path, monkeypatch):
+    seen = {}
+
+    def load_module(path, name):
+        assert path.name == "flash.py" and path.is_file()
+        return SimpleNamespace(install=lambda engine: seen.setdefault("engine", engine) and ["--sampler", "euler"])
+
+    def main():
+        parser = argparse.ArgumentParser()
+        for flag in ("--dit", "--steps", "--sampler"):
+            parser.add_argument(flag)
+        args, _ = parser.parse_known_args(sys.argv[1:])
+        seen["args"] = (Path(args.dit).name, args.steps, args.sampler)
+        assert sys.argv[-2:] == ["--", "private test words"]
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+    media = worker.load_module
+    monkeypatch.setattr(
+        worker, "load_module", lambda path, name: load_module(path, name) if "flash" in name else media(path, name)
+    )
+
+    worker.render(fake_engine, tmp_path, request(forwards=6, flash=True), lambda _: None)
+
+    assert seen == {"engine": fake_engine, "args": ("h3-flash-dit-q8", "7", "euler")}
+
+
+def test_worker_runs_the_base_pack_without_the_flash_changes(fake_engine, tmp_path):
+    seen = {}
+
+    def main():
+        seen["argv"] = list(sys.argv)
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+
+    worker.render(fake_engine, tmp_path, request(flash=False), lambda _: None)
+
+    assert str(tmp_path / "h3-dit-q8") in seen["argv"] and "--sampler" not in seen["argv"]

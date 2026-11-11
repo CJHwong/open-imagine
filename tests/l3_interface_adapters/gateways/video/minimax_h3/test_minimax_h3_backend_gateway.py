@@ -7,16 +7,32 @@ from unittest.mock import Mock
 
 import pytest
 
+from studio.l1_entities.video_estimate import estimate_clip
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
     BASE_FORWARDS,
     CAPABILITIES,
     FAST_FORWARDS,
     FAST_MAX_ROWS,
+    FLASH,
+    FLASH_CAPABILITIES,
+    FLASH_FORWARDS,
     video_rows,
 )
-from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import PROVIDER, minimax_h3_backend
+from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import (
+    FLASH_PROVIDER,
+    PROVIDER,
+    minimax_h3_backend,
+)
 from studio.l3_interface_adapters.gateways.video.minimax_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
-from studio.l3_interface_adapters.gateways.video.minimax_h3.runtime import MAX_RESULT_BYTES, model_files
+from studio.l3_interface_adapters.gateways.video.minimax_h3.minimax_h3_flash_backend_gateway import (
+    MinimaxH3FlashBackendGateway,
+)
+from studio.l3_interface_adapters.gateways.video.minimax_h3.runtime import (
+    FLASH_PACK,
+    MAX_RESULT_BYTES,
+    model_files,
+)
+from studio.l3_interface_adapters.gateways.video.minimax_h3.storage_assets import flash_storage_assets
 from studio.l4_frameworks_and_drivers.config import Config
 from studio.plugins.video import Cancelled, InvalidJob, Lora, LoraUse, VideoAudio, VideoJob, VideoReference
 
@@ -494,3 +510,119 @@ def test_gateway_refuses_fast_mode_past_the_measured_clip_before_starting_a_chil
         ready.run_process.assert_not_called()
         # The same clip at the base schedule runs.
         MinimaxH3BackendGateway(ready).run(replace(clip, fast_mode=False))
+
+
+@pytest.fixture
+def flash_ready(ready):
+    """The model folder of `ready`, with a converted Flash transformer beside the base one."""
+    models = Path(ready.settings["model_dir"])
+    for path in model_files(models, FLASH_PACK):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture weights")
+    (models / FLASH_PACK / "quant_config.json").write_text('{"bits":8,"group_size":64}')
+    (models / FLASH_PACK / "model.safetensors.index.json").write_text(
+        '{"weight_map":{"test.weight":"model-1.safetensors"}}'
+    )
+    (models / FLASH_PACK / "model-1.safetensors").write_bytes(b"fixture weights")
+    (models / FLASH_PACK / "flash.json").write_text('{"hyperflow_gate":0.25,"dropped_blocks":[6,21,22]}')
+    return ready
+
+
+def test_flash_is_a_second_model_on_the_h3_settings_with_its_own_record():
+    config = Config("", (), "", (), {"minimax_h3": {"model_dir": "/weights/h3", "loras": [{"id": "x"}]}})
+    gateway = FLASH_PROVIDER.create(config, execute_process=Mock())
+
+    assert FLASH_PROVIDER.backend_id == "minimax_h3_flash" and FLASH_PROVIDER.kind == "video"
+    assert gateway.capabilities() == FLASH_CAPABILITIES == FLASH.capabilities
+    # Flash offers what was tried on its weights: text and keyframes. It reads no LoRA table.
+    generate = FLASH_CAPABILITIES.mode("generate")
+    assert not generate.accepts_audio and generate.max_references == 3
+    assert not FLASH_CAPABILITIES.fast_mode and not FLASH_CAPABILITIES.fast_mode_note
+    assert not FLASH_CAPABILITIES.loras
+    # The sizes and the lengths are the ones of base H3, so one set of checks serves both.
+    assert FLASH_CAPABILITIES.shapes == CAPABILITIES.shapes
+    assert (FLASH_CAPABILITIES.min_frames, FLASH_CAPABILITIES.max_frames) == (73, 175)
+    assert FLASH_CAPABILITIES.estimate is not None and FLASH_CAPABILITIES.estimate.forwards == FLASH_FORWARDS == 6
+    assert FLASH_PROVIDER.estimator is not None and PROVIDER.estimator is not None
+    assert FLASH_PROVIDER.estimator(config) is PROVIDER.estimator(config)
+    # Flash owns only its transformer, inside the model folder of base H3.
+    assert [asset.location for asset in flash_storage_assets(config)] == ["/weights/h3/h3-flash-dit-q8"]
+    assert flash_storage_assets(Config("", (), "", (), {})) == ()
+    assert FLASH_PROVIDER.storage_assets is flash_storage_assets
+
+
+def test_flash_runs_six_forwards_on_its_own_pack(flash_ready):
+    seen = []
+
+    def execute(command, **options):
+        seen.append(json.loads(options["input_bytes"]))
+        options["consume"]('{"event":"step","step":1,"total":6}\n{"event":"step","step":1,"total":8}\n')
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    flash_ready.run_process = execute
+    progress = Mock()
+
+    MinimaxH3FlashBackendGateway(flash_ready).run(job(references=(still(0), still(72))), progress)
+
+    assert seen[0]["flash"] is True and seen[0]["forwards"] == 6 and seen[0]["loras"] == []
+    assert [keyframe["frame"] for keyframe in seen[0]["keyframes"]] == [0, 72]
+    progress.assert_called_once_with(1, 6, 7)
+
+
+def test_base_h3_tells_the_worker_that_it_is_not_flash(ready):
+    seen = []
+
+    def execute(command, **options):
+        seen.append(json.loads(options["input_bytes"]))
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    MinimaxH3BackendGateway(ready).run(job())
+
+    assert seen[0]["flash"] is False and seen[0]["forwards"] == 8
+
+
+@pytest.mark.parametrize(
+    "changes,reason",
+    [
+        ({"fast_mode": True}, "H3 Flash has no Fast mode"),
+        ({"audio": VideoAudio(b"private track", "private.wav")}, "H3 Flash takes no audio track"),
+        ({"loras": (LoraUse("motion", 0.8),)}, "H3 Flash takes no LoRA"),
+    ],
+)
+def test_flash_refuses_what_was_not_tried_on_its_weights(flash_ready, changes, reason):
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3FlashBackendGateway(flash_ready).run(job(**changes))
+    flash_ready.run_process.assert_not_called()
+
+
+@pytest.mark.parametrize("missing", ["flash.json", "model-1.safetensors"])
+def test_flash_names_its_own_weights_when_its_pack_is_incomplete(flash_ready, missing):
+    (Path(flash_ready.settings["model_dir"]) / FLASH_PACK / missing).unlink()
+
+    with pytest.raises(InvalidJob, match="H3 Flash weights are incomplete"):
+        MinimaxH3FlashBackendGateway(flash_ready).run(job())
+    # The base pack is whole, so base H3 still runs.
+    flash_ready.run_process = lambda command, **options: options["consume_output"](b"\0\0\0\x18ftypisom")
+    assert MinimaxH3BackendGateway(flash_ready).run(job()).mp4
+
+
+@pytest.mark.parametrize(
+    "width,height,frames,measured",
+    [(512, 288, 73, 59), (512, 512, 124, 170), (768, 448, 124, 247), (768, 448, 175, 388), (1024, 576, 124, 511)],
+)
+def test_the_flash_estimate_stays_near_the_runs_it_was_fitted_to(width, height, frames, measured):
+    figure = estimate_clip(FLASH_CAPABILITIES.estimate, width, height, frames)
+
+    # The figure is to the nearest 10 s, so it can stand 10 s from a run that the fit is 6 s from.
+    assert figure.basis == "provisional" and figure.steps == 6
+    assert figure.total_seconds == pytest.approx(measured, abs=10)
+
+
+@pytest.mark.parametrize("text", ['{"hyperflow_gate":0.25}', "[]", "not json"])
+def test_flash_weights_are_incomplete_without_the_facts_of_the_pack(flash_ready, text):
+    (Path(flash_ready.settings["model_dir"]) / FLASH_PACK / "flash.json").write_text(text)
+
+    with pytest.raises(InvalidJob, match="H3 Flash weights are incomplete"):
+        MinimaxH3FlashBackendGateway(flash_ready).run(job())

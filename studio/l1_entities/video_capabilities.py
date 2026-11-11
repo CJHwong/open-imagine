@@ -116,6 +116,9 @@ class VideoEstimate:
     `guided_factor`, and so does a reference image when `guided_with_references` is set.
     An Edit takes `edit`, a constant and a slope over the tokens of the output, with the
     loads of a clip as its floor. `excludes` names the time that no figure holds.
+
+    A model with one stage sets `forwards` to the steps of its schedule. Its run then has no
+    stage 1: it takes that many steps of `stage_2` on all the tokens.
     """
 
     load: tuple[float, float]
@@ -131,6 +134,7 @@ class VideoEstimate:
     guided_with_references: bool = False
     edit: tuple[float, float] = (0.0, 0.0)
     excludes: tuple[str, ...] = ()
+    forwards: int = 0
 
 
 @dataclass(frozen=True)

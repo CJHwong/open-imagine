@@ -12,9 +12,17 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import minimax_h3_backend
+from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import (
+    minimax_h3_backend,
+    minimax_h3_flash_backend,
+)
 from studio.l3_interface_adapters.gateways.video.minimax_h3.media import decode_audio, inspect_mp4
-from studio.l3_interface_adapters.gateways.video.minimax_h3.runtime import DEFAULT_ENGINE, DEFAULT_MODELS, weights_ready
+from studio.l3_interface_adapters.gateways.video.minimax_h3.runtime import (
+    DEFAULT_ENGINE,
+    DEFAULT_MODELS,
+    FLASH_PACK,
+    weights_ready,
+)
 from studio.l4_frameworks_and_drivers.config import Config
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 from studio.plugins.video import VideoAudio, VideoBackendGateway, VideoJob, VideoReference
@@ -125,3 +133,22 @@ def test_minimax_h3_follows_a_first_and_a_last_frame_and_a_track_with_real_weigh
     # encoder puts 1024 samples of its own silence in front, so the comparison skips them.
     sound = decode_audio(result.mp4, 32000)[0]
     assert np.corrcoef(envelope(sound[1024:]), envelope(tone))[0, 1] > 0.99
+
+
+@pytest.mark.skipif(
+    not weights_ready(Path(DEFAULT_MODELS).expanduser(), FLASH_PACK), reason="Convert the H3 Flash pack first."
+)
+def test_minimax_h3_flash_renders_one_short_clip_in_six_steps_with_real_weights():
+    with free_gpu():
+        steps = []
+        gateway = minimax_h3_flash_backend(Config("", (), "", (), {}), execute_process=SubprocessRunner().execute)
+        result = gateway.run(
+            VideoJob(
+                "A red fox walks through a quiet green meadow. A fixed camera. Birds sing softly.", 512, 288, 73, 24, 7
+            ),
+            lambda step, total, seed: steps.append((step, total, seed)),
+        )
+        assert result.mp4 is not None
+        streams = inspect_mp4(result.mp4)
+        assert steps == [(step, 6, 7) for step in range(1, 7)]
+        assert {stream["codec_type"] for stream in streams} == {"video", "audio"}

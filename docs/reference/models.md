@@ -33,6 +33,7 @@ MiniMax H3 keeps its experimental warning in both languages of the model picker.
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
 | Video | [MiniMax H3](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md), experimental | `minimax_h3` | Short clips with native sound from text, up to three keyframes or an audio track, and one LoRA from your settings | Staged Q8; 512 x 288 runs of 73 and 175 frames, and one run each of 1024 x 576 and 1280 x 704 at 175 frames, measured on M5 Pro 64 GiB. With one LoRA, one run each of 512 x 288 at 73 frames and 1024 x 576 at 175 |
+| Video | [HyperFlow H3 Flash](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#h3-flash), experimental | `minimax_h3_flash` | Short clips with native sound from text and up to three keyframes | Staged Q8; six steps with no guidance. Five text runs from 512 x 288 at 73 frames to 1024 x 576 at 124, measured on M5 Pro 64 GiB |
 | Voice | **Drama-3 (default)** | `drama3` | Generate and Clone | Eight-bit MLX checkpoint |
 | Voice | AuK | `auk_base` | Design, Clone, Edit | Eight-bit base; 32 steps, guidance 2 |
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |

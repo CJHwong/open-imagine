@@ -63,7 +63,7 @@ def estimate_clip(
     figure names the saving in its excludes.
     """
     guided = adapter is None and (audio or (references > 0 and model is not None and model.guided_with_references))
-    steps = _steps(adapter, guided)
+    steps = _steps(model, adapter, guided)
     if model is None:
         return ClipEstimate("unavailable", steps, width, height, references)
     count = tokens(width, height, num_frames)
@@ -87,12 +87,15 @@ def estimate_clip(
 def run_seconds(model: VideoEstimate, width: int, height: int, num_frames: int) -> float:
     """The seconds of the fit for a Generate run: the loads, the steps of stage 1 on a quarter
     of the tokens, the steps of stage 2 on all of them, and the decode. The first step of
-    stage 1 counts with the loads, so stage 1 times one step fewer."""
+    stage 1 counts with the loads, so stage 1 times one step fewer. A model with one stage
+    takes its own count of steps on all the tokens."""
     count = tokens(width, height, num_frames)
     quarter = count / 4
     step_1 = model.stage_1[0] * quarter + model.stage_1[1] * quarter**2
     step_2 = model.stage_2[0] * count + model.stage_2[1] * count**2
     decode = max(0.0, model.decode[0] + model.decode[1] * num_frames * width * height / 1e6)
+    if model.forwards:
+        return model.load[0] + model.load[1] * count + model.forwards * step_2 + decode
     first, second = DISTILLED_STEPS
     return model.load[0] + model.load[1] * count + (first - 1) * step_1 + second * step_2 + decode
 
@@ -103,9 +106,11 @@ def tokens(width: int, height: int, num_frames: int) -> float:
     return latent_frames * (width // TOKEN_SIDE) * (height // TOKEN_SIDE) / 1000
 
 
-def _steps(adapter: VideoAdapter | None, guided: bool) -> int:
+def _steps(model: VideoEstimate | None, adapter: VideoAdapter | None, guided: bool) -> int:
     if adapter is not None:
         return EDIT_STEPS + (REFINE_STEPS if adapter.stage_2_conditioning else 0)
+    if model is not None and model.forwards:
+        return model.forwards
     return sum(GUIDED_STEPS if guided else DISTILLED_STEPS)
 
 
