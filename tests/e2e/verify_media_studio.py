@@ -1838,7 +1838,7 @@ with sync_playwright() as playwright:
     )
     stub_card = page.locator("#video-gallery .video-gallery-item").first
     stub_details = stub_card.inner_text()
-    seed_match = re.search(r"Seed\s+(\d+)", page.locator("#video-output-details").inner_text())
+    seed_match = re.search(r"Random seed\s+(\d+)", page.locator("#video-output-details").inner_text())
     check(
         "selected stub output uses the image-style caption and metadata row",
         "A kite rises as the camera pans across the shore" in page.locator("#video-output-details").inner_text()
@@ -2242,7 +2242,7 @@ with sync_playwright() as playwright:
         and generated_card.locator(".video-clip-thumb .video-gallery-sheet").count() == 1
         and "96 \u00d7 64" in generated_details
         and re.search(r"12 frames", generated_details) is not None
-        and re.search(r"Seed\s+7", generated_details) is not None
+        and re.search(r"Random seed\s+7", generated_details) is not None
         and "2 image references" in generated_details
         and "Took 01:23.2" in generated_details
         and "01:23.2" in generated_details
@@ -2326,7 +2326,7 @@ with sync_playwright() as playwright:
     check(
         "video more actions match the image action menu",
         page.get_by_role("menuitem", name="Reuse prompt").is_visible()
-        and page.get_by_role("menuitem", name="Reuse seed 7").is_visible()
+        and page.get_by_role("menuitem", name="Reuse random seed 7").is_visible()
         and page.get_by_role("menuitem", name="Use current frame in Image").is_visible()
         and page.get_by_role("menuitem", name="Edit this clip").is_visible()
         and page.get_by_role("button", name="Add reference").is_visible()
@@ -2387,7 +2387,7 @@ with sync_playwright() as playwright:
         page.locator("#video-prompt").input_value(),
     )
     page.get_by_role("button", name="More actions").click()
-    page.get_by_role("menuitem", name="Reuse seed 7").click()
+    page.get_by_role("menuitem", name="Reuse random seed 7").click()
     check(
         "video seed can be reused from its selected output",
         page.locator("#video-seed").input_value() == "7"
@@ -2482,7 +2482,7 @@ with sync_playwright() as playwright:
     check(
         "video preview uses a quiet status, grain texture, and player-edge timer",
         progress_result.get("supported")
-        and progress_result.get("headline") == "Denoising, step 4 of 8"
+        and progress_result.get("headline") == "Generating, step 4 of 8"
         and progress_result.get("elapsed") == "00:06.4 elapsed"
         and "LTX-2.5" in progress_result.get("previewModel", "")
         and progress_result.get("previewSerial") == "03"

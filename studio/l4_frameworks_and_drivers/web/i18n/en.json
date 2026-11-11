@@ -1,6 +1,6 @@
 {
   "_label": "English",
-  "audio.error.choose_action": "Choose Use in Video, Use for voice cloning, Edit, or Download.",
+  "audio.error.choose_action": "Choose Use as video audio, Use for voice cloning, Edit, or Download.",
   "audio.error.decode": "Could not read this audio file.",
   "audio.error.play_failed": "The selected audio could not be played.",
   "audio.error.seek": "The selected audio could not seek to this position.",

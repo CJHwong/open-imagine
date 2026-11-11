@@ -1,6 +1,6 @@
 {
   "_label": "繁體中文",
-  "audio.error.choose_action": "選擇「用於影片」或「複製聲音」。也可選擇「編輯」或「下載」。",
+  "audio.error.choose_action": "選擇「作為影片音軌」或「複製聲音」。也可選擇「編輯」或「下載」。",
   "audio.error.decode": "無法讀取這個音訊檔案。",
   "audio.error.play_failed": "選取的音訊無法播放。",
   "audio.error.seek": "選取的音訊無法跳到這個位置。",
