@@ -108,7 +108,7 @@ function openStore() {
         resolve(request.result);
       };
       request.onerror = function () { database = null; reject(request.error); };
-      request.onblocked = function () { database = null; reject(new Error('Reload other Studio tabs to update image storage.')); };
+      request.onblocked = function () { database = null; reject(new Error(t('store.error.imageStorageBlocked'))); };
     });
     // A failed open must not poison every later read.
     database.catch(function () { database = null; });
@@ -141,7 +141,7 @@ function openVideoStore() {
         resolve(request.result);
       };
       request.onerror = function () { videoDatabase = null; reject(request.error); };
-      request.onblocked = function () { videoDatabase = null; reject(new Error('Reload other Studio tabs to update video storage.')); };
+      request.onblocked = function () { videoDatabase = null; reject(new Error(t('store.error.videoStorageBlocked'))); };
     });
     videoDatabase.catch(function () { videoDatabase = null; });
   }

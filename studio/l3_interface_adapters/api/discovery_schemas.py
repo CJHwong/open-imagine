@@ -290,6 +290,7 @@ def discovery_schemas() -> dict[str, Any]:
                 "backend_id": string,
                 "name": string,
                 "badge": string,
+                "description": string,
                 "max_batch": integer,
                 "modes": {"type": "array", "items": {"$ref": "#/components/schemas/VoiceMode"}},
                 "default_mode": {

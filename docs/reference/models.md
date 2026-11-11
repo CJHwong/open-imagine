@@ -3,6 +3,24 @@
 Normal startup offers Qwen-Image-2.1-Turbo in Image, and one model in each other workspace. Krea 2 Turbo is optional: add `krea2` to `visible_backends` or select it with `--backend krea2`. `--all-backends` exposes optional models; it does not install their weights.
 [Set up models](../how-to/set-up-models.md) before using optional engines or checkpoints.
 
+The model picker describes each model's main use in one sentence. Its descriptions use the following primary sources:
+
+| Models | Source |
+|---|---|
+| Qwen-Image-2.1 and Turbo | [Qwen model card](https://huggingface.co/Qwen/Qwen-Image-2.1), [Turbo model card](https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo) |
+| Viggle Turbo | [Viggle model card](https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo) |
+| FLUX.2 klein 9B | [Base model card](https://huggingface.co/black-forest-labs/FLUX.2-klein-base-9B), [installed derivative's card](https://huggingface.co/darknight9121/FLUX.2-klein-base-9B-bucket-uncensored) |
+| FLUX3 Image Klein | [Black Forest Labs model page](https://bfl.ai/models/flux-3-image-klein) |
+| Krea 2 Turbo | [Krea model overview](https://www.krea.ai/krea-2-open-source) |
+| LTX-2.5 and LTX-2.3 | [LTX-2.5 model card](https://huggingface.co/Lightricks/LTX-2.5), [LTX-2.3 model card](https://huggingface.co/Lightricks/LTX-2.3) |
+| MiniMax H3 | [MiniMax model card](https://huggingface.co/MiniMaxAI/MiniMax-H3) |
+| Drama-3 | [Fish Audio model card](https://huggingface.co/fishaudio/drama-3) |
+| AuK and AuK Flash | [Tencent model documentation](https://github.com/Tencent-Hunyuan/AuK) |
+| YuE2 | [YuE2 model documentation](https://github.com/multimodal-art-projection/YuE) |
+
+These descriptions do not list every limit. The table and runtime capabilities below define the application's available controls.
+MiniMax H3 keeps its experimental warning in both languages of the model picker.
+
 | Workspace | Model | API backend ID | Modes | Precision |
 |---|---|---|---|---|
 | Image | **Qwen-Image-2.1-Turbo (default)** | `qwen21_turbo` | Generate, starting image, instruction Edit with up to 10 references | Full precision by default; eight-step checkpoint schedule |

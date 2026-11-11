@@ -193,11 +193,12 @@ def main():
             page.inner_text("#size-caption"),
         )
 
-        page.click("#look summary")
         rows = page.locator("#look-rows .look-row-toggle")
         check(
-            "Look rows start closed",
-            rows.count() == 8 and page.locator("#look-rows .look-menu button:visible").count() == 0,
+            "Look starts open with option menus closed",
+            page.locator("#look").evaluate("section => section.open")
+            and rows.count() == 8
+            and page.locator("#look-rows .look-menu button:visible").count() == 0,
             str(rows.count()),
         )
         rows.filter(has_text="Light").click()

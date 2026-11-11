@@ -44,12 +44,12 @@ with sync_playwright() as tool:
         page.locator("#music-generate .sub").inner_text() == "Stop the recording first",
     )
     check("the recording sheet is open", page.locator("#music-record-sheet").evaluate("el => el.open"))
-    check("the sheet names the hum", page.locator("#music-record-title").inner_text() == "Hum or sing")
+    check("the sheet names the hum", page.locator("#music-record-title").inner_text() == "Record a melody")
     # Stop always ends the take. One below seven seconds of sound is rejected, not kept.
     page.wait_for_function("document.getElementById('music-studio').recordingActive >= 1", timeout=10000)
     check(
         "the take says how much sound it holds",
-        page.locator("#music-recording-status").inner_text().startswith("Sound recorded:"),
+        page.locator("#music-recording-status").inner_text().startswith("Recorded "),
     )
     page.locator("#music-reference-record").click()
     page.wait_for_function("!document.getElementById('music-studio').recording", timeout=10000)
@@ -63,13 +63,13 @@ with sync_playwright() as tool:
     )
     check(
         "the rejection says why",
-        "Nothing kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
+        "Recording not kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
     )
     page.locator("#music-reference-record").click()
     page.wait_for_function("document.getElementById('music-studio').recordingActive >= 7", timeout=20000)
     check(
         "seven seconds of sound are ready",
-        "Press Stop" in page.locator("#music-recording-status").inner_text(),
+        "Select Stop" in page.locator("#music-recording-status").inner_text(),
     )
     page.locator("#music-reference-record").click()
     page.wait_for_function("document.getElementById('music-studio').reference", timeout=15000)

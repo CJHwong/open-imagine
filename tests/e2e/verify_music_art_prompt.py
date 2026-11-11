@@ -125,7 +125,7 @@ def verify_artwork_workflow(browser, base, outcome):
         assert polls, "Rewrite timeout fixture never started polling"
         page.evaluate("()=>{const now=Date.now;Date.now=()=>now()+180001}")
         expect(page.locator(".music-error:not(.music-player-error)")).to_have_text(
-            "Preparing the artwork concept timed out. Try again."
+            "Preparing the cover description took too long. Try again."
         )
         assert cancelled == [base + "/api/v1/operations/fixture-brief/cancel"]
     elif outcome == "deleted":

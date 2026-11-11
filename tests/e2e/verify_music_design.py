@@ -41,7 +41,8 @@ with sync_playwright() as tool:
     check("the footer uses the shared caption classes", page.locator("#music-go-sub.sub.num").count() == 1)
     check("the idle run verb is the shared Generate", page.locator("#music-run-labels").inner_text() == "Generate")
     check(
-        "the run caption names what this mode makes", page.locator("#music-go-sub").inner_text() == "A song with audio"
+        "the run caption names what this mode makes",
+        page.locator("#music-go-sub").inner_text() == "Generate a song with audio",
     )
 
     # The empty pane is the shared one, not a bespoke illustration.
@@ -67,7 +68,7 @@ with sync_playwright() as tool:
         [item.inner_text().split("]")[0] + "]" for item in page.locator(".music-lyrics-tags li").all()]
         == ["[Intro]", "[Verse]", "[Pre-Chorus]", "[Chorus]", "[Bridge]", "[Instrumental]", "[Outro]"],
     )
-    empty.get_by_role("button", name="Write a style", exact=True).click()
+    empty.get_by_role("button", name="Describe the music style", exact=True).click()
     check(
         "the empty action focuses the style",
         page.locator("#music-style").evaluate("node => node === document.activeElement"),
@@ -79,12 +80,12 @@ with sync_playwright() as tool:
     check("Music uses native mode radios", modes.locator('input[type="radio"][name="music-workflow"]').count() == 2)
     check(
         "the two outputs are named",
-        [label.inner_text() for label in modes.locator("label").all()] == ["Generate", "Compose"],
+        [label.inner_text() for label in modes.locator("label").all()] == ["Generate", "Create score"],
     )
     check("the reference field is offered in Generate", page.locator(".music-reference-fields").is_visible())
     check(
         "the reference field names what Generate does with a recording",
-        page.locator("#music-reference-note").inner_text() == "Optional. Generate makes a cover.",
+        page.locator("#music-reference-note").inner_text() == "Optional. Add a recording to create a cover song.",
     )
     check(
         "the reference zone reads its lines from the left",
@@ -94,12 +95,18 @@ with sync_playwright() as tool:
     for mode, caption, hint, action, engine in [
         (
             "generate",
-            "A song with audio",
-            "Write a style and lyrics, or add a recording to cover it.",
-            "Write a style",
+            "Generate a song with audio",
+            "Describe the music style. Add lyrics, or leave them blank for instrumental music.",
+            "Describe the music style",
             "generate",
         ),
-        ("plan", "Sheet music only", "Write a style and lyrics to compose sheet music.", "Write a style", "plan"),
+        (
+            "plan",
+            "Sheet music only",
+            "Describe the style to create a score. Add lyrics if the score includes vocals.",
+            "Describe the music style",
+            "plan",
+        ),
     ]:
         page.locator('label[for="music-mode-' + mode + '"]').click()
         check("Mode " + mode + " updates the caption", page.locator("#music-go-sub").inner_text() == caption)
@@ -133,7 +140,7 @@ with sync_playwright() as tool:
     check(
         "the stage says the recording becomes a score",
         page.locator("#music-empty-hint").inner_text()
-        == "Your recording becomes an editable score. Choose what to keep.",
+        == "Turn your recording into an editable score. Choose which parts to keep.",
     )
     check(
         "the empty action moves to what a transcription keeps",
@@ -182,7 +189,7 @@ with sync_playwright() as tool:
     # One sentence about instrumental output, not two.
     check(
         "the instrumental hint appears once",
-        page.get_by_text("Leave blank for instrumental.", exact=False).count() == 1,
+        page.get_by_text("Leave blank for instrumental music.", exact=False).count() == 1,
     )
 
     # Cancel uses the same seam the page uses to hand the workspace its operation. The
@@ -223,7 +230,8 @@ with sync_playwright() as tool:
         page.locator("#music-run-labels").inner_text() == "Generate" and page.locator("#music-generate").is_disabled(),
     )
     check(
-        "a running operation keeps its mode caption", page.locator("#music-go-sub").inner_text() == "A song with audio"
+        "a running operation keeps its mode caption",
+        page.locator("#music-go-sub").inner_text() == "Generate a song with audio",
     )
     check(
         "a run draws the player's own timeline",

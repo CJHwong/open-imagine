@@ -6,6 +6,13 @@ def show_controls(page):
         page.locator('.pane-switch [data-pane="controls"]').click()
 
 
+def open_style_section(page, selector="#look"):
+    section = page.locator(selector)
+    if not section.evaluate("element => element.open"):
+        section.locator(":scope > summary").click()
+    assert section.evaluate("element => element.open"), selector + " must stay open"
+
+
 def style_menu(page, row):
     trigger = row.locator(".look-row-toggle")
     return page.locator("#" + trigger.get_attribute("aria-controls"))

@@ -14,6 +14,7 @@ import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
 import {navigate} from '../lib/navigation.js';
+import {isImageFile, readImageFile} from '../lib/image-import.js';
 
 let nextClipId = 1;
 
@@ -23,19 +24,6 @@ function formatTime(seconds) {
   const wholeSeconds = Math.floor(tenths / 10) % 60;
   return String(minutes).padStart(2, '0') + ':'
     + String(wholeSeconds).padStart(2, '0') + '.' + tenths % 10;
-}
-
-function readDataUrl(file) {
-  return new Promise(function (resolve, reject) {
-    const reader = new FileReader();
-    reader.onload = function () { resolve(reader.result); };
-    reader.onerror = function () { reject(reader.error || new Error(t('video.error.imageRead'))); };
-    reader.readAsDataURL(file);
-  });
-}
-
-function isImageFile(file) {
-  return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(file.name);
 }
 
 function isVideoFile(file) {
@@ -262,7 +250,6 @@ class VideoStudio extends LitElement {
   handleRailDrop = (event) => this.onRailDrop(event);
   handleDocumentPaste = (event) => this.onPaste(event);
   handleDocumentKeydown = (event) => this.onShortcutPaste(event);
-  handleVideoFullscreenChange = () => this.onVideoFullscreenChange();
 
   createRenderRoot() { return this; }
 
@@ -272,7 +259,6 @@ class VideoStudio extends LitElement {
     this.referencesPanel = document.getElementById('video-references');
     this.addEventListener('click', this.onComponentClick);
     this.addEventListener('keydown', this.onOutputKeydown);
-    document.addEventListener('fullscreenchange', this.handleVideoFullscreenChange);
     this.addEventListener('change', this.onComponentChange);
     this.addEventListener('input', this.onComponentInput);
     this.addEventListener('loadedmetadata', this.onMetadata, true);
@@ -306,7 +292,6 @@ class VideoStudio extends LitElement {
   disconnectedCallback() {
     this.removeEventListener('click', this.onComponentClick);
     this.removeEventListener('keydown', this.onOutputKeydown);
-    document.removeEventListener('fullscreenchange', this.handleVideoFullscreenChange);
     this.removeEventListener('change', this.onComponentChange);
     this.removeEventListener('input', this.onComponentInput);
     this.removeEventListener('loadedmetadata', this.onMetadata, true);
@@ -578,6 +563,20 @@ class VideoStudio extends LitElement {
     return epoch !== null && !this.generationProgress && epoch === this.generationEpoch;
   }
 
+  imageReferenceFitsRequest(reference) {
+    const references = this.imageReferences.concat(reference).map(item => ({
+      name: item.name, image: item.base64, frame_index: item.frameIndex ?? 0,
+      strength: this.normalizeReferenceStrength(item.strength),
+    }));
+    const prompt = document.getElementById('video-prompt')?.value || '';
+    const clip = this.clips.find(item => item.id === this.editTargetId);
+    const media = this.needsClip ? clip?.file || clip?.mp4Blob : this.audio?.file;
+    const mediaBytes = 4 * Math.ceil((media?.size || 0) / 3);
+    const referenceBytes = new TextEncoder().encode(JSON.stringify({references, prompt})).length;
+    // Leave room for scalar settings, media names, and prompt aids in the 64 MiB HTTP body.
+    return referenceBytes + mediaBytes + 64 * 1024 <= 64 * 1024 * 1024;
+  }
+
   addImageReference(reference, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
@@ -591,6 +590,10 @@ class VideoStudio extends LitElement {
       this.setError(this.maxReferences === 0
         ? t('video.reference.none')
         : plural(this.maxReferences, t('video.reference.max')));
+      return;
+    }
+    if (!this.imageReferenceFitsRequest(reference)) {
+      this.setError(t('image.import.videoTooLarge'));
       return;
     }
     // A locked rail holds every picture on its frame. Elsewhere each picture gets a frame of its
@@ -688,7 +691,6 @@ class VideoStudio extends LitElement {
     if (!this.audio) return;
     const row = document.createElement('div');
     row.className = 'video-audio';
-    row.title = this.audio.name;
     const picture = document.createElement('div');
     picture.className = 'video-audio-picture';
     const badge = document.createElement('span');
@@ -696,15 +698,16 @@ class VideoStudio extends LitElement {
     badge.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-music"/></svg>';
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'video-audio-remove';
+    remove.className = 'video-audio-remove labeled-action';
     remove.dataset.action = 'remove-audio';
     remove.setAttribute('aria-label', t('video.audio.remove', {name: this.audio.name}));
-    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
-    picture.append(badge, remove);
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="control-label"></span>';
+    remove.querySelector('.control-label').textContent = t('ui.action.remove');
+    picture.append(badge);
     const name = document.createElement('span');
     name.className = 'video-audio-name';
     name.textContent = this.audio.name;
-    row.append(picture, name);
+    row.append(picture, name, remove);
     list.append(row);
   }
 
@@ -808,7 +811,7 @@ class VideoStudio extends LitElement {
     const lanes = document.createElement('div');
     lanes.className = 'video-keyframe-lanes';
     const caption = document.createElement('p');
-    caption.className = 'video-reference-caption';
+    caption.className = 'video-reference-actions';
     rail.append(scale, line, lanes, caption);
     this.imageReferences.forEach((reference) => lanes.append(this.referenceSlot(reference)));
     list.append(rail);
@@ -817,8 +820,7 @@ class VideoStudio extends LitElement {
     this.renderMediaEmptyState();
   }
 
-  // The slot carries the picture and its remove circle. The picture itself stays the
-  // selectable button the old list had, so its action and label are unchanged.
+  // Removal belongs to the selected reference, so nearby chips keep separate targets.
   referenceSlot(reference) {
     const slot = document.createElement('div');
     slot.className = 'video-reference-slot';
@@ -830,7 +832,6 @@ class VideoStudio extends LitElement {
     if (reference.id === this.selectedReferenceId) chip.classList.add('selected');
     chip.dataset.action = 'select-reference';
     chip.dataset.referenceId = reference.id;
-    chip.title = reference.name;
     chip.setAttribute('aria-pressed', String(reference.id === this.selectedReferenceId));
     chip.setAttribute('aria-label', t('video.reference.selectAt', {
       name: reference.name,
@@ -841,14 +842,7 @@ class VideoStudio extends LitElement {
     image.alt = '';
     image.draggable = false;
     chip.append(image);
-    const remove = document.createElement('button');
-    remove.className = 'video-reference-remove';
-    remove.type = 'button';
-    remove.dataset.action = 'remove-reference';
-    remove.dataset.referenceId = reference.id;
-    remove.setAttribute('aria-label', t('video.reference.remove', {name: reference.name}));
-    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg>';
-    slot.append(chip, remove);
+    slot.append(chip);
     return slot;
   }
 
@@ -896,7 +890,7 @@ class VideoStudio extends LitElement {
   }
 
   // A chip keeps its true x when that space is free. Otherwise it moves to the closest free
-  // space in either lane, so every picture stays visible and its remove circle stays in reach.
+  // space in either lane, so every picture stays visible and can be selected.
   nearestLane(spans, trueX, width) {
     let best = null;
     spans.forEach((laneSpans, lane) => {
@@ -941,11 +935,22 @@ class VideoStudio extends LitElement {
         ? t('video.reference.locked') : t('video.reference.hint');
       return;
     }
-    caption.textContent = t('video.reference.caption', {
+    const name = document.createElement('span');
+    name.className = 'video-reference-caption';
+    name.textContent = t('video.reference.caption', {
       name: selected.name,
       time: this.referenceTime(selected.frameIndex).toFixed(1),
       frame: selected.frameIndex,
     });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'video-reference-remove labeled-action';
+    remove.dataset.action = 'remove-reference';
+    remove.dataset.referenceId = selected.id;
+    remove.setAttribute('aria-label', t('video.reference.remove', {name: selected.name}));
+    remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="control-label"></span>';
+    remove.querySelector('.control-label').textContent = t('ui.action.remove');
+    caption.replaceChildren(name, remove);
   }
 
   railLimit() {
@@ -1086,14 +1091,16 @@ class VideoStudio extends LitElement {
         return;
       }
       try {
-        const src = await readDataUrl(file);
+        const imported = await readImageFile(file);
         if (!this.canCommitInput(epoch)) return;
+        if (!imported) continue;
+        const src = 'data:image/png;base64,' + imported.b64;
         const id = 'video-ref-' + nextClipId++;
         this.addImageReference({
           id: id,
           name: file.name,
           src: src,
-          base64: src.slice(src.indexOf(',') + 1),
+          base64: imported.b64,
           frameIndex: frame,
         }, epoch);
         if (!this.imageReferences.some((reference) => reference.id === id)) continue;
@@ -1471,7 +1478,6 @@ class VideoStudio extends LitElement {
     }
     if (action === 'open-output-prompt') this.openOutputPromptSheet();
     if (action === 'close-output-prompt') this.closeOutputPromptSheet();
-    if (action === 'toggle-video-fullscreen') this.toggleVideoFullscreen();
     if (action === 'toggle-output-menu') {
       const menu = this.querySelector('#video-output-menu');
       if (menu) toggleMenu(menu);
@@ -1570,20 +1576,6 @@ class VideoStudio extends LitElement {
     prompt.removeAttribute('tabindex');
     prompt.removeAttribute('aria-expanded');
     prompt.removeAttribute('aria-controls');
-  }
-
-  async toggleVideoFullscreen() {
-    if (!this.querySelector('.video-tv-frame') || !document.fullscreenEnabled) return;
-    try {
-      if (document.fullscreenElement === this) await document.exitFullscreen();
-      else await this.requestFullscreen();
-    } catch (error) {
-      this.setError(t('video.error.fullscreen', {error: error.message}));
-    }
-  }
-
-  onVideoFullscreenChange() {
-    this.renderOutputDetails();
   }
 
   onComponentChange(event) {
@@ -1692,13 +1684,15 @@ class VideoStudio extends LitElement {
         continue;
       }
       try {
-        const src = await readDataUrl(file);
+        const imported = await readImageFile(file);
         if (!this.canCommitInput(epoch)) return;
+        if (!imported) continue;
+        const src = 'data:image/png;base64,' + imported.b64;
         this.addImageReference({
           id: 'video-ref-' + nextClipId++,
           name: file.name,
           src: src,
-          base64: src.slice(src.indexOf(',') + 1),
+          base64: imported.b64,
         });
       } catch (error) {
         if (!this.canCommitInput(epoch)) return;
@@ -2227,52 +2221,45 @@ class VideoStudio extends LitElement {
     const canRemove = Boolean(!pending && clip);
     const canShowMore = Boolean(!pending && (generated || canCapture));
     const renderLabel = isSource ? t('video.output.sourceClip') : '';
-    const fullscreen = document.fullscreenElement === this;
     renderTemplate(html`
       <section class="stage-bar video-stage-bar video-output-details" id="video-output-details"
         aria-label=${t('video.output.previewDetails')}>
         <div class="about">
-          <p class="prompt-line video-output-prompt" title=${prompt}>${prompt}</p>
+          <p class="prompt-line video-output-prompt">${prompt}</p>
           <div class="facts num video-output-facts" aria-label=${t('video.output.metadata')}>
             ${renderLabel ? html`<span class="made">${renderLabel}</span>` : nothing}
             ${facts.map((fact) => html`<span>${fact}</span>`)}
           </div>
         </div>
-        <div class="actions video-output-actions">
-          <button type="button" class="btn quiet preview-details-toggle" data-action="open-output-details">
-            <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>${t('run.details')}</button>
+        <div class="actions video-output-actions preview-actions">
+          <button type="button" class="btn quiet preview-details-toggle labeled-action" data-action="open-output-details">
+            <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg><span class="control-label">${t('run.details')}</span></button>
           ${canCapture && !this.needsClip ? html`
-            <button class="btn quiet preview-primary-action" type="button" data-action="capture-video-frame"
-              aria-label=${t('video.reference.add')} title=${t('video.reference.addTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg><span class="action-label">${t('video.reference.add')}</span></button>` : nothing}
+            <button class="btn quiet preview-primary-action labeled-action" type="button" data-action="capture-video-frame"
+              aria-label=${t('video.reference.add')}>
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg><span class="control-label">${t('ui.action.reference')}</span></button>` : nothing}
           ${canCapture && this.needsClip ? html`
-            <button class="btn quiet preview-primary-action" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
-              aria-label=${t('video.output.editClip')} title=${t('video.output.editClipTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg><span class="action-label">${t('video.output.editClip')}</span></button>` : nothing}
+            <button class="btn quiet preview-primary-action labeled-action" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
+              aria-label=${t('video.output.editClip')}>
+              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg><span class="control-label">${t('ui.action.edit')}</span></button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
-              <button class="icon-btn" type="button" data-action="toggle-output-menu"
-                aria-label=${t('video.output.more')} aria-controls="video-output-menu" aria-expanded="false" title=${t('video.output.more')}>
-                <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>
+              <button class="icon-btn labeled-action" type="button" data-action="toggle-output-menu"
+                aria-label=${t('video.output.more')} aria-controls="video-output-menu" aria-expanded="false">
+                <svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg><span class="control-label">${t('ui.action.more')}</span>
               </button>
               <div class="menu up" id="video-output-menu" role="menu" hidden></div>
             </div>` : nothing}
           ${canShowMore ? html`<span class="rule" aria-hidden="true"></span>` : nothing}
           ${canDownload ? html`
-            <a class="icon-btn preview-secondary-action" href=${clip.url} download=${videoDownloadName(clip)}
-              aria-label=${t('video.output.download')} title=${t('video.output.downloadTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+            <a class="icon-btn preview-secondary-action labeled-action" href=${clip.url} download=${videoDownloadName(clip)}
+              aria-label=${t('video.output.download')}>
+              <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span class="control-label">${t('ui.action.download')}</span>
             </a>` : nothing}
           ${canRemove ? html`
-            <button class="icon-btn danger preview-secondary-action" type="button" data-action="remove-clip" data-clip-id=${clip.id}
-              aria-label=${t('video.output.remove', {name: clip.name})} title=${t('video.output.removeTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>
-            </button>` : nothing}
-          ${document.fullscreenEnabled ? html`
-            <button class="icon-btn" type="button" data-action="toggle-video-fullscreen"
-              aria-label=${fullscreen ? t('video.output.exitFullscreen') : t('video.output.fullscreen')}
-              title=${fullscreen ? t('video.output.exitFullscreen') : t('video.output.fullscreen')}>
-              <svg class="icon" aria-hidden="true"><use href=${fullscreen ? '#i-shrink' : '#i-expand'}></use></svg>
+            <button class="icon-btn danger preview-secondary-action labeled-action" type="button" data-action="remove-clip" data-clip-id=${clip.id}
+              aria-label=${t('video.output.remove', {name: clip.name})}>
+              <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg><span class="control-label">${t('ui.action.remove')}</span>
             </button>` : nothing}
         </div>
       </section>`, root);
@@ -2371,7 +2358,6 @@ class VideoStudio extends LitElement {
     const monitor = this.querySelector('.video-tv-frame');
     const preview = this.querySelector('#video-preview-content-root');
     if (!monitor || !preview || !preview.clientWidth || !preview.clientHeight) return;
-    if (document.fullscreenElement === monitor) return;
     const ratio = Number(monitor.dataset.mediaRatio) || 16 / 9;
     const screenWidth = Math.min(1180, preview.clientWidth - 20, (preview.clientHeight - 38) * ratio);
     if (screenWidth <= 0) return;
@@ -2484,13 +2470,14 @@ class VideoStudio extends LitElement {
             .download=${ids => this.downloadAllVideos(ids)} .playback=${() => this.togglePlayback()}></gallery-browser>
           <span class="strip-actions">
             <button class="text-btn" type="button" id="video-gallery-download"
-              data-action="download-all-videos" title=${t('gallery.downloadAll.title')}
+              data-action="download-all-videos"
               ?hidden=${!downloadable.length}>${t('video.gallery.downloadAll')}</button>
             <button class="text-btn" type="button" id="video-gallery-clear"
-              data-action="clear-video-gallery" title=${t('gallery.clearAll.title')}
+              data-action="clear-video-gallery"
               ?hidden=${!outputs.length}>${t('video.gallery.clearAll')}</button>
           </span>
         </div>
+        <p class="caption control-help gallery-action-help"><span>${t('gallery.downloadAll.title')}</span> <span>${t('gallery.clearAll.title')}</span></p>
         <div class="strip video-clips" role="group" aria-label=${t('video.gallery.generated')}>
           ${this.pendingRender ? html`
             <div class="video-gallery-item pending">
@@ -2531,10 +2518,10 @@ class VideoStudio extends LitElement {
       </div>`;
     }
     const preview = html`<div class="video-preview-pane">
-      <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls playsinline preload="metadata"></video>
-      <button type="button" class="video-play-overlay" data-action="toggle-video-playback"
-        aria-label=${t('video.action.play')} title=${t('video.action.play')} ?hidden=${clip.stub}>
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>
+      <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls controlslist="nofullscreen" playsinline preload="metadata"></video>
+      <button type="button" class="video-play-overlay labeled-action" data-action="toggle-video-playback"
+        aria-label=${t('video.action.play')} ?hidden=${clip.stub}>
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg><span class="control-label">${t('ui.action.play')}</span>
       </button>
       <div class="video-preview-stub" ?hidden=${!clip.stub}>
         <div class="video-empty-mark">${t('video.mark.stub')}</div>

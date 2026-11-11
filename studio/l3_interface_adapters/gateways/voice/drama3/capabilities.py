@@ -68,6 +68,7 @@ def drama_capabilities():
         backend_id="drama3",
         name="Drama-3",
         badge="",
+        description="Expressive speech and voice cloning with delivery cues inside the script.",
         max_batch=16,
         default_mode="generate",
         reference_sample_rate=44100,

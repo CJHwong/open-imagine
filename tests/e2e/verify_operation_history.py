@@ -7,6 +7,7 @@ import sys
 
 from playwright.sync_api import sync_playwright
 from settings_controls import open_settings
+from style_controls import open_style_section
 
 URL = "http://127.0.0.1:" + sys.argv[1]
 
@@ -39,7 +40,7 @@ with sync_playwright() as tool:
     second = open_page(context)
     other_context = browser.new_context(viewport={"width": 1440, "height": 1000})
     other = open_page(other_context)
-    first.locator("#look summary").click()
+    open_style_section(first)
     first.locator("#look-rows .look-row-toggle").first.click()
     first.get_by_role("menuitemradio", name="Watercolor", exact=True).click()
 

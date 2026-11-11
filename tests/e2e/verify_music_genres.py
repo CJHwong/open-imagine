@@ -3,7 +3,7 @@
 import sys
 
 from playwright.sync_api import expect, sync_playwright
-from style_controls import show_controls, style_menu
+from style_controls import open_style_section, show_controls, style_menu
 
 
 def main():
@@ -26,14 +26,14 @@ def main():
             expect(style).to_be_visible()
             style.fill("pop, rock, dreamy, Keep my own phrase.")
             presets = page.locator("#music-style-presets")
-            presets.locator("summary").click()
+            open_style_section(page, "#music-style-presets")
             expect(presets.locator('input[type="search"]')).to_have_count(0)
             expect(presets.locator("#music-genre-count")).to_have_count(0)
             row = page.locator("#music-genre-presets")
             choices = style_menu(page, row).locator('[data-music-genre]:not([data-music-genre=""])')
             expect(row.locator(".look-row-toggle")).to_have_attribute("aria-expanded", "false")
             expect(row.locator(".look-row-toggle .look-pick")).to_have_text("Pop")
-            expect(presets.locator(".look-row")).to_have_count(6)
+            expect(presets.locator("look-rows .look-row")).to_have_count(6)
             expect(presets.locator('[data-row="Genre"]')).to_have_count(0)
             row.locator(".look-row-toggle").click()
             expect(choices).to_have_count(59)
@@ -63,7 +63,7 @@ def main():
             expect(row.locator(".look-row-toggle")).to_be_focused()
             row.locator(".look-row-toggle").click()
             expect(style_menu(page, row).locator('[aria-checked="true"]')).to_have_count(1)
-            expect(presets.locator(".look-row").first.locator(".look-pick")).to_have_text("Dreamy")
+            expect(presets.locator("look-rows .look-row").first.locator(".look-pick")).to_have_text("Dreamy")
             expect(style).to_have_value(expected)
             style_menu(page, row).get_by_role("menuitemradio", name="House", exact=True).click()
             assert "math rock" not in style.input_value()
@@ -81,12 +81,12 @@ def main():
             page.reload()
             show_controls(page)
             expect(style).to_have_value(saved)
-            presets.locator("summary").click()
+            open_style_section(page, "#music-style-presets")
             expect(presets.locator("input")).to_have_count(0)
             expect(row.locator(".look-pick")).to_have_text("House")
             style.fill("romantic")
             expect(row.locator(".look-pick")).to_have_text("none")
-            expect(presets.locator(".look-row").first.locator(".look-pick")).to_have_text("Romantic")
+            expect(presets.locator("look-rows .look-row").first.locator(".look-pick")).to_have_text("Romantic")
             page.close()
         browser.close()
     print(

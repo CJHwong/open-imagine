@@ -21,6 +21,10 @@ from studio.l4_frameworks_and_drivers.config import Config
 from studio.plugins.video import Cancelled, InvalidJob, Lora, LoraUse, VideoAudio, VideoJob, VideoReference
 
 
+def test_badge_preserves_precision_and_frame_rate_without_a_middle_dot():
+    assert CAPABILITIES.badge == "Q8, 24 fps"
+
+
 def job(**changes):
     return replace(VideoJob("private test words", 512, 288, 73, 24, 7), **changes)
 

@@ -36,7 +36,7 @@ with sync_playwright() as tool:
     page.locator("details.voice-advanced").evaluate("(element) => element.open = true")
     check("Drama hides duration and Chinese conversion", page.locator("#voice-seconds, #voice-convert").count() == 0)
     check("Drama offers native sampling controls", page.locator("#voice-param-temperature").count() == 1)
-    check("Generate names the missing script", "script" in page.locator("#voice-go-sub").inner_text().lower())
+    check("Generate names the missing text", "text to read" in page.locator("#voice-go-sub").inner_text().lower())
     page.locator("#voice-templates-toggle").click()
     page.get_by_role("menuitem", name="Whisper", exact=True).click()
     check("delivery template writes an inline cue", "[whispers]" in page.locator("#voice-text").input_value())
@@ -86,8 +86,8 @@ with sync_playwright() as tool:
     )
     page.wait_for_function("document.getElementById('voice-studio').previewReady")
     preview = page.locator("audio-preview")
-    preview.get_by_role("spinbutton", name="Selection start", exact=True).fill("0.2")
-    preview.get_by_role("spinbutton", name="Selection start", exact=True).press("Tab")
+    preview.get_by_role("spinbutton", name="Selection start time", exact=True).fill("0.2")
+    preview.get_by_role("spinbutton", name="Selection start time", exact=True).press("Tab")
     page.locator("#voice-track-toggle").click()
     page.locator("#voice-selected-clone").click()
     page.wait_for_function("voiceStudio.reference && !voiceStudio.referencePending")
@@ -98,7 +98,7 @@ with sync_playwright() as tool:
         audio.setsampwidth(2)
         audio.setframerate(44100)
         audio.writeframes(b"\x00\x10" * 44100)
-    page.get_by_role("button", name="Clear voice reference", exact=True).click()
+    page.get_by_role("button", name="Remove voice reference", exact=True).click()
     page.locator("#voice-reference").set_input_files(
         {"name": "native.wav", "mimeType": "audio/wav", "buffer": buffer.getvalue()}
     )

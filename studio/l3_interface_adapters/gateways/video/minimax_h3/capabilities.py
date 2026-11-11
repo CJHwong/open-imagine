@@ -54,11 +54,8 @@ SHAPES = (
 CAPABILITIES = VideoCapabilities(
     backend_id="minimax_h3",
     name="MiniMax H3",
-    badge="Q8 · 24 fps",
-    description=(
-        "Experimental staged MLX generation with synchronized sound. Short clips only. "
-        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound."
-    ),
+    badge="Q8, 24 fps",
+    description="Experimental short videos with synchronized sound, guided by keyframes or audio.",
     shapes=SHAPES,
     default_shape_ratio="16:9",
     min_frames=73,

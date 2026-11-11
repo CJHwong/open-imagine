@@ -90,5 +90,5 @@ def krea2_capabilities(badge: str = "int8") -> Capabilities:
         badge=badge,
         modes=(GENERATE,),
         max_batch=MAX_BATCH,
-        description="8-step distilled model. Starts from a reference image when you add one.",
+        description="Polished images with varied styles for creative exploration.",
     )

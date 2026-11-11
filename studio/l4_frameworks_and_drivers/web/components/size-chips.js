@@ -106,7 +106,7 @@ class TierSizes extends Drawn {
     const chosen = page.sizeSelect.value;
     return html`${page.sizes.filter(function (option) { return option.ratio === ratio; })
       .sort(function (a, b) { return a.width * a.height - b.width * b.height; })
-      .map((option) => html`<button type="button" class="num" title=${option.width + ' × ' + option.height} aria-pressed=${String(option.value === chosen)} @click=${() => page.setSelect(page.sizeSelect, option.value)}>${megapixels(option.width * option.height)}</button>`)}`;
+      .map((option) => html`<button type="button" class="num" aria-pressed=${String(option.value === chosen)} @click=${() => page.setSelect(page.sizeSelect, option.value)}>${megapixels(option.width * option.height)}</button>`)}`;
   }
 }
 

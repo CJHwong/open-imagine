@@ -1,4 +1,4 @@
-// The stage: the print, the bar under it, the two sheets and full screen.
+// The stage: the print, the bar under it, and the two sheets.
 //
 // This is behaviour and not a tree. The stage is cleared and rebuilt in the task
 // that asked for it, `fitStage` measures the plate and the print from their own
@@ -25,6 +25,7 @@ import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {navigate} from '../lib/navigation.js';
 import {t} from '../lib/i18n.js';
+import {bindImageZoom, openImageViewer} from '../lib/image-viewer.js';
 
 // What the stage draws with. The DOM helpers live here because the stage and the
 // region module are the two that build buttons, and the region takes
@@ -33,25 +34,24 @@ export function icon(name) {
   return '<svg class="icon" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
 }
 
-export function iconButton(name, label, handler, extra) {
+export function iconButton(name, label, handler, extra, caption = label) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'icon-btn' + (extra ? ' ' + extra : '');
-  button.title = label;
+  button.className = 'icon-btn labeled-action' + (extra ? ' ' + extra : '');
   button.setAttribute('aria-label', label);
-  button.innerHTML = icon(name);
+  button.innerHTML = icon(name) + '<span class="control-label"></span>';
+  button.querySelector('.control-label').textContent = caption;
   button.addEventListener('click', handler);
   return button;
 }
 
-export function textButton(name, label, handler) {
+export function textButton(name, label, handler, caption = label) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'btn quiet';
+  button.className = 'btn quiet labeled-action';
   button.setAttribute('aria-label', label);
-  button.title = label;
-  button.innerHTML = icon(name) + '<span class="action-label"></span>';
-  button.querySelector('.action-label').textContent = label;
+  button.innerHTML = icon(name) + '<span class="control-label"></span>';
+  button.querySelector('.control-label').textContent = caption;
   button.addEventListener('click', handler);
   return button;
 }
@@ -63,6 +63,8 @@ export function frameNumber(id) {
 }
 
 const page = {};
+let previewZoom = null;
+let zoomedFrame = null;
 
 // The card takes the shape of the coming image, fitted inside the stage the
 // way the image itself will be.
@@ -70,8 +72,8 @@ const REBATE_WIDTH = 20;   // the film's left and right rebate together
 const REBATE_HEIGHT = 34;  // top and bottom, the bottom holding the edge print
 
 function fitBox(box, ratio, share) {
-  const width = Math.min((page.canvas.clientWidth - 48 - REBATE_WIDTH) * share,
-    (page.canvas.clientHeight - 48 - REBATE_HEIGHT) * share * ratio);
+  const width = Math.max(1, Math.min((page.canvas.clientWidth - 48 - REBATE_WIDTH) * share,
+    (page.canvas.clientHeight - 48 - REBATE_HEIGHT) * share * ratio));
   box.style.width = Math.round(width) + 'px';
   box.style.height = Math.round(width / ratio) + 'px';
 }
@@ -81,11 +83,12 @@ export function fitStage() {
   if (plate) fitBox(plate, page.runRatio(), 1);
   const pic = page.canvas.querySelector('.pic');
   if (pic) fitBox(pic, Number(pic.dataset.ratio), 1);
+  previewZoom?.fit();
 }
 
 // The stage's own box is what the print is fitted to, so a change to it is a
 // reason to fit again: the strip's frames landing, the bar's height moving, a
-// full screen entry. The callback runs after layout and before paint, so the
+// window changes. The callback runs after layout and before paint, so the
 // print is the right size in the first frame the change paints.
 const stageWatch = new ResizeObserver(function () { fitStage(); });
 
@@ -173,7 +176,6 @@ function renderEmpty() {
 function renderStageBar(entry) {
   const stageBar = page.stageBar;
   const region = page.region();
-  const strip = page.strip();
   const menus = page.menus();
   stageBar.hidden = false;
   stageBar.innerHTML = '';
@@ -182,7 +184,6 @@ function renderStageBar(entry) {
   const facts = document.createElement('div');
   facts.className = 'facts num';
   facts.append(madeBadge(entry));
-  if (entry.before) facts.append(strip.toggle());
   // Two groups: which image, then how it was made. A phone puts each on its own line.
   [[entry.position === '1 image' ? '' : t('stage.fact.position', {position: entry.position}),
     t('stage.fact.seed', {seed: entry.seed})],
@@ -232,7 +233,15 @@ function renderStageBar(entry) {
 
   // Every action is page state only; nothing is sent until the next run.
   const actions = document.createElement('div');
-  actions.className = 'actions';
+  actions.className = 'actions image-actions preview-actions';
+  if (entry.before) {
+    const compare = page.strip().toggle();
+    compare.classList.add('icon-btn', 'labeled-action');
+    compare.setAttribute('aria-label', t('image.compare.toggle'));
+    compare.innerHTML = icon('compare') + '<span class="control-label"></span>';
+    compare.querySelector('.control-label').textContent = t('image.compare.toggle');
+    actions.append(compare);
+  }
   const details = textButton('info', t('run.details'), function () {
     openResultSheet({kind: 'image', model: entry.backend, mode: entry.mode,
       request: {...entry, prompt: entry.look?.sent || entry.prompt, look: entry.look?.adds,
@@ -244,11 +253,11 @@ function renderStageBar(entry) {
   // actions are rarer, so they wait behind More to keep the row short.
   const more = document.createElement('div');
   more.className = 'menu-anchor';
-  const moreToggle = iconButton('more', t('stage.action.more'), function () { menus.toggleMenu(moreMenu); });
+  const moreToggle = iconButton('more', t('stage.action.more'), function () { menus.toggleMenu(moreMenu); }, '', t('ui.action.more'));
   // Every item behind this menu writes the form, and one of them writes the box a press is
   // filling, so the whole menu waits for the press with Edit this.
   moreToggle.disabled = page.rewriting();
-  if (moreToggle.disabled) moreToggle.title = t('stage.action.locked');
+  if (moreToggle.disabled) moreToggle.setAttribute('aria-describedby', 'stage-action-help');
   moreToggle.setAttribute('aria-controls', 'more-menu');
   moreToggle.setAttribute('aria-expanded', 'false');
   const moreMenu = document.createElement('div');
@@ -289,14 +298,14 @@ function renderStageBar(entry) {
   );
   more.append(moreToggle, moreMenu);
   const download = document.createElement('a');
-  download.className = 'icon-btn';
+  download.className = 'icon-btn labeled-action';
   download.href = entry.src;
   download.download = fileName(entry);
-  download.title = t('stage.action.download');
   download.setAttribute('aria-label', t('stage.action.download'));
-  download.innerHTML = icon('download');
+  download.innerHTML = icon('download') + '<span class="control-label"></span>';
+  download.querySelector('.control-label').textContent = t('ui.action.download');
   download.classList.add('preview-secondary-action');
-  const remove = iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger preview-secondary-action');
+  const remove = iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger preview-secondary-action', t('ui.action.remove'));
   const mobileDownload = menus.menuItem('download', t('stage.action.download'), () => download.click());
   const mobileRemove = menus.menuItem('trash', t('stage.action.remove'), () => remove.click());
   mobileDownload.className = mobileRemove.className = 'mobile-preview-action';
@@ -307,21 +316,26 @@ function renderStageBar(entry) {
   // prompt and the Look. So it is locked while one is writing, and says why.
   // A model with no edit mode has nothing for it to switch to, so it is left out.
   if (page.canEdit()) {
-    const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); });
+    const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); }, t('ui.action.edit'));
     edit.classList.add('preview-primary-action');
     edit.disabled = page.rewriting();
-    if (edit.disabled) edit.title = t('stage.action.locked');
+    if (edit.disabled) edit.setAttribute('aria-describedby', 'stage-action-help');
     actions.append(edit);
   }
   actions.append(more,
     rule, download, remove);
-  if (document.fullscreenEnabled) {
-    actions.append(document.fullscreenElement
-      ? iconButton('shrink', t('stage.action.exitFullscreen'), toggleFullscreen)
-      : iconButton('expand', t('stage.action.fullscreen'), toggleFullscreen));
-  }
+  const zoom = iconButton('zoom', t('image.viewer.open'), () => openImageViewer(entry, zoom),
+    'image-zoom-toggle', t('image.viewer.zoom'));
+  actions.append(zoom);
   if (page.region().onPrint()) page.region().tools(stageBar);
   stageBar.append(about, actions);
+  if (page.rewriting()) {
+    const help = document.createElement('p');
+    help.id = 'stage-action-help';
+    help.className = 'caption control-help';
+    help.textContent = t('stage.action.locked');
+    stageBar.append(help);
+  }
   captionWatch.disconnect();
   captionWatch.observe(prompt);
 }
@@ -333,7 +347,16 @@ export function renderStage() {
   // stage to its progress card and takes the mark with it, which is the one case
   // that is not the user's doing, so that one is dropped without a word.
   region.dropStale(page.busy() || page.view() === 'progress' ? '' : t('stage.mark.dropped'));
+  const entry = selected();
+  const zoomState = entry?.id === zoomedFrame ? previewZoom?.snapshot() : null;
+  previewZoom?.dispose();
+  previewZoom = null;
+  zoomedFrame = entry?.id ?? null;
   page.canvas.innerHTML = '';
+  page.canvas.removeAttribute('tabindex');
+  page.canvas.removeAttribute('role');
+  page.canvas.removeAttribute('aria-label');
+  page.canvas.removeAttribute('aria-describedby');
   const stageBar = page.stageBar;
   stageBar.hidden = true;
   // Cleared, or the last frame's facts stay in this hidden bar. A check read them as the
@@ -353,7 +376,6 @@ export function renderStage() {
     page.renderProgress();
     return;
   }
-  const entry = selected();
   if (!entry) return renderEmpty();
   const shot = document.createElement('div');
   shot.className = 'shot' + (entry.id === page.arrivedId() ? ' arrive' : '');
@@ -363,9 +385,9 @@ export function renderStage() {
   const image = document.createElement('img');
   image.src = entry.src;
   image.alt = entry.prompt;
+  image.draggable = false;
   pic.append(image);
   if (entry.before && page.strip().comparing()) page.strip().compare(pic, entry);
-  if (region.onPrint()) region.mount(pic);
   const edge = document.createElement('div');
   edge.className = 'edge';
   // The model that made this frame, not the one selected now. A record written
@@ -382,10 +404,23 @@ export function renderStage() {
   // take, since the divider covers the whole print. The divided view goes while
   // the brush is here, and it is off the print rather than shown dead.
   page.canvas.append(shot);
+  if (region.onPrint()) region.mount(pic);
+  const hint = document.createElement('p');
+  hint.className = 'image-preview-help sr-only';
+  hint.id = 'image-preview-help';
+  page.canvas.append(hint);
+  page.canvas.tabIndex = 0;
+  page.canvas.setAttribute('role', 'group');
+  page.canvas.setAttribute('aria-label', t('image.viewer.surface'));
+  page.canvas.setAttribute('aria-describedby', hint.id);
   page.clearArrived();
   // The bar takes its height from the stage, so the shot is fitted after it.
   renderStageBar(entry);
   fitStage();
+  previewZoom = bindImageZoom(page.canvas, image, null, hint, {
+    picture: pic, state: zoomState, brush: region.onPrint(),
+    comparing: Boolean(entry.before && page.strip().comparing()),
+  });
   region.sync();
 }
 
@@ -448,17 +483,6 @@ export function closeSheet() {
   dismissSheet(promptSheet);
 }
 
-// The studio had no manual, so this is it: short, and about what the page does rather
-// than about what the model can do. It is the same sheet the prompt opens in, because
-// that is the shape this page already has for reading something over the print.
-// ---- Full screen -------------------------------------------------------------
-// The stage and the sheet fill the screen. F toggles it, and Escape leaves by
-// the browser's own rule. The arrow keys walk the strip, which is the page's.
-export function toggleFullscreen() {
-  const change = document.fullscreenElement ? document.exitFullscreen() : page.work.requestFullscreen();
-  change.catch(function (error) { page.notify('error', t('stage.error.fullscreen', {message: error.message})); });
-}
-
 function fileName(entry) {
   return mediaDownloadName({kind: 'image', text: entry.prompt, at: entry.at, id: entry.id, extension: 'png'});
 }
@@ -498,12 +522,10 @@ const handle = {
   toggleSheet: toggleSheet,
   closeSheet: closeSheet,
   openRunDetails: openRunDetails,
-  toggleFullscreen: toggleFullscreen,
   selected: selected,
 };
 
 window.addEventListener('resize', fitStage);
-document.addEventListener('fullscreenchange', renderStage);
 
 document.dispatchEvent(new CustomEvent('stage-ready', {
   detail: {

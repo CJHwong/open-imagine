@@ -152,7 +152,7 @@ class LookRows extends Drawn {
       const picked = picks[0];
       const menuId = 'look-menu-' + form + '-' + index;
       return html`<div class="look-row menu-anchor"><button type="button" class="look-row-toggle" data-row=${row.name}
-        aria-haspopup="menu" aria-controls=${menuId} aria-expanded="false" title=${row.name}
+        aria-haspopup="menu" aria-controls=${menuId} aria-expanded="false"
         @click=${() => this.toggleRow(index)}><span class="label">${row.name}</span><span class="look-pick${picked ? ' picked' : ''}">${picked || t('image.look.none')}</span><svg class="icon" aria-hidden="true"><use href="#i-caret"></use></svg></button>
         <div class="menu look-menu" id=${menuId} role="menu" hidden>
           <button type="button" role="menuitemradio" aria-checked=${String(!picked)} @click=${() => this.pickInPlace(row, '')}><span class="item-text">${t('image.look.none')}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>

@@ -21,6 +21,7 @@ from PIL import Image
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 from settings_controls import open_settings
+from style_controls import open_style_section
 
 PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
@@ -72,6 +73,27 @@ def make_video(page):
 
 def post_values(request):
     return urllib.parse.parse_qs(request.post_data or "", keep_blank_values=True)
+
+
+def visible_reference_name(page, index):
+    page.locator("#video-source-panel .video-reference").nth(index).click()
+    caption = page.locator(".video-reference-actions .video-reference-caption")
+    caption.wait_for(state="visible")
+    return caption.inner_text()
+
+
+def wait_for_video_thumbnail(page):
+    page.wait_for_function(
+        "() => { const canvas = document.querySelector('#video-gallery .video-clip-thumb canvas.video-gallery-sheet');"
+        "return Boolean(canvas && canvas.closest('video-gallery-preview').frameIndex >= 0); }",
+        timeout=15000,
+    )
+
+
+def dismiss_notices(page):
+    dismiss = page.locator("#toasts").get_by_role("button", name="Dismiss", exact=True)
+    while dismiss.count():
+        dismiss.first.click()
 
 
 def paste_file(page, content, name, mime_type):
@@ -189,9 +211,9 @@ with sync_playwright() as playwright:
     switch_workspace(page, "video")
     switch_workspace(page, "image")
     check(
-        "Image Generate and Edit keep their original selector above Prompt",
+        "Image Generate and Edit keep a compact selector above Prompt",
         image_mode_layout["selectorBeforePrompt"]
-        and image_mode_layout["selectorHeight"] == 32
+        and 32 <= image_mode_layout["selectorHeight"] <= 48
         and image_mode_layout["videoSelectorIsItsOwn"],
         str(image_mode_layout),
     )
@@ -371,13 +393,14 @@ with sync_playwright() as playwright:
     page.locator("#strength").evaluate(
         "element => { element.value = '0.4'; element.dispatchEvent(new Event('input', {bubbles: true})); }"
     )
-    page.get_by_role("button", name="Share references with Video").click()
+    page.get_by_role("button", name="Use references in Video").click()
     page.wait_for_function("() => document.querySelector('#media-video-mode').getAttribute('aria-pressed') === 'true'")
     page.locator("#video-references .video-reference").wait_for(state="visible")
+    reference_name = visible_reference_name(page, 0)
     check(
         "image references transfer to the video workspace",
-        page.locator("#video-source-panel .video-reference").get_attribute("title") == "reference.png",
-        page.locator("#video-source-panel .video-reference").get_attribute("title") or "no reference",
+        "reference.png" in reference_name,
+        reference_name,
     )
     check(
         "a reference is its print and its name, with no influence dial",
@@ -464,7 +487,7 @@ with sync_playwright() as playwright:
     )
     check(
         "a reference cannot land on a frame another one holds",
-        collision["frames"] == [60, 0] and "already holds a picture" in collision["error"],
+        collision["frames"] == [60, 0] and "already has a reference image" in collision["error"],
         json.dumps(collision),
     )
     page.locator(".video-reference").nth(1).focus()
@@ -833,8 +856,8 @@ with sync_playwright() as playwright:
             selected: prompt.value.slice(prompt.selectionStart, prompt.selectionEnd),
             // A template is written into the box without a keystroke, so this is where the
             // rewrite button has to have heard about it: it reads the box for its own state.
-            rewriteAwake: !button.disabled,
-            rewriteTitle: button.title,
+            rewriteAwake: !button.matches(':disabled, [aria-disabled="true"]'),
+            rewriteHelp: document.getElementById('video-rewrite-toggle-help').textContent,
             // Read here, because this block empties the box on its way out and the run
             // button is dead the moment it is empty. A template leaves its brackets for the
             // user to fill, so the run waits, the way the image form's does.
@@ -861,7 +884,7 @@ with sync_playwright() as playwright:
     check(
         "a template wakes the rewrite button, and the run waits until its brackets are filled",
         filled["rewriteAwake"]
-        and "longer instruction" in filled["rewriteTitle"]
+        and "longer instruction" in filled["rewriteHelp"]
         and not filled["runAwake"]
         and filled["runAwakeWhenFilled"],
         json.dumps(filled),
@@ -924,7 +947,7 @@ with sync_playwright() as playwright:
     )
     check(
         "a press shows one verb and borrows the readout",
-        page.inner_text("#video-rewrite-toggle") == "Rewrite"
+        page.inner_text("#video-rewrite-toggle") in ("Preparing…", "Cancel")
         and page.locator("#shared-operation").is_visible()
         and page.inner_text("#shared-operation-label") in ("Preparing prompt rewrite", "Rewriting prompt"),
         f"{page.inner_text('#video-rewrite-toggle')!r}, {page.inner_text('#shared-operation-label')!r}",
@@ -984,7 +1007,7 @@ with sync_playwright() as playwright:
         and video_modes["count"] == 1
         and video_modes["visible"]
         and video_modes["radios"] == 2
-        and video_modes["height"] == 32
+        and video_modes["height"] == image_mode_layout["selectorHeight"]
         and video_modes["sameStylesAsImage"]
         and page.locator("#video-reference-tray[aria-label='Image references']").count() == 1
         and page.locator("#video-reference-rail").count() == 1,
@@ -1067,16 +1090,27 @@ with sync_playwright() as playwright:
     mobile_footer = page.evaluate(
         """() => {
           const footer = document.querySelector('#video-footer');
-          return {position: getComputedStyle(footer).position,
-            bottom: footer.getBoundingClientRect().bottom,
-            viewportBottom: window.innerHeight, visible: !footer.hidden};
+          const action = document.querySelector('#video-generate');
+          const button = action.getBoundingClientRect();
+          const box = footer.getBoundingClientRect();
+          const nav = document.querySelector('.pane-switch').getBoundingClientRect();
+          const hit = document.elementFromPoint(button.x + button.width / 2, button.y + button.height / 2);
+          return {bottom: box.bottom, panelBottom: document.querySelector('#form').getBoundingClientRect().bottom,
+            navTop: nav.top, buttonHeight: button.height, visible: !footer.hidden,
+            reachable: Boolean(hit?.closest('#video-generate'))};
         }"""
     )
+    page.locator("#video-controls").evaluate("controls => { controls.scrollTop = controls.scrollHeight; }")
+    footer_after_scroll = page.locator("#video-footer").bounding_box()
     check(
-        "video action stays fixed to the screen on narrow layouts",
+        "video action stays reachable above navigation when the narrow form scrolls",
         mobile_footer["visible"]
-        and mobile_footer["position"] in ("fixed", "sticky")
-        and mobile_footer["viewportBottom"] - 96 <= mobile_footer["bottom"] <= mobile_footer["viewportBottom"],
+        and mobile_footer["reachable"]
+        and mobile_footer["buttonHeight"] >= 44
+        and abs(mobile_footer["bottom"] - mobile_footer["panelBottom"]) < 1
+        and 0 <= mobile_footer["navTop"] - mobile_footer["bottom"] <= 24
+        and footer_after_scroll is not None
+        and abs(footer_after_scroll["y"] + footer_after_scroll["height"] - mobile_footer["bottom"]) < 1,
         str(mobile_footer),
     )
     page.set_viewport_size({"width": 1440, "height": 1000})
@@ -1087,18 +1121,18 @@ with sync_playwright() as playwright:
         paste_prevented
         and page.locator("#video-source-panel .video-reference").count() == 2
         and page.locator("#thumbs img").count() == 1
-        and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title") == "clipboard.png",
+        and "clipboard.png" in visible_reference_name(page, 1),
     )
     shortcut_prevented = paste_shortcut_file(page, REFERENCE.read_bytes(), "shortcut.png", "image/png")
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 3")
     check(
         "Command+P pastes an image reference in Video mode",
-        shortcut_prevented
-        and page.locator("#video-source-panel .video-reference").nth(2).get_attribute("title") == "shortcut.png",
+        shortcut_prevented and "shortcut.png" in visible_reference_name(page, 2),
         page.locator("#video-source-panel").inner_text(),
     )
     page.get_by_role("button", name="Remove video reference shortcut.png").click()
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 2")
+    visible_reference_name(page, 1)
     page.get_by_role("button", name="Remove video reference clipboard.png").click()
     page.wait_for_function("() => document.querySelectorAll('#video-source-panel .video-reference').length === 1")
     drop_result = drop_file(page, REFERENCE.read_bytes(), "dropped.png", "image/png")
@@ -1106,7 +1140,7 @@ with sync_playwright() as playwright:
     check(
         "dropped images enter the source panel and clear its drop highlight",
         drop_result == {"overPrevented": True, "dropPrevented": True, "highlighted": True, "cleared": True}
-        and page.locator("#video-source-panel .video-reference").nth(1).get_attribute("title") == "dropped.png",
+        and "dropped.png" in visible_reference_name(page, 1),
         str(drop_result),
     )
     page.get_by_role("button", name="Remove video reference dropped.png").click()
@@ -1180,7 +1214,8 @@ with sync_playwright() as playwright:
     page.locator("#toasts .toast.error").last.wait_for(state="visible", timeout=10000)
     check(
         "a file that is neither an image nor a video shows a visible error",
-        page.locator("#toasts .toast.error").last.inner_text() == "Choose an image, a video or an audio file.",
+        page.locator("#toasts .toast.error").last.locator("p").inner_text()
+        == "Choose an image, a video or an audio file.",
         page.locator("#toasts .toast.error").last.inner_text(),
     )
 
@@ -1217,7 +1252,7 @@ with sync_playwright() as playwright:
     )
     check(
         "generate takes an audio track and shows it as a row",
-        track["accept"] == ".png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff"
+        track["accept"] == ".png,.jpg,.jpeg,.webp,.gif,.heic,.heif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff"
         and track["name"] == "theme.wav"
         and track["trayShown"]
         and track["emptyHidden"]
@@ -1228,7 +1263,7 @@ with sync_playwright() as playwright:
     page.locator("#toasts .toast.error").last.wait_for(state="visible", timeout=10000)
     check(
         "the same track twice is refused",
-        page.locator("#toasts .toast.error").last.inner_text() == "That track is already here."
+        page.locator("#toasts .toast.error").last.locator("p").inner_text() == "That audio track is already added."
         and page.locator("#video-audios .video-audio").count() == 1,
         page.locator("#toasts .toast.error").last.inner_text(),
     )
@@ -1253,10 +1288,10 @@ with sync_playwright() as playwright:
             """() => [...document.querySelectorAll('#video-look-rows .look-row-toggle .label')]
                  .map(label => label.textContent)"""
         )
-        == ["Light", "Atmosphere", "Grade", "Mix"],
+        == ["Light", "Atmosphere", "Color grading", "Mix"],
         page.locator("#video-look-rows").inner_text()[:120].replace("\n", " "),
     )
-    page.locator("#video-look summary").click()
+    open_style_section(page, "#video-look")
     page.locator("#video-look-rows .look-row-toggle").first.click()
     page.get_by_role("menuitemradio", name="Golden hour").click()
     look_added = page.evaluate(
@@ -1448,7 +1483,7 @@ with sync_playwright() as playwright:
     )
 
     page.get_by_role("button", name="More actions").click()
-    page.get_by_role("menuitem", name="Use in Video").click()
+    page.get_by_role("menuitem", name="Use as video reference").click()
     page.wait_for_function("() => document.querySelector('#media-video-mode').getAttribute('aria-pressed') === 'true'")
     page.get_by_role("button", name="Video", exact=True).wait_for(state="visible")
     check(
@@ -1464,7 +1499,7 @@ with sync_playwright() as playwright:
         f"strip hidden: {page.locator('#strip-wrap').is_hidden()}, "
         f"output clips: {page.locator('#video-gallery .video-clip').count()}, "
         f"video references: {page.locator('#video-source-panel .video-reference').count()}, "
-        f"names: {page.locator('#video-source-panel .video-reference').evaluate_all('nodes => nodes.map(node => node.title)')}, "
+        f"names: {page.locator('#video-source-panel .video-reference').evaluate_all('nodes => nodes.map(node => node.ariaLabel)')}, "
         f"state: {page.locator('#video-studio').evaluate('element => element.imageReferences.map(item => item.name)')}, "
         f"toast: {page.locator('#toasts').inner_text()}",
     )
@@ -1502,7 +1537,7 @@ with sync_playwright() as playwright:
     check(
         "out-of-range video seeds are stopped before the request",
         len(video_posts) == 0
-        and page.locator("#toasts .toast.error").last.inner_text()
+        and page.locator("#toasts .toast.error").last.locator("p").inner_text()
         == "Seed must be a whole number from 0 to 4294967295.",
         page.locator("#toasts .toast.error").last.inner_text(),
     )
@@ -1733,14 +1768,14 @@ with sync_playwright() as playwright:
     sent_strength = page.locator("#video-studio").evaluate("element => element.imageReferences[1].strength")
     page.locator("#video-generate").click()
     page.wait_for_function(
-        "() => ['Stub response added. No video file was generated.', 'Video generation failed.']"
+        "() => ['Test preview added. No video file was generated.', 'Video generation failed.']"
         ".includes(document.querySelector('#video-request-status').textContent)",
         timeout=30000,
     )
     request_status = page.locator("#video-request-status").inner_text()
     check(
         "stub video generation completes without a media file",
-        request_status == "Stub response added. No video file was generated.",
+        request_status == "Test preview added. No video file was generated.",
         request_status + ": " + page.locator("#toasts").inner_text(),
     )
     request = video_posts[-1] if video_posts else {}
@@ -1785,7 +1820,7 @@ with sync_playwright() as playwright:
         page.locator("#video-gallery .video-clip").count() == 1
         # Generate offers no clip, by design: the clip is Edit's input.
         and page.locator("#video-source-list .video-source").count() == 0
-        and page.get_by_text("The stub returns metadata only.").is_visible(),
+        and page.get_by_text("Test mode returns run details only. It does not create a video file.").is_visible(),
         f"video clips: {page.locator('#video-gallery .video-clip').count()}",
     )
     check(
@@ -1851,7 +1886,7 @@ with sync_playwright() as playwright:
     check(
         "keyboard opens the complete video prompt over the preview",
         full_prompt in prompt_sheet.inner_text()
-        and page.locator("#video-prompt-sheet").get_attribute("aria-label") == "The whole prompt"
+        and page.locator("#video-prompt-sheet").get_attribute("aria-label") == "Full prompt"
         and page.locator("#video-prompt-sheet dl dt").inner_text() == "Prompt"
         and page.locator("#video-prompt-sheet dl dd").inner_text() == full_prompt
         and page.locator(".video-output-prompt").get_attribute("aria-controls") == "video-prompt-sheet"
@@ -1967,15 +2002,10 @@ with sync_playwright() as playwright:
         "() => { const video = document.querySelector('#video-preview'); return Boolean(video) && video.played.length > 0; }",
         timeout=15000,
     )
-    # A video clip draws a 16-frame contact sheet in its thumb, not an img
-    # (components/video-gallery-preview.js:render). A still poster can appear first.
+    # The canvas shows one frame from the contact sheet. A poster can appear first.
     thumbnail_ready = False
     try:
-        page.wait_for_function(
-            "() => { const sheet = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');"
-            "return Boolean(sheet && (sheet.getAttribute('href') || '').startsWith('blob:')); }",
-            timeout=15000,
-        )
+        wait_for_video_thumbnail(page)
         thumbnail_ready = True
     except PlaywrightTimeoutError:
         pass
@@ -2018,8 +2048,15 @@ with sync_playwright() as playwright:
           const gallery = document.querySelector('#video-gallery').getBoundingClientRect();
           const card = document.querySelector('#video-gallery .video-gallery-item').getBoundingClientRect();
           const thumbnail = document.querySelector('#video-gallery .video-clip-thumb').getBoundingClientRect();
+          const strip = document.querySelector('#video-gallery .video-clips').getBoundingClientRect();
+          const guidance = document.querySelector('#video-gallery .gallery-action-help');
+          const help = guidance.getBoundingClientRect();
+          const margins = getComputedStyle(guidance);
           return {galleryWidth: gallery.width, galleryHeight: gallery.height,
-            cardWidth: card.width, thumbnailHeight: thumbnail.height};
+            cardWidth: card.width, thumbnailHeight: thumbnail.height, stripHeight: strip.height,
+            stripInside: strip.left >= gallery.left && strip.right <= gallery.right,
+            guidanceHeight: help.height,
+            guidanceOuterHeight: help.height + parseFloat(margins.marginTop) + parseFloat(margins.marginBottom)};
         }"""
     )
     output_actions = page.evaluate(
@@ -2038,7 +2075,11 @@ with sync_playwright() as playwright:
         "video gallery uses the Image filmstrip scale",
         gallery_geometry["cardWidth"] <= 120
         and gallery_geometry["thumbnailHeight"] <= 65
-        and gallery_geometry["galleryHeight"] <= 162
+        and gallery_geometry["stripHeight"] <= 128
+        and gallery_geometry["stripInside"]
+        and gallery_geometry["guidanceHeight"] > 0
+        and 0 < gallery_geometry["guidanceOuterHeight"] <= 48
+        and gallery_geometry["galleryHeight"] - gallery_geometry["guidanceOuterHeight"] <= 162
         and page.locator("#video-gallery .video-clips.strip").count() == 1
         and page.locator("#video-gallery .video-clip.frame").count() == 2
         and page.locator("#video-gallery .video-clip-remove").count() == 0,
@@ -2154,10 +2195,8 @@ with sync_playwright() as playwright:
         settled == {"monitor": False, "selected": picked},
         str(settled),
     )
-    # The strip reads newest first, so the arrows walk that way too: right is the older
-    # clip. This starts on the newest, which a render selects, and comes back to it, so
-    # the checks below read the clip the run just made.
-    page.locator("#video-gallery .video-clip").nth(0).focus()
+    # Each strip wraps at both ends. Return to the newest clip for the pixel proof.
+    page.locator("#video-gallery .video-clip").nth(0).click()
     page.keyboard.press("ArrowRight")
     previous_clip = page.evaluate(
         """() => ({
@@ -2171,6 +2210,13 @@ with sync_playwright() as playwright:
         """() => document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId"""
     )
     page.keyboard.press("ArrowLeft")
+    left_wrap = page.evaluate(
+        """() => ({
+          selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
+          focused: document.activeElement?.dataset.clipId,
+        })"""
+    )
+    page.keyboard.press("ArrowLeft")
     next_clip = page.evaluate(
         """() => ({
           selected: document.querySelector('#video-gallery .video-clip[aria-pressed=true]')?.dataset.clipId,
@@ -2178,15 +2224,18 @@ with sync_playwright() as playwright:
         })"""
     )
     check(
-        "Video gallery arrows select adjacent clips and keep focus",
+        "Video gallery arrows wrap at both ends and keep focus",
         len(previous_clip["clips"]) == 2
         and previous_clip["selected"] == previous_clip["clips"][1]
         and previous_clip["focused"] == previous_clip["clips"][1]
-        and first_clip_edge == previous_clip["clips"][1]
+        and first_clip_edge == previous_clip["clips"][0]
+        and left_wrap["selected"] == previous_clip["clips"][1]
+        and left_wrap["focused"] == previous_clip["clips"][1]
         and next_clip["selected"] == previous_clip["clips"][0]
         and next_clip["focused"] == previous_clip["clips"][0],
-        json.dumps({"previous": previous_clip, "edge": first_clip_edge, "next": next_clip}),
+        json.dumps({"previous": previous_clip, "rightWrap": first_clip_edge, "leftWrap": left_wrap, "next": next_clip}),
     )
+    wait_for_video_thumbnail(page)
     check(
         "generated gallery thumbnail and output metadata appear with the clip",
         thumbnail_ready
@@ -2214,7 +2263,6 @@ with sync_playwright() as playwright:
             "More actions",
             "Download video",
             "Remove video LTX-2.5 1s",
-            "Full screen",
         ]
         and video_presentation.get("hasActionDivider")
         and video_presentation.get("directVideoFrameAction")
@@ -2227,7 +2275,7 @@ with sync_playwright() as playwright:
         is not None
         and page.locator("#video-output-details .video-output-actions [aria-label='More actions']").count() == 1
         and page.get_by_role("button", name="Remove video LTX-2.5 1s").is_visible()
-        and page.get_by_role("button", name="Full screen").is_visible()
+        and page.get_by_role("button", name="Full screen").count() == 0
         and page.locator("#video-gallery .video-gallery-head").count() == 1
         and page.locator("#video-timeline").count() == 0,
         generated_details
@@ -2242,27 +2290,22 @@ with sync_playwright() as playwright:
             }
         ),
     )
-    thumbnail_color = page.evaluate(
-        """async () => {
-          const image = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');
-          const sheet = new Image();
-          sheet.src = image.getAttribute('href');
-          await sheet.decode();
-          const frame = sheet.naturalWidth / 16;
-          const canvas = document.createElement('canvas');
-          canvas.width = sheet.naturalWidth;
-          canvas.height = sheet.naturalHeight;
-          const context = canvas.getContext('2d');
-          context.drawImage(sheet, 0, 0);
-          const pixel = context.getImageData(
-            Math.floor(frame * 12 + frame / 2), Math.floor(canvas.height / 2), 1, 1
-          ).data;
-          return {red: pixel[0], blue: pixel[2]};
-        }"""
-    )
+    thumbnail_color = page.wait_for_function(
+        """() => {
+          const canvas = document.querySelector('#video-gallery .video-clip-thumb canvas.video-gallery-sheet');
+          const preview = canvas?.closest('video-gallery-preview');
+          if (!canvas || preview.frameIndex !== 12) return false;
+          const pixel = canvas.getContext('2d').getImageData(canvas.width / 2, canvas.height / 2, 1, 1).data;
+          return {red: pixel[0], blue: pixel[2], alpha: pixel[3], width: canvas.width, height: canvas.height};
+        }""",
+        timeout=15000,
+    ).json_value()
     check(
         "video gallery thumbnail shows a representative middle frame",
-        thumbnail_color["blue"] > thumbnail_color["red"] + 30,
+        thumbnail_color["blue"] > thumbnail_color["red"] + 30
+        and thumbnail_color["alpha"] == 255
+        and thumbnail_color["width"] == 128
+        and thumbnail_color["height"] == 72,
         str(thumbnail_color),
     )
     video_gallery_box = page.locator("#video-gallery").bounding_box()
@@ -2278,6 +2321,7 @@ with sync_playwright() as playwright:
         and abs(video_gallery_box["height"] - image_gallery_box["height"]) < 1,
         f"Image: {image_gallery_box}, Video: {video_gallery_box}",
     )
+    dismiss_notices(page)
     page.get_by_role("button", name="More actions").click()
     check(
         "video more actions match the image action menu",
@@ -2325,28 +2369,14 @@ with sync_playwright() as playwright:
     )
     page.evaluate("() => document.querySelector('#video-modes input[value=generate]').click()")
     page.get_by_role("button", name="More actions").click()
-    fullscreen_entered = False
-    page.get_by_role("button", name="Full screen").click()
-    fullscreen_exit = page.get_by_role("button", name="Exit full screen")
-    try:
-        fullscreen_exit.wait_for(state="visible", timeout=10000)
-        fullscreen_entered = page.evaluate(
-            """() => {
-              const studio = document.querySelector('#video-studio');
-              const bounds = studio.getBoundingClientRect();
-              return document.fullscreenElement === studio
-                && Math.abs(bounds.width - innerWidth) < 2
-                && Math.abs(bounds.height - innerHeight) < 2
-                && document.querySelector('#video-studio .video-editing-area').getClientRects().length === 0;
-            }"""
-        )
-        fullscreen_exit.click()
-        page.wait_for_function("() => !document.fullscreenElement", timeout=10000)
-    except PlaywrightTimeoutError:
-        pass
+    page.keyboard.press("Escape")
+    page.keyboard.press("f")
+    page.wait_for_timeout(100)
     check(
-        "video full screen keeps metadata actions available and returns to the studio",
-        fullscreen_entered and page.get_by_role("button", name="Full screen").is_visible(),
+        "video inspection keeps metadata actions in the page without fullscreen",
+        not page.evaluate("Boolean(document.fullscreenElement)")
+        and page.get_by_role("button", name="Full screen").count() == 0
+        and page.get_by_role("button", name="More actions").is_visible(),
     )
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Reuse prompt").click()
@@ -2437,7 +2467,7 @@ with sync_playwright() as playwright:
     )
     check(
         "video keeps progress below 100 percent until the clip is ready",
-        progress_result.get("finishingHeadline") == "Finishing the clip"
+        progress_result.get("finishingHeadline") == "Finishing video"
         and progress_result.get("finishingPercent") == "99"
         and progress_result.get("roundedPercent") == 99,
         str(progress_result),
@@ -2483,6 +2513,7 @@ with sync_playwright() as playwright:
         str(progress_result),
     )
     page.set_viewport_size({"width": 390, "height": 844})
+    page.locator('#pane-switch [data-pane="preview"]').click()
     mobile_status = page.evaluate(
         """() => {
           const studio = document.getElementById('video-studio');
@@ -2543,11 +2574,7 @@ with sync_playwright() as playwright:
         restored = page.locator("#video-gallery .video-gallery-item").first
         restored_count = page.locator("#video-gallery .video-clip").count()
         restored_details = page.locator("#video-output-details").inner_text()
-        page.wait_for_function(
-            "() => { const sheet = document.querySelector('#video-gallery .video-clip-thumb .video-gallery-sheet image');"
-            "return Boolean(sheet && (sheet.getAttribute('href') || '').startsWith('blob:')); }",
-            timeout=15000,
-        )
+        wait_for_video_thumbnail(page)
         restored_thumbnail = True
         restored_video = page.wait_for_function(
             """() => {
@@ -2715,7 +2742,7 @@ with sync_playwright() as playwright:
         refused["accept"] == ".mp4,.m4v,.mov,.webm,.ogv"
         and refused["references"] == 0
         and "Add the clip to edit" in refused["zone"]
-        and "Choose a video file" in refused["error"],
+        and "choose a video file" in refused["error"],
         json.dumps(refused),
     )
     # The clip landed earlier, so the form has it in hand already. A click on the row is a
@@ -2839,7 +2866,7 @@ with sync_playwright() as playwright:
     )
     before = page.locator(".video-gallery-item:not(.pending)").count()
     page.fill("#video-prompt", "a cat walking on a wall")
-    page.evaluate("() => { document.getElementById('video-look').open = true; }")
+    open_style_section(page, "#video-look")
     page.locator("#video-look-rows .look-row-toggle").first.click()
     page.get_by_role("menuitemradio", name="Golden hour").click()
     page.click("#video-generate")
@@ -2993,7 +3020,7 @@ with sync_playwright() as playwright:
         "Reset clears every Video input",
         video_reset == {"prompt": "", "seed": "", "references": 0, "frames": "121"}
         and reset_dialogs
-        and "Reset this form?" in reset_dialogs[-1],
+        and "Reset this workspace's inputs?" in reset_dialogs[-1],
         json.dumps(video_reset),
     )
     dialogs_before = len(reset_dialogs)

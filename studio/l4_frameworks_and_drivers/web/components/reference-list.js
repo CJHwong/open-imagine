@@ -56,7 +56,17 @@ class ReferenceList extends LitElement {
     const editing = get('mode') === 'edit';
     const limit = page.limit();
     const count = references.length;
-    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0}>${icon('image')}<div><strong id="refs-title">${editing ? t('image.refs.add_title') : t('image.refs.start_title')}</strong><span id="refs-sub">${editing ? t('image.refs.add_sub', {limit}) : t('image.refs.start_sub')}</span></div></div><div class="thumbs" id="thumbs">${references.map((reference, index) => html`<div class="thumb" title=${reference.name}><img src=${'data:image/png;base64,' + reference.b64} alt=${reference.name}><button type="button" class="remove" aria-label=${t('image.refs.remove', {name: reference.name})} @click=${(event) => { event.stopPropagation(); page.remove(index); }}>${icon('x')}</button></div>`)}${editing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div><div class="refs-note" id="refs-note" ?hidden=${count === 0}>${this.note()}</div>`;
+    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0}>${icon('image')}
+      <div><strong id="refs-title">${editing ? t('image.refs.add_title') : t('image.refs.start_title')}</strong>
+        <span id="refs-sub">${editing ? t('image.refs.add_sub', {limit}) : t('image.refs.start_sub')}</span></div></div>
+      <div class="thumbs" id="thumbs">${references.map((reference, index) => html`
+        <div class="thumb"><img src=${'data:image/png;base64,' + reference.b64} alt=${reference.name}>
+          <span class="reference-caption">${reference.name}</span>
+          <button type="button" class="remove labeled-action" aria-label=${t('image.refs.remove', {name: reference.name})}
+            @click=${(event) => { event.stopPropagation(); page.remove(index); }}>
+            ${icon('x')}<span class="control-label">${t('ui.action.remove')}</span></button></div>`)}
+        ${editing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div>
+      <div class="refs-note" id="refs-note" ?hidden=${count === 0}>${this.note()}</div>`;
   }
 }
 

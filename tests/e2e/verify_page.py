@@ -42,6 +42,7 @@ import urllib.parse
 from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 from settings_controls import open_settings
+from style_controls import open_style_section
 
 PORT = sys.argv[1]
 OUT = tempfile.mkdtemp(prefix="studio-e2e-") + "/"
@@ -375,12 +376,12 @@ with sync_playwright() as playwright:
     check(
         "the guide opens and lists what a person needs",
         page.locator("#guide-sheet dt").count() >= 6
-        and page.get_attribute("#guide-sheet", "aria-label") == "How to use this studio",
+        and page.get_attribute("#guide-sheet", "aria-label") == "How to use",
         str(page.locator("#guide-sheet dt").count()),
     )
     check(
         "the guide says what a mark does",
-        "Fill the area you want changed" in page.inner_text("#guide-sheet"),
+        "paint the area to change" in page.inner_text("#guide-sheet"),
         page.inner_text("#guide-sheet")[:60],
     )
     page.keyboard.press("Escape")
@@ -443,10 +444,7 @@ with sync_playwright() as playwright:
         and page.input_value("#count") == "2",
         page.locator("#count-toggle").inner_text(),
     )
-    # LEFT: the details that holds the Look rows is an id the page publishes, and
-    # its summary is not a role a browser exposes. The rows inside are found by
-    # role, and they are only visible once this has opened the details.
-    page.click("#look summary")
+    open_style_section(page)
     toggle_look(page, "Light", "Overcast")
     page.focus("#prompt")
     page.keyboard.press("Meta+Enter")
@@ -706,29 +704,17 @@ with sync_playwright() as playwright:
     page.mouse.click(200, 200)
     first = shown_frame(page)
     page.keyboard.press("ArrowRight")
-    check("ArrowRight steps outside full screen", shown_frame(page) != first)
-    page.keyboard.press("ArrowLeft")
-    check("ArrowLeft steps back outside full screen", shown_frame(page) == first)
-
-    # Full screen
-    page.keyboard.press("f")
-    time.sleep(0.5)
-    # LEFT: the element the browser hands to full screen is the page's own pane,
-    # and the browser reports it as a node rather than as a role.
-    check("F enters full screen", page.evaluate("document.fullscreenElement === document.querySelector('.work')"))
-    first = shown_frame(page)
-    page.keyboard.press("ArrowRight")
     check("ArrowRight shows the next frame", shown_frame(page) != first)
     page.keyboard.press("ArrowLeft")
     check("ArrowLeft goes back", shown_frame(page) == first)
-    page.screenshot(path=OUT + "2b-fullscreen.png")
-    # The binding here is a role with a name, and it resolves without the
-    # stylesheet. The reach does not: with the stylesheet refused, the fullscreen
-    # pane is fixed at 900 and cannot scroll, and this button sits at y 1908 in
-    # it, so no click can land. The cascade is what puts the control in reach.
-    button(page, "Exit full screen (F)").click()
-    time.sleep(0.5)
-    check("the button leaves full screen", page.evaluate("document.fullscreenElement === null"))
+
+    check(
+        "image preview has no full screen action",
+        page.get_by_role("button", name=re.compile("full.?screen", re.I)).count() == 0,
+    )
+    page.keyboard.press("f")
+    page.wait_for_timeout(250)
+    check("F leaves image preview outside full screen", page.evaluate("document.fullscreenElement === null"))
 
     page.get_by_role("button", name="More actions").click()
     check("More menu opens", page.locator("#more-menu").is_visible())
@@ -737,7 +723,7 @@ with sync_playwright() as playwright:
 
     # Edit this
     button(page, "Edit this").click()
-    check("Edit this switches to edit", page.get_by_role("radio", name="Edit").is_checked())
+    check("Edit this switches to edit", page.get_by_role("radio", name="Edit", exact=True).is_checked())
     check("Edit this leaves one reference", reference_count(page, 1) == 1)
     check("Edit this clears the prompt", page.input_value("#prompt") == "")
     # LEFT: the summary line again.
@@ -793,7 +779,7 @@ with sync_playwright() as playwright:
         f"the summary says {made!r}; the page says: "
         + (page.locator("#toasts").inner_text().strip().replace("\n", " ") or "nothing"),
     )
-    page.get_by_role("button", name=f"Show frame {source}").click()
+    page.get_by_role("button", name=f"Show image {source}").click()
     # LEFT: the film frame's numbers again.
     check("the source link shows that frame", page.inner_text(".shot .edge span:last-child") == source)
     frames(page).nth(0).click()
@@ -871,7 +857,7 @@ with sync_playwright() as playwright:
     edit_rows = [name.text_content() for name in page.locator("#look-rows .look-row .label").all()]
     check(
         "edit offers the six finishing rows and none of the generate ones",
-        edit_rows == ["Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"],
+        edit_rows == ["Exposure", "White balance", "Color grading", "Lens", "Finish", "Retouch"],
         ", ".join(edit_rows),
     )
     # The run that just finished cleared the box, so the words are written here: this pair
@@ -1019,7 +1005,7 @@ with sync_playwright() as playwright:
     check(
         "the note says the whole marked area is repainted",
         # LEFT: the note is a paragraph with an id the page publishes.
-        "whole marked area is repainted" in page.inner_text("#region-note"),
+        "Fill the area you want to change" in page.inner_text("#region-note"),
         page.inner_text("#region-note"),
     )
     page.get_by_role("button", name="Clear every mark").click()
@@ -1526,7 +1512,7 @@ with sync_playwright() as playwright:
     )
     # The caption is a control here, so it names itself with the prompt it holds.
     caption = page.get_by_role("button", name=re.compile("^A ceramic teapot"))
-    sheet = page.get_by_role("dialog", name="The whole prompt")
+    sheet = page.get_by_role("dialog", name="Full prompt")
     check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
     # LEFT: the print's own box.
     print_box = page.locator(".pic").bounding_box()

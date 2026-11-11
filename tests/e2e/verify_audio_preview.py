@@ -32,10 +32,10 @@ def recording(seconds):
 
 
 def set_range(preview, start, end):
-    preview.get_by_role("spinbutton", name="Selection start", exact=True).fill(str(start))
-    preview.get_by_role("spinbutton", name="Selection start", exact=True).press("Tab")
-    preview.get_by_role("spinbutton", name="Selection end", exact=True).fill(str(end))
-    preview.get_by_role("spinbutton", name="Selection end", exact=True).press("Tab")
+    preview.get_by_role("spinbutton", name="Selection start time", exact=True).fill(str(start))
+    preview.get_by_role("spinbutton", name="Selection start time", exact=True).press("Tab")
+    preview.get_by_role("spinbutton", name="Selection end time", exact=True).fill(str(end))
+    preview.get_by_role("spinbutton", name="Selection end time", exact=True).press("Tab")
 
 
 source, samples = recording(1)
@@ -159,8 +159,8 @@ with sync_playwright() as tool:
     waveform.click(position={"x": bounds["width"] * 0.45, "y": bounds["height"] * 0.5})
     check(
         "a waveform click preserves the trim range",
-        preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value() == "0.20"
-        and preview.get_by_role("spinbutton", name="Selection end", exact=True).input_value() == "0.70",
+        preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value() == "0.20"
+        and preview.get_by_role("spinbutton", name="Selection end time", exact=True).input_value() == "0.70",
     )
     check(
         "a waveform click moves playback position",
@@ -173,10 +173,10 @@ with sync_playwright() as tool:
     check(
         "a waveform drag seeks without trimming",
         abs(page.evaluate("document.getElementById('isolated-audio-preview').position") - 0.5) < 0.03
-        and preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value() == "0.20"
-        and preview.get_by_role("spinbutton", name="Selection end", exact=True).input_value() == "0.70",
+        and preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value() == "0.20"
+        and preview.get_by_role("spinbutton", name="Selection end time", exact=True).input_value() == "0.70",
     )
-    handle = preview.get_by_role("slider", name="Selection start handle", exact=True)
+    handle = preview.get_by_role("slider", name="Adjust the selection start", exact=True)
     handle_bounds = handle.bounding_box()
     page.mouse.move(
         handle_bounds["x"] + 7 + (handle_bounds["width"] - 14) * 0.2, handle_bounds["y"] + handle_bounds["height"] / 2
@@ -190,14 +190,14 @@ with sync_playwright() as tool:
     page.mouse.up()
     check(
         "only a trim handle changes the selected boundary",
-        float(preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value()) > 0.2
+        float(preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value()) > 0.2
         and abs(page.evaluate("document.getElementById('isolated-audio-preview').position") - 0.5) < 0.03,
     )
     set_range(preview, 0.2, 0.7)
     check(
         "the numeric fields keep the requested selection",
-        preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value() == "0.20"
-        and preview.get_by_role("spinbutton", name="Selection end", exact=True).input_value() == "0.70",
+        preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value() == "0.20"
+        and preview.get_by_role("spinbutton", name="Selection end time", exact=True).input_value() == "0.70",
     )
     with page.expect_download() as download:
         page.evaluate("void document.getElementById('isolated-audio-preview').action('download')")
@@ -265,15 +265,15 @@ with sync_playwright() as tool:
             "window.previewStates.some(state => state.playing) && window.previewStates.at(-1).playing === false"
         ),
     )
-    handle = preview.get_by_role("slider", name="Selection start handle", exact=True)
+    handle = preview.get_by_role("slider", name="Adjust the selection start", exact=True)
     handle.focus()
     handle.press("ArrowRight")
     check(
         "the selection handles support the keyboard",
-        float(preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value()) > 0.2,
+        float(preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value()) > 0.2,
     )
-    preview.get_by_role("spinbutton", name="Selection end", exact=True).fill("0")
-    preview.get_by_role("spinbutton", name="Selection end", exact=True).press("Tab")
+    preview.get_by_role("spinbutton", name="Selection end time", exact=True).fill("0")
+    preview.get_by_role("spinbutton", name="Selection end time", exact=True).press("Tab")
     check(
         "an invalid selection keeps a playable minimum range",
         page.evaluate(
@@ -308,8 +308,8 @@ with sync_playwright() as tool:
     page.unroute("**/api/v1/audio/trim")
     check(
         "a new take resets the selection",
-        preview.get_by_role("spinbutton", name="Selection start", exact=True).input_value() == "0.00"
-        and preview.get_by_role("spinbutton", name="Selection end", exact=True).input_value() == "2.00",
+        preview.get_by_role("spinbutton", name="Selection start time", exact=True).input_value() == "0.00"
+        and preview.get_by_role("spinbutton", name="Selection end time", exact=True).input_value() == "2.00",
     )
     check("a stale crop cannot send the previous take", page.evaluate("window.previewActions.length") == 2)
     set_range(preview, 0.2, 0.8)

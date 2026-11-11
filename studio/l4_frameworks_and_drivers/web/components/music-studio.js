@@ -399,11 +399,10 @@ class MusicStudio extends HTMLElement {
         <div class="strip-head"><span class="music-count">${plural(0, t('music.shelf.songs'))}</span><gallery-browser workspace="music"></gallery-browser>
           <button type="button" class="text-btn music-background-pause" aria-label="${t('music.audio.pause_label')}" hidden>${t('music.audio.pause')}</button>
           <span class="strip-actions">
-            <button type="button" class="text-btn" id="music-download-all"
-              title=${t('gallery.downloadAll.title')}>${t('music.gallery.download_all')}</button>
-            <button type="button" class="text-btn" id="music-clear-all"
-              title=${t('gallery.clearAll.title')}>${t('music.gallery.clear_all')}</button>
+            <button type="button" class="text-btn" id="music-download-all">${t('music.gallery.download_all')}</button>
+            <button type="button" class="text-btn" id="music-clear-all">${t('music.gallery.clear_all')}</button>
           </span></div>
+        <p class="caption control-help gallery-action-help"><span>${t('gallery.downloadAll.title')}</span> <span>${t('gallery.clearAll.title')}</span></p>
         <div class="strip music-strip" role="group" aria-label="${t('music.strip.label')}"></div>
       </section></div>`;
     this.controls = document.getElementById('music-controls');
@@ -448,14 +447,15 @@ class MusicStudio extends HTMLElement {
               <span><strong>${t('music.reference.add')}</strong><span id="music-reference-note"></span></span></span></button>
           <div class="music-reference-preview video-audios" hidden>
             <div class="video-audio"><div class="video-audio-picture">
-              <button type="button" class="video-audio-badge music-reference-play" id="music-reference-play"
-                aria-label="${t('audio.preview.play')}" title="${t('audio.preview.play')}">
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l11 7-11 7z"></path></svg></button>
-              <button type="button" class="video-audio-remove" id="music-reference-remove" aria-label="${t('music.reference.remove_label')}">
-                <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
-            </div><span class="video-audio-name" id="music-reference-name"></span></div>
+              <button type="button" class="video-audio-badge music-reference-play labeled-action" id="music-reference-play"
+                aria-label="${t('audio.preview.play')}">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l11 7-11 7z"></path></svg><span class="control-label">${t('ui.action.play')}</span></button>
+            </div><span class="video-audio-name" id="music-reference-name"></span>
+              <button type="button" class="video-audio-remove labeled-action" id="music-reference-remove" aria-label="${t('music.reference.remove_label')}">
+                <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="control-label">${t('ui.action.remove')}</span></button></div>
           </div>
         </div>
+        <p class="caption control-help" id="music-reference-action-help"></p>
         <p class="caption music-recording-status" id="music-recording-status" hidden></p>
           <div class="music-reference-scope field"><div class="field-head"><label for="music-transcription-task">${t('music.field.keep')}</label></div>
             <select id="music-transcription-task"><option value="melody-full">${t('music.keep.melody_full')}</option><option value="melody-vocal">${t('music.keep.melody_vocal')}</option><option value="full">${t('music.planning.full')}</option></select></div>
@@ -476,15 +476,15 @@ class MusicStudio extends HTMLElement {
             </ul>
           </details></div>
       </section>
+      <details id="music-style-presets" open><summary><span class="music-style-label">${t('music.style.presets')}</span> <look-values class="values" data-form="music"></look-values></summary>
       <div id="music-genre-presets" class="look-row menu-anchor">
-        <button type="button" class="look-row-toggle" id="music-genre-toggle" aria-haspopup="menu" aria-controls="music-genre-menu" aria-expanded="false" title="${t('music.row.genre')}"><span class="label">${t('music.row.genre')}</span><span class="look-pick">${t('music.common.none')}</span><svg class="icon" aria-hidden="true"><use href="#i-caret"></use></svg></button>
+        <button type="button" class="look-row-toggle" id="music-genre-toggle" aria-haspopup="menu" aria-controls="music-genre-menu" aria-expanded="false"><span class="label">${t('music.row.genre')}</span><span class="look-pick">${t('music.common.none')}</span><svg class="icon" aria-hidden="true"><use href="#i-caret"></use></svg></button>
         <div id="music-genre-menu" class="menu look-menu" role="menu" hidden>
           <button type="button" role="menuitemradio" data-music-genre="" aria-checked="true"><span class="item-text">${t('music.common.none')}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>
           <div class="music-genre-groups">${MUSIC_GENRE_GROUPS.map(([family, labels]) => `<section class="music-genre-family"><h3>${t(GENRE_GROUP_KEYS[family] || family)}</h3><div>${labels.map(label => { const translated = GENRE_LABELS.get(label) || label; return `<button type="button" role="menuitemradio" data-music-genre="${translated}" aria-checked="false"><span class="item-text">${translated}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>`; }).join('')}</div></section>`).join('')}</div>
           <p class="menu-foot">${t('music.genre.note')}</p>
         </div>
       </div>
-      <details id="music-style-presets"><summary><span class="music-style-label">${t('music.style.presets')}</span> <look-values class="values" data-form="music"></look-values></summary>
         <look-rows class="look" data-form="music"></look-rows>
         <p class="look-note">${t('music.style.note')}</p>
       </details>
@@ -499,7 +499,7 @@ class MusicStudio extends HTMLElement {
           <div class="field music-composition-fields"><div class="field-head"><span class="label" id="music-abc-label">${t('music.score.label')}</span>
               <button type="button" class="text-btn" id="music-abc-edit">${t('music.score.add')}</button></div>
               <pre class="music-abc-preview is-empty" id="music-abc-preview" aria-labelledby="music-abc-label">${t('music.score.empty')}</pre>
-              <span class="caption">${t('music.score.hint')}</span></div>
+              <span class="caption" id="music-abc-hint">${t('music.score.hint')}</span></div>
           <div class="field music-synthesis-fields music-sound-fields"><div class="field-head"><label for="music-steps">${t('music.field.steps')}</label></div>
               <select id="music-steps"><option value="32">${t('music.steps.standard')}</option><option value="16">${t('music.steps.balanced')}</option><option value="8">${t('music.steps.fast')}</option></select>
               <span class="caption">${t('music.steps.hint')}</span></div>
@@ -531,8 +531,8 @@ class MusicStudio extends HTMLElement {
       </details>
       <dialog class="music-abc-dialog" id="music-abc-dialog" aria-labelledby="music-abc-dialog-title">
         <div class="music-abc-dialog-head"><h2 id="music-abc-dialog-title">${t('music.score.label')}</h2>
-          <button type="button" class="icon-btn close" id="music-abc-close" aria-label="${t('music.score.close_label')}">
-            <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+          <button type="button" class="icon-btn close labeled-action" id="music-abc-close" aria-label="${t('music.score.close_label')}">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="control-label">${t('ui.action.close')}</span></button></div>
         <div class="music-abc-editor">
           <textarea id="music-abc" rows="14" spellcheck="false" aria-labelledby="music-abc-dialog-title"></textarea>
           <div class="music-abc-sheet">
@@ -544,8 +544,8 @@ class MusicStudio extends HTMLElement {
       </dialog>
       <dialog class="sheet record-sheet" id="music-record-sheet" aria-labelledby="music-record-title">
         <div class="sheet-head"><h2 id="music-record-title">${t('music.record.title')}</h2>
-          <button type="button" class="icon-btn close" id="music-record-close" aria-label="${t('record.close')}" title="${t('record.close')}">
-            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+          <button type="button" class="icon-btn close labeled-action" id="music-record-close" aria-label="${t('record.close')}">
+            <svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg><span class="control-label">${t('ui.action.close')}</span></button></div>
         <div class="sheet-body">
           <div class="record-stage">
             <div class="record-live" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
@@ -975,7 +975,7 @@ class MusicStudio extends HTMLElement {
     if (!button) return;
     const text = playing ? t('audio.preview.pause') : t('audio.preview.play');
     button.setAttribute('aria-label', text);
-    button.title = text;
+    button.querySelector('.control-label').textContent = playing ? t('ui.action.pause') : t('ui.action.play');
     button.querySelector('path')?.setAttribute('d', playing ? 'M9 6v12M15 6v12' : 'M9 5l11 7-11 7z');
   }
   releaseReferenceAudio() {
@@ -989,7 +989,6 @@ class MusicStudio extends HTMLElement {
     const attached = Boolean(this.reference);
     const preview = this.controls.querySelector('.music-reference-preview');
     preview.hidden = !attached;
-    preview.title = this.reference?.name || '';
     this.controls.querySelector('#music-reference-choose').hidden = attached;
     this.controls.querySelector('#music-reference-replace').hidden = !attached;
     this.controls.querySelector('#music-reference-name').textContent = this.reference?.name || '';
@@ -1330,8 +1329,9 @@ class MusicStudio extends HTMLElement {
     const abcEdit = this.controls.querySelector('#music-abc-edit');
     abcEdit.textContent = abc.trim() ? t('music.score.edit') : t('music.score.add');
     abcEdit.disabled = this.busy || needsReference;
-    abcEdit.title = needsReference ? t('music.score.title_reference')
-      : this.busy ? t('music.score.title_busy') : '';
+    this.controls.querySelector('#music-abc-hint').textContent = needsReference ? t('music.score.title_reference')
+      : this.busy ? t('music.score.title_busy') : t('music.score.hint');
+    abcEdit.setAttribute('aria-describedby', 'music-abc-hint');
     // The door's second line names what this mode does with a recording. It sits inside
     // the door, one line like the Video form's media door, so the field keeps its shape.
     this.controls.querySelector('#music-reference-note').textContent = transcribe
@@ -1343,8 +1343,11 @@ class MusicStudio extends HTMLElement {
     record.hidden = Boolean(this.reference);
     record.textContent = this.recording ? t('music.common.stop') : this.recordingPending ? t('music.reference.opening') : t('music.reference.record');
     record.disabled = this.busy || this.recordingPending;
-    record.title = this.recording ? t('music.reference.title_stop')
+    const recordHelp = this.controls.querySelector('#music-reference-action-help');
+    recordHelp.hidden = record.hidden;
+    recordHelp.textContent = this.recording ? t('music.reference.title_stop')
       : this.busy ? t('music.reference.title_busy') : t('music.reference.title_idle');
+    record.setAttribute('aria-describedby', 'music-reference-action-help');
     this.paintRecordingStatus();
     if ((this.busy || this.hidden || needsReference) && this.controls.querySelector('#music-abc-dialog').open) {
       this.closeAbcEditor(false);
@@ -1371,12 +1374,14 @@ class MusicStudio extends HTMLElement {
     // and returning in silence.
     this.querySelectorAll('[data-music-score]').forEach(button => {
       button.disabled = this.busy;
-      button.title = this.busy ? t('music.score.title_busy') : t('music.score.copy_title');
     });
     this.querySelectorAll('[data-music-more]').forEach(button => {
       button.disabled = this.busy;
       button.setAttribute('aria-disabled', String(this.busy));
-      button.title = this.busy ? t('music.actions.title_busy') : t('music.actions.more');
+    });
+    this.querySelectorAll('.music-action-help').forEach(help => {
+      help.hidden = !this.busy;
+      help.textContent = t('music.actions.title_busy');
     });
     const downloadAll = this.querySelector('#music-download-all');
     const clearAll = this.querySelector('#music-clear-all');
@@ -1412,8 +1417,11 @@ class MusicStudio extends HTMLElement {
     const progress = this.operation?.progress || {};
     this.querySelector('.music-generation-label').textContent = this.operation?.status === 'stopping' ? t('music.generation.stopping')
       : progress.stage === 'preparing' ? t('music.generation.loading') : progress.stage === 'transcribing' ? t('music.generation.transcribing_reference') : (t({plan: 'music.generation.composing', transcribe: 'music.generation.transcribing', cover: 'music.generation.covering'}[this.operation?.mode || draft.mode] || 'music.generation.generating'));
+    const model = this.operation?.model || this.capabilities?.name;
+    const progressText = progress.total > 0 ? t('music.generation.steps', {step: progress.step, total: progress.total})
+      : progress.step > 0 ? plural(progress.step, t('music.generation.tokens')) : t('music.generation.composing_recording');
     this.querySelector('.music-generation-detail').textContent = generating
-      ? [(this.operation?.model || this.capabilities?.name), progress.total > 0 ? t('music.generation.steps', {step: progress.step, total: progress.total}) : progress.step > 0 ? plural(progress.step, t('music.generation.tokens')) : t('music.generation.composing_recording')].filter(Boolean).join(' · ') : '';
+      ? (model ? t('music.generation.detail', {model, progress: progressText}) : progressText) : '';
     // A run in progress borrows the player's own timeline: the bar fills with the sampler's
     // share, and the line under it reads elapsed and percent instead of position and length.
     const bar = this.querySelector('.music-generation-timeline input');
@@ -1615,7 +1623,7 @@ class MusicStudio extends HTMLElement {
     const control = this.querySelector('.music-background-pause');
     const playing = [...this.querySelectorAll('.music-song audio')].find(audio => !audio.paused && !audio.ended);
     control.hidden = !playing || !playing.closest('.music-song').hidden;
-    control.title = playing ? t('music.audio.pause_named', {name: playing.getAttribute('aria-label')}) : '';
+    control.textContent = playing ? t('music.audio.pause_named', {name: playing.getAttribute('aria-label')}) : t('music.audio.pause');
     const playingId = playing?.closest('.music-song').dataset.songId || null;
     this.querySelector('gallery-browser').playingId = playingId;
     for (const thumb of this.querySelectorAll('.music-thumb')) {
@@ -1639,8 +1647,14 @@ class MusicStudio extends HTMLElement {
     const name = document.createElement('strong');
     name.textContent = t('music.common.music_score');
     const facts = document.createElement('span');
+    facts.className = 'music-sheet-facts';
     const tempo = String(score.tempo || '').replace(/^1\/\d+\s*=\s*/, '♩ = ');
-    facts.textContent = [score.key, score.meter, tempo].filter(Boolean).join(' · ');
+    for (const [label, value] of [[t('music.score.key'), score.key], [t('music.score.meter'), score.meter], [t('music.score.tempo'), tempo]]) {
+      if (!value) continue;
+      const fact = document.createElement('span');
+      fact.textContent = t('music.score.fact', {label, value});
+      facts.append(fact);
+    }
     heading.append(name, facts);
     const page = document.createElement('div');
     page.className = 'music-sheet-page';
@@ -1655,7 +1669,7 @@ class MusicStudio extends HTMLElement {
     row.setAttribute('role', 'group');
     row.setAttribute('aria-label', t('music.score.playback'));
     const play = document.createElement('button');
-    play.type = 'button'; play.className = 'icon-btn music-sheet-play'; play.dataset.musicScorePlay = '';
+    play.type = 'button'; play.className = 'icon-btn music-sheet-play labeled-action'; play.dataset.musicScorePlay = '';
     this.paintScoreButton(play, false);
     play.addEventListener('click', () => this.toggleScorePlayback(song, play));
     const seek = document.createElement('div');
@@ -1697,9 +1711,8 @@ class MusicStudio extends HTMLElement {
     const label = playing ? t('music.score.stop') : t('music.score.play');
     button.setAttribute('aria-pressed', String(playing));
     button.setAttribute('aria-label', label);
-    button.title = label;
     button.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${playing
-      ? '<path d="M7 5h3v14H7zm7 0h3v14h-3z"/>' : '<path d="m8 5 11 7-11 7z"/>'}</svg>`;
+      ? '<path d="M7 5h3v14H7zm7 0h3v14h-3z"/>' : '<path d="m8 5 11 7-11 7z"/>'}</svg><span class="control-label">${playing ? t('ui.action.stop') : t('ui.action.play')}</span>`;
   }
   lightScore(elements) {
     for (const element of this.scoreLit || []) element.classList?.remove('score-lit');
@@ -1998,18 +2011,21 @@ class MusicStudio extends HTMLElement {
       const current = this.songs.find(song => song.id === id);
       for (const card of this.querySelectorAll('.music-song')) {
         if (card.dataset.songId !== id) continue;
-        card.querySelector('.music-title-button').textContent = this.songTitle(current);
+        card.querySelector('.music-title-name').textContent = this.songTitle(current);
+        card.querySelector('.music-title-button').setAttribute('aria-label', t('music.title.edit') + ': ' + this.songTitle(current));
         card.querySelector('audio')?.setAttribute('aria-label', this.songTitle(current));
       }
-      for (const thumb of this.querySelectorAll('.music-thumb')) if (thumb.dataset.songId === id) thumb.title = this.songTitle(current);
       this.syncGallery();
       localStorage.setItem('studio-music-changed', String(Date.now()));
     } catch (_) { /* The storage queue reports a failed save; retain the previous title. */ }
   }
   renderTitle(song) {
     const heading = document.createElement('h3'); heading.className = 'music-song-title';
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'text-btn music-title-button';
-    button.textContent = this.songTitle(song); button.title = t('music.title.edit');
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'text-btn music-title-button labeled-action';
+    button.setAttribute('aria-label', t('music.title.edit') + ': ' + this.songTitle(song));
+    const name = document.createElement('span'); name.className = 'music-title-name'; name.textContent = this.songTitle(song);
+    const caption = document.createElement('span'); caption.className = 'control-label'; caption.textContent = t('ui.action.rename');
+    button.append(name, caption);
     const input = document.createElement('input'); input.type = 'text'; input.className = 'music-title-input'; input.maxLength = 120;
     input.setAttribute('aria-label', t('music.title.label')); input.hidden = true;
     let editing = false;
@@ -2175,7 +2191,8 @@ class MusicStudio extends HTMLElement {
     content.querySelector('.music-inline-lyrics').hidden = !lyrics;
     content.scrollTop = 0;
     card.querySelectorAll('[data-music-text-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.musicTextMode === content.dataset.mode)));
-    card.querySelector('.music-lyrics-toggle').title = lyricsTitle(lyrics);
+    const toggle = card.querySelector('.music-lyrics-toggle');
+    toggle.querySelector('.control-label').textContent = lyricsTitle(lyrics);
   }
   closeDetails(focus = true) {
     this.querySelectorAll('[data-music-details]').forEach(button => button.setAttribute('aria-expanded', 'false'));
@@ -2245,22 +2262,23 @@ class MusicStudio extends HTMLElement {
     times.append(elapsed, remaining); timeline.append(seek, times);
     const transport = document.createElement('div'); transport.className = 'music-transport';
     const control = (label, paths) => {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'icon-btn';
-      button.setAttribute('aria-label', label); button.title = label;
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'icon-btn music-playback-action';
+      button.setAttribute('aria-label', label);
       button.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`;
       return button;
     };
     const back = control(t('music.player.back'), '<path d="M6 7a8 8 0 1 1-1 10M6 3v5H1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="sans-serif">5</text>');
     const toggle = control(t('music.player.play'), ''); toggle.classList.add('music-play');
     const forward = control(t('music.player.forward'), '<path d="M18 7a8 8 0 1 0 1 10M18 3v5h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text x="12" y="16" text-anchor="middle" font-size="10" font-family="sans-serif">5</text>');
+    back.classList.add('music-seek-back'); forward.classList.add('music-seek-forward');
     transport.append(back, toggle, forward);
     const hasLyrics = !song.settings?.instrumental && Boolean(song.settings?.lyrics?.trim());
     const lyricsShown = hasLyrics && showingLyrics;
-    const lyrics = document.createElement('button'); lyrics.type = 'button'; lyrics.className = 'icon-btn music-lyrics-toggle';
+    const lyrics = document.createElement('button'); lyrics.type = 'button'; lyrics.className = 'icon-btn music-lyrics-toggle labeled-action';
     lyrics.setAttribute('aria-label', t('music.field.lyrics')); lyrics.dataset.musicTextMode = 'lyrics'; lyrics.disabled = !hasLyrics;
-    lyrics.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-text"/></svg>';
+    lyrics.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-text"/></svg><span class="control-label"></span>';
+    lyrics.querySelector('.control-label').textContent = lyricsTitle(lyricsShown);
     lyrics.setAttribute('aria-pressed', String(Boolean(lyricsShown))); lyrics.setAttribute('aria-controls', 'music-text-' + song.id);
-    lyrics.title = lyricsTitle(lyricsShown);
     // The mode lives in the region, not only in this set: the small view opens on the
     // lyrics without recording a choice, and the first press must still flip them.
     lyrics.addEventListener('click', () => {
@@ -2280,7 +2298,7 @@ class MusicStudio extends HTMLElement {
       elapsed.textContent = clock(position); remaining.textContent = '−' + clock(length - position);
       back.disabled = toggle.disabled = forward.disabled = !ready;
       const playing = !audio.paused && !audio.ended;
-      toggle.setAttribute('aria-label', playing ? t('music.audio.pause') : t('music.player.play')); toggle.title = playing ? t('music.audio.pause') : t('music.player.play');
+      toggle.setAttribute('aria-label', playing ? t('music.audio.pause') : t('music.player.play'));
       toggle.setAttribute('aria-pressed', String(playing));
       toggle.innerHTML = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${playing ? '<path d="M7 5h3v14H7zm7 0h3v14h-3z"/>' : '<path d="m8 5 11 7-11 7z"/>'}</svg>`;
       if (audio.error) { error.textContent = t('music.player.error'); error.hidden = false; }
@@ -2327,6 +2345,7 @@ class MusicStudio extends HTMLElement {
       card.className = 'music-song';
       card.dataset.songId = song.id;
       const hasAudio = song.blob instanceof Blob && song.blob.size > 0;
+      const artworkLabel = song.coverBlob ? t('music.cover.new_title') : t('music.cover.generate_title');
       if (!hasAudio) card.classList.add('is-score');
       const title = this.renderTitle(song);
       const retained = players.get(song.id);
@@ -2341,7 +2360,7 @@ class MusicStudio extends HTMLElement {
         this.urls.push(coverUrl); this.coverUrls.set(song.id, coverUrl);
         cover.src = coverUrl; cover.alt = t('music.cover.alt'); artwork.prepend(cover); artwork.classList.add('has-cover');
       }
-      const playback = document.createElement('span'); playback.className = 'music-playback-label'; playback.textContent = hasAudio ? t('music.playback.ready') : t('music.playback.score_only');
+      const playback = document.createElement('span'); playback.className = 'music-playback-label'; playback.textContent = song.stub ? t('music.playback.test') : hasAudio ? t('music.playback.ready') : t('music.playback.score_only');
       artwork.append(playback);
       if (song.coverClientId && !song.coverError) {
         const pending = document.createElement('span'); pending.className = 'music-cover-pending'; pending.textContent = t('music.cover.making'); artwork.append(pending);
@@ -2349,7 +2368,7 @@ class MusicStudio extends HTMLElement {
       const syncPlayback = () => {
         const playing = !audio.paused && !audio.ended;
         card.classList.toggle('is-playing', playing);
-        playback.textContent = playing ? t('music.playback.playing') : audio.ended ? t('music.playback.finished') : t('music.playback.ready');
+        playback.textContent = song.stub ? t('music.playback.test') : playing ? t('music.playback.playing') : audio.ended ? t('music.playback.finished') : t('music.playback.ready');
         this.syncBackgroundPlayback();
       };
       audio.onplay = () => {
@@ -2359,28 +2378,27 @@ class MusicStudio extends HTMLElement {
       };
       audio.onpause = audio.onended = syncPlayback;
       card.classList.toggle('is-playing', !audio.paused && !audio.ended);
-      if (!audio.paused && !audio.ended) playback.textContent = t('music.playback.playing');
+      if (!audio.paused && !audio.ended) playback.textContent = song.stub ? t('music.playback.test') : t('music.playback.playing');
       const download = document.createElement(hasAudio ? 'button' : 'a');
-      download.className = 'icon-btn';
+      download.className = 'icon-btn labeled-action';
       if (hasAudio) {
         // Encoding waits on the CDN and on the decoder, so the control is a button.
         download.type = 'button';
         download.setAttribute('aria-label', t('music.download.mp3'));
-        download.title = t('music.download.mp3');
         download.addEventListener('click', () => this.downloadMp3(song, download));
       } else {
         download.href = url; download.download = `music-${song.seed}.abc`;
         download.setAttribute('aria-label', t('music.download.abc'));
-        download.title = t('music.download.abc');
       }
-      download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>';
+      download.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg><span class="control-label"></span>';
+      download.querySelector('.control-label').textContent = t('ui.action.download');
       const details = document.createElement('div');
       details.className = 'music-details-body';
       const metadata = document.createElement('dl');
       const planning = song.metadata?.config?.cot || song.settings?.cot;
       const planningKey = {full: 'music.planning.full', melody: 'music.planning.melody', off: 'music.planning.off'}[planning];
       for (const [name, value] of [[t('music.meta.model'), song.model], [t('music.meta.genre'), song.genre || genreOf(song)], [t('music.field.seed'), song.seed], [t('music.meta.length'), hasAudio ? t('music.meta.seconds', {value: song.seconds.toFixed(1)}) : null], [t('music.meta.time'), Number.isFinite(song.generationSeconds) ? t('music.meta.seconds', {value: song.generationSeconds.toFixed(1)}) : null],
-        [t('music.meta.audio_label'), hasAudio ? t('music.meta.audio_value') : t('music.meta.score_value')], [t('music.meta.workflow'), t({generate: 'music.meta.workflow_song', plan: 'music.meta.workflow_plan', transcribe: 'music.meta.workflow_transcribe', cover: 'music.meta.workflow_cover'}[song.settings?.mode || 'generate'])], [t('music.meta.reference'), song.settings?.reference_name], [t('music.meta.instrumental'), song.settings?.instrumental ? t('music.common.yes') : null], [t('music.meta.steps'), hasAudio ? song.settings?.steps || 32 : null], [t('music.meta.guidance'), hasAudio ? song.settings?.cfg_scale ?? 1 : null], [t('music.field.style'), song.settings?.style], [t('music.field.planning'), planningKey ? t(planningKey) : null], [t('music.meta.cover_model'), song.coverModel], [t('music.meta.cover_seed'), song.coverSeed]]) {
+        [t('music.meta.audio_label'), hasAudio ? t('music.meta.audio_value') : t('music.meta.score_value')], [t('music.meta.workflow'), t({generate: 'music.meta.workflow_song', plan: 'music.meta.workflow_plan', transcribe: 'music.meta.workflow_transcribe', cover: 'music.meta.workflow_cover'}[song.settings?.mode || 'generate'])], [t('music.meta.reference'), song.settings?.reference_name], [t('music.meta.instrumental'), song.settings?.instrumental ? t('music.common.yes') : null], [t('music.meta.steps'), hasAudio ? song.settings?.steps || 32 : null], [t('music.meta.guidance'), hasAudio ? song.settings?.cfg_scale ?? 1 : null], [t('music.field.style'), song.settings?.style], [t('music.field.planning'), planningKey ? t(planningKey) : null], [t('music.cover.artwork'), hasAudio ? artworkLabel : null], [t('music.meta.cover_model'), song.coverModel], [t('music.meta.cover_seed'), song.coverSeed]]) {
         if (value === undefined || value === null || value === '') continue;
         const label = document.createElement('dt'); label.textContent = name;
         const data = document.createElement('dd'); data.textContent = String(value); metadata.append(label, data);
@@ -2430,13 +2448,14 @@ class MusicStudio extends HTMLElement {
       });
       send.dataset.musicSend = ''; send.dataset.stub = String(song.stub);
       send.disabled = this.busy || song.stub;
-      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger'; remove.setAttribute('aria-label', t('music.common.delete')); remove.title = t('music.delete.title');
-      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>';
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'icon-btn danger labeled-action'; remove.setAttribute('aria-label', t('music.common.delete'));
+      remove.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg><span class="control-label"></span>';
+      remove.querySelector('.control-label').textContent = t('ui.action.remove');
       remove.addEventListener('click', () => this.removeSong(song.id));
-      const artworkButton = document.createElement('button'); artworkButton.type = 'button'; artworkButton.className = 'btn quiet';
+      const artworkButton = document.createElement('button'); artworkButton.type = 'button'; artworkButton.className = 'btn quiet labeled-action';
       artworkButton.dataset.musicCover = '';
-      artworkButton.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>${t('music.cover.artwork')}`;
-      artworkButton.title = song.coverBlob ? t('music.cover.new_title') : t('music.cover.generate_title');
+      artworkButton.innerHTML = `<svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="control-label">${t('ui.action.artwork')}</span>`;
+      artworkButton.setAttribute('aria-label', artworkLabel);
       artworkButton.setAttribute('aria-keyshortcuts', 'Alt+C');
       artworkButton.addEventListener('click', () => this.generateCover(song));
       const facts = document.createElement('div'); facts.className = 'facts num'; facts.setAttribute('aria-label', t('music.meta.label'));
@@ -2444,22 +2463,23 @@ class MusicStudio extends HTMLElement {
       const detailsId = 'music-details-' + this.songs.indexOf(song);
       this.detailsBodies.set(song.id, {id: detailsId, title: hasAudio ? t('music.details.song_title') : t('music.details.score_title'), body: details, footer: downloads});
       const about = document.createElement('div'); about.className = 'about';
-      const caption = document.createElement('p'); caption.className = 'prompt-line'; caption.textContent = song.settings?.style || song.settings?.reference_name || (hasAudio ? t('music.common.song') : t('music.common.music_score')); caption.title = caption.textContent;
+      const caption = document.createElement('p'); caption.className = 'prompt-line'; caption.textContent = song.settings?.style || song.settings?.reference_name || (hasAudio ? t('music.common.song') : t('music.common.music_score'));
       caption.setAttribute('role', 'button'); caption.tabIndex = 0; caption.dataset.musicDetails = ''; caption.setAttribute('aria-controls', detailsId); caption.setAttribute('aria-expanded', 'false');
       caption.addEventListener('click', () => this.openDetails(song.id, caption));
       caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(song.id, caption); } });
       about.append(caption, facts);
-      const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
+      const actions = document.createElement('div'); actions.className = 'actions preview-actions music-song-actions';
       const detailsToggle = document.createElement('button');
-      detailsToggle.type = 'button'; detailsToggle.className = 'btn quiet preview-details-toggle';
-      detailsToggle.textContent = t('run.details');
+      detailsToggle.type = 'button'; detailsToggle.className = 'btn quiet preview-details-toggle labeled-action';
+      detailsToggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span class="control-label"></span>';
+      detailsToggle.querySelector('.control-label').textContent = t('run.details');
       detailsToggle.dataset.musicDetails = ''; detailsToggle.setAttribute('aria-controls', detailsId);
       detailsToggle.setAttribute('aria-expanded', 'false');
       detailsToggle.addEventListener('click', () => this.openDetails(song.id, detailsToggle));
       actions.append(detailsToggle);
       // A score moves into the form from here; the modal belongs to the form's own
       // Edit score link, so this item never opens it.
-      const useScore = menuItem('music', t('music.menu.use_score'), () => this.useScore(song)); useScore.dataset.musicScore = '';
+      const useScore = menuItem('music', t('music.menu.use_score'), () => this.useScore(song), t('music.score.copy_title')); useScore.dataset.musicScore = '';
       // A generated track is a source too: it can go back in the reference door. A score
       // has no audio, so the item is not offered for one. The recording that made the
       // song leads when the store still holds it.
@@ -2468,9 +2488,9 @@ class MusicStudio extends HTMLElement {
       const useReference = menuItem('music', t('music.menu.use_reference'), () => this.useReference(song));
       useReference.dataset.musicReference = '';
       const more = document.createElement('div'); more.className = 'menu-anchor';
-      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more')); toggle.title = t('music.actions.more');
+      const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'icon-btn labeled-action'; toggle.dataset.musicMore = ''; toggle.setAttribute('aria-label', t('music.actions.more'));
       const menu = document.createElement('div'); menu.className = 'menu up'; menu.id = 'music-actions-' + this.songs.indexOf(song); menu.hidden = true; menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', t('music.actions.menu_label'));
-      toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg>'; toggle.addEventListener('click', () => toggleMenu(menu));
+      toggle.setAttribute('aria-controls', menu.id); toggle.setAttribute('aria-expanded', 'false'); toggle.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-more"></use></svg><span class="control-label"></span>'; toggle.querySelector('.control-label').textContent = t('ui.action.more'); toggle.addEventListener('click', () => toggleMenu(menu));
       // A score has no recording, so it never offers Send to Video.
       menu.append(...(song.score ? [useScore] : []), ...(song.sourceId ? [useOriginal] : []),
         ...(hasAudio ? [useReference, send] : []));
@@ -2493,7 +2513,8 @@ class MusicStudio extends HTMLElement {
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
       // A score has no recording, so there is nothing to draw artwork for.
       actions.append(...(hasAudio ? [artworkButton] : []), more, rule, download, remove);
-      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', t('music.preview.details_label')); bar.append(about, actions); bars.append(bar);
+      const actionHelp = document.createElement('p'); actionHelp.className = 'caption control-help music-action-help'; actionHelp.hidden = !this.busy; actionHelp.textContent = t('music.actions.title_busy');
+      const bar = document.createElement('section'); bar.className = 'stage-bar music-output-details'; bar.dataset.songId = song.id; bar.setAttribute('aria-label', t('music.preview.details_label')); bar.append(about, actions, actionHelp); bars.append(bar);
       const body = document.createElement('div'); body.className = 'music-track-body';
       body.append(title);
       if (song.stub) { const warning = document.createElement('p'); warning.className = 'music-note music-stub-note'; warning.textContent = hasAudio ? t('music.stub.audio') : t('music.stub.score'); body.append(warning); }
@@ -2514,7 +2535,6 @@ class MusicStudio extends HTMLElement {
       thumb.mark = () => pencilLoop(true);
       thumb.extra = 'music-thumb'; thumb.songId = song.id; thumb.stillClass = 'music-thumb-art';
       thumb.label = t('music.thumb.select', {kind: hasAudio ? t('music.thumb.song') : t('music.thumb.score'), number});
-      thumb.title = this.songTitle(song);
       thumb.onPick = () => this.selectSong(song.id);
       thumb.footer = () => t('music.thumb.meta', {number: String(number).padStart(2, '0'),
         value: hasAudio ? t('music.thumb.seconds', {value: song.seconds.toFixed(0)}) : t('music.thumb.score')});

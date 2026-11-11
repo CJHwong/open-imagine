@@ -9,6 +9,7 @@ import sys
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from style_controls import open_style_section
 
 URL = "http://" + (sys.argv[2] if len(sys.argv) > 2 else "0.0.0.0") + ":" + sys.argv[1]
 
@@ -41,7 +42,7 @@ def check_phone(engine, name, width):
     expect(page.locator("size-chips .chip").first).to_be_visible()
     page.locator("#templates-toggle").tap()
     page.locator("#templates [role=menuitem]").last.tap()
-    page.locator("#look > summary").tap()
+    open_style_section(page)
     expect(page.locator("#look")).to_have_js_property("open", True)
     identities = page.evaluate("Array.from({length: 100}, () => studioIdentity())")
     assert len(set(identities)) == 100

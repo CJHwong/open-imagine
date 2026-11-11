@@ -52,7 +52,7 @@ def main():
         expect(page.locator(".music-song")).to_have_count(1)
         assert not any(url.endswith("/generate") or url.endswith("/image/operations") for url in requests)
         expect(page.locator(".music-song .music-song-title")).to_have_text("Untitled")
-        expect(page.locator(".music-stub-note")).to_contain_text("Stub preview")
+        expect(page.locator(".music-stub-note")).to_contain_text("Test preview")
         expect(page.locator(".music-count")).to_have_text("1 song, kept in this browser.")
         expect(page.locator(".music-gallery")).to_be_visible()
         expect(page.locator(".music-empty")).to_be_hidden()
@@ -131,11 +131,11 @@ def main():
             return window.musicDelete.apply(this, args);
           };
         }""")
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
+        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Remove", exact=True).click()
         expect(page.get_by_text("Music could not be saved: test quota", exact=True).first).to_be_visible()
         expect(page.locator(".music-song")).to_have_count(1)
         page.evaluate("() => { IDBObjectStore.prototype.delete = window.musicDelete; }")
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
+        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Remove", exact=True).click()
         expect(page.locator(".music-song")).to_have_count(0)
         page.reload()
         page.locator("#media-music-mode").click()
@@ -160,7 +160,7 @@ def main():
         )
         page.evaluate("() => { IDBObjectStore.prototype.put = window.musicPut; }")
         expect(page.locator(".music-song")).to_have_count(1)
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
+        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Remove", exact=True).click()
         expect(page.locator(".music-song")).to_have_count(0)
         # A late metadata fetch in a second tab cannot resurrect a deleted song.
         other = page.context.new_page()
@@ -183,7 +183,7 @@ def main():
         while not delayed and time.monotonic() < deadline:
             page.wait_for_timeout(50)
         assert delayed, "Second tab never started metadata import"
-        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
+        page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Remove", exact=True).click()
         expect(page.locator(".music-song")).to_have_count(0)
         for route in delayed:
             route.continue_()
@@ -260,7 +260,7 @@ def main():
         after = page.locator("#music-studio").evaluate("node => node.selectedId")
         assert after != before, (before, after)
         while page.locator(".music-song").count():
-            page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Delete", exact=True).click()
+            page.locator(".music-output-details:not([hidden])").get_by_role("button", name="Remove", exact=True).click()
             page.wait_for_timeout(100)
         # A phone keeps the form in the controls pane and the empty stage in the preview.
         page.set_viewport_size({"width": 390, "height": 844})

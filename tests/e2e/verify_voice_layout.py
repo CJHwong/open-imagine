@@ -50,10 +50,10 @@ with sync_playwright() as tool:
     page.locator('label[for="voice-mode-edit"]').click()
     check(
         "empty Edit does not ask for a script",
-        empty.get_by_role("button", name="Write a script", exact=True).count() == 0,
+        empty.get_by_role("button", name="Write the text to read", exact=True).count() == 0,
     )
     check("empty Edit explains the reference", "reference" in empty.inner_text().lower())
-    empty.get_by_role("button", name="Describe the change", exact=True).click()
+    empty.get_by_role("button", name="Describe the edit", exact=True).click()
     check(
         "the Edit preview action focuses the instruction",
         page.locator("#voice-text").evaluate("field => field === document.activeElement"),

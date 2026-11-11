@@ -1,267 +1,184 @@
-"""Music score editor and shared preview chrome; fresh stub server, no GPU.
+"""Music controls stay balanced and reachable across phone, fold and desktop widths.
 
-uv run --with playwright python tests/e2e/verify_music_layout.py <port>
+Run against a fresh all-backend stub. Add --webkit for WebKit.
 """
 
+import json
 import sys
 
 from playwright.sync_api import expect, sync_playwright
-
-SCORE = (
-    "X:1\nT:Generated composition\nM:4/4\nL:1/4\nQ:1/4=88\n"
-    'V:Vocal clef=treble name="Vocal Melody"\nV:Ins clef=treble name="Instrumental"\nK:C\n'
-    + "\n".join('V:Vocal\n"C"CDEF|"Am"GABc|\nV:Ins\nC,2E,2|G,4|' for _ in range(24))
-)
+from style_controls import show_controls, style_menu
 
 
-LONG_LYRICS = "\n\n".join(
-    [
-        f"[Verse]\nA melody for the morning\nLine {line} keeps the room full\nAnother line to fill it"
-        for line in range(1, 9)
+def record(failures, condition, case, detail):
+    if condition:
+        return
+    failures.append({"case": case, "detail": detail})
+    print("FAIL", json.dumps(failures[-1]), flush=True)
+
+
+def check_case(browser, base, locale, width, height, failures):
+    context = browser.new_context(viewport={"width": width, "height": height})
+    context.add_init_script("localStorage.setItem('studio-keep','off');localStorage.setItem('studio-autoplay','off')")
+    page = context.new_page()
+    page.goto(base + "/?workspace=music&lang=" + locale)
+    show_controls(page)
+    style = page.locator("#music-style")
+    expect(style).to_be_visible()
+    case = f"{locale}/{width}x{height}"
+    presets = page.locator("#music-style-presets")
+    record(
+        failures,
+        presets.get_attribute("open") is not None,
+        case + "/style-default-expanded",
+        presets.get_attribute("open"),
+    )
+    record(failures, presets.locator("#music-genre-presets").count() == 1, case + "/genre-inside-style", "Genre parent")
+    modes = page.locator("#music-controls .modes label").evaluate_all(
+        "labels => labels.map(label => label.getBoundingClientRect().width)"
+    )
+    record(failures, max(modes) - min(modes) <= 1, case + "/equal-workflow-widths", modes)
+    tag_summary = page.locator(".music-tag-guide > summary")
+    tag_summary.click()
+    tags = page.locator(".music-lyrics-tags li").evaluate_all("""rows => rows.map(row => {
+        const button = row.querySelector('button').getBoundingClientRect();
+        const text = [...row.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+        const range = document.createRange(); range.selectNodeContents(text);
+        return {width: button.width, description: range.getBoundingClientRect().left};
+    })""")
+    record(
+        failures,
+        max(tag["width"] for tag in tags) - min(tag["width"] for tag in tags) <= 1,
+        case + "/equal-section-tag-widths",
+        tags,
+    )
+    record(
+        failures,
+        max(tag["description"] for tag in tags) - min(tag["description"] for tag in tags) <= 1,
+        case + "/aligned-tag-descriptions",
+        tags,
+    )
+    tag = page.locator('[data-music-section="[Verse]"]')
+    tag.scroll_into_view_if_needed()
+    bounds = tag.bounding_box()
+    record(failures, bounds["height"] >= 32, case + "/tag-hit-height", bounds)
+    tag.click()
+    expect(page.locator("#music-lyrics")).to_have_value("[Verse]\n")
+    if presets.get_attribute("open") is None:
+        presets.locator(":scope > summary").click()
+    columns = presets.locator(".look-row-toggle").evaluate_all("""rows => rows.map(row => {
+        const label = row.querySelector('.label').getBoundingClientRect();
+        const value = row.querySelector('.look-pick').getBoundingClientRect();
+        return {label: label.width, value: value.width, width: row.getBoundingClientRect().width};
+    })""")
+    record(
+        failures,
+        len(columns) == 7 and all(abs(row["label"] - row["value"]) <= 1 for row in columns),
+        case + "/balanced-style-columns",
+        columns,
+    )
+    presets.locator(":scope > summary").click()
+    expect(presets.locator("#music-genre-toggle")).to_be_hidden()
+    presets.locator(":scope > summary").click()
+    genre = page.locator("#music-genre-presets")
+    genre.locator(".look-row-toggle").click()
+    menu = style_menu(page, genre)
+    menu.locator('[data-music-genre]:not([data-music-genre=""])').first.click()
+    expect(style).not_to_have_value("")
+    page.locator("#music-lyrics").fill("[Verse]\nA quiet song for the morning.")
+    page.locator("#music-generate").click()
+    play = page.locator(".music-song:not([hidden]) .music-play").first
+    expect(play).to_be_visible(timeout=30000)
+    expect(play).to_be_enabled(timeout=30000)
+    player = play.locator("xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' music-player ')]")
+    center = player.bounding_box()
+    button = play.bounding_box()
+    delta = button["x"] + button["width"] / 2 - center["x"] - center["width"] / 2
+    record(failures, abs(delta) <= 1, case + "/play-centered", delta)
+    record(failures, not play.locator(".control-label:visible").count(), case + "/obvious-play-icon", play.inner_text())
+    controls = player.locator("button:visible").all()
+    boxes = [control.bounding_box() for control in controls]
+    record(failures, all(box["width"] >= 44 and box["height"] >= 44 for box in boxes), case + "/player-targets", boxes)
+    record(
+        failures,
+        all(
+            box["x"] >= center["x"] - 1 and box["x"] + box["width"] <= center["x"] + center["width"] + 1
+            for box in boxes
+        ),
+        case + "/player-contained",
+        boxes,
+    )
+    overlaps = [
+        (left, right)
+        for index, left in enumerate(boxes)
+        for right in boxes[index + 1 :]
+        if min(left["x"] + left["width"], right["x"] + right["width"]) > max(left["x"], right["x"]) + 1
+        and min(left["y"] + left["height"], right["y"] + right["height"]) > max(left["y"], right["y"]) + 1
     ]
-)
-
-
-def open_editor(page):
-    bar = page.locator(".music-output-details:not([hidden])")
-    bar.get_by_role("button", name="More actions", exact=True).click()
-    bar.get_by_role("menuitem", name="Use this score", exact=True).click()
-    # The score lands in the form, which a narrow window keeps in its own pane.
-    controls = page.locator('.pane-switch [data-pane="controls"]')
-    if controls.is_visible():
-        controls.click()
-    page.locator("#music-abc-edit").click()
-    editor = page.get_by_role("dialog", name="ABC score", exact=True)
-    expect(editor).to_be_visible()
-    return editor
+    record(failures, not overlaps, case + "/player-no-overlap", overlaps)
+    record(
+        failures,
+        all(control.get_attribute("aria-label") for control in controls),
+        case + "/player-accessible-names",
+        [control.get_attribute("aria-label") for control in controls],
+    )
+    player.evaluate("""player => {
+        window.musicPlayback = [];
+        player.closest('.music-song').querySelector('audio').addEventListener('play', () => {
+            musicPlayback.push(player.querySelector('.music-play').getAttribute('aria-pressed'));
+        });
+    }""")
+    record(
+        failures,
+        all(box["y"] >= 0 and box["y"] + box["height"] <= height for box in boxes),
+        case + "/player-reachable",
+        boxes,
+    )
+    play.click()
+    page.wait_for_function("musicPlayback.length > 0")
+    record(
+        failures,
+        page.evaluate("musicPlayback.includes('true')"),
+        case + "/play-feedback",
+        page.evaluate("musicPlayback"),
+    )
+    expect(play).to_have_attribute("aria-pressed", "false", timeout=10000)
+    lyrics = player.locator(".music-lyrics-toggle")
+    before = lyrics.get_attribute("aria-pressed")
+    lyrics.click()
+    expect(lyrics).to_have_attribute("aria-pressed", "false" if before == "true" else "true")
+    record(
+        failures, page.evaluate("document.documentElement.scrollWidth <= innerWidth"), case + "/no-page-overflow", width
+    )
+    if "--screenshots" in sys.argv and locale == "en" and width in (390, 1440):
+        page.screenshot(path=f"/tmp/image-gen-music-layout-{width}.png")
+    print("CHECK", case, flush=True)
+    context.close()
 
 
 def main():
-    base = f"http://127.0.0.1:{int(sys.argv[1])}"
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1280, "height": 800})
-        errors = []
-        page.on("pageerror", lambda error: errors.append(str(error)))
-
-        def metadata(route):
-            answer = route.fetch()
-            route.fulfill(response=answer, json={**answer.json(), "score": SCORE})
-
-        page.route("**/operations/*/metadata", metadata)
-        page.goto(base + "/?workspace=music")
-        expect(page.locator("#music-instrumental")).to_have_count(0)
-        expect(page.locator("#music-mode-plan")).to_be_enabled()
-        expect(page.locator(".music-reference-fields")).to_be_visible()
-        expect(page.locator("#music-controls .music-advanced-fields")).to_have_count(1)
-        assert not page.locator(".music-advanced-fields").evaluate("node=>node.open")
-        # The generation card sits in the middle of the pane. An empty song stack that kept
-        # its auto margins absorbed the free space and pushed the card to the left edge.
-        centered = page.evaluate("""() => {
-          const root = document.querySelector('music-studio');
-          const generation = root.querySelector('.music-generation');
-          const pane = root.querySelector('.music-preview-pane');
-          const shelf = root.querySelector('.music-songs');
-          // A run hides the shelf's cards, so the stack is present and empty of visible
-          // children. It is the case that pushed the card left.
-          const held = document.createElement('article');
-          held.className = 'music-song';
-          held.hidden = true;
-          shelf.append(held);
-          generation.hidden = false;
-          root.querySelector('.music-empty').hidden = true;
-          const card = generation.getBoundingClientRect(), box = pane.getBoundingClientRect();
-          generation.hidden = true;
-          root.querySelector('.music-empty').hidden = false;
-          held.remove();
-          return {
-            x: Math.abs(card.left + card.width / 2 - (box.left + box.width / 2)),
-            y: Math.abs(card.top + card.height / 2 - (box.top + box.height / 2)),
-          };
-        }""")
-        assert centered["x"] <= 1 and centered["y"] <= 1, centered
-        page.locator("#music-style").fill("Warm piano pop, two voices")
-        page.locator("#music-lyrics").fill(LONG_LYRICS)
-        page.locator("#music-generate").click()
-        expect(page.locator(".music-song audio")).to_have_count(1)
-        expect(page.get_by_role("dialog", name="ABC score", exact=True)).to_be_hidden()
-        # A short window keeps the transport inside the pane. The card used to grow past
-        # the pane and cut the play button below the fold, which a 13 inch MacBook does at
-        # this height. The words give up the room and scroll instead.
-        page.locator(".music-song:not([hidden]) .music-lyrics-toggle").click()
-        fit = page.evaluate("""() => {
-          const pane = document.querySelector('.music-preview-pane').getBoundingClientRect();
-          const card = document.querySelector('.music-song:not([hidden])');
-          const transport = card.querySelector('.music-transport').getBoundingClientRect();
-          const text = card.querySelector('.music-track-text');
-          return {pane: pane.bottom, transport: transport.bottom,
-            scrolls: text.scrollHeight > text.clientHeight};
-        }""")
-        assert fit["transport"] <= fit["pane"], fit
-        assert fit["scrolls"], f"the words did not scroll: {fit}"
-        # The shelf label opens the strip head, at the same left edge as Image, Video and
-        # Voice, with Browse and the bulk actions on the right.
-        head = page.locator("#music-studio .strip-head")
-        expect(head).to_be_visible()
-        assert head.evaluate("node => node.firstElementChild.className") == "music-count"
-        assert abs(head.locator(".music-count").bounding_box()["x"] - head.bounding_box()["x"]) <= 3
-        assert head.locator(".music-count").inner_text().endswith("kept in this browser.")
-        recording = page.locator(".music-song audio")
-        recording.evaluate("audio=>{audio.loop=true;return audio.play();}")
-        editor = open_editor(page)
-        assert recording.evaluate("audio=>!audio.paused"), "Opening the editor paused the recording"
-        assert page.evaluate("document.activeElement?.id") == "music-abc", "The editor did not focus the text"
-        expect(page.locator("#music-abc")).to_have_value(SCORE)
-        page.keyboard.press("Escape")
-        expect(editor).to_be_hidden()
-        page.wait_for_function("() => document.activeElement?.id === 'music-abc-edit'", timeout=2000)
-        assert recording.evaluate("audio=>!audio.paused"), "Closing the editor paused the recording"
-        # The panel shows the score read only, and the editor engravings both voices.
-        expect(page.locator("#music-abc-preview")).to_have_text(SCORE)
-        editor = open_editor(page)
-        expect(page.locator("#music-abc-notation svg").first).to_be_visible(timeout=30000)
-        facts = page.locator("#music-abc-facts")
-        expect(facts).to_be_visible()
-        # Three labelled columns: each name keeps its own value when the line is copied.
-        expect(facts.locator("dt")).to_have_text(["Key", "Meter", "Tempo"])
-        expect(facts.locator("dd")).to_have_text(["C", "4/4", "88 BPM"])
-        assert page.locator("#music-abc-notation .abcjs-note").count() > 32
-        assert "Vocal Melody" in page.locator("#music-abc-notation").inner_text()
-        assert "Instrumental" in page.locator("#music-abc-notation").inner_text()
-        assert "Am" in page.locator("#music-abc-notation").inner_text()
-        notation = page.get_by_role("region", name="Score preview", exact=True)
-        notation.evaluate("node=>node.scrollTop=0")
-        notation.hover()
-        page.mouse.wheel(0, 240)
-        page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
-        # The hint promises arrow keys once the score is clicked; a click focuses it.
-        notation.click()
-        assert notation.evaluate("node=>node === document.activeElement")
-        notation.evaluate("node=>node.scrollTop=0")
-        page.keyboard.press("ArrowDown")
-        page.wait_for_function("document.querySelector('#music-abc-notation').scrollTop > 0")
-        notation.evaluate("node=>node.scrollTop=0")
-        notation.focus()
-        page.keyboard.press("PageDown")
-        page.wait_for_timeout(300)
-        assert notation.evaluate("node=>node.scrollTop>0"), str(
-            notation.evaluate(
-                "node=>({height:node.clientHeight,total:node.scrollHeight,focused:document.activeElement===node})"
-            )
-        )
-        page.keyboard.press("End")
-        assert notation.evaluate("node=>node.scrollTop+node.clientHeight>=node.scrollHeight-1")
-        page.keyboard.press("Home")
-        assert notation.evaluate("node=>node.scrollTop===0")
-        notation.locator("svg").first.evaluate("node=>node.parentElement.style.width='1600px'")
-        notation.hover()
-        page.mouse.wheel(180, 0)
-        page.wait_for_function("document.querySelector('#music-abc-notation').scrollLeft > 0")
-        notation.evaluate("node=>node.scrollLeft=0")
-        notation.focus()
-        page.keyboard.press("ArrowRight")
-        assert notation.evaluate("node=>node.scrollLeft>0")
-        page.keyboard.press("ArrowLeft")
-        assert notation.evaluate("node=>node.scrollLeft===0")
-        notation.locator("svg").first.evaluate("node=>node.parentElement.style.width=''")
-        page.locator("#music-abc-close").click()
-        expect(editor).to_be_hidden()
-        page.wait_for_function("() => document.activeElement?.id === 'music-abc-edit'", timeout=2000)
-        # The details sheet owns the source, its download and the metadata.
-        bar = page.locator(".music-output-details:not([hidden])")
-        expect(bar.locator(".actions > .menu-anchor")).to_have_count(1)
-        expect(bar.locator(".actions > .rule")).to_have_count(1)
-        expect(bar.locator(".actions > .icon-btn")).to_have_count(2)
-        expect(bar.get_by_role("button", name="Download MP3")).to_be_visible()
-        assert bar.locator(".actions").bounding_box()["y"] < page.locator(".music-gallery").bounding_box()["y"]
-        bar.locator(".prompt-line").click()
-        sheet = page.get_by_role("dialog", name="Music details", exact=True)
-        expect(sheet).to_be_visible()
-        expect(sheet.locator("dd")).to_contain_text(["YuE2", "48 kHz", "Warm piano"])
-        # The words start folded, so the sheet stays short until someone asks.
-        lyrics = sheet.locator("details.music-details-lyrics")
-        expect(lyrics).not_to_have_attribute("open", "")
-        lyrics.locator("summary").click()
-        expect(lyrics.locator("p")).to_have_text(LONG_LYRICS)
-        expect(sheet.locator('dt:text-is("Model") + dd')).to_have_text("YuE2")
-        expect(bar.locator(".facts span").first).to_have_text("YuE2")
-        assert page.locator("#music-studio gallery-browser").evaluate(
-            "node=>node.items.every(item=>item.model==='YuE2')"
-        )
-        # Both readings start folded; the sheet engraves when it is opened.
-        score_fold = sheet.locator("details.music-details-sheet")
-        expect(score_fold).not_to_have_attribute("open", "")
-        score_fold.locator("summary").click()
-        expect(score_fold.locator(".music-details-notation svg").first).to_be_visible(timeout=30000)
-        sheet.locator("details summary", has_text="ABC source").click()
-        expect(sheet.locator("details pre")).to_have_text(SCORE)
-        with page.expect_download() as download:
-            sheet.get_by_role("link", name="Download ABC").click()
-        assert download.value.path().read_text() == SCORE
-        page.get_by_role("button", name="Close music details").click()
-        expect(sheet).to_be_hidden()
-        # A mobile context with touch scrolls the editor's sheet and keeps the dialog inside.
-        mobile_context = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
-        mobile = mobile_context.new_page()
-        mobile.route("**/operations/*/metadata", metadata)
-        mobile.goto(base + "/?workspace=music")
-        mobile.locator('.pane-switch [data-pane="controls"]').click()
-        mobile.locator("#music-style").fill("Piano")
-        mobile.locator("#music-lyrics").fill("A long melody")
-        mobile.locator("#music-generate").click()
-        expect(mobile.locator(".music-song")).to_have_count(1)
-        # The bar lives on the stage, so the preview pane is where its menu is reachable.
-        mobile.locator('.pane-switch [data-pane="preview"]').click()
-        editor = open_editor(mobile)
-        mobile.wait_for_timeout(400)
-        box = mobile.evaluate("""() => {
-          const dialog = document.querySelector('#music-abc-dialog');
-          const text = document.querySelector('#music-abc').getBoundingClientRect();
-          const sheet = document.querySelector('#music-abc-notation').getBoundingClientRect();
-          const frame = dialog.getBoundingClientRect();
-          return {overflow: dialog.scrollWidth - dialog.clientWidth,
-                  inside: frame.left >= 0 && frame.right <= 390 && frame.top >= 0 && frame.bottom <= 844,
-                  stacked: sheet.top >= text.bottom - 2};
-        }""")
-        assert box["overflow"] <= 0 and box["inside"] and box["stacked"], box
-        mobile_notation = mobile.get_by_role("region", name="Score preview", exact=True)
-        mobile_notation.scroll_into_view_if_needed()
-        client = mobile_context.new_cdp_session(mobile)
-        rect = mobile_notation.bounding_box()
-        x, y = rect["x"] + rect["width"] / 2, rect["y"] + rect["height"] - 20
-        client.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [{"x": x, "y": y}]})
-        for step in range(1, 9):
-            client.send(
-                "Input.dispatchTouchEvent", {"type": "touchMove", "touchPoints": [{"x": x, "y": y - step * 24}]}
-            )
-        client.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
-        mobile.wait_for_function("document.querySelector('#music-abc-notation').scrollTop>0")
-        mobile.locator("#music-abc-close").click()
-        expect(editor).to_be_hidden()
-        mobile_context.close()
-        # Losing the engraver keeps the text editable and says why the sheet is empty.
-        fallback = browser.new_page(viewport={"width": 1280, "height": 900})
-        fallback_errors = []
-        fallback.on("pageerror", lambda error: fallback_errors.append(str(error)))
-        fallback.route("**/vendor/abcjs.js", lambda route: route.abort())
-        fallback.route("**/operations/*/metadata", metadata)
-        fallback.goto(base + "/?workspace=music")
-        fallback.locator("#music-style").fill("Piano")
-        fallback.locator("#music-lyrics").fill("Morning melody")
-        fallback.locator("#music-generate").click()
-        expect(fallback.locator(".music-song")).to_have_count(1)
-        open_editor(fallback)
-        expect(fallback.locator("#music-abc-status")).to_contain_text("could not be engraved", timeout=30000)
-        expect(fallback.locator("#music-abc")).to_have_value(SCORE)
-        fallback.locator("#music-abc-close").click()
-        assert fallback_errors == [], fallback_errors
-        assert errors == [], errors
+    failures = []
+    widths = [int(value) for value in sys.argv[2:] if value.isdecimal()] or [280, 390, 600, 768, 1024, 1440]
+    with sync_playwright() as playwright:
+        engine = playwright.webkit if "--webkit" in sys.argv else playwright.chromium
+        browser = engine.launch()
+        for locale in ("en", "zh-TW"):
+            for width in widths:
+                check_case(
+                    browser,
+                    f"http://127.0.0.1:{int(sys.argv[1])}",
+                    locale,
+                    width,
+                    1000 if width > 900 else 882,
+                    failures,
+                )
+            for fold_width in (600, 768):
+                if fold_width in widths:
+                    check_case(browser, f"http://127.0.0.1:{int(sys.argv[1])}", locale, fold_width, 440, failures)
         browser.close()
-    print(
-        "PASS Music layout: edit entry, live two-voice sheet, scrolling, focus, details source and "
-        "download, mobile dialog and engraver fallback."
-    )
+    print("FAILURES", len(failures), flush=True)
+    return bool(failures)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

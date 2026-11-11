@@ -15,7 +15,7 @@ export const GROUPS = {
     'negative', 'count', 'looks', 'video-looks'],
   references: ['references', 'marks', 'marking'],
   results: ['gallery', 'view', 'busy', 'progress'],
-  kept: ['keeping', 'theme', 'fullscreen'],
+  kept: ['keeping', 'theme'],
   run: ['cleared', 'cancelRestore', 'runLook'],
 };
 

@@ -10,15 +10,17 @@
 // after Escape would still find the sheet, so the teardown runs here and the
 // `cancel` path prevents the browser's own close.
 
+import {t} from './i18n.js';
+
 let current = null;
 
 function closeButton(name) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'icon-btn close';
+  button.className = 'icon-btn close labeled-action';
   button.setAttribute('aria-label', name);
-  button.title = name;
-  button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg>';
+  button.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg><span class="control-label"></span>';
+  button.querySelector('.control-label').textContent = t('ui.action.close');
   return button;
 }
 

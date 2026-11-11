@@ -28,7 +28,7 @@ with sync_playwright() as tool:
     check("the field labels have no required suffix", "(required)" not in page.locator("#voice-controls").inner_text())
     check(
         "Generate names both missing inputs",
-        "script" in page.locator("#voice-go-sub").inner_text().lower()
+        "Enter the text" in page.locator("#voice-go-sub").inner_text()
         and "voice" in page.locator("#voice-go-sub").inner_text().lower(),
     )
     script = "The first sentence. The second sentence."
@@ -99,13 +99,13 @@ with sync_playwright() as tool:
     )
     page.locator("#voice-track-toggle").click()
     menu = page.locator("#voice-track-menu")
-    for name in ["Reuse script and voice", "Send to Video", "Send to Clone"]:
+    for name in ["Reuse text and voice settings", "Use as video audio", "Use for voice cloning"]:
         check(name + " is a menu item", menu.get_by_role("menuitem", name=name, exact=True).count() == 1)
     check(
         "the clip menu has no sentence joining actions",
         menu.get_by_role("menuitem", name="Play joined audio", exact=True).count() == 0,
     )
-    menu.get_by_role("menuitem", name="Reuse script and voice", exact=True).click()
+    menu.get_by_role("menuitem", name="Reuse text and voice settings", exact=True).click()
     check(
         "reuse restores both inputs",
         page.locator("#voice-text").input_value() == script
@@ -113,7 +113,7 @@ with sync_playwright() as tool:
     )
     check("reuse does not generate", not operations)
     page.locator("#voice-track-toggle").click()
-    page.get_by_role("menuitem", name="Send to Clone", exact=True).click()
+    page.get_by_role("menuitem", name="Use for voice cloning", exact=True).click()
     page.wait_for_function("document.getElementById('voice-studio').mode === 'clone'")
     check(
         "Clone gets the selected clip reference",
@@ -124,7 +124,7 @@ with sync_playwright() as tool:
         "there is no Replace button",
         page.get_by_role("button", name="Replace reference recording", exact=True).count() == 0,
     )
-    page.get_by_role("button", name="Clear voice reference", exact=True).click()
+    page.get_by_role("button", name="Remove voice reference", exact=True).click()
     check(
         "clearing restores Add reference",
         page.get_by_role("button", name="Add reference recording", exact=True).is_visible(),

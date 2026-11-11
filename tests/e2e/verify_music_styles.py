@@ -6,7 +6,7 @@ uv run --with playwright python tests/e2e/verify_music_styles.py <port>
 import sys
 
 from playwright.sync_api import expect, sync_playwright
-from style_controls import show_controls, style_menu
+from style_controls import open_style_section, show_controls, style_menu
 
 
 def verify_descriptions(page, rows, style):
@@ -62,7 +62,7 @@ def main():
             expect(page.locator("#music-controls .music-advanced-fields")).to_have_count(1)
             look = page.locator('#music-controls details:has(look-rows[data-form="music"])')
             expect(look).to_have_count(1)
-            look.locator("summary").click()
+            open_style_section(page, "#music-style-presets")
             rows = page.locator("#music-genre-presets, #music-style-presets .look-row")
             expect(rows.first).to_be_visible()
             assert rows.count() >= 3
@@ -144,10 +144,12 @@ def main():
             expect(style).to_have_value(added)
             style.fill("Completely rewritten by hand")
             look = page.locator('#music-controls details:has(look-rows[data-form="music"])')
-            look.locator("summary").click()
+            open_style_section(page, "#music-style-presets")
             expect(look.locator(".look-pick.picked")).to_have_count(0)
             page.locator('label[for="music-mode-plan"]').click()
-            expect(page.locator("#music-empty-hint")).to_have_text("Write a style and lyrics to compose sheet music.")
+            expect(page.locator("#music-empty-hint")).to_have_text(
+                "Describe the style to create a score. Add lyrics if the score includes vocals."
+            )
             expect(
                 page.get_by_text("Make a new performance from the reference composition.", exact=True)
             ).to_have_count(0)

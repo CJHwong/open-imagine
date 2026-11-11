@@ -123,7 +123,7 @@ class ToastHost extends LitElement {
         <span class="toast-percent" aria-label=${percent + '%'}>${percent}%</span></div>`;
     }
     const failure = one.kind === 'error';
-    return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn" title=${t('toast.dismiss')} aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}</button></div>`;
+    return html`<div class=${'toast ' + one.kind} role=${failure ? 'alert' : 'status'}>${glyph(failure ? 'alert' : 'info')}<p>${one.text}</p><button type="button" class="icon-btn labeled-action" aria-label=${t('toast.dismiss')} @click=${() => this.dismiss(one.id)}>${glyph('x')}<span class="control-label">${t('ui.action.close')}</span></button></div>`;
   }
 
   render() {

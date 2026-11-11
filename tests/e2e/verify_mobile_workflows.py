@@ -9,6 +9,7 @@ import time
 
 from playwright.sync_api import expect, sync_playwright
 from settings_controls import open_settings
+from style_controls import open_style_section
 
 BASE = "http://127.0.0.1:" + sys.argv[1]
 
@@ -111,10 +112,19 @@ def check_preview_tools(page):
         expect(menu).to_be_visible()
         picker = page.locator(".mobile-menu-dialog[open]")
         bounds = picker.bounding_box()
-        assert bounds["x"] == 0 and abs(bounds["width"] - width) <= 1 and bounds["height"] == 844, bounds
+        if width < 600:
+            assert bounds["x"] == 0 and abs(bounds["width"] - width) <= 1 and bounds["height"] == 844, bounds
+        else:
+            assert bounds["x"] >= 20 and bounds["y"] >= 20, bounds
+            assert bounds["x"] + bounds["width"] <= width - 20 and bounds["y"] + bounds["height"] <= 824, bounds
+            assert abs(bounds["x"] * 2 + bounds["width"] - width) <= 2, bounds
+            assert abs(bounds["y"] * 2 + bounds["height"] - 844) <= 2, bounds
         page.keyboard.press("Escape")
     page.set_viewport_size({"width": 390, "height": 844})
-    print("PASS metadata opens in Details, actions align right, menus fill phone and foldable screens", flush=True)
+    print(
+        "PASS metadata opens in Details, actions align right, cover menus fill the screen, inner-screen menus center",
+        flush=True,
+    )
 
 
 def check_image(page):
@@ -171,7 +181,7 @@ def check_prompt_aids(page):
         page.locator("#templates [role=menuitem]").nth(index).tap()
         pane(page, "controls")
         expect(page.locator("#prompt")).not_to_have_value("")
-    page.locator("#look > summary").tap()
+    open_style_section(page)
     expect(page.locator("#look")).to_have_js_property("open", True)
     picks = 0
     rows = page.locator("#look-rows .look-row")
@@ -230,11 +240,16 @@ def check_media_runs(page):
 def check_layout(page):
     for width, height in ((280, 653), (344, 882), (390, 844), (717, 748), (884, 1104), (844, 390)):
         page.set_viewport_size({"width": width, "height": height})
-        controls(page)
+        if width < 600:
+            controls(page)
+        else:
+            expect(page.locator(".pane-switch")).to_be_hidden()
+            expect(page.locator("#form")).to_be_visible()
+            expect(page.locator("#music-studio")).to_be_visible()
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), (width, "horizontal overflow")
         reachable(page.locator("#music-generate"))
         expect(page.locator("#workspace-toggle")).to_be_visible()
-        for button in page.locator(".pane-switch button, #workspace-toggle").all():
+        for button in page.locator(".pane-switch button:visible, #workspace-toggle").all():
             bounds = button.bounding_box()
             assert bounds and bounds["height"] >= 44 and bounds["x"] >= 0 and bounds["x"] + bounds["width"] <= width
         assert page.locator("#music-style").evaluate("element => parseFloat(getComputedStyle(element).fontSize) >= 16")
@@ -251,7 +266,9 @@ def check_layout(page):
     pane(page, "controls")
     page.locator("#music-style").fill("Keep this draft across a fold.")
     page.set_viewport_size({"width": 884, "height": 1104})
-    pane(page, "controls")
+    pane(page, "preview")
+    expect(page.locator("#form")).to_be_visible()
+    expect(page.locator("#music-studio")).to_be_visible()
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.set_viewport_size({"width": 344, "height": 882})
     pane(page, "controls")
@@ -270,7 +287,7 @@ def check_layout(page):
     expect(sort).to_have_value("oldest")
     sort.evaluate("element => { element.disabled = false; }")
     print(
-        "PASS cover screen, inner screen, fold transitions, landscape, full-screen selects and desktop layout",
+        "PASS cover screen, two-column inner screen, fold transitions, landscape, full-screen selects and desktop layout",
         flush=True,
     )
 

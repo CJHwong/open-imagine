@@ -22,7 +22,7 @@ def frames(encoded):
 
 
 def set_range(preview, start, end):
-    for label, value in [("Selection start", start), ("Selection end", end)]:
+    for label, value in [("Selection start time", start), ("Selection end time", end)]:
         field = preview.get_by_role("spinbutton", name=label, exact=True)
         field.fill(str(value))
         field.press("Tab")
@@ -54,7 +54,7 @@ with sync_playwright() as tool:
     check("the metadata has no second Play control", page.locator("#voice-selected-play").count() == 0)
     check(
         "the player contains no handoff actions",
-        preview.get_by_role("button", name="Send to Video", exact=True).count() == 0
+        preview.get_by_role("button", name="Use as video audio", exact=True).count() == 0
         and preview.get_by_role("button", name="Edit", exact=True).count() == 0
         and preview.get_by_role("button", name="Download audio", exact=True).count() == 0,
     )

@@ -275,12 +275,13 @@ class GalleryBrowser extends LitElement {
               ? 'gallery.deselect' : 'gallery.selectAll', {count: items.length})}</button>
             <button type="button" class="text-btn" ?disabled=${this.working || !checked.some(item => item.downloadable !== false)}
               aria-busy=${String(this.busyAction === 'download')}
-              title=${t('gallery.downloadSelected.title')}
+              aria-describedby=${this.workspace + '-gallery-download-note'}
               @click=${() => this.act('download')}>${this.busyAction === 'download'
                 ? html`<span class="gallery-spinner" aria-hidden="true"></span>` : icon('download')}${t('gallery.downloadSelected', {count: checked.length})}</button>
             <button type="button" class="text-btn gallery-remove" ?disabled=${this.working || !checked.length}
               @click=${() => this.act('remove')}>${icon('trash')}${t('gallery.removeSelected', {count: checked.length})}</button>` : nothing}
         </div>
+        ${this.selecting ? html`<p class="gallery-browser-help" id=${this.workspace + '-gallery-download-note'}>${t('gallery.downloadSelected.title')}</p>` : nothing}
         ${this.error ? html`<p class="gallery-browser-error" role="alert">${this.error}</p>` : nothing}
         <div class="gallery-browser-grid" role="group" aria-label=${t('gallery.results')} @scroll=${event => {
           if (this.restoreScroll) return;

@@ -52,7 +52,11 @@ class VoiceController:
 
     def backends(self):
         ids = self._catalog.visible_ids() if self._catalog is not None else (self.active_id(),)
-        return [{"id": backend_id, "name": self.model_capabilities(backend_id).name} for backend_id in ids]
+        return [self._backend_record(backend_id) for backend_id in ids]
+
+    def _backend_record(self, backend_id):
+        capabilities = self.model_capabilities(backend_id)
+        return {"id": backend_id, "name": capabilities.name, "description": capabilities.description}
 
     def model_capabilities(self, backend_id=""):
         if not isinstance(backend_id, str):

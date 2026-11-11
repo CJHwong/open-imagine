@@ -1,3 +1,4 @@
+# ruff: noqa: RUF001 -- Traditional Chinese punctuation is intentional.
 """Localization preserves field identities, templates without translations and engine tags."""
 
 import re
@@ -13,6 +14,32 @@ from studio.l3_interface_adapters.gateways.video.ltx_runtime.prompt_aids import 
 from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import DESIGN_TEMPLATES
 from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import EDIT_TEMPLATES as VOICE_EDIT
 from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import TEMPLATES as DELIVERY
+
+
+@pytest.mark.parametrize(
+    ("name", "field", "expected"),
+    [
+        ("Product shot", "hint", "放在平面上的物品，旁邊留有文字空間。"),
+        ("Poster with text", "hint", "以任何語言指定要顯示的文字。"),
+        ("First frame", "hint", "從參考圖片開始。"),
+        ("Last frame", "hint", "以參考圖片作為結尾。"),
+        ("Multi-shot", "hint", "二到四個鏡頭，描述每次切換。"),
+        ("Soundscape", "name", "環境音效"),
+        ("Soundscape", "hint", "環境音搭配動作產生的音效。"),
+        ("Product turn", "hint", "物件旋轉，標籤保持清晰。"),
+    ],
+)
+def test_embedded_display_metadata_uses_the_reviewed_copy(name, field, expected):
+    template = next(item for item in GENERATE_TEMPLATES + VIDEO_TEMPLATES if item.name == name)
+
+    assert getattr(template.translations[0], field) == expected
+
+
+@pytest.mark.parametrize("template", DELIVERY, ids=lambda template: template.name)
+def test_drama_script_field_uses_the_visible_text_label(template):
+    field = next(item for item in template.translations[0].fields if item.id == "script")
+
+    assert field.label == "朗讀內容"
 
 
 @pytest.mark.parametrize(

@@ -89,7 +89,7 @@ def test_controller_catalog_and_batch_validation():
     catalog.get.return_value.capabilities.return_value = CAPS
     controller = MusicController(run, catalog, switch)
     assert controller.active_id() == "yue2"
-    assert controller.backends() == [{"id": "yue2", "name": "YuE2"}]
+    assert controller.backends() == [{"id": "yue2", "name": "YuE2", "description": CAPS.description}]
     assert controller.capabilities()["channels"] == 2
     assert controller.model_capabilities() == CAPS
     for backend in (None, 4):

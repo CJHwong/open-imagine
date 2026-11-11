@@ -38,9 +38,11 @@ import zipfile
 from pathlib import Path
 
 import js_coverage
+from help_controls import visible_description
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from settings_controls import open_settings
+from style_controls import open_style_section
 
 PORT = sys.argv[1]
 URL = f"http://127.0.0.1:{PORT}/"
@@ -396,7 +398,7 @@ with sync_playwright() as playwright:
         and page.locator("#backend-toggle .name").inner_text().strip().startswith("Qwen-Image-2.1"),
         page.locator("#backend-toggle").inner_text().replace("\n", " "),
     )
-    check("Generate is the mode the page opens on", page.get_by_role("radio", name="Generate").is_checked())
+    check("Generate is the mode the page opens on", page.get_by_role("radio", name="Generate", exact=True).is_checked())
 
     # An empty prompt cannot be sent, and the button says why.
     check(
@@ -417,7 +419,7 @@ with sync_playwright() as playwright:
     page.locator("label[for=mode-edit]").click()
     check(
         "Edit asks for a starting image and a resolution",
-        page.get_by_role("radio", name="Edit").is_checked()
+        page.get_by_role("radio", name="Edit", exact=True).is_checked()
         and page.locator("#reference").is_enabled()
         and page.locator("#edit-sizes").is_visible()
         and page.locator("#size-chips").is_hidden(),
@@ -441,7 +443,7 @@ with sync_playwright() as playwright:
     )
     check(
         "the caption reads the shape an edit will take",
-        page.locator("#size-caption").inner_text() == "shape follows the image",
+        page.locator("#size-caption").inner_text() == "aspect ratio follows the image",
         page.locator("#size-caption").inner_text(),
     )
     # The pick is put back, so the size the later runs submit is the one they
@@ -517,7 +519,7 @@ with sync_playwright() as playwright:
     page.dispatch_event("#prompt", "input")
     # A Look chip names itself on its row, marks itself, and reaches the model in
     # the prompt. A pick closes the row, so the mark is read by opening it again.
-    page.click("details:has(summary:has-text('Look')) summary")
+    open_style_section(page)
     camera = page.get_by_role("button", name=re.compile("^Camera"))
     shut = camera.get_attribute("aria-expanded")
     camera.click()
@@ -575,7 +577,7 @@ with sync_playwright() as playwright:
     check(
         "the tail names itself as the sentence the run adds after your words",
         page.locator("#look-adds q").count() == 1
-        and "adds this after your words" in page.locator("#look-adds .caption").inner_text().lower(),
+        and "adds this text after your prompt" in page.locator("#look-adds .caption").inner_text().lower(),
         page.locator("#look-adds").inner_text().replace("\n", " ")[:80],
     )
     # The Rewrite button is dead while there is nothing to write out, and it says why only
@@ -584,7 +586,7 @@ with sync_playwright() as playwright:
     # Look added after them. Read through the section's own id, since the note carries none.
     check(
         "the Look note says the rewriter writes your words and leaves the Look to the run",
-        "writes out the words you typed, and the words in the marked areas" in page.locator("#look").inner_text(),
+        "Rewrite expands your prompt and the instructions for marked areas" in page.locator("#look").inner_text(),
         page.locator("#look").inner_text().replace("\n", " ")[-90:],
     )
 
@@ -792,7 +794,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(300)
     check(
         "the rewrite button is locked while the rewriter gets ready",
-        rewrite_verb(page) == "Rewrite" and page.locator("#rewrite-toggle").is_disabled(),
+        rewrite_verb(page) == "Preparing…" and page.locator("#rewrite-toggle").is_disabled(),
         f"{rewrite_verb(page)!r}, disabled {page.locator('#rewrite-toggle').is_disabled()}",
     )
     page.wait_for_function(VERB_IS_CANCEL, timeout=30000)
@@ -966,7 +968,7 @@ with sync_playwright() as playwright:
     entries = page.locator("#guide-sheet dt").all_inner_texts()
     check(
         "the guide names the Look and the Rewrite, and says what each one leaves alone",
-        "A Look" in entries and "Rewrite" in entries,
+        "Look" in entries and "Rewrite" in entries,
         ", ".join(entries),
     )
     page.keyboard.press("Escape")
@@ -1041,9 +1043,9 @@ with sync_playwright() as playwright:
     # the mode takes one.
     check(
         "a thumbnail carries its own name, and a tile offers one more",
-        page.locator("#thumbs .thumb").first.get_attribute("title") == "reference-a.png"
+        "reference-a.png" in page.locator("#thumbs .thumb").first.inner_text()
         and page.locator("#thumbs .add-tile").count() == 1,
-        str(page.locator("#thumbs .thumb").first.get_attribute("title")),
+        page.locator("#thumbs .thumb").first.inner_text(),
     )
     page.set_input_files("#reference", str(SCRATCH / "reference-b.png"))
     page.get_by_role("img", name="reference-b.png").wait_for(state="visible", timeout=10000)
@@ -1249,8 +1251,8 @@ with sync_playwright() as playwright:
     )
     check(
         "the note by the rows says what the mark does, and what it does not",
-        "whole marked area is repainted" in page.inner_text("#region-note")
-        and "reach past it" in page.inner_text("#region-note"),
+        "Fill the area you want to change" in page.inner_text("#region-note")
+        and "extend beyond the mark" in page.inner_text("#region-note"),
         page.inner_text("#region-note"),
     )
     # A rewrite of a row answers with a paragraph, not a phrase, so the field has to hold one:
@@ -1336,7 +1338,7 @@ with sync_playwright() as playwright:
     dropped = page.locator("#toasts").inner_text()
     check(
         "showing another frame drops the mark and says so",
-        "The mark went with its picture." in dropped and page.get_by_label("Mark the area to change").count() == 0,
+        "Studio cleared the previous marks." in dropped and page.get_by_label("Mark the area to change").count() == 0,
         dropped.strip()[:80],
     )
     # A toast says what happened and then gets out of the way when asked.
@@ -1344,7 +1346,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     check(
         "a toast can be dismissed",
-        "The mark went with its picture." not in page.locator("#toasts").inner_text(),
+        "Studio cleared the previous marks." not in page.locator("#toasts").inner_text(),
         page.locator("#toasts").inner_text().strip()[:60],
     )
 
@@ -1492,7 +1494,7 @@ with sync_playwright() as playwright:
     edit_rows = [name.text_content() for name in page.locator("#look-rows .look-row .label").all()]
     check(
         "the edit form offers the six finishing rows",
-        edit_rows == ["Exposure", "White balance", "Grade", "Lens", "Finish", "Retouch"],
+        edit_rows == ["Exposure", "White balance", "Color grading", "Lens", "Finish", "Retouch"],
         ", ".join(edit_rows),
     )
 
@@ -1531,49 +1533,26 @@ with sync_playwright() as playwright:
         page.get_by_label("Compare before and after").count() == 1,
     )
 
-    # Full screen is the stage at the size of the screen, and the control itself
-    # says which way it goes.
-    entered = False
-    page.get_by_role("button", name="Full screen (F)").click()
-    leave = page.get_by_role("button", name="Exit full screen (F)")
-    try:
-        leave.wait_for(state="visible", timeout=10000)
-        entered = True
-        leave.click()
-        page.wait_for_function("() => !document.fullscreenElement", timeout=10000)
-    except Exception:
-        pass
-    back = page.get_by_role("button", name="Full screen (F)")
-    back.wait_for(state="visible", timeout=10000)
+    # Zoom opens an inspection sheet. The image preview keeps the page's normal layout.
+    zoom = page.locator("#stage-bar .image-zoom-toggle")
     check(
-        "full screen takes the stage and gives it back",
-        entered and back.is_visible(),
-        f"entered: {entered}, back: {back.count()} controls",
+        "the image preview offers Zoom without a full screen action",
+        zoom.is_visible()
+        and page.locator("#stage-bar").get_by_role("button", name=re.compile("full screen", re.I)).count() == 0,
     )
-    # A browser may refuse full screen. The refusal has to be reported, or the
-    # control looks dead. The stub always allows it, so the browser's own request
-    # is made to fail underneath the page.
-    before = page.locator("#toasts").inner_text()
-    page.evaluate("""() => {
-      window.__realFull = Element.prototype.requestFullscreen;
-      Element.prototype.requestFullscreen = function () {
-        return Promise.reject(new Error('the browser refused'));
-      };
-    }""")
-    page.get_by_role("button", name="Full screen (F)").click()
-    page.wait_for_timeout(1200)
+    page.locator("#canvas").press("f")
+    page.wait_for_timeout(150)
+    zoom.click()
+    viewer = page.locator("#image-viewer")
+    viewer.wait_for(state="visible", timeout=10000)
+    viewer.locator(".image-viewer-viewport").press("f")
+    stayed_in_page = not page.evaluate("Boolean(document.fullscreenElement)")
+    viewer.locator(".close").click()
+    viewer.wait_for(state="hidden", timeout=10000)
     check(
-        "a browser that refuses full screen is reported instead of leaving the control dead",
-        is_new_message(page, before, "Full screen failed"),
-        page.locator("#toasts").inner_text().replace("\n", " ")[:100],
+        "F keeps image inspection in the page and Close restores Zoom focus",
+        stayed_in_page and zoom.evaluate("button => button === document.activeElement"),
     )
-    page.evaluate("() => { Element.prototype.requestFullscreen = window.__realFull; }")
-    # A browser that grants the request leaves the stage filling the screen, and
-    # every check after this one would be read from there. The page goes back to
-    # the size it was found at, whichever way the request went.
-    if page.evaluate("() => Boolean(document.fullscreenElement)"):
-        page.evaluate("() => document.exitFullscreen()")
-        page.wait_for_function("() => !document.fullscreenElement", timeout=10000)
 
     # A cut caption is a control for the whole prompt: the caption is clamped to two
     # lines, so the rest of it opens over the print. The clamp is measured by a
@@ -1586,7 +1565,7 @@ with sync_playwright() as playwright:
         f"{caption.count()} prompt controls",
     )
     caption.click()
-    sheet = page.get_by_role("dialog", name="The whole prompt")
+    sheet = page.get_by_role("dialog", name="Full prompt")
     sheet.wait_for(state="visible", timeout=10000)
     check(
         "the sheet shows the whole of the prompt behind the caption",
@@ -1597,7 +1576,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     check(
         "closing the sheet gives the caption back",
-        page.get_by_role("dialog", name="The whole prompt").count() == 0
+        page.get_by_role("dialog", name="Full prompt").count() == 0
         and caption.get_attribute("aria-expanded") == "false",
     )
     # The caption is a control for the keyboard too, and Escape closes the sheet
@@ -1608,7 +1587,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(250)
     check(
         "the caption opens the sheet from the keyboard and Escape closes it",
-        page.get_by_role("dialog", name="The whole prompt").count() == 0
+        page.get_by_role("dialog", name="Full prompt").count() == 0
         and caption.get_attribute("aria-expanded") == "false",
     )
 
@@ -1639,8 +1618,8 @@ with sync_playwright() as playwright:
     # The badge on an edit names the frame it was made from, and that name is a way
     # back to it. The way back is read from what the stage says once it arrives,
     # not from a file name, which describes the prompt and creation time.
-    source_link = page.get_by_role("button", name=re.compile("^Show frame "))
-    wanted = source_link.get_attribute("aria-label").replace("Show frame ", "")
+    source_link = page.get_by_role("button", name=re.compile("^Show image "))
+    wanted = source_link.get_attribute("aria-label").replace("Show image ", "")
     check("an edit names the frame it was made from", source_link.count() == 1, wanted)
     # The frame's own text now starts with its number and carries the mode badge after it.
     named = page.get_by_role("button", name=FRAME).filter(has_text=re.compile(rf"^{re.escape(str(wanted))}"))
@@ -1769,7 +1748,7 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Reuse prompt").click()
     page.wait_for_timeout(250)
-    page.click("details:has(summary:has-text('Look')) summary")
+    open_style_section(page)
     camera = page.get_by_role("button", name=re.compile("^Camera"))
     check(
         "Reuse prompt hands back the words and the Look the image was made with",
@@ -2075,7 +2054,7 @@ with sync_playwright() as playwright:
     # assistive technology on purpose, so it is read as text of the row it is in.
     check(
         "each model says what it is before you switch to it",
-        "Full quality" in tab.get_by_role("menuitemradio", name=FIRST, exact=True).inner_text()
+        "Precise image edits and readable text" in tab.get_by_role("menuitemradio", name=FIRST, exact=True).inner_text()
         and "six steps" in tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
         tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
     )
@@ -2090,10 +2069,8 @@ with sync_playwright() as playwright:
     # open at a time, so each is read on its own. The Medium row carries all six the
     # sample ran, and the Camera row carries five of its six: Deep focus is the one
     # that did not visibly work. That name is in the regex, so its absence is a check
-    # that fails rather than one that silently passes. The rows sit behind a summary,
-    # and a closed details is out of the accessibility tree, so the sheet is opened
-    # the way a reader opens it.
-    tab.click("#look summary")
+    # that fails rather than one that silently passes.
+    open_style_section(tab)
     tab.wait_for_timeout(300)
     tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
     tab.wait_for_timeout(250)
@@ -2372,7 +2349,7 @@ with sync_playwright() as playwright:
     watch_rewrites(written, rewrites_here)
     watch_runs(written, runs_here)
     written.goto(URL)
-    written.click("details:has(summary:has-text('Look')) summary")
+    open_style_section(written)
     written.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
     written.locator("#look-rows").get_by_role("menuitemradio", name="Watercolor", exact=True).click()
     watercolour = "Watercolor painting on textured paper, soft washes, visible brush edges."
@@ -2456,7 +2433,7 @@ with sync_playwright() as playwright:
     check(
         "the card's Edit this is locked while the rewriter writes",
         locked.is_disabled(),
-        f"disabled {locked.is_disabled()}, title {locked.get_attribute('title')!r}",
+        f"disabled {locked.is_disabled()}, help {visible_description(locked)!r}",
     )
     # Rewrites use the same server-owned status as generation, without a second
     # local readout or an unmeasured estimate for the whole UI rewrite queue.
@@ -2488,7 +2465,7 @@ with sync_playwright() as playwright:
     check(
         "the card's own menu waits for the press too",
         written.get_by_role("button", name="More actions").first.is_disabled(),
-        written.get_by_role("button", name="More actions").first.get_attribute("title"),
+        written.locator("#panel-notice").inner_text(),
     )
     written.wait_for_function(
         "() => document.querySelector('[aria-label=\"What changes in the red area?\"]')"
@@ -2499,7 +2476,7 @@ with sync_playwright() as playwright:
     check(
         "and the card's Edit this comes back when the press ends",
         written.get_by_role("button", name="Edit this").is_enabled(),
-        written.get_by_role("button", name="Edit this").get_attribute("title"),
+        written.get_by_role("button", name="Edit this").inner_text(),
     )
     pressed = [item["prompt"] for item in rewrites_here[before:]]
     check(
@@ -2522,7 +2499,7 @@ with sync_playwright() as playwright:
     check(
         "a press is offered when only the marked areas carry words",
         written.locator("#rewrite-toggle").is_enabled(),
-        written.locator("#rewrite-toggle").get_attribute("title"),
+        visible_description(written.locator("#rewrite-toggle")),
     )
 
     # A cancel stops the press where it is: the areas already written keep their answer, and the
@@ -2599,7 +2576,8 @@ with sync_playwright() as playwright:
     batched.wait_for_timeout(400)
     check(
         "the edit form offers what several images may mean, and says which way it is set",
-        batched.locator("#each-choice").is_visible() and "single picture" in batched.locator("#each-note").inner_text(),
+        batched.locator("#each-choice").is_visible()
+        and "Use all reference images together" in batched.locator("#each-note").inner_text(),
         batched.locator("#each-note").inner_text(),
     )
     batched.locator("label[for=each-each]").click()
@@ -2634,7 +2612,7 @@ with sync_playwright() as playwright:
     check(
         "a batch offers the press, and the note says what it writes",
         batched.locator("#rewrite-toggle").is_enabled()
-        and "a row adds what that one needs" in batched.locator("#each-note").inner_text(),
+        and "each image's changes" in batched.locator("#each-note").inner_text(),
         f"enabled {batched.locator('#rewrite-toggle').is_enabled()}, "
         f"note {batched.locator('#each-note').inner_text()[-70:]!r}",
     )
@@ -2643,7 +2621,7 @@ with sync_playwright() as playwright:
     check(
         "composed, the press is offered again",
         batched.locator("#rewrite-toggle").is_enabled(),
-        batched.locator("#rewrite-toggle").get_attribute("title"),
+        visible_description(batched.locator("#rewrite-toggle")),
     )
     batched.locator("label[for=each-each]").click()
     batched.wait_for_timeout(300)
@@ -2764,8 +2742,8 @@ with sync_playwright() as playwright:
     check(
         "the press is offered for a batch, and says what it writes",
         per_image.locator("#rewrite-toggle").is_enabled()
-        and "each image" in (per_image.locator("#rewrite-toggle").get_attribute("title") or ""),
-        per_image.locator("#rewrite-toggle").get_attribute("title"),
+        and "each image" in visible_description(per_image.locator("#rewrite-toggle")),
+        visible_description(per_image.locator("#rewrite-toggle")),
     )
     asked = []
     watch_rewrites(per_image, asked)
@@ -2953,7 +2931,7 @@ with sync_playwright() as playwright:
     # refused one reads them as one word. This is the check that catches a text
     # node added between the two, which no check with the stylesheet in place
     # can see.
-    plain.click("#look summary")
+    open_style_section(plain)
     plain.locator("#look-rows").get_by_role("button", name=re.compile("^Light")).click()
     plain.locator("#look-rows").get_by_role("menuitemradio", name="Overcast", exact=True).click()
     check(
@@ -2981,7 +2959,10 @@ with sync_playwright() as playwright:
     wanted = ["reference-a.png", "reference-b.png", "reference-a.png", "reference-b.png"]
     picked_in_order.set_input_files("#reference", [str(SCRATCH / name) for name in wanted])
     picked_in_order.wait_for_function("() => document.querySelectorAll('#thumbs .thumb').length === 4", timeout=10000)
-    held = picked_in_order.eval_on_selector_all("#thumbs .thumb", "els => els.map(el => el.title)")
+    held = picked_in_order.eval_on_selector_all(
+        "#thumbs .thumb",
+        "elements => elements.map(element => {const name = element.querySelector('img').alt; return element.innerText.includes(name) ? name : '';})",
+    )
     check(
         "several files picked in one go land in the order they were picked",
         held == wanted,

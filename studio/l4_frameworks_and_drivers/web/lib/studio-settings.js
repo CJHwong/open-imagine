@@ -4,7 +4,7 @@ import "./locale.js";
 import { closeMenus } from "../components/popup-menu.js";
 import { t } from "./i18n.js";
 
-const tr = (key) => t("settings." + key);
+const tr = (key, values) => t("settings." + key, values);
 const trigger = document.getElementById("theme-toggle");
 const dialog = document.createElement("dialog");
 dialog.id = "settings-dialog";
@@ -23,7 +23,7 @@ dialog.innerHTML = `<header class="settings-header"><div><span class="settings-e
 <section role="tabpanel" id="settings-panel-appearance" aria-labelledby="settings-tab-appearance" hidden><div class="settings-section-heading"><span class="settings-scope">${tr("browser")}</span><h3>${tr("appearanceTitle")}</h3><p>${tr("appearanceNote")}</p></div><h4>${tr("theme")}</h4><div class="settings-theme-grid" role="radiogroup" aria-label="${tr("theme")}"></div><div class="settings-card"><div><h4>${tr("language")}</h4><p>${tr("languageNote")}</p></div><div class="settings-languages" role="radiogroup" aria-label="${tr("language")}"></div></div></section>
 <section role="tabpanel" id="settings-panel-generation" aria-labelledby="settings-tab-generation" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("generationTitle")}</h3><p>${tr("generationNote")}</p></div><div class="settings-card"><div><h4>${tr("memoryTitle")}</h4><p>${t("settings.memory.help")}</p></div><button type="button" id="require-memory-estimate-toggle" role="switch" aria-checked="true" aria-label="${t("settings.memory.require")}" disabled><span></span></button></div><p class="settings-note">${tr("memoryNote")}</p><div id="settings-reset" class="settings-tools"></div></section>
 <section role="tabpanel" id="settings-panel-library" aria-labelledby="settings-tab-library" hidden><div class="settings-section-heading"><span class="settings-scope">${tr("browser")}</span><h3>${tr("libraryTitle")}</h3><p>${tr("libraryNote")}</p></div><div id="settings-library-controls" class="settings-tools"></div></section>
-<section role="tabpanel" id="settings-panel-storage" aria-labelledby="settings-tab-storage" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("storageTitle")}</h3><p>${tr("storageNote")}</p></div><div class="settings-storage-summary"><div><span>${tr("diskUsage")}</span><strong id="settings-storage-total">—</strong></div><button type="button" id="settings-storage-refresh">${tr("refresh")}</button></div><div id="settings-storage-models"></div><label class="settings-runtime"><input type="checkbox" id="settings-include-runtime">${tr("includeRuntime")}</label><p class="settings-note">${tr("protectedNote")}</p><button type="button" class="settings-primary" id="settings-review" disabled>${tr("review")}</button><div id="settings-cleanup-preview" hidden><h4>${tr("reviewTitle")}</h4><div id="settings-cleanup-items"></div><p class="settings-note">${tr("reinstallNote")}</p><button type="button" class="settings-danger" id="settings-remove">${tr("remove")}</button><button type="button" id="settings-back">${tr("back")}</button></div></section>
+<section role="tabpanel" id="settings-panel-storage" aria-labelledby="settings-tab-storage" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("storageTitle")}</h3><p>${tr("storageNote")}</p></div><div class="settings-storage-summary"><div><span>${tr("diskUsage")}</span><strong id="settings-storage-total">${tr("loading")}</strong></div><button type="button" id="settings-storage-refresh">${tr("refresh")}</button></div><div id="settings-storage-models"></div><label class="settings-runtime"><input type="checkbox" id="settings-include-runtime">${tr("includeRuntime")}</label><p class="settings-note">${tr("protectedNote")}</p><button type="button" class="settings-primary" id="settings-review" disabled>${tr("review")}</button><div id="settings-cleanup-preview" hidden><h4>${tr("reviewTitle")}</h4><div id="settings-cleanup-items"></div><p class="settings-note">${tr("reinstallNote")}</p><button type="button" class="settings-danger" id="settings-remove">${tr("remove")}</button><button type="button" id="settings-back">${tr("back")}</button></div></section>
 <p id="settings-status" role="status" aria-live="polite"></p><p id="settings-error" role="alert" hidden></p></div></div>
 <footer class="settings-footer"><span>${tr("footer")}</span><div id="settings-api"></div><button type="button" id="settings-done">${tr("done")}</button></footer>`;
 document.body.append(dialog);
@@ -79,7 +79,7 @@ let section = "appearance",
 const selected = new Set();
 function notice(message, error = false) {
   find("#settings-status").textContent = error ? "" : message;
-  find("#settings-error").textContent = error ? message : "";
+  find("#settings-error").textContent = error ? tr("requestError", {message}) : "";
   find("#settings-error").hidden = !error;
 }
 function selectSection(id, focus = false) {
@@ -300,11 +300,10 @@ async function refreshStorage() {
         title = document.createElement("strong"),
         detail = document.createElement("small");
       title.textContent = model.name;
-      detail.textContent =
-        tr("workspace." + model.workspace) +
-        (assets.some((asset) => asset.models.length > 1)
-          ? " · " + tr("shared")
-          : "");
+      const workspace = tr("workspace." + model.workspace);
+      detail.textContent = assets.some((asset) => asset.models.length > 1)
+        ? tr("sharedWorkspace", {workspace, shared: tr("shared")})
+        : workspace;
       copy.append(title, detail);
       const size = document.createElement("span");
       size.className = "settings-model-size";
@@ -346,26 +345,19 @@ find("#settings-review").addEventListener("click", async () => {
       for (const asset of items) {
         const row = document.createElement("p");
         row.className = "settings-plan-row";
-        row.textContent =
-          tr(action === "remove" ? "willRemove" : "willRetain") +
-          " · " +
-          asset.models
+        const models = asset.models
             .map(
               (id) =>
                 inventory.models.find((model) => model.id === id)?.name || id,
             )
-            .join(", ") +
-          " · " +
-          asset.label +
-          " (" +
-          asset.location +
-          ") · " +
-          bytes(asset.bytes) +
-          (asset.reason ? " · " + tr("reason." + asset.reason) : "");
+            .join(", ");
+        row.textContent = tr("planAsset", {
+          action: tr(action === "remove" ? "willRemove" : "willRetain"),
+          models, asset: asset.label, location: asset.location, size: bytes(asset.bytes),
+        }) + (asset.reason ? " " + tr("planReason", {reason: tr("reason." + asset.reason)}) : "");
         list.append(row);
       }
-    find("#settings-remove").textContent =
-      tr("remove") + " · " + bytes(plan.bytes);
+    find("#settings-remove").textContent = tr("removeSized", {action: tr("remove"), size: bytes(plan.bytes)});
     find("#settings-remove").disabled = !plan.remove.length;
     find("#settings-cleanup-preview").hidden = false;
     button.hidden = true;

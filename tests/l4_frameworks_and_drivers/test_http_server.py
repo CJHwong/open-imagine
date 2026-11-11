@@ -1,6 +1,7 @@
 """The HTTP routes: a form goes to the controller, the answer goes to the presenter."""
 
 import base64
+import io
 import json
 import threading
 import urllib.error
@@ -11,6 +12,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from PIL import Image
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, StudioError
 from studio.l1_entities.lora import Lora
@@ -89,10 +91,64 @@ def call(server, path, body=None, method=None, **headers):
         return error.code, error.headers["Content-Type"], error.read().decode()
 
 
+def image_import_call(server, body, **headers):
+    url = f"http://127.0.0.1:{server.server_address[1]}/image/normalize"
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, response.headers["Content-Type"], response.read()
+    except urllib.error.HTTPError as error:
+        return error.code, error.headers["Content-Type"], error.read()
+
+
+def test_the_image_import_route_normalizes_image_bytes_without_an_operation(served):
+    contents = io.BytesIO()
+    Image.new("RGB", (32, 24), (200, 30, 20)).save(contents, format="PNG")
+
+    status, content_type, output = image_import_call(served[1], contents.getvalue())
+
+    assert (status, content_type) == (200, "image/png")
+    with Image.open(io.BytesIO(output)) as image:
+        assert image.size == (32, 24)
+        assert image.getpixel((16, 12)) == (200, 30, 20)
+    assert json.loads(call(served[1], "/api/v1/state")[2])["active"] is None
+
+
+@pytest.mark.parametrize("length", ["0", "67108865", "invalid", "-1"])
+def test_the_image_import_route_bounds_the_body_before_reading(served, length):
+    status, content_type, body = image_import_call(served[1], b"", **{"Content-Length": length})
+
+    assert status == 400 and content_type == "application/json; charset=utf-8"
+    assert "64 MB" in json.loads(body)["error"]
+
+
+def test_the_image_import_route_refuses_a_private_key(served):
+    status, content_type, body = image_import_call(served[1], b"synthetic", **{"X-Studio-Private-Key": "test-key"})
+
+    assert status == 400 and content_type == "application/json; charset=utf-8"
+    assert "works only with POST /api/v1/operations" in json.loads(body)["error"]
+
+
+def test_the_image_import_route_refuses_foreign_origins(served):
+    status, content_type, body = image_import_call(served[1], b"synthetic", Origin="https://foreign.invalid")
+
+    assert (status, content_type, body) == (403, "text/plain", b"forbidden")
+
+
+def test_the_image_import_route_reports_decode_failure_without_echoing_bytes(served):
+    status, content_type, body = image_import_call(served[1], b"synthetic invalid image")
+
+    assert status == 400 and content_type == "application/json; charset=utf-8"
+    assert json.loads(body) == {"error": "Could not read that image."}
+
+
 def test_the_root_route_serves_the_page(served):
     status, content_type, body = call(served[1], "/")
     assert status == 200 and content_type == "text/html; charset=utf-8"
-    assert "<title>Fake</title>" in body and '<input type="hidden" name="backend" value="fake">' in body
+    assert "<title>Open Imagine</title>" in body
+    assert '<input type="hidden" name="backend" value="fake">' in body
+    studio, _ = json.JSONDecoder().raw_decode(body.split("const STUDIO = ", 1)[1])
+    assert (studio["backend"]["id"], studio["backend"]["name"]) == ("fake", "Fake")
 
 
 def test_every_response_forbids_a_stale_copy(served):
@@ -472,7 +528,11 @@ def test_the_rewrite_cancel_route_answers_with_no_content(served):
 def test_the_backend_route_switches_the_page_to_the_other_backend(served):
     status, _, body = call(served[1], "/backend", b"backend=other")
     assert (status, body) == (200, "")
-    assert "<title>Other</title>" in call(served[1], "/")[2]
+    body = call(served[1], "/")[2]
+    assert "<title>Open Imagine</title>" in body
+    assert '<input type="hidden" name="backend" value="other">' in body
+    studio, _ = json.JSONDecoder().raw_decode(body.split("const STUDIO = ", 1)[1])
+    assert (studio["backend"]["id"], studio["backend"]["name"]) == ("other", "Other")
 
 
 def test_the_rewrite_route_answers_as_json(served):

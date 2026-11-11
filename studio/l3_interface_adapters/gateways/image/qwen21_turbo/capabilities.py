@@ -94,5 +94,5 @@ def qwen21_turbo_capabilities(badge: str = "bf16") -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Official 8-step checkpoint. Its own sampling schedule.",
+        description="Fast image generation and editing in eight steps.",
     )

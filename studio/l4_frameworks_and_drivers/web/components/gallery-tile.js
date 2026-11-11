@@ -7,7 +7,7 @@ import { pencilLoop } from './gallery-marker.js';
 
 class GalleryTile extends LitElement {
   static properties = {
-    label: { type: String }, title: { type: String }, extra: { type: String },
+    label: { type: String }, extra: { type: String },
     stillClass: { type: String }, selected: { type: Boolean }, pending: { type: Boolean },
     disabled: { type: Boolean }, width: { attribute: false }, content: { attribute: false },
     footer: { attribute: false }, mark: { attribute: false }, onPick: { attribute: false },
@@ -31,7 +31,7 @@ class GalleryTile extends LitElement {
     return html`<button type="button" class=${classes.join(' ')}
       style=${this.width ? 'width:' + this.width + 'px' : nothing}
       ?disabled=${this.disabled} aria-pressed=${String(this.selected)}
-      aria-label=${this.label || nothing} title=${this.title || nothing}
+      aria-label=${this.label || nothing}
       data-action=${this.action || nothing} data-clip-id=${this.clipId ?? nothing}
       data-take-id=${this.takeId ?? nothing} data-segment-id=${this.segmentId ?? nothing}
       data-song-id=${this.songId ?? nothing}

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>__NAME__</title>
+<title>Open Imagine</title>
 <script src="/page/lib/identity.js"></script>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"> <rect x="18" y="8" width="92" height="112" rx="12" fill="%234d3e3b"/> <rect x="23" y="13" width="82" height="102" rx="8" fill="%23d2cbc4"/> <rect x="30" y="20" width="68" height="88" fill="%23f7e7d7"/> <rect x="35" y="25" width="58" height="42" fill="%23c80600"/> <rect x="35" y="67" width="58" height="20" fill="%236b0100"/> <circle cx="64" cy="44" r="8" fill="%23fd3800"/> </svg>'>
 <script>
@@ -71,8 +71,8 @@
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.4" fill="currentColor"/><circle cx="12" cy="12" r="1.4" fill="currentColor"/><circle cx="18" cy="12" r="1.4" fill="currentColor"/></symbol>
   <symbol id="i-grip" viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5"/></symbol>
   <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9.5h16M10 9.5V20"/></symbol>
-  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
-  <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 6 6M7 10h6M10 7v6"/></symbol>
+  <symbol id="i-compare" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 2v20M3 16l4-5 5 5M15 8h3"/></symbol>
   <symbol id="i-caret" viewBox="0 0 24 24"><path d="M7 10l5 5 5-5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-aperture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M14.3 3.3L8.6 13.2M20.6 9.5H9.2M17.7 18.2L12 8.4M9.7 20.7l5.7-9.9M3.4 14.5h11.4M6.3 5.8L12 15.6"/></symbol>
@@ -86,11 +86,12 @@
   <div class="work">
     <header class="topbar">
       <div class="workspace-picker menu-anchor">
-        <button type="button" id="workspace-toggle" class="icon-btn" aria-label="Workspace" title="Workspace"
+        <button type="button" id="workspace-toggle" class="icon-btn labeled-action" aria-label="Workspace"
           aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu"
-          data-i18n-attr='{"aria-label":"nav.workspace","title":"nav.workspace"}'>
-          <svg class="icon workspace-icon" aria-hidden="true"><use href="#i-image"/></svg>
-          <svg class="icon workspace-caret" aria-hidden="true"><use href="#i-caret"/></svg>
+          data-i18n-attr='{"aria-label":"nav.workspace"}'>
+          <span class="workspace-symbols"><svg class="icon workspace-icon" aria-hidden="true"><use href="#i-image"/></svg>
+          <svg class="icon workspace-caret" aria-hidden="true"><use href="#i-caret"/></svg></span>
+          <span class="control-label" id="workspace-caption" data-i18n="tab.image">Image</span>
         </button>
         <div class="menu" id="workspace-menu" role="menu" hidden>
           <button type="button" data-workspace="image" role="menuitemradio" aria-checked="true"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="item-text" data-i18n="tab.image">Image</span><svg class="icon workspace-check" aria-hidden="true"><use href="#i-check"/></svg></button>
@@ -102,7 +103,7 @@
       <div class="dial">
         <div class="menu-anchor">
           <h1><button type="button" id="backend-toggle" aria-haspopup="menu" aria-expanded="false"
-            aria-controls="backend-menu" disabled><span class="name">__NAME__</span><svg class="icon"><use href="#i-caret"/></svg></button></h1>
+            aria-controls="backend-menu" aria-busy="true" disabled><span class="name" data-i18n="page.backend.loading">Loading model…</span><svg class="icon"><use href="#i-caret"/></svg></button></h1>
           <div class="menu" id="backend-menu" role="menu" hidden></div>
         </div>
       </div>
@@ -114,13 +115,13 @@
         <button type="button" id="media-music-mode" aria-pressed="false" hidden data-i18n="tab.music">Music</button>
       </nav>
       <div class="readout">
-        <button type="button" id="guide-toggle" class="icon-btn" aria-expanded="false"
-          title="How to use this studio" aria-label="How to use this studio"
-          data-i18n-attr='{"title":"guide.toggle","aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg></button>
+        <button type="button" id="guide-toggle" class="icon-btn labeled-action" aria-expanded="false"
+          aria-label="How to use this studio"
+          data-i18n-attr='{"aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg><span class="control-label" data-i18n="ui.action.help">Help</span></button>
         <div class="menu-anchor">
-        <button type="button" id="theme-toggle" class="icon-btn" aria-haspopup="dialog" aria-expanded="false"
-          aria-controls="settings-dialog" title="Settings" aria-label="Settings"
-          data-i18n-attr='{"title":"settings.toggle","aria-label":"settings.toggle"}'><svg class="icon"><use href="#i-aperture"/></svg></button>
+        <button type="button" id="theme-toggle" class="icon-btn labeled-action" aria-haspopup="dialog" aria-expanded="false"
+          aria-controls="settings-dialog" aria-label="Settings"
+          data-i18n-attr='{"aria-label":"settings.toggle"}'><svg class="icon"><use href="#i-aperture"/></svg><span class="control-label" data-i18n="ui.action.settings">Settings</span></button>
           <div class="menu" id="theme-menu" role="menu" hidden></div>
         </div>
       </div>
@@ -167,11 +168,12 @@
         <gallery-browser id="image-gallery-browser" workspace="image"></gallery-browser>
         <span class="strip-actions">
           <button type="button" class="text-btn" id="download-gallery" data-i18n="page.gallery.downloadAll"
-            data-i18n-attr='{"title":"gallery.downloadAll.title"}'>Download all</button>
+            aria-describedby="image-gallery-help">Download all</button>
           <button type="button" class="text-btn" id="clear-gallery" data-i18n="page.gallery.clearAll"
-            data-i18n-attr='{"title":"gallery.clearAll.title"}'>Clear all</button>
+            aria-describedby="image-gallery-help">Clear all</button>
         </span>
       </div>
+      <p class="control-help gallery-action-help" id="image-gallery-help"><span data-i18n="gallery.downloadAll.title">Save every file in this shelf to this computer, one by one. Settings are not included.</span> <span data-i18n="gallery.clearAll.title">Delete every file in this shelf. Studio asks before it deletes.</span></p>
       <!-- The frames are components/image-strip.js, which draws them from the
            store. The head above them stays the page's: it holds the two buttons
            and hangs their listeners while the markup is parsed. -->
@@ -191,18 +193,20 @@
 
   <aside>
     <form id="form" class="mode-generate" data-media-mode="image" hx-post="/generate" hx-target="#incoming" hx-swap="beforeend">
+      <p id="panel-notice" class="control-help form-notice" role="status" hidden></p>
       <input type="hidden" name="backend" value="__BACKEND__">
       <div class="controls">
         <fieldset id="music-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="voice-controls" class="mode-controls" hidden disabled></fieldset>
         <fieldset id="image-controls" class="mode-controls">
-        <div class="modes" role="radiogroup" aria-label="Image mode"
+        <div class="modes" role="radiogroup" aria-label="Image mode" aria-describedby="image-mode-help"
           data-i18n-attr='{"aria-label":"page.mode.image"}'>
           <input type="radio" name="mode" id="mode-generate" value="generate" checked>
           <label for="mode-generate"><svg class="icon"><use href="#i-sparkle"/></svg><span data-i18n="page.mode.generate">Generate</span></label>
           <input type="radio" name="mode" id="mode-edit" value="edit">
           <label for="mode-edit"><svg class="icon"><use href="#i-brush"/></svg><span data-i18n="page.mode.edit">Edit</span></label>
         </div>
+        <p class="control-help" id="image-mode-help" hidden></p>
 
         <div class="field prompt-field">
           <div class="field-head">
@@ -210,18 +214,18 @@
             <div class="head-actions">
             <button type="button" class="pill" id="templates-toggle" aria-expanded="false"
               aria-controls="templates"><svg class="icon"><use href="#i-layout"/></svg><span data-i18n="page.templates.open">Templates</span></button>
-            <!-- The button carries the rewrite's three verbs, and `hidden` picks
+            <!-- The button carries the rewrite's four verbs, and `hidden` picks
                  one, never a rule in the cascade: a stylesheet that fails to load
-                 must not leave it named "RewriteCancelStopping…". The browser
+                 must not leave it named "RewritePreparing…CancelStopping…". The browser
                  checks reach this button by its id `#rewrite-toggle`, so the id
                  stays on the button and never on a label. -->
             <button type="button" class="pill" id="rewrite-toggle" hidden
-              title="Rewrite the prompt into a longer instruction before generating"
-              data-i18n-attr='{"title":"page.rewrite.hint"}'><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
+              aria-disabled="true" aria-describedby="rewrite-toggle-help"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-preparing" hidden data-i18n="page.rewrite.preparing">Preparing&hellip;</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
             </div>
           </div>
           <div class="menu" id="templates" role="menu" hidden></div>
           <textarea id="prompt" name="prompt" autofocus rows="4"></textarea>
+          <p class="control-help" id="rewrite-toggle-help" hidden></p>
           <look-adds class="look-tail" data-form="image" id="look-adds" hidden></look-adds>
         </div>
 
@@ -248,7 +252,7 @@
             data-i18n-attr='{"aria-label":"page.reference.add"}'>
             <reference-list></reference-list>
           </div>
-          <input id="reference" type="file" accept="image/*" hidden>
+          <input id="reference" type="file" accept="image/*,.heic,.heif" hidden>
           <button type="button" class="text-btn share-video" id="share-references-video" hidden
             data-i18n="page.reference.shareVideo">
             Share references with Video
@@ -292,7 +296,7 @@
           <select id="resolution" name="resolution" hidden></select>
         </div>
 
-        <details id="look">
+        <details id="look" open>
           <summary><span data-i18n="page.look.open">Look</span> <look-values class="values" data-form="image" id="look-values"></look-values></summary>
           <look-rows class="look" data-form="image" id="look-rows"></look-rows>
           <p class="look-note"><span class="generate-only" data-i18n="page.look.noteGenerate">Each pick adds a sentence after your prompt.</span><span class="edit-only" data-i18n="page.look.noteEdit">Each pick adds a sentence after your instruction, and a Retouch pick applies to the area you mark.</span> <span data-i18n="page.look.noteRewrite">The Rewrite button writes out the words you typed, and the words in the marked areas. The Look is added after them.</span></p>
@@ -367,14 +371,14 @@
                   aria-controls="video-templates"><svg class="icon"><use href="#i-layout"/></svg><span data-i18n="page.templates.open">Templates</span></button>
                 <!-- Video uses LTX's native enhancer, independently of the Image model. -->
                 <button type="button" class="pill" id="video-rewrite-toggle" hidden
-                  title="Rewrite the prompt into a longer instruction before generating"
-                  data-i18n-attr='{"title":"page.rewrite.hint"}'><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
+                  aria-disabled="true" aria-describedby="video-rewrite-toggle-help"><svg class="icon"><use href="#i-sparkle"/></svg><span class="rewrite-idle" data-i18n="page.rewrite.action">Rewrite</span><span class="rewrite-preparing" hidden data-i18n="page.rewrite.preparing">Preparing&hellip;</span><span class="rewrite-cancel" hidden data-i18n="page.action.cancel">Cancel</span><span class="rewrite-stopping" hidden data-i18n="page.action.stopping">Stopping&hellip;</span></button>
               </div>
             </div>
             <div class="menu" id="video-templates" role="menu" hidden></div>
             <div class="menu" id="video-adapters" role="menu" hidden></div>
             <textarea id="video-prompt" rows="4" placeholder="Describe how the subject should look and move."
               data-i18n-attr='{"placeholder":"page.video.promptPlaceholder"}'></textarea>
+            <p class="control-help" id="video-rewrite-toggle-help" hidden></p>
           </div>
           <!-- The sentence a Look pick adds to this prompt, under the box the way the image
                form draws its own. -->
@@ -432,7 +436,7 @@
               <div class="video-references" id="video-references"></div>
             </section>
             <input id="video-media-upload" type="file" multiple hidden
-              accept=".png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff">
+              accept=".png,.jpg,.jpeg,.webp,.gif,.heic,.heif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff">
           </section>
           <div class="video-output-options">
             <!-- The shape and the length are Generate's: an edit runs at the clip's own size
@@ -472,7 +476,7 @@
           <!-- The prompt aids this model was sampled on, in the image form's own control.
                Generate carries them; an edit's words are the effect's trigger, so the
                section has no rows there and the page hides it. -->
-          <details id="video-look">
+          <details id="video-look" open>
             <summary><span data-i18n="page.look.open">Look</span> <look-values class="values" data-form="video" id="video-look-values"></look-values></summary>
             <look-rows class="look" data-form="video" id="video-look-rows"></look-rows>
             <p class="look-note" data-i18n="page.look.noteGenerate">Each pick adds a sentence after your prompt.</p>
@@ -506,10 +510,8 @@
           <run-button id="run-labels" data-state="idle"></run-button>
           <span class="sub num" id="go-sub"></span>
         </button>
-        <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu"
-                title="Images to make. Each one uses the next seed."
-                data-i18n-attr='{"title":"page.count.title"}'>
-          <span class="num" id="count-shown">&times;1</span><svg class="icon"><use href="#i-caret"/></svg>
+        <button type="button" id="count-toggle" aria-haspopup="menu" aria-expanded="false" aria-controls="count-menu">
+          <span class="count-value"><span class="num" id="count-shown">&times;1</span><svg class="icon"><use href="#i-caret"/></svg></span>
         </button>
         <div class="menu up" id="count-menu" role="menu" hidden></div>
         </div>
@@ -804,6 +806,8 @@
     else stage?.openRunDetails?.();
   });
   const requestedWorkspace = new URLSearchParams(location.search).get('workspace');
+  const KEEP_KEY = 'studio-keep';
+  let keeping = readKeep();
   // The payload says which workspaces this studio offers, so all four tabs are
   // drawn before the first paint. A tab that waited for the first state poll
   // appeared late and moved the row under the pointer. A workspace the payload
@@ -821,7 +825,18 @@
     option.disabled = !WORKSPACES[name];
   }
   let guide;
-  let mediaMode = WORKSPACES[requestedWorkspace] ? requestedWorkspace : 'image';
+  function initialMediaMode() {
+    if (requestedWorkspace) return WORKSPACES[requestedWorkspace] === true ? requestedWorkspace : 'image';
+    if (!keeping) return 'image';
+    try {
+      const saved = localStorage.getItem('studio-draft-workspace');
+      return WORKSPACES[saved] === true ? saved : 'image';
+    } catch (error) {
+      console.warn('The saved workspace was not read:', error);
+      return 'image';
+    }
+  }
+  let mediaMode = initialMediaMode();
   let workspaceSwitchPending = false;
   let backendSwitchPending = false;
   let videoRunState = 'idle';
@@ -923,13 +938,9 @@
   // workspaces run different models, and a title naming only the image model read wrong
   // in the video one. A run's progress goes in front of it, so a run can be watched from
   // another tab.
-    function workspaceTitle() {
-    if (mediaMode === 'music') return t('page.title.withModel', {workspace: t('tab.music'), name: STUDIO.music?.backend?.name || 'YuE2'});
-    if (mediaMode === 'voice') return t('page.title.withModel', {workspace: t('tab.voice'), name: STUDIO.voice?.backend?.name || 'AuK Flash'});
-    const video = mediaMode === 'video';
-    const family = video ? STUDIO.video : STUDIO;
-    const model = family && family.backend ? family.backend.name : '';
-    const workspace = video ? t('tab.video') : t('tab.image');
+  function workspaceTitle() {
+    const model = activeModelFamily()?.backend?.name;
+    const workspace = t('tab.' + mediaMode);
     return model ? t('page.title.withModel', {workspace: workspace, name: model}) : workspace;
   }
 
@@ -948,9 +959,15 @@
     }
     if (mediaMode !== next) guide?.close(false);
     mediaMode = next;
+    const address = new URL(location.href);
+    address.searchParams.set('workspace', next);
+    history.replaceState(history.state, '', address);
     form.dataset.mediaMode = mediaMode;
     document.body.dataset.media = mediaMode;
     document.querySelector('#workspace-toggle .workspace-icon use').setAttribute('href', '#i-' + mediaMode);
+    const workspaceCaption = document.getElementById('workspace-caption');
+    workspaceCaption.dataset.i18n = 'tab.' + mediaMode;
+    workspaceCaption.textContent = t('tab.' + mediaMode);
     document.querySelectorAll('#workspace-menu [data-workspace]').forEach(function (button) {
       button.setAttribute('aria-checked', String(button.dataset.workspace === mediaMode));
     });
@@ -1041,7 +1058,8 @@
     return document.querySelector('music-studio .music-gallery');
   }
   let paneShelf = null;
-  const tabbed = window.matchMedia('(max-width: 900px)');
+  const tabbed = window.matchMedia('(max-width: 599px)');
+  const compactImageGallery = window.matchMedia('(min-width: 600px) and (max-width: 900px)');
   let narrowPane = 'preview';
   // A wider window has no panes: the layout is the full studio again, and the gallery is
   // the compact strip unless a person opens it.
@@ -1067,6 +1085,13 @@
     if (tabbed.matches) narrowPane = pane;
     else pane = 'preview';
     document.body.dataset.pane = pane;
+    if (mediaMode === 'image' && compactImageGallery.matches && pane === 'preview') {
+      const browser = activeBrowser();
+      if (browser?.expanded) {
+        browser.expanded = false;
+        browser.remember();
+      }
+    }
     for (const button of paneSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
     }
@@ -1212,7 +1237,7 @@
   // rather than `image/*,audio/*`: a video container carries an audio track, so an audio
   // wildcard also matches a clip, and the panel then lists the mp4s in a picker that
   // Generate opened. Extensions are matched one by one, so a clip cannot be offered here.
-  const GENERATE_MEDIA = '.png,.jpg,.jpeg,.webp,.gif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff';
+  const GENERATE_MEDIA = '.png,.jpg,.jpeg,.webp,.gif,.heic,.heif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff';
   const EDIT_MEDIA = '.mp4,.m4v,.mov,.webm,.ogv';
 
   function syncVideoMode() {
@@ -1286,7 +1311,7 @@
     // Generate reads images and a track, Edit reads a clip. The chooser offers only what the
     // mode reads. A drop and a paste never pass through this filter, so the component still
     // reads each file's own type and refuses the wrong one.
-    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA + (mode.max_references ? ',.png,.jpg,.jpeg,.webp' : '') : GENERATE_MEDIA;
+    mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA + (mode.max_references ? ',.png,.jpg,.jpeg,.webp,.heic,.heif' : '') : GENERATE_MEDIA;
     mediaUpload.multiple = !mode.needs_clip || mode.max_references > 0;
     // Edit's block is the image form's block, word for word: one labelled slot, a zone that
     // takes the click, and no "Optional" on the one input the mode cannot run without. The
@@ -2390,8 +2415,8 @@
     setupKeep();
   });
 
-  // ---- The stage, and full screen ---------------------------------------------
-  // The print, the bar under it, the two sheets and full screen belong to
+  // ---- The stage -------------------------------------------------------------
+  // The print, the bar under it, and the two sheets belong to
   // components/stage.js. Same door, same reason: that module is deferred and this
   // script is not. The form's startup draws the empty stage while its own module
   // is evaluated, and that module is written before this one, so the page's
@@ -2407,7 +2432,6 @@
       stageBar: stageBar,
       promptInput: promptInput,
       referenceInput: referenceInput,
-      work: document.querySelector('.work'),
       backendId: STUDIO.backend.id,
       edgeName: EDGE_NAME,
       notify: showToast,
@@ -2562,8 +2586,6 @@
   // force. The gallery array is the page's the same way, because a run's answer
   // lands in it and the strip, the stage and the run all read it. The server
   // allows one run at a time, so two tabs never number two new images at once.
-  const KEEP_KEY = 'studio-keep';
-  let keeping = readKeep();
   // Autoplay is a preference, not stored media, so turning keep off leaves it alone.
   const AUTOPLAY_KEY = 'studio-autoplay';
   let autoplay = readAutoplay();
@@ -2951,7 +2973,7 @@
         if (music) {
           if (!STUDIO.music || STUDIO.music.backend.id !== music.active) changed = true;
           STUDIO.music = {backend: {id: music.active, name: music.capabilities.name, badge: music.capabilities.badge},
-            backends: music.backends.map(one => [one.id, one.name, '']), capabilities: music.capabilities};
+            backends: music.backends.map(one => [one.id, one.name, one.description || '']), capabilities: music.capabilities};
           document.getElementById('media-music-mode').hidden = false;
           document.querySelector('#workspace-menu [data-workspace="music"]').hidden = false;
           document.querySelector('#workspace-menu [data-workspace="music"]').disabled = false;
@@ -3209,14 +3231,10 @@
     progressCard = event.detail;
   });
 
-  // ---- Full screen ------------------------------------------------------------
-  // The stage and the sheet fill the screen, and both belong to
-  // components/stage.js. F toggles it, and Escape leaves by the browser's own
-  // rule. This key is the page's, because full screen and the strip share it.
-  //
+  // ---- Gallery keys -----------------------------------------------------------
   // The arrow keys walk the strip, which is the strip's own move: the module
   // keeps the shown frame's box across its own redraw, so the correction lives
-  // where the redraw does. The key is the page's, because full screen shares it.
+  // where the redraw does.
   document.addEventListener('keydown', function (event) {
     // A key event dispatched from a script can carry the document itself as its target.
     // Treat that as the body: the key still acts, and `.closest` cannot throw.
@@ -3237,10 +3255,6 @@
         event.preventDefault(); voiceStudio.togglePreviewPlayback();
       }
       return;
-    }
-    if (event.key === 'f' && document.fullscreenEnabled && (gallery.length || busy())) {
-      event.preventDefault();
-      stage.toggleFullscreen();
     }
     if (mediaMode === 'video' && target.closest('video')) return;
     if (mediaMode === 'video' && event.key === ' '
@@ -3281,8 +3295,12 @@
   function renderBackendSelector() {
     const toggle = document.getElementById('backend-toggle');
     const menu = document.getElementById('backend-menu');
+    const label = toggle.querySelector('.name');
+    label.removeAttribute('data-i18n');
     const family = activeModelFamily();
     if (!family || !family.backend) {
+      label.textContent = t('page.backend.loading');
+      toggle.setAttribute('aria-busy', 'true');
       toggle.disabled = true;
       menu.replaceChildren();
       return;
@@ -3290,9 +3308,9 @@
     const backend = family.backend;
     guide?.sync(mediaMode, backend.id);
     const backends = family.backends || [];
-    toggle.querySelector('.name').textContent = backend.name;
+    label.textContent = backend.name;
+    toggle.setAttribute('aria-busy', 'false');
     toggle.disabled = sharedBusy() || backends.length < 2 || !menus || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle';
-    toggle.title = backends.length > 1 ? t('page.backend.switch') : backend.name;
     menu.replaceChildren();
     if (backends.length < 2 || !menus) return;
     const head = document.createElement('div');

@@ -183,7 +183,6 @@ class ImageStrip extends LitElement {
     // The tile takes the picture's own shape, the way the big preview does.
     return html`<gallery-tile extra=${row.arrive ? 'arrive' : ''}
       style=${'width:' + frameWidth(row) + 'px'} .width=${frameWidth(row)} ?selected=${row.selected}
-      title=${t('image.frame.seed_title', {seed: entry.seed})}
       label=${t('image.frame.aria', {mode, seed: entry.seed})}
       .footer=${() => row.number} .mark=${() => pencilLoop(row.draw)}
       .onPick=${() => page.show(entry.id)}
@@ -229,7 +228,6 @@ function toggle() {
   button.type = 'button';
   button.className = 'compare';
   button.textContent = t('image.compare.toggle');
-  button.title = comparing ? t('image.compare.hide') : t('image.compare.show');
   button.setAttribute('aria-pressed', String(comparing));
   button.addEventListener('click', function () {
     comparing = !comparing;
@@ -239,7 +237,7 @@ function toggle() {
       console.warn('The compare setting was not saved:', error);
     }
     page.renderStage();
-    const again = document.querySelector('#stage-bar .compare');
+    const again = document.querySelector('#image-stage .compare');
     if (again) again.focus();
   });
   return button;
@@ -273,6 +271,25 @@ function compare(pic, entry) {
   right.textContent = t('image.compare.after');
   function split() { pic.style.setProperty('--split', range.value + '%'); }
   range.addEventListener('input', split);
+  // Chromium also drags native ranges through touch events after pointer capture moves away.
+  range.addEventListener('touchstart', event => event.preventDefault(), {passive: false});
+  function moveDivider(event) {
+    const bounds = pic.getBoundingClientRect();
+    range.value = String(Math.max(0, Math.min(100, (event.clientX - bounds.left) / bounds.width * 100)));
+    range.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+  range.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    range.focus({preventScroll: true});
+    range.setPointerCapture(event.pointerId);
+    moveDivider(event);
+  });
+  range.addEventListener('pointermove', event => {
+    if (!range.hasPointerCapture(event.pointerId)) return;
+    event.preventDefault();
+    moveDivider(event);
+  });
   pic.append(before, range, divider, left, right);
   range.value = '50';
   split();

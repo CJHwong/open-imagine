@@ -148,8 +148,8 @@ with sync_playwright() as tool:
         "document.getElementById('voice-studio').capabilities.backend_id === 'drama3'", timeout=15000
     )
     page.locator('label[for="voice-mode-clone"]').click()
-    if page.get_by_role("button", name="Clear voice reference", exact=True).count():
-        page.get_by_role("button", name="Clear voice reference", exact=True).click()
+    if page.get_by_role("button", name="Remove voice reference", exact=True).count():
+        page.get_by_role("button", name="Remove voice reference", exact=True).click()
     page.locator(".voice-reference-group").get_by_role("button", name="Record", exact=True).click()
     page.wait_for_selector("#voice-record-sheet[open]", timeout=15000)
     script = page.locator("#voice-record-script").text_content()
@@ -169,7 +169,7 @@ with sync_playwright() as tool:
     )
     check(
         "the rejection says why",
-        "Nothing kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
+        "Recording not kept" in page.evaluate("() => document.querySelector('toast-host')?.innerText || ''"),
     )
     page.locator(".voice-reference-group").get_by_role("button", name="Record", exact=True).click()
     page.wait_for_function("document.getElementById('voice-studio').recordingActive >= 7", timeout=25000)
