@@ -1,3 +1,4 @@
+import {uuid} from './uuid.js';
 // The kept images: the browser's own store, and the tab that hears about it.
 //
 // The server keeps no image after it answers, so the browser keeps them, with
@@ -358,7 +359,7 @@ const forgetPins = new Set();
 function pinForget(token) { forgetPins.add(token); page.pinMedia(true); }
 function unpinForget(token) { forgetPins.delete(token); page.pinMedia(Boolean(forgetPins.size)); }
 
-const tabId = crypto.randomUUID();
+const tabId = uuid();
 const tabLockName = 'studio-gallery-tab-';
 let releaseMembership;
 let membership = null;
@@ -400,7 +401,7 @@ async function retainImages(entries) {
   } finally { retainingImages = false; }
 }
 async function prepareForget() {
-  const token = crypto.randomUUID(), peers = new Map((await openTabs()).filter(id => id !== tabId).map(id => [id, 'waiting']));
+  const token = uuid(), peers = new Map((await openTabs()).filter(id => id !== tabId).map(id => [id, 'waiting']));
   forgetting.set(token, peers);
   pinForget(token);
   channel.postMessage({kind: 'prepare-forget', token});

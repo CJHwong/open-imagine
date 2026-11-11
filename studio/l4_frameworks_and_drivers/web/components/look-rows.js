@@ -1,4 +1,4 @@
-// The Look: the rows that open onto their chips, the pick the summary reads
+// The Look: dropdown choices, the pick the summary reads
 // back, and the chips under the prompt that take a pick off again.
 //
 // Three trees drawn from state, so Lit, and each keeps the element itself as
@@ -23,13 +23,10 @@
 import { LitElement, html } from '/page/vendor/lit.js';
 import { subscribe } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
+import {toggleMenu, closeMenus} from './popup-menu.js';
 
 // One handle per form, registered by the page that owns that form's state.
 const boards = new Map();
-
-// The one row showing its chips, per form. It is the tree's own shape, so it is
-// not a store field: no consumer outside this module reads it.
-const openRows = new Map();
 
 // A pick puts a chip under the prompt and takes the row's own chips away, so
 // the content above the row changes height and the row slides out from under
@@ -107,7 +104,7 @@ class LookRows extends Drawn {
     const mode = board.mode();
     if (this.mode !== mode) {
       this.mode = mode;
-      openRows.set(formOf(this), null);
+      if (this.openMenu && !this.openMenu.hidden) closeMenus();
     }
   }
 
@@ -121,31 +118,46 @@ class LookRows extends Drawn {
     });
   }
 
-  toggleRow(name) {
-    const form = formOf(this);
-    openRows.set(form, openRows.get(form) === name ? null : name);
-    this.requestUpdate();
+  toggleRow(index) {
+    this.openMenu = document.getElementById('look-menu-' + formOf(this) + '-' + index);
+    const toggle = document.querySelector('[aria-controls="' + this.openMenu.id + '"]');
+    const bounds = toggle.getBoundingClientRect();
+    const clip = toggle.closest('.controls').getBoundingClientRect();
+    const below = clip.bottom - bounds.bottom;
+    this.openMenu.classList.toggle('up', below < 180 && bounds.top - clip.top > below);
+    toggleMenu(this.openMenu);
   }
 
   // A pick from the rows puts the text under the prompt above them.
   pickInPlace(row, label) {
     const form = formOf(this);
     const toggle = toggleOf(form, row.name);
-    settles.set(form, { row: row.name, before: toggle ? toggle.getBoundingClientRect().top : 0 });
-    openRows.set(form, null);
-    boardOf(this).pick(row, label);
+    const before = toggle ? toggle.getBoundingClientRect().top : 0;
+    closeMenus();
+    if (!toggle || toggle.matches(':disabled') || toggle.closest('[inert]')) return;
+    const board = boardOf(this);
+    const current = board.picks()[row.name]?.[0] || '';
+    if (current === label) { toggle.focus(); return; }
+    settles.set(form, { row: row.name, before });
+    board.pick(row, label || current);
+    toggle.focus();
   }
 
   render() {
     const page = boardOf(this);
     if (!page) return html``;
     const form = formOf(this);
-    const open = openRows.get(form);
-    return html`${page.rows().map((row) => {
+    return html`${page.rows().map((row, index) => {
       const picks = page.picks()[row.name] || [];
       const picked = picks[0];
-      const shown = open === row.name;
-      return html`<div class="look-row"><button type="button" class="look-row-toggle" data-row=${row.name} aria-expanded=${String(shown)} @click=${() => this.toggleRow(row.name)}><span class="label">${row.name}</span><span class="look-pick${picked ? ' picked' : ''}">${picked || t('image.look.none')}</span></button><div class="look-chips" ?hidden=${!shown}>${row.options.map(([label]) => html`<button type="button" class="chip" aria-pressed=${String(picks.includes(label))} @click=${() => this.pickInPlace(row, label)}>${label}</button>`)}</div></div>`;
+      const menuId = 'look-menu-' + form + '-' + index;
+      return html`<div class="look-row menu-anchor"><button type="button" class="look-row-toggle" data-row=${row.name}
+        aria-haspopup="menu" aria-controls=${menuId} aria-expanded="false" title=${row.name}
+        @click=${() => this.toggleRow(index)}><span class="label">${row.name}</span><span class="look-pick${picked ? ' picked' : ''}">${picked || t('image.look.none')}</span><svg class="icon" aria-hidden="true"><use href="#i-caret"></use></svg></button>
+        <div class="menu look-menu" id=${menuId} role="menu" hidden>
+          <button type="button" role="menuitemradio" aria-checked=${String(!picked)} @click=${() => this.pickInPlace(row, '')}><span class="item-text">${t('image.look.none')}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>
+          ${row.options.map(([label]) => html`<button type="button" role="menuitemradio" aria-checked=${String(picks.includes(label))}
+            @click=${() => this.pickInPlace(row, label)}><span class="item-text">${label}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>`)}</div></div>`;
     })}`;
   }
 }
@@ -165,7 +177,7 @@ class LookValues extends Drawn {
 // An unpick closes an open row as a pick does, and needs no correction: it is
 // not a click on a row.
 function unpick(form, row, label) {
-  openRows.set(form, null);
+  closeMenus();
   boards.get(form).pick(row, label);
 }
 

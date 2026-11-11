@@ -1,10 +1,28 @@
 # Work with media
 
-Start Open Imagine and select Image, Video, or Voice. The available controls follow the selected model.
+Start Open Imagine and select Image, Video, Voice, or Music. The available controls follow the selected model.
+
+## Use the studio on a phone
+
+The workspace icon at the top opens Image, Video, Voice, or Music in one header row.
+The bottom navigation switches between Preview, Gallery, and Controls. Desktop shows the preview and controls together.
+Mobile menus and dropdowns open as full-screen pickers. Close returns to the previous control.
+Preview keeps metadata behind Details.
+More contains Download and Remove on mobile. Full screen stays on the main toolbar.
+Foldable cover screens and inner screens keep the current pane and draft when the window changes size.
+Preview shortcuts open Controls. Templates, Edit, and reuse actions show the fields they prepare.
+Generate opens Preview. Cancel returns to Controls and retains the submitted inputs after the run stops.
+If a request fails, Controls shows the retained inputs. Progress and Cancel remain accessible in every pane.
+
+Select a gallery item to open Preview. Swipe left for the next item or right for the previous item.
+Swipes follow the same order as the arrow keys. Drawing, waveform selection, and playback controls keep their own gestures.
+
+Look and music style use dropdowns. Select none to clear one choice.
+A checkmark identifies the selected option. Taps keep these dropdowns visually neutral.
 
 ## Choose a theme
 
-Open the aperture menu at the top right and choose a theme. The choice is remembered in this browser.
+Open Settings at the top right. In Appearance, choose a theme. This browser keeps your choice.
 Darkroom, Leica M, Kodak Instamatic, and Polaroid SX-70 remain available alongside four studio themes:
 
 | Theme | Appearance |
@@ -14,7 +32,7 @@ Darkroom, Leica M, Kodak Instamatic, and Polaroid SX-70 remain available alongsi
 | Broadcast | Graphite consoles, ivory controls, and segmented progress meters. |
 | Risograph | Cream paper, teal and coral ink, and offset print borders. |
 
-Every theme applies to Image, Video, and Voice. Theme surfaces sit behind the previews;
+Every theme applies to Image, Video, Voice, and Music. Theme surfaces sit behind the previews;
 the media itself keeps its original colors. Controls and actions stay in the same places.
 
 ## Browse the gallery

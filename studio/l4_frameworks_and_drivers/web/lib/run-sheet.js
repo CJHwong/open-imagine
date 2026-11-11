@@ -156,9 +156,26 @@ export function openRunSheet({kind, model, mode, request = {}, live = null, id =
     id,
     title: t('run.sheet.title'),
     label: t('run.sheet.title'),
-    closeLabel: t('sheet.close'),
+    closeLabel: t('run.sheet.close'),
     body,
     className: 'run-sheet-dialog',
     onClose: function () { if (timer) clearInterval(timer); },
+  });
+}
+
+export function openResultSheet({kind, model, mode, request, elapsed, trigger}) {
+  const rows = requestRows(kind, request);
+  if (request.fastMode) rows.push(['page.video.fastMode', t('music.common.yes')]);
+  if (typeof request.loras === 'string' && request.loras) rows.push(['run.field.addons', request.loras]);
+  if (shown(model)) rows.unshift([LABELS.model, model]);
+  if (shown(mode)) rows.unshift([LABELS.mode, mode]);
+  if (Number.isFinite(elapsed)) rows.push(['run.field.elapsed', clock(elapsed)]);
+  return openSheet({
+    id: 'result-details-sheet',
+    title: t('run.details'),
+    closeLabel: t('run.sheet.close'),
+    body: listFor(rows, true),
+    className: 'result-sheet-dialog',
+    onClose: () => { if (trigger?.isConnected) trigger.focus(); },
   });
 }

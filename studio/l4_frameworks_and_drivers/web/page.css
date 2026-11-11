@@ -58,10 +58,10 @@
     --film: #0d0c0b; --plate: #161513; --marker: #e53935; --edge-ink: #8f8b83;
   }
   :root[data-theme=kodak] {
-    color-scheme: light; --body: var(--satin); --face: var(--leather);
-    --chrome: #f3e9d2; --chrome-2: #ebdec0; --chrome-3: #e2d2ae;
-    --line: #dccaa2; --line-strong: #c4a57a;
-    --text: #2b1d14; --text-2: #5a4331; --text-3: #6b5240;
+    color-scheme: light; --body: var(--satin); --face: none;
+    --chrome: #f6f1e7; --chrome-2: #eee6d5; --chrome-3: #e3d8c1;
+    --line: #dcd1bb; --line-strong: #bca784;
+    --text: #2b241c; --text-2: #584a38; --text-3: #6b5944;
     --accent: #b8321a; --accent-fill: #f5b700; --on-accent: #2b1d14;
     --accent-soft: rgba(224, 58, 30, .1);
     --danger: #a8261b;
@@ -102,10 +102,12 @@
     font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
   .num { font-variant-numeric: tabular-nums; }
   button, input, select, textarea { font: inherit; color: inherit; }
-  :focus-visible { outline: 1.5px solid var(--accent); outline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   /* Controls are clicked, often twice in a row; a double click must not paint
      a text selection over them. */
-  .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go { user-select: none; -webkit-user-select: none; }
+  .refs, .chip, .seg, .stepper, .modes, .frame, .icon-btn, .btn, #go,
+  .look-row-toggle, .look-row-toggle *, .menu button, .menu button * {
+    user-select: none; -webkit-user-select: none; }
   .icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor;
     stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   /* A translated page is swept once its markup exists, then shown. The animation is the
@@ -136,8 +138,8 @@
 
   /* The row is capped at the window, so no content can make the page taller
      and push the pinned run button out of view. */
-  .app { display: grid; grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: minmax(0, 1fr);
-    height: 100vh; }
+  .app { display: grid; grid-template-columns: minmax(0, 1fr) clamp(360px, 28vw, 420px); grid-template-rows: minmax(0, 1fr);
+    height: 100dvh; }
 
   /* Left: top bar, shared status, stage, contact sheet. Nothing here scrolls but the sheet and
      the strip. The column is set, or a full strip makes the implicit column
@@ -194,13 +196,17 @@
     padding: 0 16px 0 22px; background-color: var(--chrome); border-bottom: 1px solid var(--line); }
   .workspace-tabs { display: flex; justify-self: center; align-items: center; gap: 2px; padding: 3px;
     border: 1px solid var(--line); border-radius: 8px; background: var(--chrome-2); }
-  .workspace-tabs button { min-width: 76px; height: 30px; padding: 0 12px; border: 0; border-radius: 4px;
+  .workspace-tabs button { min-width: 76px; height: 32px; padding: 0 12px; border: 0; border-radius: 4px;
     background: none; color: var(--text-3); cursor: pointer; font-size: 12px; }
   .workspace-tabs button[aria-pressed=true] { background: var(--chrome); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
   .workspace-tabs button:focus-visible { outline: 1.5px solid var(--accent); }
   .workspace-tabs button:disabled { cursor: progress; }
   .workspace-tabs button[aria-busy=true] { color: var(--text-2); }
   .workspace-tabs button[aria-busy=true]::after { content: "…"; margin-left: 4px; }
+  .workspace-picker { display: none; }
+  #workspace-menu { left: 0; right: auto; min-width: 200px; }
+  #workspace-menu .workspace-check { margin-left: auto; color: var(--accent); }
+  #workspace-menu [aria-checked=false] .workspace-check { visibility: hidden; }
   .dial { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 100%; }
   .dial .menu-anchor, .dial h1 { min-width: 0; }
   #backend-toggle .name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -250,8 +256,8 @@
     --accent: #f5b700; --accent-fill: #f5b700; --on-accent: #2b1d14;
     --accent-soft: rgba(245, 183, 0, .12);
     --shadow: 0 12px 32px rgba(0, 0, 0, .4), 0 0 0 1px rgba(255, 255, 255, .05);
-    --box: #3b2a20; --box-hi: #46332a; --box-lo: #30221a; }
-  [data-theme=kodak] #video-studio { --box: #3b2a20; --box-hi: #46332a; --box-lo: #30221a; }
+    --box: #2d2520; --box-hi: #3b312a; --box-lo: #241e1a; }
+  [data-theme=kodak] #video-studio { --box: #2d2520; --box-hi: #3b312a; --box-lo: #241e1a; }
   /* Polaroid: the white of the print. */
   [data-theme=polaroid] .stage {
     --chrome: #f8f7f3; --chrome-2: #efede7; --chrome-3: #e6e3dc;
@@ -421,6 +427,8 @@
   .stage-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; min-height: 82px; padding: 0 28px 18px; min-width: 0; }
   .stage-bar.reserved { visibility: hidden; }
   .stage-bar[hidden] { display: none; }
+  .stage-bar .preview-details-toggle { display: none; }
+  .result-sheet-dialog dd { white-space: pre-wrap; overflow-wrap: anywhere; }
   .about { flex: 1; min-width: 0; }
   /* Two lines are reserved whether the prompt fills them or not. The bar takes
      its height from this box, the stage takes its height from the bar, and the
@@ -531,10 +539,28 @@
   .btn.quiet:hover { background: var(--chrome-3); color: var(--text); }
   /* Menus open from a button and float over the page. */
   .menu-anchor { position: relative; }
-  .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; min-width: 220px;
+  .menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; min-width: 220px; max-width: calc(100vw - 12px);
     padding: 4px; background: var(--chrome); border-radius: 9px; box-shadow: var(--shadow);
     animation: arrive .12s ease-out; }
   .menu.up { top: auto; bottom: calc(100% + 6px); }
+  .mobile-menu-dialog { position: fixed; inset: 0; margin: 0; width: 100%; max-width: none;
+    height: 100dvh; max-height: none; padding: 0; border: 0; border-radius: 0;
+    background: var(--chrome); color: var(--text); display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  .mobile-menu-dialog:not([open]) { display: none; }
+  .mobile-menu-dialog > header { display: flex; align-items: center; gap: 16px;
+    padding: calc(12px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--line); }
+  .mobile-menu-dialog h2 { flex: 1; min-width: 0; margin: 0; font: 22px/1.3 var(--serif); }
+  .mobile-menu-dialog header .icon-btn { width: 44px; height: 44px; flex: none; }
+  .mobile-menu-dialog > .menu { position: static !important; inset: auto !important;
+    width: auto !important; min-width: 0 !important; max-width: none !important;
+    max-height: none !important; height: auto !important; translate: none !important;
+    margin: 0; padding: 12px max(16px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    overflow-y: auto; overscroll-behavior: contain; border-radius: 0; box-shadow: none; animation: none; }
+  .mobile-menu-dialog .menu button { min-height: 52px; padding: 14px 12px; align-items: center; font-size: 16px; }
+  .mobile-menu-dialog .item-note { font-size: 13px; }
+  .mobile-menu-dialog .item-text { min-width: 0; overflow-wrap: anywhere; }
+  .mobile-menu-dialog [aria-checked=true] { background: var(--accent-soft); font-weight: 600; }
   /* The template menus and the adapter menu hang from the field's top edge, which is where
      their button row is: 30px is the 24px pill plus the 6px gap every `.menu` leaves. They
      sit in the field and not in an anchor of their own, so their containing block is the
@@ -546,6 +572,7 @@
     border: 0; border-radius: 5px; background: none; color: var(--text); text-align: left;
     cursor: pointer; font-size: 13px; }
   .menu button .icon { margin-top: 1px; color: var(--text-2); }
+  .menu .mobile-preview-action { display: none; }
   .menu button:hover, .menu button:focus-visible { background: var(--chrome-3); outline: none; }
   .item-note { display: block; margin-top: 1px; color: var(--text-3); font-size: 12px; }
   .menu-head, .menu-foot { padding: 7px 10px; color: var(--text-3); font-size: 12px; }
@@ -667,8 +694,8 @@
   .video-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 360px;
     color: var(--text-2); text-align: center; }
   .video-empty > span { color: #b7aaa0; }
-  .video-empty-mark { display: grid; place-items: center; width: 112px; height: 72px; border: 1px solid var(--text-3);
-    border-radius: 8px; color: var(--text-3); font: 11px var(--mono); letter-spacing: .12em; }
+  .video-empty-mark { display: grid; place-items: center; width: 88px; height: 64px; border: 1px solid var(--line-strong);
+    border-radius: 14px; background: var(--accent-soft); color: var(--text-2); font: 10px var(--mono); letter-spacing: .16em; }
   .video-preview-stub { display: flex; flex-direction: column; align-items: center; gap: 10px; max-width: 360px;
     color: #f1ece7; text-align: center; }
   .video-preview-stub > span:not(.video-source-label) { color: #b7aaa0; font-size: 12px; }
@@ -890,7 +917,7 @@
   /* Right: the controls. Only this column's middle scrolls; the run button stays put. */
   aside { background-color: var(--chrome); border-left: 1px solid var(--line); min-height: 0; }
   form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-  .controls { flex: 1; overflow-y: auto; padding: 18px 22px calc(28px + var(--slack, 0px)); display: flex;
+  .controls { flex: 1; overflow-y: auto; padding: 22px 24px calc(28px + var(--slack, 0px)); display: flex;
     flex-direction: column; gap: 22px; }
   #form[data-panel-held=true] .controls { opacity: .58; pointer-events: none; }
   /* Each rewrite button is its own job's Cancel, so the block above leaves both of
@@ -901,9 +928,9 @@
   /* One label row height in every panel: a row with a pill beside its label is 24 px, so a
      row without one keeps that height instead of pulling its field 6 px closer. */
   .field-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 24px; }
-  label, .label { color: var(--text-2); font-size: 12px; font-weight: 500; }
+  label, .label { color: var(--text-2); font-size: 12px; font-weight: 600; }
   .prompt-field { position: relative; }
-  .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px 0 7px;
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 24px; min-height: 24px; padding: 0 9px 0 7px;
     border: 1px solid var(--line-strong); border-radius: 6px; background: none;
     color: var(--text-2); cursor: pointer; font-size: 12px; transition: color .12s, border-color .12s;
     /* A pill is one line, never two: the adapter's label is the longest thing that sits in
@@ -915,6 +942,8 @@
   .pill[hidden] { display: none; }
   .pill[aria-pressed=true] { border-color: var(--text); background: var(--accent-soft); color: var(--text); }
   .pill .icon { width: 14px; height: 14px; }
+  :is(#video-fast-mode, #video-audio-track) { inline-size: 8em; justify-content: center;
+    height: auto; padding-block: 3px; }
   .pill:hover, .pill[aria-expanded=true] { border-color: var(--text-3); color: var(--text); }
   .caption { color: var(--text-3); font-size: 12px; }
   textarea, input[type=text], input[type=number], select { width: 100%; background: var(--chrome-2);
@@ -924,8 +953,8 @@
     box-shadow: 0 0 0 3px var(--accent-soft); }
   /* The prompt is the one thing written here in full sentences, so it is set
      in the serif, like the caption it becomes under the frame. */
-  textarea { min-height: 104px; max-height: 320px; resize: none; padding: 10px 12px;
-    font: 15px/1.5 var(--serif); }
+  textarea { min-height: 112px; max-height: 320px; resize: none; padding: 12px 14px;
+    font: 16px/1.6 var(--serif); }
   /* Writing gets more room; leaving the field restores the compact sidebar. */
   .prompt-field textarea:focus, .prompt-field textarea.expanded-editor { min-height: clamp(160px, 40dvh, 320px); scroll-margin-block: 16px; }
   input[type=range] { width: 100%; margin: 0; accent-color: var(--accent-fill); }
@@ -940,7 +969,7 @@
   .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; position: relative;
     background: var(--chrome-2); border: 1px solid var(--line); border-radius: 8px; }
   .modes input { position: absolute; opacity: 0; pointer-events: none; }
-  .modes label { display: flex; align-items: center; justify-content: center; gap: 7px; height: 32px;
+  .modes label { display: flex; align-items: center; justify-content: center; gap: 7px; height: 36px;
     border-radius: 5px; cursor: pointer; color: var(--text-3); font-size: 13px;
     transition: background-color .15s, color .15s; }
   .modes label:hover { color: var(--text); }
@@ -948,13 +977,8 @@
   .modes input:focus-visible + label { outline: 1.5px solid var(--accent); }
   .mode-controls { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 22px; }
   .mode-controls[hidden] { display: none; }
-  /* One row, whatever the model offers. An auto-fit track of 72px fits four of the five
-     shapes into a sidebar of this width, which leaves the fifth on a row of its own. The
-     columns are the shapes, so the row divides the width between them instead. */
-  /* The image form's shape chips, one row of them: a model's shapes divide the field between
-     them rather than wrapping the last onto a row of its own. The glyph takes 16px of a
-     narrow sidebar's sixth of the width, so these chips carry a little less padding. */
-  .video-ratios { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 6px; }
+  /* Larger text needs wider choices. Wrap before a label crosses its border. */
+  .video-ratios { display: flex; flex-wrap: wrap; gap: 6px; }
   .video-ratios .chip { gap: 5px; padding: 0 6px; }
   .video-output-options { display: flex; flex-direction: column; gap: 18px; }
   #video-frame-count { margin: -10px 0 0; line-height: 1.5; }
@@ -1006,18 +1030,21 @@
 
   /* Four to a row: the image form's eight shapes then read as two even rows, and the video
      form's four rungs of a wide frame as one. Three to a row left both uneven. */
-  .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px;
     border: 1px solid var(--line); border-radius: 7px; background: none;
     color: var(--text-2); cursor: pointer; font-size: 12px; transition: border-color .12s, color .12s, background-color .12s; }
+  :where(.chips, .video-ratios) .chip { flex: 1 0 auto; height: auto; min-height: 34px;
+    padding-block: 6px; white-space: nowrap; }
   .chip:hover { border-color: var(--line-strong); color: var(--text); }
   .chip[aria-pressed=true] { border-color: var(--text); background: var(--accent-soft); color: var(--text); }
   .glyph { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
   .glyph i { display: block; border: 1.25px solid currentColor; border-radius: 1.5px; }
   .glyph i.dashed { border-style: dashed; }
-  .seg { display: flex; padding: 2px; gap: 2px; background: var(--chrome-2);
+  .seg { display: flex; flex-wrap: wrap; padding: 2px; gap: 2px; background: var(--chrome-2);
     border: 1px solid var(--line); border-radius: 7px; }
-  .seg button { flex: 1; height: 28px; border: 0; border-radius: 4px; background: none;
+  .seg button { flex: 1 0 auto; height: auto; min-height: 28px; padding: 4px 8px; white-space: nowrap;
+    border: 0; border-radius: 4px; background: none;
     color: var(--text-3); cursor: pointer; font-size: 12px; font-variant-numeric: tabular-nums;
     transition: background-color .12s, color .12s; }
   .seg button:hover { color: var(--text); }
@@ -1069,16 +1096,22 @@
     white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
   details[open] summary .values { visibility: hidden; }
   .advanced { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
-  .look { display: flex; flex-direction: column; margin-top: 10px; }
+  .look { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
   .look-row { display: flex; flex-direction: column; }
-  .look-row + .look-row { border-top: 1px solid var(--line); }
+  .look-row + .look-row { border-top: 0; }
   .look-row-toggle { display: flex; justify-content: space-between; align-items: center; gap: 10px;
-    height: 34px; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
-  .look-row-toggle:hover .label, .look-row-toggle[aria-expanded=true] .label { color: var(--text); }
+    min-height: 32px; padding: 5px 10px; border: 1px solid var(--line-strong); border-radius: 8px;
+    background: var(--chrome-2); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .look-row-toggle .look-pick { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .look-row-toggle .icon { width: 12px; height: 12px; flex: none; color: var(--text-3); }
+  .look-menu { width: 100%; }
+  .look-menu button, .look-menu button:hover, .look-menu button[aria-checked=true] {
+    background: none; font-weight: 400; -webkit-tap-highlight-color: transparent; }
+  .look-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .look-menu .choice-check { margin-left: auto; }
+  .look-menu [aria-checked=false] .choice-check { visibility: hidden; }
   .look-pick { color: var(--text-3); font-size: 12px; }
   .look-pick.picked { color: var(--text); }
-  .look-chips { display: flex; flex-wrap: wrap; gap: 6px; padding-bottom: 10px; }
-  .look-chips .chip { height: 28px; padding: 0 10px; }
   .look-note { margin: 16px 0 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
   .loras { display: contents; }
   .lora-note { margin: 0; }
@@ -1163,8 +1196,14 @@
     .canvas { padding: 18px; }
     .stage-bar { flex-wrap: wrap; gap: 10px; padding: 0 18px 14px; }
     .about { flex-basis: 100%; }
+    body[data-pane="preview"] .stage-bar .about { display: none; }
+    body[data-pane="preview"] #image-stage .shot > .edge { visibility: hidden; }
+    body[data-pane="preview"] .video-tv-edge { visibility: hidden; }
+    .video-tv-frame { grid-template-rows: minmax(0, 1fr) 0; }
+    .stage-bar .preview-details-toggle { display: inline-flex; }
+    .stage-bar { min-height: 0; padding-top: 8px; }
     .facts .break { display: block; flex-basis: 100%; }
-    .actions { flex: 1 1 100%; flex-wrap: wrap; min-width: 0; margin-left: -8px; }
+    .actions { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; min-width: 0; margin-left: 0; }
     .actions .rule { display: none; }
     .wide-only { display: none; }
     aside { border-left: 0; border-top: 1px solid var(--line); }
@@ -1225,7 +1264,6 @@
   #workspace-guide-host { grid-column: 1; grid-row: 3; position: relative; min-width: 0; min-height: 0; z-index: 4; pointer-events: none; }
   #guide-sheet dd { min-width: 0; overflow-wrap: anywhere; }
   @media (max-width: 600px) {
-    #guide-sheet { left: 12px; right: 12px; padding: 20px 44px 20px 18px; }
     #guide-sheet dl { grid-template-columns: minmax(0, 1fr); gap: 5px; }
     #guide-sheet dd { margin-bottom: 12px; }
   }
@@ -1514,17 +1552,38 @@
     .video-preview-area { min-height: 0; height: 100%; align-self: stretch; }
     .work > .strip-wrap, .work > #shared-operation, .work > #shared-rewrite-result { flex: none; }
     /* The preview ends above the switch, so its last controls stay clear of it. */
-    body[data-pane="preview"] .work { padding-bottom: 64px; }
+    :root { --mobile-nav-height: 84px; }
+    body[data-pane="preview"] .work { padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom)); }
     /* The workspace tabs stay in place in every pane, so a person can change workspace
        without leaving the pane they are in. */
-    .topbar { position: sticky; top: 0; z-index: 55; background: var(--chrome); }
+    .topbar { position: sticky; top: 0; z-index: 55; background: var(--chrome);
+      grid-template-columns: 52px minmax(0, 1fr) auto; grid-template-rows: auto; gap: 8px;
+      padding: calc(8px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left)); }
+    .workspace-tabs { display: none; }
+    .workspace-picker { display: block; grid-column: 1; grid-row: 1; }
+    .topbar #workspace-toggle { display: flex; align-items: center; justify-content: center; gap: 2px;
+      width: 52px; height: 44px; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--chrome-2); }
+    #workspace-toggle .workspace-icon { width: 20px; height: 20px; }
+    #workspace-toggle .workspace-caret { width: 11px; height: 11px; color: var(--text-3); }
+    #workspace-menu button { min-height: 44px; }
+    .dial { grid-column: 2; grid-row: 1; }
+    .readout { grid-column: 3; grid-row: 1; }
+    .topbar .icon-btn { width: 44px; height: 44px; }
+    .readout { gap: 2px; }
+    #backend-toggle { min-height: 44px; }
+    .topbar h1 { font-size: 15px; }
+    #shared-operation { top: var(--topbar-h); z-index: 56; }
     /* The switch is the one control at the bottom, in every pane. */
-    .pane-switch { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 60;
-      gap: 4px; padding: 4px; border-radius: 999px; background: var(--chrome);
-      box-shadow: 0 12px 30px #0006; }
-    .pane-switch button { flex: 1; height: 38px; border: 0; border-radius: 999px; background: none;
-      color: var(--text-2); font: 12px var(--sans); cursor: pointer; }
-    .pane-switch button[aria-pressed="true"] { background: var(--text); color: var(--chrome); }
+    .pane-switch { display: flex; position: fixed; left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 60;
+      gap: 4px; padding: 5px; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--chrome);
+      box-shadow: 0 8px 32px #0003; }
+    .pane-switch button { display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 3px; flex: 1; min-width: 0; height: 50px; border: 0; border-radius: 14px; background: none;
+      color: var(--text-2); font: 11px var(--sans); cursor: pointer; }
+    .pane-switch .icon { width: 19px; height: 19px; }
+    .pane-switch button[aria-pressed="true"] { background: var(--text); color: var(--chrome); font-weight: 600; }
     body[data-pane="preview"] #form,
     body[data-pane="preview"] .strip-wrap,
     body[data-pane="preview"] #video-gallery,
@@ -1533,27 +1592,65 @@
     /* The video shelf is a pane of its own; its editing area would leave an empty band
        under the clip. */
     body[data-pane="preview"] .video-editing-area { display: none; }
+    body[data-pane="controls"] :is(#image-stage, #video-studio, #voice-studio, #music-studio, #workspace-guide-host),
+    body[data-pane="gallery"] :is(#form, #image-stage, #workspace-guide-host, .video-preview-area, .voice-preview-area, .music-preview-area) { display: none; }
     body[data-pane="gallery"], body[data-pane="controls"] { overflow: hidden; }
     /* Each pane covers the page below the workspace tabs and ends above the switch, so no
        sliver of another pane shows through. */
     .pane-gallery-shelf, body[data-pane="controls"] #form {
-      position: fixed; top: var(--topbar-h, 0px); left: 0; right: 0; bottom: 0; z-index: 50;
+      position: fixed; top: var(--pane-top, var(--topbar-h, 0px)); left: 0; right: 0;
+      bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom)); z-index: 50;
       display: block; overflow: auto; background: var(--chrome); color: var(--text);
-      padding: 16px 14px calc(78px + env(safe-area-inset-bottom)); }
+      padding: 20px; }
+    body[data-pane="controls"] #form { display: flex; height: auto; padding: 0; overflow: hidden; }
+    body[data-pane="controls"] .controls { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain;
+      padding: 20px max(20px, env(safe-area-inset-right)) 28px max(20px, env(safe-area-inset-left)); }
+    body[data-pane="controls"] aside { border: 0; }
     .pane-gallery-shelf .gallery-browse-toggle { display: none; }
     /* The gallery uses the height it is given instead of keeping its own scroll box. */
     /* The grid no longer scrolls itself, so the wheel must chain to the pane. */
     .pane-gallery-shelf .gallery-browser-grid { max-height: none; overscroll-behavior: auto; }
     /* The tools share the pane's width: the search takes a row, the filters and the select
        toggle share the next one and shrink instead of running off the edge. */
+    .pane-gallery-shelf .gallery-browser-tools { flex-wrap: wrap; }
     .pane-gallery-shelf .gallery-browser-tools input[type=search] { flex: 1 1 100%; }
     .pane-gallery-shelf .gallery-browser-tools select { flex: 1 1 auto; min-width: 0; max-width: none; }
     .pane-gallery-shelf .gallery-browser-tools .gallery-check,
     .pane-gallery-shelf .gallery-browser-tools .gallery-group-toggle { flex: none; }
     /* The run button sits at the foot of the controls pane, above the switch. */
     body[data-pane="controls"] #form .footer:not([hidden]) {
-      position: fixed; left: 0; right: 0; bottom: 58px; z-index: 52; padding: 10px 14px;
-      background: var(--chrome); }
+      position: static; flex: none; z-index: 52; padding: 12px 20px;
+      background: var(--chrome); box-shadow: 0 -8px 24px color-mix(in srgb, var(--chrome) 80%, transparent); }
+    .controls :is(textarea, input[type=text], input[type=number], select) { font-size: 16px; }
+    :is(.chip, .pill, .seg button, .modes label, .btn, .text-btn, summary) { min-height: 44px; }
+    .text-btn { display: inline-flex; align-items: center; }
+    .chip { justify-content: center; padding: 0 6px; gap: 5px; }
+    .field-head { flex-wrap: wrap; gap: 6px; }
+    .field-head .head-actions { gap: 6px; }
+    .controls .menu { max-width: calc(100vw - 40px); }
+    .canvas, .video-preview-area, #voice-preview-pane { touch-action: pan-y pinch-zoom; }
+    .stage-bar .icon-btn { min-width: 44px; min-height: 44px; }
+    .shared-operation .pill { min-height: 44px; }
+    .operation-copy { gap: 2px; }
+    .shared-operation { gap: 8px; padding: 10px 12px; }
+    .operation-indicator { width: 12px; height: 12px; }
+    #shared-operation-details { padding: 0 7px; }
+    body[data-pane="gallery"] .pane-gallery-shelf { --text: inherit; --text-2: inherit; --text-3: inherit;
+      --line-strong: inherit; --accent: inherit; --scroll-thumb: var(--line-strong); }
+    .pane-gallery-shelf .gallery-browser-panel { color: var(--text); }
+    .pane-gallery-shelf .gallery-browser-tools :is(input[type=search], select) {
+      min-height: 44px; font-size: 16px; border-color: var(--line-strong); background-color: var(--chrome-2); color: var(--text); }
+    .pane-gallery-shelf .gallery-browser-summary,
+    .pane-gallery-shelf .gallery-browser-tools input[type=search]::placeholder,
+    .pane-gallery-shelf .gallery-browser-panel .text-btn { color: var(--text-2); }
+    .pane-gallery-shelf .gallery-no-results { color: var(--text-2); min-height: 180px; }
+    .pane-gallery-shelf .gallery-card { border-color: var(--line); border-radius: 12px; background: var(--chrome-2); }
+    .pane-gallery-shelf .gallery-card.checked { border-color: var(--accent); background: var(--accent-soft); }
+    .pane-gallery-shelf .gallery-card-text { color: var(--text); font-size: 12px; }
+    body[data-pane="gallery"] .pane-gallery-shelf .gallery-card .frame .no,
+    body[data-pane="gallery"] .pane-gallery-shelf .gallery-card-mode { color: var(--text-2); border-color: var(--line-strong); }
+    .pane-gallery-shelf .gallery-browser-tools select { appearance: auto; -webkit-appearance: auto; background-image: none; }
+    .pane-gallery-shelf .gallery-browser-tools select option { background: var(--chrome-2); color: var(--text); }
   }
   @media (max-width: 760px) {
     #music-studio { min-height: 0; }
@@ -1635,7 +1732,7 @@
   .music-section-tag:disabled { opacity: .45; cursor: default; }
   :is(#music-style-presets, #music-genre-presets) > summary .music-style-label { flex-shrink: 0; white-space: nowrap; }
   :is(#music-style-presets, #music-genre-presets) > summary .values { min-width: 0; }
-  .music-genre-groups { max-height: 360px; overflow-y: auto; overscroll-behavior: contain; margin-top: 14px; }
+  .music-genre-groups { margin-top: 14px; }
   .music-genre-family h3 { margin: 10px 0 8px; color: var(--text-2); font-size: 12px; font-weight: 500; }
   .music-genre-family:first-child h3 { margin-top: 0; }
   #music-genre-presets[open] summary .values { visibility: visible; }
@@ -1694,4 +1791,23 @@
     .icon-btn { width: 40px; height: 40px; }
     .text-btn { display: inline-flex; align-items: center; min-height: 44px; padding: 0 4px; }
     .chip, .pill, .seg button, .workspace-tabs button, .modes label { min-height: 44px; }
+  }
+  @media (max-width: 360px) {
+    .stage-bar .preview-primary-action .action-label { display: none; }
+    .stage-bar .preview-primary-action { width: 44px; padding: 0; justify-content: center; flex: none; }
+    body[data-pane="controls"] .controls { padding-left: 16px; padding-right: 16px; }
+    .field-head .head-actions { flex-wrap: wrap; }
+  }
+  @media (max-width: 900px) {
+    .look-row-toggle { min-height: 44px; padding: 10px 12px; }
+    .stage-bar .actions { flex-wrap: nowrap; }
+    .stage-bar .preview-secondary-action { display: none; }
+    .menu .mobile-preview-action { display: flex; }
+  }
+  @media (max-width: 900px) and (max-height: 600px) {
+    :root { --mobile-nav-height: 68px; }
+    .pane-switch { bottom: calc(8px + env(safe-area-inset-bottom)); padding: 4px; border-radius: 14px; }
+    .pane-switch button { flex-direction: row; height: 44px; gap: 8px; border-radius: 10px; }
+    .topbar { padding-top: calc(4px + env(safe-area-inset-top)); padding-bottom: 4px; }
+    body[data-pane="controls"] #form .footer:not([hidden]) { padding-top: 8px; padding-bottom: 8px; }
   }

@@ -1258,7 +1258,7 @@ with sync_playwright() as playwright:
     )
     page.locator("#video-look summary").click()
     page.locator("#video-look-rows .look-row-toggle").first.click()
-    page.get_by_role("button", name="Golden hour").click()
+    page.get_by_role("menuitemradio", name="Golden hour").click()
     look_added = page.evaluate(
         """() => ({
           values: document.getElementById('video-look-values').textContent,
@@ -2841,7 +2841,7 @@ with sync_playwright() as playwright:
     page.fill("#video-prompt", "a cat walking on a wall")
     page.evaluate("() => { document.getElementById('video-look').open = true; }")
     page.locator("#video-look-rows .look-row-toggle").first.click()
-    page.get_by_role("button", name="Golden hour").click()
+    page.get_by_role("menuitemradio", name="Golden hour").click()
     page.click("#video-generate")
     page.wait_for_function(
         "count => document.querySelectorAll('.video-gallery-item:not(.pending)').length > count",

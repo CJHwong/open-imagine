@@ -1,4 +1,5 @@
 import {galleryStepIndex} from '../lib/gallery-navigation.js';
+import {uuid} from '../lib/uuid.js';
 import { LitElement, html, nothing, render as renderTemplate } from '/page/vendor/lit.js';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
@@ -10,8 +11,9 @@ import './gallery-window.js';
 import './gallery-tile.js';
 import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
-import {openRunSheet} from '../lib/run-sheet.js';
+import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
+import {navigate} from '../lib/navigation.js';
 
 let nextClipId = 1;
 
@@ -1362,7 +1364,7 @@ class VideoStudio extends LitElement {
   }
 
   async addGeneratedClip(blob, settings) {
-    const id = settings.operationId ? 'video-operation-' + settings.operationId : 'video-' + crypto.randomUUID();
+    const id = settings.operationId ? 'video-operation-' + settings.operationId : 'video-' + uuid();
     const createdAt = settings.createdAt || Date.now();
     if (this.galleryStore?.videoWasRemoved?.({id, createdAt})) return false;
     const existing = this.clips.find((clip) => clip.id === id);
@@ -1457,6 +1459,16 @@ class VideoStudio extends LitElement {
     const control = event.target.closest('[data-action]');
     if (!control) return;
     const action = control.dataset.action;
+    if (action === 'open-output-details') {
+      const clip = this.selectedClip();
+      const metadata = clip?.metadata || {};
+      const preview = this.querySelector('#video-preview');
+      openResultSheet({kind: 'video', model: metadata.modelName, mode: metadata.mode,
+        request: {...metadata, prompt: metadata.prompt || clip?.name,
+          width: metadata.width || preview?.videoWidth, height: metadata.height || preview?.videoHeight,
+          duration: metadata.numFrames && metadata.frameRate ? metadata.numFrames / metadata.frameRate : clip?.duration},
+        elapsed: metadata.elapsedSeconds, trigger: control});
+    }
     if (action === 'open-output-prompt') this.openOutputPromptSheet();
     if (action === 'close-output-prompt') this.closeOutputPromptSheet();
     if (action === 'toggle-video-fullscreen') this.toggleVideoFullscreen();
@@ -2227,14 +2239,16 @@ class VideoStudio extends LitElement {
           </div>
         </div>
         <div class="actions video-output-actions">
+          <button type="button" class="btn quiet preview-details-toggle" data-action="open-output-details">
+            <svg class="icon" aria-hidden="true"><use href="#i-info"></use></svg>${t('run.details')}</button>
           ${canCapture && !this.needsClip ? html`
-            <button class="btn quiet" type="button" data-action="capture-video-frame"
+            <button class="btn quiet preview-primary-action" type="button" data-action="capture-video-frame"
               aria-label=${t('video.reference.add')} title=${t('video.reference.addTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg>${t('video.reference.add')}</button>` : nothing}
+              <svg class="icon" aria-hidden="true"><use href="#i-image-in"></use></svg><span class="action-label">${t('video.reference.add')}</span></button>` : nothing}
           ${canCapture && this.needsClip ? html`
-            <button class="btn quiet" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
+            <button class="btn quiet preview-primary-action" type="button" data-action="edit-this-clip" data-clip-id=${clip.id}
               aria-label=${t('video.output.editClip')} title=${t('video.output.editClipTitle')}>
-              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg>${t('video.output.editClip')}</button>` : nothing}
+              <svg class="icon" aria-hidden="true"><use href="#i-brush"></use></svg><span class="action-label">${t('video.output.editClip')}</span></button>` : nothing}
           ${canShowMore ? html`
             <div class="menu-anchor">
               <button class="icon-btn" type="button" data-action="toggle-output-menu"
@@ -2245,12 +2259,12 @@ class VideoStudio extends LitElement {
             </div>` : nothing}
           ${canShowMore ? html`<span class="rule" aria-hidden="true"></span>` : nothing}
           ${canDownload ? html`
-            <a class="icon-btn" href=${clip.url} download=${videoDownloadName(clip)}
+            <a class="icon-btn preview-secondary-action" href=${clip.url} download=${videoDownloadName(clip)}
               aria-label=${t('video.output.download')} title=${t('video.output.downloadTitle')}>
               <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
             </a>` : nothing}
           ${canRemove ? html`
-            <button class="icon-btn danger" type="button" data-action="remove-clip" data-clip-id=${clip.id}
+            <button class="icon-btn danger preview-secondary-action" type="button" data-action="remove-clip" data-clip-id=${clip.id}
               aria-label=${t('video.output.remove', {name: clip.name})} title=${t('video.output.removeTitle')}>
               <svg class="icon" aria-hidden="true"><use href="#i-trash"></use></svg>
             </button>` : nothing}
@@ -2285,6 +2299,16 @@ class VideoStudio extends LitElement {
     if (metadata?.prompt) {
       menu.append(menuItem('text', t('video.output.reusePrompt'), () => this.reuseOutput({prompt: metadata.prompt})));
     }
+    if (canDownload) {
+      const download = menuItem('download', t('video.output.download'), () => root.querySelector('a[download]').click());
+      download.className = 'mobile-preview-action';
+      menu.append(download);
+    }
+    if (canRemove) {
+      const remove = menuItem('trash', t('video.output.removeTitle'), () => this.removeClip(clip.id));
+      remove.className = 'mobile-preview-action';
+      menu.append(remove);
+    }
   }
 
   // The menu's door into Edit: the clip is in hand, and the page owns the mode switch.
@@ -2297,6 +2321,7 @@ class VideoStudio extends LitElement {
     this.renderSourceVideos();
     this.announceSelection();
     this.dispatchEvent(new CustomEvent('video-edit-clip', { bubbles: true, composed: true }));
+    navigate('controls', 'video-prompt');
   }
 
   reuseOutput(detail) {

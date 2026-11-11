@@ -41,7 +41,7 @@ with sync_playwright() as tool:
     other = open_page(other_context)
     first.locator("#look summary").click()
     first.locator("#look-rows .look-row-toggle").first.click()
-    first.get_by_role("button", name="Watercolor", exact=True).click()
+    first.get_by_role("menuitemradio", name="Watercolor", exact=True).click()
 
     def deliver_after_shared_copy(route):
         response = route.fetch()

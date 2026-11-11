@@ -6,6 +6,7 @@ import './gallery-card.js';
 import {pencilLoop} from './gallery-marker.js';
 import {galleryView, rememberGalleryView} from '../lib/gallery-view.js';
 import {t} from '../lib/i18n.js';
+import {navigate} from '../lib/navigation.js';
 
 const icon = name => html`<svg class="icon" aria-hidden="true"><use href=${'#i-' + name}></use></svg>`;
 const WORKSPACE_KEYS = {
@@ -151,7 +152,10 @@ class GalleryBrowser extends LitElement {
   pick(item) {
     if (this.working) return;
     if (this.selecting) this.check(item.id);
-    else this.choose?.(item.id);
+    else {
+      this.choose?.(item.id);
+      navigate('preview');
+    }
   }
   async act(action) {
     const selected = this.items.filter(item => this.checked.has(item.id));

@@ -25,8 +25,8 @@ document.addEventListener('focusout', event => {
 });
 
 function release() {
-  pointing = false;
   setTimeout(() => {
+    pointing = false;
     pending.forEach(field => {
       if (field !== document.activeElement) collapse(field);
     });

@@ -128,6 +128,13 @@ def main():
         page.goto(url)
         check("the title is a switch with three backends", not page.is_disabled("#backend-toggle"))
         check("the qwen21 page has both modes", not page.is_disabled("#mode-edit"))
+        check(
+            "the phone picker offers only declared workspaces",
+            page.locator("#workspace-menu button:not([disabled])").evaluate_all(
+                "buttons => buttons.map(button => button.dataset.workspace)"
+            )
+            == ["image"],
+        )
         # The form opens on the lowest tier of the shape it opens on, so a prompt can be tried
         # before it is worth a megapixel. The checks about the estimate are about the negative
         # prompt, which doubles the denoise, so they pick the megapixel tier first.
@@ -190,23 +197,23 @@ def main():
         rows = page.locator("#look-rows .look-row-toggle")
         check(
             "Look rows start closed",
-            rows.count() == 8 and page.locator("#look-rows .chip:visible").count() == 0,
+            rows.count() == 8 and page.locator("#look-rows .look-menu button:visible").count() == 0,
             str(rows.count()),
         )
         rows.filter(has_text="Light").click()
-        open_chips = page.locator("#look-rows .chip:visible").all_inner_texts()
+        open_options = page.locator("#look-rows .look-menu button:visible").all_inner_texts()
         check(
-            "a row opens only its own chips",
-            open_chips[:1] == ["Soft window light"] and len(open_chips) == 5,
-            str(open_chips),
+            "a dropdown opens only its own options",
+            open_options[:2] == ["none", "Soft window light"] and len(open_options) == 6,
+            str(open_options),
         )
         light_top = rows.filter(has_text="Light").bounding_box()["y"]
-        page.locator("#look-rows .chip", has_text="Overcast").click()
+        page.locator("#look-rows .look-menu button", has_text="Overcast").click()
         moved = rows.filter(has_text="Light").bounding_box()["y"] - light_top
         check("a pick keeps its row under the pointer", abs(moved) <= 1, f"moved {moved:.0f}px")
         check(
             "a pick closes the row and shows in it",
-            page.locator("#look-rows .chip:visible").count() == 0
+            page.locator("#look-rows .look-menu button:visible").count() == 0
             and "Overcast" in rows.filter(has_text="Light").inner_text(),
         )
         height = round(page.locator("#look").bounding_box()["height"])
@@ -234,7 +241,7 @@ def main():
             " g.dispatchEvent(new Event('input', { bubbles: true }))"
         )
         rows.filter(has_text="Realism").click()
-        page.locator("#look-rows .chip", has_text="Real person").click()
+        page.locator("#look-rows .look-menu button", has_text="Real person").click()
         check(
             "Real person raises guidance for its avoid part",
             page.input_value("#guidance") == "2.5" and "airbrushed skin" in tail.locator(".look-avoids").inner_text(),
@@ -273,9 +280,9 @@ def main():
         page.click("label[for=mode-generate]")
 
         rows.filter(has_text="Light").click()
-        page.locator("#look-rows .chip", has_text="Overcast").click()
+        page.locator("#look-rows .look-menu button", has_text="Overcast").click()
         rows.filter(has_text="Realism").click()
-        page.locator("#look-rows .chip", has_text="Real person").click()
+        page.locator("#look-rows .look-menu button", has_text="Real person").click()
         page.fill("#prompt", "a lighthouse")
         page.fill("#negative", "blur")
         page.click("#go")

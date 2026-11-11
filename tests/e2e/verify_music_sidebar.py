@@ -3,6 +3,7 @@
 import sys
 
 from playwright.sync_api import expect, sync_playwright
+from style_controls import show_controls, style_menu
 
 
 def main():
@@ -22,6 +23,7 @@ def main():
                 ),
             )
             page.goto(base + "/?workspace=music")
+            show_controls(page)
             lyrics = page.locator("#music-lyrics")
             expect(lyrics).to_be_visible()
             page.locator(".music-tag-guide summary").click()
@@ -50,6 +52,7 @@ def main():
             expect(lyrics).to_have_value(saved)
             page.locator("#music-studio").evaluate("studio => studio.storageQueue")
             page.reload()
+            show_controls(page)
             expect(lyrics).to_have_value(saved)
             page.locator(".music-tag-guide summary").click()
             maximum = int(lyrics.get_attribute("maxlength"))
@@ -75,10 +78,10 @@ def main():
             style.fill("Keep the pulse, leave space.")
             rows = presets.locator(".look-row")
             genre = page.locator("#music-genre-presets")
-            genre.locator("summary").click()
-            genre.get_by_role("button", name="Pop", exact=True).click()
+            genre.locator(".look-row-toggle").click()
+            style_menu(page, genre).get_by_role("menuitemradio", name="Pop", exact=True).click()
             rows.nth(0).locator(".look-row-toggle").click()
-            rows.nth(0).get_by_role("button", name="Warm", exact=True).click()
+            style_menu(page, rows.nth(0)).get_by_role("menuitemradio", name="Warm", exact=True).click()
             expanded = style.input_value()
             assert expanded.startswith("Keep the pulse, leave space.\n")
             assert ".," not in expanded and ". ," not in expanded and expanded.count("\n") == 2
@@ -86,6 +89,7 @@ def main():
             expect(rows.nth(0).locator(".look-pick")).to_have_text("Warm")
             page.locator("#music-studio").evaluate("studio => studio.storageQueue")
             page.reload()
+            show_controls(page)
             expect(style).to_have_value(expanded)
             expect(page.locator("#music-style-presets summary look-values")).to_have_text("Warm")
             assert posts == [], posts

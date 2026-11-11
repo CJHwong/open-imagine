@@ -1081,6 +1081,7 @@
   "record.progress": "Sound recorded: {active} s of {needed} s.",
   "record.ready": "Sound recorded: {needed} s. Press Stop when you are ready.",
   "run.details": "Details",
+  "run.field.addons": "Add-ons",
   "run.field.count": "Images",
   "run.field.duration": "Duration",
   "run.field.elapsed": "Elapsed",
