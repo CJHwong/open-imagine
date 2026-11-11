@@ -57,6 +57,7 @@ exclude = [
     "studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py",
     "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.py",
     "studio/l3_interface_adapters/gateways/image/flux3/flux3_child.py",
+    "studio/l3_interface_adapters/gateways/image/minimax_h3_image/minimax_h3_image_child.py",
     # The video engine wrapper imports the engine, which lives in the environment it builds.
     "studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py",
 ]

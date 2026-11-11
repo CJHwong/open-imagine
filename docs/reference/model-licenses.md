@@ -20,6 +20,11 @@ The eight-bit mflux copy keeps those terms.
 
 FLUX3 Image Klein weights carry the [FLUX Kommunity License](https://huggingface.co/black-forest-labs/flux-3-image-klein/blob/337337621b8526e120f2275d250242f4a6bedd75/LICENSE.md).
 
+MiniMax H3-Image weights carry the [MiniMax-H3-Image Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3-Image/blob/492fd8c4eca666f1085f57e30738c1e0d86b3439/LICENSE).
+It does not permit use in the United States, the European Union, the United Kingdom or South Korea.
+A hosted service, or annual revenue above 1 million USD, needs written permission from MiniMax.
+The eight-bit Comfy-Org copy keeps those terms. The h3-image-mlx engine code is Apache-2.0, and its license does not replace the weight terms.
+
 MiniMax H3 weights use the [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE).
 Its applicable territory excludes the EU, UK, South Korea and US. The built-in integration's MIT
 license and the runner's Apache-2.0 license do not replace the model terms.

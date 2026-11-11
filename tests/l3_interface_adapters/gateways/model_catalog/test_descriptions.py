@@ -11,6 +11,7 @@ from studio.l3_interface_adapters.controllers.voice_controller import VoiceContr
 from studio.l3_interface_adapters.gateways.image.flux2.capabilities import flux2_capabilities
 from studio.l3_interface_adapters.gateways.image.flux3.capabilities import flux3_capabilities
 from studio.l3_interface_adapters.gateways.image.krea2.capabilities import krea2_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.capabilities import viggle_turbo_capabilities
@@ -30,6 +31,7 @@ DESCRIPTIONS = {
     "flux3": "Fast instruction edits and image composition from multiple references.",
     "krea2": "Polished images with varied styles for creative exploration.",
     "viggle_turbo": "Image generation and editing in six steps for quick experiments.",
+    "minimax_h3_image": "Six-step image generation up to 4 MP, and edits with multiple references.",
     "ltx25_mlx": "Connected video shots with synchronized sound and image or audio guidance.",
     "ltx23_mlx": "Continuous video shots with synchronized sound and image or audio guidance.",
     "minimax_h3": "Experimental short videos with synchronized sound, guided by keyframes or audio.",
@@ -48,6 +50,7 @@ def all_capabilities():
         flux3_capabilities("int8"),
         krea2_capabilities(),
         viggle_turbo_capabilities("bf16"),
+        minimax_h3_image_capabilities(),
         ltx25_mlx_capabilities(),
         ltx23_mlx_capabilities(),
         minimax_capabilities,

@@ -197,6 +197,37 @@ Set `[krea2].model_dir` if you install elsewhere. The weights are stored at eigh
 section takes no `quantize`. The model runs the 8 steps it was distilled for, without guidance.
 Add one reference to start from it; the strength sets how close the result stays.
 
+## Optional Image: MiniMax H3-Image
+
+MiniMax H3-Image is optional. It runs on [h3-image-mlx](https://github.com/Anionex/h3-image-mlx),
+an Apache-2.0 MLX engine, in its own Python 3.12 environment. The engine's int8 kernel needs an
+M5 or M6 GPU. On another chip the engine uses its portable path, which this project did not measure. Read the [license terms](../reference/model-licenses.md) before you download.
+
+Install the engine at the pinned commit:
+
+```sh
+E=~/Library/Caches/open-imagine/engines/h3-image-mlx-64df997
+uv venv --python 3.12 "$E"
+uv pip install --python "$E/bin/python" \
+  "h3-image-mlx @ git+https://github.com/Anionex/h3-image-mlx@64df997cd00a698302b1303f51028eee179487fe"
+```
+
+Download the five weight files (about 49 GB), then check their hashes:
+
+```sh
+M=~/Library/Caches/models/minimax-h3-image
+"$E/bin/h3-image-mlx" fetch --models "$M" --source huggingface
+"$E/bin/h3-image-mlx" verify --models "$M"
+uv run studio --backend minimax_h3_image
+```
+
+`fetch` resumes a partial file, so run it again if the connection drops.
+Set `[minimax_h3_image].model_dir` and `python_path` if you install elsewhere. The weights are
+stored at eight bits, so the section takes no `quantize`. The model runs six steps without guidance.
+Edit takes one to four references at about 4 MP. A smaller edit came out posterized, so the studio
+does not offer one. On an M5 Pro, a picture takes about 20 seconds at 1 MP and about a minute at 4 MP.
+An edit takes about two and a half minutes with one large reference and about nine with four. Name a reference in the prompt as `<Picture 1>`, in the order you added it.
+
 ## Offer the installed models
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with

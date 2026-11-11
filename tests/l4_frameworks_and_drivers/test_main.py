@@ -395,7 +395,7 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
-    assert len(models) == len(set(models)) == 12
+    assert len(models) == len(set(models)) == 13
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
@@ -420,10 +420,11 @@ def test_a_lora_that_names_a_mode_the_model_lacks_stops_the_start(tmp_path: Path
         build_image_backends(settings(tmp_path, text))
 
 
-@pytest.mark.parametrize("backend_id", ["flux2", "krea2"])
+@pytest.mark.parametrize("backend_id", ["flux2", "krea2", "minimax_h3_image"])
 def test_a_flux_style_backend_refuses_a_lora_table(tmp_path: Path, backend_id):
-    text = f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "weights"\n' + LORA_TABLE.format(
-        id=backend_id, modes=""
+    text = (
+        f'default_backend = "{backend_id}"\n[{backend_id}]\nmodel_dir = "weights"\npython_path = "bin/python"\n'
+        + LORA_TABLE.format(id=backend_id, modes="")
     )
     with pytest.raises(ConfigError, match="takes no LoRAs"):
         build_image_backends(settings(tmp_path, text))
@@ -443,6 +444,30 @@ def test_krea2_refuses_a_quantize_it_would_ignore(tmp_path: Path, section, flags
 @pytest.mark.parametrize(("section", "flags"), [("", {}), ("quantize = 8\n", {}), ("", {"quantize": 8})])
 def test_krea2_takes_no_quantize_or_its_own_eight(tmp_path: Path, section, flags):
     assert build_image_backends(settings(tmp_path, KREA2 + section, **flags))["krea2"].capabilities().badge == "int8"
+
+
+H3_IMAGE = (
+    'default_backend = "minimax_h3_image"\n[minimax_h3_image]\nmodel_dir = "weights"\npython_path = "bin/python"\n'
+)
+
+
+@pytest.mark.parametrize(("section", "flags"), [("quantize = 4\n", {}), ("quantize = 0\n", {}), ("", {"quantize": 0})])
+def test_minimax_h3_image_refuses_a_quantize_it_would_ignore(tmp_path: Path, section, flags):
+    with pytest.raises(ConfigError, match=r"\[minimax_h3_image\] runs its weights at int8"):
+        build_image_backends(settings(tmp_path, H3_IMAGE + section, **flags))
+
+
+@pytest.mark.parametrize(("section", "flags"), [("", {}), ("quantize = 8\n", {}), ("", {"quantize": 8})])
+def test_minimax_h3_image_takes_no_quantize_or_its_own_eight(tmp_path: Path, section, flags):
+    backend = build_image_backends(settings(tmp_path, H3_IMAGE + section, **flags))["minimax_h3_image"]
+    assert backend.capabilities().badge == "int8"
+
+
+@pytest.mark.parametrize("key", ["model_dir", "python_path"])
+def test_minimax_h3_image_names_a_missing_setting(tmp_path: Path, key):
+    text = "\n".join(line for line in H3_IMAGE.splitlines() if not line.startswith(key)) + "\n"
+    with pytest.raises(ConfigError, match=rf"no {key} under \[minimax_h3_image\]"):
+        build_image_backends(settings(tmp_path, text))
 
 
 @pytest.mark.parametrize("backend_id", ["ltx25_mlx", "ltx23_mlx"])

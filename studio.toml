@@ -144,6 +144,16 @@ model_dir = "~/Library/Caches/models/flux3-image-klein"
 # model setup guide has the download.
 model_dir = "~/Library/Caches/models/krea-2-turbo-mflux-q8"
 
+[minimax_h3_image]
+# Optional six-step MiniMax H3-Image, text-to-image and edit. The int8 weights are about
+# 49 GB. The engine, h3-image-mlx, runs in its own pinned environment. Its int8 kernel needs
+# an M5 or M6 GPU; another chip takes the engine's portable path, which was not measured.
+# Add minimax_h3_image to visible_backends after the setup in the model setup guide. The
+# MiniMax-H3-Image Community License limits where and how you may use the weights; see
+# docs/reference/model-licenses.md.
+model_dir = "~/Library/Caches/models/minimax-h3-image"
+python_path = "~/Library/Caches/open-imagine/engines/h3-image-mlx-64df997/bin/python"
+
 [viggle_turbo]
 quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged
 # Viggle's distilled 6-step adapter for Qwen-Image-2.1, 1.3 GB. The base weights

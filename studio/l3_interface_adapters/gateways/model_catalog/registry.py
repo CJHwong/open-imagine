@@ -5,6 +5,9 @@ from functools import partial
 from studio.l3_interface_adapters.gateways.image.flux2.construction import PROVIDER as flux2_provider
 from studio.l3_interface_adapters.gateways.image.flux3.construction import PROVIDER as flux3_provider
 from studio.l3_interface_adapters.gateways.image.krea2.construction import PROVIDER as krea2_provider
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction import (
+    PROVIDER as minimax_h3_image_provider,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.construction import PROVIDER as qwen21_provider
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.construction import PROVIDER as qwen21_turbo_provider
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.construction import PROVIDER as viggle_turbo_provider
@@ -23,6 +26,7 @@ BUILTIN_PROVIDERS = (
     flux2_provider,
     flux3_provider,
     krea2_provider,
+    minimax_h3_image_provider,
     viggle_turbo_provider,
     ltx25_provider,
     ltx23_provider,
