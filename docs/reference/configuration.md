@@ -60,7 +60,7 @@ each file under the model's section. These models take them:
 | A Qwen checkpoint plugin | mflux | Generate and Edit; `modes` limits a LoRA to some of them |
 | `minimax_h3`, the [MiniMax H3](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#loras) | Phosphene's staged H3 runner | Generate, but not with an audio track. The memory gate takes one LoRA per clip |
 
-`flux2` and `krea2` take no LoRAs, and a table under either one stops the studio at start.
+`flux2`, `krea2` and `minimax_h3_image` take no LoRAs, and a table under any of them stops the studio at start.
 
 ```toml
 [qwen21_turbo]

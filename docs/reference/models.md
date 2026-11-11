@@ -1,6 +1,6 @@
 # Models
 
-Normal startup offers Qwen-Image-2.1-Turbo in Image, and one model in each other workspace. Krea 2 Turbo is optional: add `krea2` to `visible_backends` or select it with `--backend krea2`. `--all-backends` exposes optional models; it does not install their weights.
+Normal startup offers Qwen-Image-2.1-Turbo in Image, and one model in each other workspace. Krea 2 Turbo and MiniMax H3-Image are optional: add `krea2` or `minimax_h3_image` to `visible_backends`, or select one with `--backend`. `--all-backends` exposes optional models; it does not install their weights.
 [Set up models](../how-to/set-up-models.md) before using optional engines or checkpoints.
 
 The model picker describes each model's main use in one sentence. Its descriptions use the following primary sources:
@@ -29,6 +29,7 @@ MiniMax H3 keeps its experimental warning in both languages of the model picker.
 | Image | FLUX.2 klein-base-9B, uncensored | `flux2` | Generate and Edit with up to four references | Full precision by default |
 | Image | Krea 2 Turbo | `krea2` | Generate and starting image | Eight-bit stored weights; distilled 8-step schedule |
 | Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
+| Image | MiniMax H3-Image | `minimax_h3_image` | Generate up to 4 MP, and Edit with up to four references at about 4 MP | Eight-bit stored weights; six steps without guidance; pinned h3-image-mlx runtime |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
 | Video | [MiniMax H3](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md), experimental | `minimax_h3` | Short clips with native sound from text, up to three keyframes or an audio track, and one LoRA from your settings | Staged Q8; 512 x 288 runs of 73 and 175 frames, and one run each of 1024 x 576 and 1280 x 704 at 175 frames, measured on M5 Pro 64 GiB. With one LoRA, one run each of 512 x 288 at 73 frames and 1024 x 576 at 175 |
@@ -37,7 +38,7 @@ MiniMax H3 keeps its experimental warning in both languages of the model picker.
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |
 
 Capabilities from `GET /api/v1/studio` are the runtime source of truth for supported modes, controls, sizes, templates, and limits.
-Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model. `krea2` runs its stored eight-bit weights and refuses any other quantize.
+Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model. `krea2` and `minimax_h3_image` run their stored eight-bit weights and refuse any other quantize.
 Image Rewrite quantizes its rewriter as it loads when the backend sets `rewrite_quantize`. The shipped `studio.toml` sets 8, which halves a rewrite; 0, the default, keeps full precision.
 
 ## Video
