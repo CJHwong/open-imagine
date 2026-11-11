@@ -9,7 +9,10 @@ from studio.l3_interface_adapters.gateways.model_configuration.lora_table_policy
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import CAPABILITIES
 from studio.l3_interface_adapters.gateways.video.minimax_h3.memory_estimate import estimate_peak_gib
 from studio.l3_interface_adapters.gateways.video.minimax_h3.minimax_h3_backend_gateway import MinimaxH3BackendGateway
-from studio.l3_interface_adapters.gateways.video.minimax_h3.storage_assets import storage_assets
+from studio.l3_interface_adapters.gateways.video.minimax_h3.minimax_h3_flash_backend_gateway import (
+    MinimaxH3FlashBackendGateway,
+)
+from studio.l3_interface_adapters.gateways.video.minimax_h3.storage_assets import flash_storage_assets, storage_assets
 
 LORA_POLICY = LoraTablePolicy(mode_scoped=False)
 
@@ -26,6 +29,14 @@ def minimax_h3_backend(config, *, execute_process, **_):
     )
 
 
+def minimax_h3_flash_backend(config, *, execute_process, **_):
+    """Flash runs on the engine and the model folder of the [minimax_h3] section. It offers no
+    LoRA: none was tried on its weights."""
+    return MinimaxH3FlashBackendGateway(
+        ModelFactoryContext(MappingProxyType(config.backend("minimax_h3")), execute_process)
+    )
+
+
 def memory_estimator(config):
     return estimate_peak_gib
 
@@ -37,4 +48,16 @@ PROVIDER = ModelProvider(
     estimator=memory_estimator,
     storage_assets=storage_assets,
     storage_name="MiniMax H3",
+)
+
+# Flash peaks lower than base H3, because it runs no guidance and drops three blocks: a spike on
+# 2026-11-11 saw 26.9 GiB in the text encoder and 22.8 GiB in the denoise at 768 x 448 and 124
+# frames. No run sampled the whole machine, so the gate keeps the base figure, which is higher.
+FLASH_PROVIDER = ModelProvider(
+    "minimax_h3_flash",
+    "video",
+    minimax_h3_flash_backend,
+    estimator=memory_estimator,
+    storage_assets=flash_storage_assets,
+    storage_name="HyperFlow H3 Flash",
 )

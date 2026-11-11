@@ -28,6 +28,7 @@ The eight-bit Comfy-Org copy keeps those terms. The h3-image-mlx engine code is 
 MiniMax H3 weights use the [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE).
 Its applicable territory excludes the EU, UK, South Korea and US. The built-in integration's MIT
 license and the runner's Apache-2.0 license do not replace the model terms.
+HyperFlow H3 Flash weights are a derivative of H3 and carry the same model terms.
 
 ## YuE2
 

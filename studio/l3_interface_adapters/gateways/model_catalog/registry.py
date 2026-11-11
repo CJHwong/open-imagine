@@ -15,6 +15,9 @@ from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gatewa
 from studio.l3_interface_adapters.gateways.music.yue2.construction import PROVIDER as yue2_provider
 from studio.l3_interface_adapters.gateways.video.ltx23.construction import PROVIDER as ltx23_provider
 from studio.l3_interface_adapters.gateways.video.ltx25.construction import PROVIDER as ltx25_provider
+from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import (
+    FLASH_PROVIDER as minimax_h3_flash_provider,
+)
 from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import PROVIDER as minimax_h3_provider
 from studio.l3_interface_adapters.gateways.voice.auk.construction import PROVIDER as auk_provider
 from studio.l3_interface_adapters.gateways.voice.auk_flash.construction import PROVIDER as auk_flash_provider
@@ -31,6 +34,7 @@ BUILTIN_PROVIDERS = (
     ltx25_provider,
     ltx23_provider,
     minimax_h3_provider,
+    minimax_h3_flash_provider,
     auk_flash_provider,
     auk_provider,
     drama3_provider,

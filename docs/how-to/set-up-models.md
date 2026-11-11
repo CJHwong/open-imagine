@@ -78,6 +78,10 @@ The engine itself stays a source checkout. No model plugin installation is neede
 If you previously installed `open-imagine-minimax-h3`, remove that distribution from
 Studio's environment and remove its old `--with` option to avoid a duplicate model ID.
 
+H3 Flash is a second model on the same engine. It needs the base H3 setup and one more
+transformer pack. Follow [Install the Flash pack](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-flash-pack),
+then add `minimax_h3_flash` to `visible_video_backends`, or use `--all-backends`.
+
 ## Default Voice: Drama-3
 
 The child pins MLX Audio commit `2209e6d76c18d0a24f7ff64d35b4176258acd909` and checkpoint revision `fedc7cc92bab5a180709cbaae6208d10b390bb97`. Its separate environment is declared in the script. To download the weights into the default Hugging Face cache before a run:
