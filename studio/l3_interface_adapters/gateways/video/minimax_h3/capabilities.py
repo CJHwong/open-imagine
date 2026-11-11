@@ -86,8 +86,9 @@ CAPABILITIES = VideoCapabilities(
     ),
 )
 
-# HyperFlow H3 Flash: H3 distilled to six steps, with three blocks fewer. A track, a LoRA and Fast mode
-# were not tried on its weights, so this record offers none of them.
+# HyperFlow H3 Flash: H3 distilled to six steps, with three blocks fewer. It takes a track and the
+# LoRAs of base H3 by the user's decision on 2026-11-11, and no run tried either on its weights:
+# a LoRA trained on base H3 can fit the distilled weights badly. Fast mode stays off.
 FLASH_FORWARDS = 6
 
 # Fitted to five text runs through the Studio API on 2026-11-11: M5 Pro 64 GiB, Q8, seed 42, six
@@ -122,9 +123,9 @@ FLASH_CAPABILITIES = replace(
     badge="Q8 · 6 steps · 24 fps",
     description=(
         "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. "
-        "Keyframes set the first, a middle or the last frame."
+        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. "
+        "A track and a LoRA are untested on these weights."
     ),
-    modes=(replace(GENERATE, accepts_audio=False),),
     fast_mode=False,
     fast_mode_note="",
     estimate=FLASH_ESTIMATE,

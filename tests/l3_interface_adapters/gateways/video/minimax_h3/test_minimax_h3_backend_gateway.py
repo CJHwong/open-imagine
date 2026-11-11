@@ -590,14 +590,14 @@ def flash_ready(ready):
 
 
 def test_flash_is_a_second_model_on_the_h3_settings_with_its_own_record():
-    config = Config("", (), "", (), {"minimax_h3": {"model_dir": "/weights/h3", "loras": [{"id": "x"}]}})
+    config = Config("", (), "", (), {"minimax_h3": {"model_dir": "/weights/h3"}})
     gateway = FLASH_PROVIDER.create(config, execute_process=Mock())
 
     assert FLASH_PROVIDER.backend_id == "minimax_h3_flash" and FLASH_PROVIDER.kind == "video"
     assert gateway.capabilities() == FLASH_CAPABILITIES == FLASH.capabilities
-    # Flash offers what was tried on its weights: text and keyframes. It reads no LoRA table.
+    # Flash takes text, keyframes and a track, as base H3 does. It has no Fast mode.
     generate = FLASH_CAPABILITIES.mode("generate")
-    assert not generate.accepts_audio and generate.max_references == 3
+    assert generate.accepts_audio and generate.max_references == 3
     assert not FLASH_CAPABILITIES.fast_mode and not FLASH_CAPABILITIES.fast_mode_note
     assert not FLASH_CAPABILITIES.loras
     # The sizes and the lengths are the ones of base H3, so one set of checks serves both.
@@ -630,6 +630,32 @@ def test_flash_runs_six_forwards_on_its_own_pack(flash_ready):
     progress.assert_called_once_with(1, 6, 7)
 
 
+def test_flash_offers_the_loras_of_the_h3_section(tmp_path):
+    table = {"id": "motion", "label": "Motion", "path": str(tmp_path / "motion.safetensors")}
+    config = Config("", (), "", (), {"minimax_h3": {"loras": [table]}})
+
+    record = FLASH_PROVIDER.create(config, execute_process=Mock()).capabilities()
+
+    assert record.backend_id == "minimax_h3_flash" and [lora.id for lora in record.loras] == ["motion"]
+
+
+def test_flash_sends_a_track_or_a_lora_to_the_worker(flash_ready, offered):
+    seen = []
+
+    def execute(command, **options):
+        seen.append(json.loads(options["input_bytes"]))
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    offered.run_process = execute
+    gateway = MinimaxH3FlashBackendGateway(offered)
+
+    gateway.run(job(audio=VideoAudio(b"private track", "private.wav")))
+    gateway.run(job(loras=(LoraUse("motion", 0.8),)))
+
+    assert seen[0]["flash"] is True and base64.b64decode(seen[0]["audio"]) == b"private track"
+    assert seen[1]["flash"] is True and seen[1]["loras"] == [{"path": offered.lora_paths["motion"], "scale": 0.8}]
+
+
 def test_base_h3_tells_the_worker_that_it_is_not_flash(ready):
     seen = []
 
@@ -648,11 +674,10 @@ def test_base_h3_tells_the_worker_that_it_is_not_flash(ready):
     "changes,reason",
     [
         ({"fast_mode": True}, "H3 Flash has no Fast mode"),
-        ({"audio": VideoAudio(b"private track", "private.wav")}, "H3 Flash takes no audio track"),
-        ({"loras": (LoraUse("motion", 0.8),)}, "H3 Flash takes no LoRA"),
+        ({"loras": (LoraUse("motion", 0.8),)}, "H3 has no LoRA called motion"),
     ],
 )
-def test_flash_refuses_what_was_not_tried_on_its_weights(flash_ready, changes, reason):
+def test_flash_refuses_fast_mode_and_a_lora_that_its_settings_do_not_offer(flash_ready, changes, reason):
     with pytest.raises(InvalidJob, match=reason):
         MinimaxH3FlashBackendGateway(flash_ready).run(job(**changes))
     flash_ready.run_process.assert_not_called()
