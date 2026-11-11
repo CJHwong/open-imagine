@@ -569,8 +569,19 @@ function engineReferences() {
 }
 
 function referenceFactor(model) {
-  if (!model.per_reference) return 1;
-  return 1 + model.per_reference * Math.max(0, engineReferences() - 1);
+  const growth = model.per_reference
+    ? 1 + model.per_reference * Math.max(0, engineReferences() - 1) : 1;
+  return model.per_reference_ratio ? growth + model.per_reference_ratio * excessRatio() : growth;
+}
+
+// How far the pictures of one run are from square: the long side over the short side, less
+// 1, summed. A batch of one result each carries one picture a run, so it takes the mean. A
+// picture that did not load yet has no sides, and counts as square.
+function excessRatio() {
+  const pictures = page.references().filter((entry) => entry.width && entry.height);
+  const excess = pictures.reduce((sum, entry) =>
+    sum + Math.max(entry.width, entry.height) / Math.min(entry.width, entry.height) - 1, 0);
+  return chosenEach() && page.references().length ? excess / page.references().length : excess;
 }
 
 function targetPixels() {

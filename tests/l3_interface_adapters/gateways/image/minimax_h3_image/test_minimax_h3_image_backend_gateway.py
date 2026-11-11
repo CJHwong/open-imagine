@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from studio.l1_entities.errors import StudioError
+from studio.l1_entities.image_estimate import estimate_image
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import (
     EDIT_SIZES,
     SIZES,
@@ -314,3 +315,16 @@ def test_the_estimates_track_the_measured_runs():
         assert seconds(edit, megapixels, 2) == pytest.approx(252.3, rel=0.1)
         assert seconds(edit, megapixels, 4) == pytest.approx(556.4, rel=0.15)
     assert generate.overhead_per_image and edit.overhead_per_image
+
+
+@pytest.mark.parametrize(
+    "reference,measured",
+    [((2048, 2048), 142.9), ((2896, 1448), 164.8), ((6000, 2000), 184.4), ((4096, 1024), 208.4), ((1024, 4096), 208.4)],
+)
+def test_the_edit_estimate_tracks_the_measured_runs_from_a_long_reference(reference, measured):
+    """The figure of the plan route, for Match from one reference of each measured shape."""
+    edit = CAPABILITIES.mode("edit")
+
+    figure = estimate_image(edit, edit.parse_options({}), (reference,), 1)
+
+    assert figure.total_seconds == pytest.approx(measured, rel=0.03)
