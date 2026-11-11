@@ -105,8 +105,10 @@ Flash uses the engine, the text encoder and the VAEs of base H3, so install base
 adds one transformer pack, `h3-flash-dit-q8`, in the same model folder. It reads the
 `[minimax_h3]` settings and has no section of its own.
 
-Flash takes text and up to three keyframes, at the sizes and lengths of base H3. It refuses an
-audio track, a LoRA and Fast mode: none of them was tried on its weights.
+Flash takes text, up to three keyframes and an audio track, at the sizes and lengths of base H3.
+It offers the LoRAs of the `[[minimax_h3.loras]]` tables, with the limits in [LoRAs](#loras).
+No run tried a track or a LoRA on the Flash weights, so either can fail or make a poor clip. A
+LoRA trained on base H3 can fit the distilled weights badly. Flash refuses Fast mode.
 
 ### Install the Flash pack
 

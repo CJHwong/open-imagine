@@ -63,10 +63,6 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("An H3 clip always includes its sound.")
         if job.fast_mode and not self._variant.capabilities.fast_mode:
             raise InvalidJob(f"{self._variant.name} has no Fast mode. Turn Fast mode off.")
-        if job.audio is not None and not self._variant.capabilities.mode("generate").accepts_audio:
-            raise InvalidJob(f"{self._variant.name} takes no audio track. Remove the track.")
-        if job.loras and self._variant.flash:
-            raise InvalidJob(f"{self._variant.name} takes no LoRA. Remove the LoRA.")
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
             raise InvalidJob("Install ffmpeg and ffprobe before generating an H3 clip.")
         if (

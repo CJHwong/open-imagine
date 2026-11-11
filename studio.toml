@@ -51,6 +51,7 @@ fetch_loras = false
 # Add minimax_h3 to visible_video_backends after installing its engine and weights.
 # H3 Flash, minimax_h3_flash, reads this section too. It needs the h3-flash-dit-q8 pack in model_dir.
 # Add minimax_h3_flash to visible_video_backends after installing that pack.
+# Flash offers the [[minimax_h3.loras]] tables too. No run tried a LoRA or a track on its weights.
 engine_dir = "~/Library/Caches/open-imagine/engines/minimax-h3-63893b3"
 model_dir = "~/Library/Caches/models/minimax-h3"
 
