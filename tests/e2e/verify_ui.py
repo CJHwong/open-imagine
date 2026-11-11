@@ -522,7 +522,7 @@ with sync_playwright() as playwright:
     shut = camera.get_attribute("aria-expanded")
     camera.click()
     open_now = camera.get_attribute("aria-expanded")
-    page.get_by_role("button", name="Close-up 85mm", exact=True).click()
+    page.get_by_role("menuitemradio", name="Close-up 85mm", exact=True).click()
     check(
         "a Look row says whether it is open, and a pick closes it again",
         shut == "false" and open_now == "true" and camera.get_attribute("aria-expanded") == "false",
@@ -545,8 +545,8 @@ with sync_playwright() as playwright:
     )
     camera.click()
     check(
-        "the chosen Look chip is marked as pressed",
-        page.get_by_role("button", name="Close-up 85mm", exact=True).get_attribute("aria-pressed") == "true",
+        "the chosen Look option is marked as checked",
+        page.get_by_role("menuitemradio", name="Close-up 85mm", exact=True).get_attribute("aria-checked") == "true",
     )
     # The pick also shows under the prompt as a chip that takes it back off.
     page.get_by_role("button", name="Remove Close-up 85mm").click()
@@ -554,10 +554,10 @@ with sync_playwright() as playwright:
     camera.click()
     check(
         "the chip under the prompt takes the Look back off",
-        page.get_by_role("button", name="Close-up 85mm", exact=True).get_attribute("aria-pressed") == "false"
+        page.get_by_role("menuitemradio", name="Close-up 85mm", exact=True).get_attribute("aria-checked") == "false"
         and page.locator("#look-adds").is_hidden(),
     )
-    page.get_by_role("button", name="Close-up 85mm", exact=True).click()
+    page.get_by_role("menuitemradio", name="Close-up 85mm", exact=True).click()
     # A mode switch keeps the Look. The rows are read by name, so a mode that does not offer
     # this row shows nothing for it, and the pick is marked again on the way back.
     page.locator("label[for=mode-edit]").click()
@@ -595,7 +595,7 @@ with sync_playwright() as playwright:
     # sidebar itself and leave this measuring its own setup.
     light = page.get_by_role("button", name=re.compile("^Light"))
     light.click()
-    overcast = page.get_by_role("button", name="Overcast", exact=True)
+    overcast = page.get_by_role("menuitemradio", name="Overcast", exact=True)
     overcast.scroll_into_view_if_needed()
     before = light.bounding_box()["y"]
     overcast.click()
@@ -612,7 +612,7 @@ with sync_playwright() as playwright:
     # mode declares a negative prompt, because it is what the model will be told
     # not to draw.
     page.get_by_role("button", name=re.compile("^Realism")).click()
-    page.get_by_role("button", name="Real person", exact=True).click()
+    page.get_by_role("menuitemradio", name="Real person", exact=True).click()
     note = page.locator("#look-adds .look-avoids")
     # Read without waiting: an absent note is a failed check and not a timeout,
     # so the suite goes on to the checks after it.
@@ -1382,7 +1382,7 @@ with sync_playwright() as playwright:
     if not look_open:
         page.click("details#look summary")
     page.get_by_role("button", name=re.compile("^Retouch")).click()
-    page.get_by_role("button", name="Smooth the skin", exact=True).click()
+    page.get_by_role("menuitemradio", name="Smooth the skin", exact=True).click()
     page.wait_for_timeout(250)
     check(
         "a pick that wants a marked area waits for a drawn one",
@@ -2098,15 +2098,17 @@ with sync_playwright() as playwright:
     tab.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
     tab.wait_for_timeout(250)
     medium = tab.locator("#look-rows").get_by_role(
-        "button", name=re.compile("^(Documentary|Phone snapshot|Watercolor|Ink drawing|3D render|Skeleton)$")
+        "menuitemradio", name=re.compile("^(Documentary|Phone snapshot|Watercolor|Ink drawing|3D render|Skeleton)$")
     )
     medium_names = sorted(medium.all_inner_texts())
+    tab.keyboard.press("Escape")
     tab.locator("#look-rows").get_by_role("button", name=re.compile("^Camera")).click()
     tab.wait_for_timeout(250)
     camera = tab.locator("#look-rows").get_by_role(
-        "button", name=re.compile("^(Close-up 85mm|Wide 24mm|Top-down|Low angle|Telephoto|Deep focus)$")
+        "menuitemradio", name=re.compile("^(Close-up 85mm|Wide 24mm|Top-down|Low angle|Telephoto|Deep focus)$")
     )
     camera_names = sorted(camera.all_inner_texts())
+    tab.keyboard.press("Escape")
     check(
         "the second model offers the aids its own sample kept, and not the one it dropped",
         medium_names == ["3D render", "Documentary", "Ink drawing", "Phone snapshot", "Skeleton", "Watercolor"]
@@ -2372,7 +2374,7 @@ with sync_playwright() as playwright:
     written.goto(URL)
     written.click("details:has(summary:has-text('Look')) summary")
     written.locator("#look-rows").get_by_role("button", name=re.compile("^Medium")).click()
-    written.locator("#look-rows").get_by_role("button", name="Watercolor", exact=True).click()
+    written.locator("#look-rows").get_by_role("menuitemradio", name="Watercolor", exact=True).click()
     watercolour = "Watercolor painting on textured paper, soft washes, visible brush edges."
     written.fill("#prompt", LONG_PROMPT)
     written.dispatch_event("#prompt", "input")
@@ -2953,7 +2955,7 @@ with sync_playwright() as playwright:
     # can see.
     plain.click("#look summary")
     plain.locator("#look-rows").get_by_role("button", name=re.compile("^Light")).click()
-    plain.locator("#look-rows").get_by_role("button", name="Overcast", exact=True).click()
+    plain.locator("#look-rows").get_by_role("menuitemradio", name="Overcast", exact=True).click()
     check(
         "a Look row's name is the row and its pick as one word with no stylesheet at all",
         plain.get_by_role("button", name="LightOvercast", exact=True).count() == 1,

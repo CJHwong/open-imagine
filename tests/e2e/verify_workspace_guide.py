@@ -10,6 +10,16 @@ from playwright.sync_api import sync_playwright
 
 URL = "http://127.0.0.1:" + sys.argv[1]
 
+
+def switch_workspace(page, workspace):
+    selector = page.locator("#workspace-toggle")
+    if selector.is_visible():
+        selector.click()
+        page.locator(f'#workspace-menu [data-workspace="{workspace}"]').click()
+    else:
+        page.locator("#media-" + workspace + "-mode").click()
+
+
 with sync_playwright() as p:
     browser = p.chromium.launch()
     page = browser.new_page(viewport={"width": 1440, "height": 1000})
@@ -18,7 +28,7 @@ with sync_playwright() as p:
     page.goto(URL)
     toggle = page.locator("#guide-toggle")
     sheet = page.locator("#guide-sheet")
-    for width in (1440, 390):
+    for width in (1440, 390, 320):
         page.set_viewport_size({"width": width, "height": 1000 if width == 1440 else 844})
         for workspace, topic in [
             ("image", "Mark a region"),
@@ -26,7 +36,7 @@ with sync_playwright() as p:
             ("voice", "Audio token limit"),
             ("music", "Edit score"),
         ]:
-            page.locator("#media-" + workspace + "-mode").click()
+            switch_workspace(page, workspace)
             page.wait_for_function(
                 '(mode) => document.querySelector("#media-" + mode + "-mode").getAttribute("aria-pressed") === "true"',
                 arg=workspace,
@@ -42,6 +52,13 @@ with sync_playwright() as p:
             box = sheet.bounding_box()
             assert box and box["width"] > 100 and box["height"] > 100
             assert box["x"] >= 0 and box["x"] + box["width"] <= width + 1
+            if width <= 600:
+                insets = sheet.evaluate("""dialog => {
+                    const outer = dialog.getBoundingClientRect();
+                    const body = dialog.querySelector('.sheet-body').getBoundingClientRect();
+                    return [body.left - outer.left, outer.right - body.right];
+                }""")
+                assert abs(insets[0] - insets[1]) <= 1, insets
             assert sheet.locator("dd").evaluate_all("(els) => els.every(el => el.scrollWidth <= el.clientWidth)")
             # A step's sentence shares the title's column. A loose grid child drops into
             # the number's 28 px column and wraps one word a line.
@@ -74,10 +91,10 @@ with sync_playwright() as p:
     sheet.wait_for(state="visible")
     sheet.get_by_role("button", name="Close").click()
     assert sheet.count() == 0 and toggle.get_attribute("aria-expanded") == "false"
-    page.locator("#media-video-mode").click()
+    switch_workspace(page, "video")
     page.wait_for_function('document.querySelector("#media-video-mode").getAttribute("aria-pressed") === "true"')
     print("PASS the guide is modal and leaves before the workspace switch", flush=True)
-    page.locator("#media-voice-mode").click()
+    switch_workspace(page, "voice")
     page.wait_for_function('document.querySelector("#media-voice-mode").getAttribute("aria-pressed") === "true"')
     page.locator("#backend-toggle").click()
     page.get_by_role("menuitemradio", name="AuK", exact=True).click()
@@ -90,7 +107,7 @@ with sync_playwright() as p:
     print("PASS a model change reaches its own help", flush=True)
     catalog = page.request.get(URL + "/api/v1/studio").json()["video"]["backends"]
     if any(model["id"] == "ltx23_mlx" for model in catalog):
-        page.locator("#media-video-mode").click()
+        switch_workspace(page, "video")
         page.wait_for_function('document.querySelector("#media-video-mode").getAttribute("aria-pressed") === "true"')
         page.locator("#backend-toggle").click()
         page.get_by_role("menuitemradio", name="LTX-2.3", exact=True).click()

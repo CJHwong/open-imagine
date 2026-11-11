@@ -22,7 +22,8 @@
 
 import {mediaDownloadName} from '../lib/download-name.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
-import {openRunSheet} from '../lib/run-sheet.js';
+import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
+import {navigate} from '../lib/navigation.js';
 import {t} from '../lib/i18n.js';
 
 // What the stage draws with. The DOM helpers live here because the stage and the
@@ -47,7 +48,10 @@ export function textButton(name, label, handler) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'btn quiet';
-  button.innerHTML = icon(name) + label;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.innerHTML = icon(name) + '<span class="action-label"></span>';
+  button.querySelector('.action-label').textContent = label;
   button.addEventListener('click', handler);
   return button;
 }
@@ -147,7 +151,7 @@ function renderEmpty() {
     title.textContent = t('stage.empty.editTitle');
     line.textContent = t('stage.empty.editLine');
     start.innerHTML = icon('image-in') + t('stage.empty.choose');
-    start.addEventListener('click', function () { page.referenceInput.click(); });
+    start.addEventListener('click', function () { navigate('controls'); page.referenceInput.click(); });
   } else if (!page.currentMode().templates.length) {
     title.textContent = t('stage.empty.preview');
     line.textContent = t('stage.empty.previewGenerate');
@@ -229,6 +233,13 @@ function renderStageBar(entry) {
   // Every action is page state only; nothing is sent until the next run.
   const actions = document.createElement('div');
   actions.className = 'actions';
+  const details = textButton('info', t('run.details'), function () {
+    openResultSheet({kind: 'image', model: entry.backend, mode: entry.mode,
+      request: {...entry, prompt: entry.look?.sent || entry.prompt, look: entry.look?.adds,
+        references: entry.sources}, elapsed: entry.elapsed, trigger: details});
+  });
+  details.classList.add('preview-details-toggle');
+  actions.append(details);
   // Edit this and Download are the two next steps people take; the reuse
   // actions are rarer, so they wait behind More to keep the row short.
   const more = document.createElement('div');
@@ -253,6 +264,7 @@ function renderStageBar(entry) {
       page.useInVideo(entry);
     }),
     menus.menuItem('hash', t('stage.menu.reuseSeed', {seed: entry.seed}), function () {
+      navigate('controls', 'seed');
       document.getElementById('seed').value = entry.seed;
       document.getElementById('advanced').open = true;
       page.refreshForm();
@@ -271,6 +283,7 @@ function renderStageBar(entry) {
       if (page.paramSpec('negative')) document.getElementById('negative').value = entry.negative;
       page.growPrompt();
       page.refreshForm();
+      navigate('controls', 'prompt');
       page.promptInput.focus();
     })
   );
@@ -282,6 +295,12 @@ function renderStageBar(entry) {
   download.title = t('stage.action.download');
   download.setAttribute('aria-label', t('stage.action.download'));
   download.innerHTML = icon('download');
+  download.classList.add('preview-secondary-action');
+  const remove = iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger preview-secondary-action');
+  const mobileDownload = menus.menuItem('download', t('stage.action.download'), () => download.click());
+  const mobileRemove = menus.menuItem('trash', t('stage.action.remove'), () => remove.click());
+  mobileDownload.className = mobileRemove.className = 'mobile-preview-action';
+  moreMenu.append(mobileDownload, mobileRemove);
   const rule = document.createElement('span');
   rule.className = 'rule';
   // A rewrite writes into the form, and Edit this empties it: the mode switch clears the
@@ -289,13 +308,13 @@ function renderStageBar(entry) {
   // A model with no edit mode has nothing for it to switch to, so it is left out.
   if (page.canEdit()) {
     const edit = textButton('brush', t('stage.action.edit'), function () { page.editThis(entry); });
+    edit.classList.add('preview-primary-action');
     edit.disabled = page.rewriting();
     if (edit.disabled) edit.title = t('stage.action.locked');
     actions.append(edit);
   }
   actions.append(more,
-    rule, download,
-    iconButton('trash', t('stage.action.remove'), function () { page.strip().remove(entry.id); }, 'danger'));
+    rule, download, remove);
   if (document.fullscreenEnabled) {
     actions.append(document.fullscreenElement
       ? iconButton('shrink', t('stage.action.exitFullscreen'), toggleFullscreen)

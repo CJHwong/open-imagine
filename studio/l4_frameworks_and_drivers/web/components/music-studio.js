@@ -1,4 +1,5 @@
 import {galleryStepIndex} from '../lib/gallery-navigation.js';
+import {uuid} from '../lib/uuid.js';
 import {musicSongs, saveMusicSong, updateMusicSong, deleteMusicSong, musicDraft, saveMusicDraft, clearMusic,
   musicSource, putMusicSource, sourceIdFor, sweepMusicSources, musicLink, putMusicLink, deleteMusicLink} from '../lib/music-store.js';
 import {renderNotation} from '../lib/music-notation.js';
@@ -10,6 +11,7 @@ import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewr
 import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet} from '../lib/run-sheet.js';
+import {navigate, bindSwipe} from '../lib/navigation.js';
 import {html, render} from '/page/vendor/lit.js';
 import {encodeMp3} from '../lib/mp3.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
@@ -474,10 +476,14 @@ class MusicStudio extends HTMLElement {
             </ul>
           </details></div>
       </section>
-      <details id="music-genre-presets"><summary><span class="music-style-label">${t('music.row.genre')}</span><span class="values look-pick">${t('music.common.none')}</span></summary>
-        <div class="music-genre-groups">${MUSIC_GENRE_GROUPS.map(([family, labels]) => `<section class="music-genre-family"><h3>${t(GENRE_GROUP_KEYS[family] || family)}</h3><div class="look-chips">${labels.map(label => { const translated = GENRE_LABELS.get(label) || label; return `<button type="button" class="chip" data-music-genre="${translated}" aria-pressed="false">${translated}</button>`; }).join('')}</div></section>`).join('')}</div>
-        <p class="look-note">${t('music.genre.note')}</p>
-      </details>
+      <div id="music-genre-presets" class="look-row menu-anchor">
+        <button type="button" class="look-row-toggle" id="music-genre-toggle" aria-haspopup="menu" aria-controls="music-genre-menu" aria-expanded="false" title="${t('music.row.genre')}"><span class="label">${t('music.row.genre')}</span><span class="look-pick">${t('music.common.none')}</span><svg class="icon" aria-hidden="true"><use href="#i-caret"></use></svg></button>
+        <div id="music-genre-menu" class="menu look-menu" role="menu" hidden>
+          <button type="button" role="menuitemradio" data-music-genre="" aria-checked="true"><span class="item-text">${t('music.common.none')}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>
+          <div class="music-genre-groups">${MUSIC_GENRE_GROUPS.map(([family, labels]) => `<section class="music-genre-family"><h3>${t(GENRE_GROUP_KEYS[family] || family)}</h3><div>${labels.map(label => { const translated = GENRE_LABELS.get(label) || label; return `<button type="button" role="menuitemradio" data-music-genre="${translated}" aria-checked="false"><span class="item-text">${translated}</span><svg class="icon choice-check" aria-hidden="true"><use href="#i-check"></use></svg></button>`; }).join('')}</div></section>`).join('')}</div>
+          <p class="menu-foot">${t('music.genre.note')}</p>
+        </div>
+      </div>
       <details id="music-style-presets"><summary><span class="music-style-label">${t('music.style.presets')}</span> <look-values class="values" data-form="music"></look-values></summary>
         <look-rows class="look" data-form="music"></look-rows>
         <p class="look-note">${t('music.style.note')}</p>
@@ -570,6 +576,7 @@ class MusicStudio extends HTMLElement {
     this.generateButton.addEventListener('click', () => this.generate());
     this.querySelector('#music-write').addEventListener('click', () => {
       const target = (EMPTY_COPY[this.draft().mode] || EMPTY_COPY.generate)[2];
+      navigate('controls');
       if (target === 'task') this.controls.querySelector('#music-transcription-task').focus();
       else this.controls.querySelector('#music-style').focus();
     });
@@ -598,13 +605,18 @@ class MusicStudio extends HTMLElement {
       if (event.clientX < rect.left || event.clientX > rect.right
         || event.clientY < rect.top || event.clientY > rect.bottom) this.closeAbcEditor();
     });
-    this.controls.querySelector('#music-genre-presets').addEventListener('click', event => {
+    this.controls.querySelector('#music-genre-toggle').addEventListener('click', () => {
+      toggleMenu(document.getElementById('music-genre-menu'));
+    });
+    this.controls.querySelector('#music-genre-menu').addEventListener('click', event => {
       const button = event.target.closest('[data-music-genre]');
       if (!button) return;
-      this.pickStyle(MUSIC_STYLE_ROWS[0], button.dataset.musicGenre);
-      const section = this.controls.querySelector('#music-genre-presets');
-      section.open = false;
-      section.querySelector('summary').focus();
+      closeMenus();
+      const trigger = this.controls.querySelector('#music-genre-toggle');
+      if (trigger.matches(':disabled') || trigger.closest('[inert]')) return;
+      const current = this.stylePicks()[MUSIC_STYLE_ROWS[0].name][0] || '';
+      if (button.dataset.musicGenre !== current) this.pickStyle(MUSIC_STYLE_ROWS[0], button.dataset.musicGenre || current);
+      trigger.focus();
     });
     this.controls.querySelector('.music-tag-guide').addEventListener('click', event => {
       const button = event.target.closest('[data-music-section]');
@@ -658,23 +670,7 @@ class MusicStudio extends HTMLElement {
     // A phone steps to the next song with a sideways swipe on the preview, the same step
     // the arrow keys take. Mouse drags are left alone, and a control, the seek bar, the
     // words, or a score's own scroller keeps its drag.
-    this.swipeStart = null;
-    const swipeArea = this.querySelector('.music-preview-area');
-    swipeArea.addEventListener('pointerdown', event => {
-      this.swipeStart = null;
-      if (event.pointerType !== 'touch') return;
-      if (event.target.closest('input, textarea, select, button, audio, a, [contenteditable], .music-player, .music-track-text, .music-abc-notation, .music-output-details')) return;
-      this.swipeStart = {id: event.pointerId, x: event.clientX, y: event.clientY};
-    });
-    swipeArea.addEventListener('pointerup', event => {
-      const start = this.swipeStart;
-      this.swipeStart = null;
-      if (!start || start.id !== event.pointerId) return;
-      const dx = event.clientX - start.x, dy = event.clientY - start.y;
-      if (Math.abs(dx) < 48 || Math.abs(dx) < Math.abs(dy) * 2) return;
-      this.stepSong(dx < 0 ? 1 : -1);
-    });
-    swipeArea.addEventListener('pointercancel', () => { this.swipeStart = null; });
+    bindSwipe(this.querySelector('.music-preview-area'), direction => this.stepSong(direction));
     // The Browse/Compact switch sits in the shelf's head, outside the strip's own keys.
     // A person who presses it still expects the arrow keys to step the songs.
     this.querySelector('gallery-browser').addEventListener('keydown', event => {
@@ -752,8 +748,8 @@ class MusicStudio extends HTMLElement {
     const label = selected || t('music.common.none');
     if (summary.textContent !== label) summary.textContent = label;
     summary.classList.toggle('picked', Boolean(selected));
-    section.querySelectorAll('[data-music-genre]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.musicGenre === selected));
+    document.querySelectorAll('#music-genre-menu [data-music-genre]').forEach(button => {
+      button.setAttribute('aria-checked', String(button.dataset.musicGenre === (selected || '')));
     });
   }
   stylePicks() {
@@ -1119,6 +1115,7 @@ class MusicStudio extends HTMLElement {
   useReference(song) {
     if (this.busy || !song.blob) return;
     closeMenus();
+    navigate('controls');
     this.setReference(song.blob, `music-${song.seed}.wav`).catch(error => this.options.notify('error', error.message));
     this.controls.querySelector('.music-reference-fields')?.scrollIntoView({block: 'center', behavior: 'smooth'});
   }
@@ -1136,6 +1133,7 @@ class MusicStudio extends HTMLElement {
     // The song remembers the file name its run saw. The record's name is the last one
     // that touched the same bytes, so it is only the fallback.
     await this.setReference(source.blob, song.settings?.reference_name || source.name || 'reference.wav', song.sourceId);
+    navigate('controls');
     this.controls.querySelector('.music-reference-fields')?.scrollIntoView({block: 'center', behavior: 'smooth'});
   }
   // The item's whole job: the song's score becomes the form's score, and the form shows
@@ -1147,6 +1145,7 @@ class MusicStudio extends HTMLElement {
     this.controls.querySelector('#music-abc').value = song.score;
     this.controls.querySelector('.music-advanced-fields').open = true;
     this.epoch++; this.sync();
+    navigate('controls');
     const field = this.controls.querySelector('#music-abc-preview').closest('.field');
     field?.scrollIntoView({block: 'center', behavior: 'smooth'});
     if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
@@ -1502,6 +1501,7 @@ class MusicStudio extends HTMLElement {
       }
       this.setOperation(operation);
       this.clearInputs();
+      navigate('preview');
       document.dispatchEvent(new CustomEvent('music-submitted'));
     } catch (error) {
       const message = error instanceof TypeError ? t('form.error.serverSilent')
@@ -2077,7 +2077,7 @@ class MusicStudio extends HTMLElement {
   async generateCover(song) {
     if (this.busy) return;
     this.closeScore(false); this.coverStarting = true; this.sync(); this.options.onBusyChange();
-    const clientId = this.options.clientId + ':music-cover:' + crypto.randomUUID();
+    const clientId = this.options.clientId + ':music-cover:' + uuid();
     try {
       const stateAnswer = await fetch('/api/v1/studio', {cache: 'no-store'});
       if (!stateAnswer.ok) throw new Error(t('music.cover.error.image_models'));
@@ -2450,6 +2450,13 @@ class MusicStudio extends HTMLElement {
       caption.addEventListener('keydown', event => { if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.openDetails(song.id, caption); } });
       about.append(caption, facts);
       const actions = document.createElement('div'); actions.className = 'actions music-song-actions';
+      const detailsToggle = document.createElement('button');
+      detailsToggle.type = 'button'; detailsToggle.className = 'btn quiet preview-details-toggle';
+      detailsToggle.textContent = t('run.details');
+      detailsToggle.dataset.musicDetails = ''; detailsToggle.setAttribute('aria-controls', detailsId);
+      detailsToggle.setAttribute('aria-expanded', 'false');
+      detailsToggle.addEventListener('click', () => this.openDetails(song.id, detailsToggle));
+      actions.append(detailsToggle);
       // A score moves into the form from here; the modal belongs to the form's own
       // Edit score link, so this item never opens it.
       const useScore = menuItem('music', t('music.menu.use_score'), () => this.useScore(song)); useScore.dataset.musicScore = '';
@@ -2475,8 +2482,14 @@ class MusicStudio extends HTMLElement {
         if (Number.isFinite(seed)) this.controls.querySelector('#music-seed').value = String(seed);
         this.selectWorkflow('generate');
         this.controls.dispatchEvent(new Event('input', {bubbles: true}));
+        navigate('controls', 'music-style');
         this.controls.querySelector('#music-style').focus();
       }); reuse.dataset.musicReuse = ''; menu.append(reuse); more.append(toggle, menu);
+      const mobileDownload = menuItem('download', download.getAttribute('aria-label'), () => download.click());
+      const mobileRemove = menuItem('trash', remove.getAttribute('aria-label'), () => remove.click());
+      mobileDownload.className = mobileRemove.className = 'mobile-preview-action';
+      download.classList.add('preview-secondary-action'); remove.classList.add('preview-secondary-action');
+      menu.append(mobileDownload, mobileRemove);
       const rule = document.createElement('span'); rule.className = 'rule'; rule.setAttribute('aria-hidden', 'true');
       // A score has no recording, so there is nothing to draw artwork for.
       actions.append(...(hasAudio ? [artworkButton] : []), more, rule, download, remove);

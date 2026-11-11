@@ -15,6 +15,7 @@
 // the handle is in place before the first run.
 
 import {t} from './i18n.js';
+import {navigate} from './navigation.js';
 
 const page = {};
 
@@ -277,6 +278,7 @@ async function submitBatch(parameters, headers) {
     revokeUnclaimed();
     stopWork();
     page.notify('error', error.message);
+    navigate('controls');
   }
 }
 
@@ -656,6 +658,7 @@ function listen() {
       cleared = snapshotInputs();
     }
     startWork(event.detail.elt);
+    if (fresh) navigate('preview');
     // The form empties after startWork, which reads it for the run's cost, shape
     // and step time. A chain request carries its own token and never reads the
     // form, so only the form's own request clears.
@@ -681,6 +684,7 @@ function listen() {
   document.body.addEventListener('htmx:responseError', function () {
     armCancelRestore();
     stopWork();
+    navigate('controls');
     // An error response from /generate, /progress or /cancel used to take the card away
     // without a word. The run may still be going on the server, so the copy says so.
     page.notify('error', t('form.error.requestFailed'));
@@ -688,6 +692,7 @@ function listen() {
   document.body.addEventListener('htmx:sendError', function () {
     armCancelRestore();
     stopWork();
+    navigate('controls');
     page.notify('error', t('form.error.serverSilent'));
   });
 

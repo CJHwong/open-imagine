@@ -33,9 +33,10 @@ every POST until you name that origin. A page on another site cannot send that o
 The flag takes `scheme://host[:port]` only. The studio refuses `null`, `*`, a path, or a
 value with no scheme, and does not start. `null` would let a sandboxed frame on any site post.
 
-## Why plain HTTP on the tailnet is not enough
+## Plain HTTP on a local network
 
 `--host 0.0.0.0` and `http://my-mac.example.ts.net:8765` also reach the server. A browser does
 not treat that address as a secure context, because it is neither HTTPS nor `localhost`.
-The page needs a secure context: without one, `crypto.randomUUID` does not exist, and the
-page stops before it draws its controls.
+The page creates its browser identities with `crypto.getRandomValues` when `crypto.randomUUID` is unavailable.
+The workspace picker, size controls, references, and generation work over plain HTTP.
+Microphone recording and screen wake locks still require HTTPS or `localhost`.

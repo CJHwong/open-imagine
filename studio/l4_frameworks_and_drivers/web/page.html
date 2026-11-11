@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>__NAME__</title>
+<script src="/page/lib/identity.js"></script>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"> <rect x="18" y="8" width="92" height="112" rx="12" fill="%234d3e3b"/> <rect x="23" y="13" width="82" height="102" rx="8" fill="%23d2cbc4"/> <rect x="30" y="20" width="68" height="88" fill="%23f7e7d7"/> <rect x="35" y="25" width="58" height="42" fill="%23c80600"/> <rect x="35" y="67" width="58" height="20" fill="%236b0100"/> <circle cx="64" cy="44" r="8" fill="%23fd3800"/> </svg>'>
 <script>
   // The saved theme applies before the first paint, so the page never flashes the default.
@@ -56,6 +57,8 @@
   <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1-5.1-1.9 5.1-1.9z"/><path d="M19 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
   <symbol id="i-brush" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></symbol>
+  <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+  <symbol id="i-voice" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M8 21h8"/></symbol>
   <symbol id="i-image-in" viewBox="0 0 24 24"><path d="M20 11v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7"/><path d="M4 16l4-4 4 4 3-3 5 5"/><path d="M18 3v6M15 6h6"/></symbol>
   <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/></symbol>
   <symbol id="i-text" viewBox="0 0 24 24"><path d="M5 6h14M5 11h14M5 16h9"/></symbol>
@@ -82,6 +85,20 @@
 <div class="app">
   <div class="work">
     <header class="topbar">
+      <div class="workspace-picker menu-anchor">
+        <button type="button" id="workspace-toggle" class="icon-btn" aria-label="Workspace" title="Workspace"
+          aria-haspopup="menu" aria-expanded="false" aria-controls="workspace-menu"
+          data-i18n-attr='{"aria-label":"nav.workspace","title":"nav.workspace"}'>
+          <svg class="icon workspace-icon" aria-hidden="true"><use href="#i-image"/></svg>
+          <svg class="icon workspace-caret" aria-hidden="true"><use href="#i-caret"/></svg>
+        </button>
+        <div class="menu" id="workspace-menu" role="menu" hidden>
+          <button type="button" data-workspace="image" role="menuitemradio" aria-checked="true"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span class="item-text" data-i18n="tab.image">Image</span><svg class="icon workspace-check" aria-hidden="true"><use href="#i-check"/></svg></button>
+          <button type="button" data-workspace="video" role="menuitemradio" aria-checked="false"><svg class="icon" aria-hidden="true"><use href="#i-video"/></svg><span class="item-text" data-i18n="tab.video">Video</span><svg class="icon workspace-check" aria-hidden="true"><use href="#i-check"/></svg></button>
+          <button type="button" data-workspace="voice" role="menuitemradio" aria-checked="false" hidden disabled><svg class="icon" aria-hidden="true"><use href="#i-voice"/></svg><span class="item-text" data-i18n="tab.voice">Voice</span><svg class="icon workspace-check" aria-hidden="true"><use href="#i-check"/></svg></button>
+          <button type="button" data-workspace="music" role="menuitemradio" aria-checked="false" hidden disabled><svg class="icon" aria-hidden="true"><use href="#i-music"/></svg><span class="item-text" data-i18n="tab.music">Music</span><svg class="icon workspace-check" aria-hidden="true"><use href="#i-check"/></svg></button>
+        </div>
+      </div>
       <div class="dial">
         <div class="menu-anchor">
           <h1><button type="button" id="backend-toggle" aria-haspopup="menu" aria-expanded="false"
@@ -110,9 +127,9 @@
     </header>
     <nav class="pane-switch" id="pane-switch" role="group" aria-label="View"
       data-i18n-attr='{"aria-label":"pane.label"}'>
-      <button type="button" data-pane="preview" aria-pressed="true" data-i18n="pane.preview">Preview</button>
-      <button type="button" data-pane="gallery" aria-pressed="false" data-i18n="pane.gallery">Gallery</button>
-      <button type="button" data-pane="controls" aria-pressed="false" data-i18n="pane.controls">Controls</button>
+      <button type="button" data-pane="preview" aria-pressed="true"><svg class="icon" aria-hidden="true"><use href="#i-image"/></svg><span data-i18n="pane.preview">Preview</span></button>
+      <button type="button" data-pane="gallery" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-layout"/></svg><span data-i18n="pane.gallery">Gallery</span></button>
+      <button type="button" data-pane="controls" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg><span data-i18n="pane.controls">Controls</span></button>
     </nav>
     <section id="shared-operation" class="shared-operation" aria-label="Current operation"
       data-i18n-attr='{"aria-label":"page.operation.current"}' hidden>
@@ -676,10 +693,11 @@
   let observedVideoFastMode = null;
   let observedImageResult = null;
   let sharedRewriteWorkspace = 'image';
-  const CLIENT_ID = crypto.randomUUID();
+  let menus = null;
+  const CLIENT_ID = studioIdentity();
   const LIBRARY_ID = (() => {
     try {
-      const id = localStorage.getItem('studio-library-id') || crypto.randomUUID();
+      const id = localStorage.getItem('studio-library-id') || studioIdentity();
       localStorage.setItem('studio-library-id', id);
       return id;
     } catch (error) {
@@ -709,7 +727,7 @@
     event.detail.headers['X-Studio-Client'] = CLIENT_ID;
     event.detail.headers['X-Studio-Library'] = LIBRARY_ID;
     if (event.detail.elt === form) {
-      event.detail.parameters.draft_id = drafts?.submit('image') || crypto.randomUUID();
+      event.detail.parameters.draft_id = drafts?.submit('image') || studioIdentity();
     }
   });
   document.body.addEventListener('htmx:confirm', function (event) {
@@ -798,6 +816,9 @@
   };
   for (const name of ['video', 'voice', 'music']) {
     document.getElementById('media-' + name + '-mode').hidden = !WORKSPACES[name];
+    const option = document.querySelector('#workspace-menu [data-workspace="' + name + '"]');
+    option.hidden = !WORKSPACES[name];
+    option.disabled = !WORKSPACES[name];
   }
   let guide;
   let mediaMode = WORKSPACES[requestedWorkspace] ? requestedWorkspace : 'image';
@@ -822,6 +843,12 @@
     document.getElementById('media-video-mode').disabled = disabled;
     document.getElementById('media-voice-mode').disabled = disabled;
     document.getElementById('media-music-mode').disabled = disabled;
+    document.getElementById('workspace-toggle').disabled = disabled;
+    if (disabled) {
+      menus?.closeMenus();
+      document.getElementById('workspace-menu').hidden = true;
+      document.getElementById('workspace-toggle').setAttribute('aria-expanded', 'false');
+    }
     document.getElementById('video-fast-mode').disabled = disabled;
   }
 
@@ -892,14 +919,6 @@
     if (formApi) formApi.renderRewriteButton();
   }
 
-  function newVideoRequestId() {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    const bytes = window.crypto.getRandomValues(new Uint8Array(16));
-    return Array.from(bytes, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
-  }
-
   // What the browser tab says. The workspace decides the first word, because the two
   // workspaces run different models, and a title naming only the image model read wrong
   // in the video one. A run's progress goes in front of it, so a run can be watched from
@@ -931,6 +950,10 @@
     mediaMode = next;
     form.dataset.mediaMode = mediaMode;
     document.body.dataset.media = mediaMode;
+    document.querySelector('#workspace-toggle .workspace-icon use').setAttribute('href', '#i-' + mediaMode);
+    document.querySelectorAll('#workspace-menu [data-workspace]').forEach(function (button) {
+      button.setAttribute('aria-checked', String(button.dataset.workspace === mediaMode));
+    });
     sizePanes();
     if (document.body.dataset.pane === 'gallery' && tabbed.matches) setPane('gallery');
     const video = mediaMode === 'video';
@@ -977,7 +1000,9 @@
     // The switch frees the model that is loaded, which takes seconds on a busy
     // machine. The pressed tab says so, instead of taking the press in silence.
     const tab = document.getElementById('media-' + next + '-mode');
+    const workspaceToggle = document.getElementById('workspace-toggle');
     tab.setAttribute('aria-busy', 'true');
+    workspaceToggle.setAttribute('aria-busy', 'true');
     setWorkspaceControlsDisabled();
     try {
       const answer = await fetch('/workspace', {
@@ -995,6 +1020,7 @@
       showToast('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
     } finally {
       tab.removeAttribute('aria-busy');
+      workspaceToggle.removeAttribute('aria-busy');
       workspaceSwitchPending = false;
       setWorkspaceControlsDisabled();
     }
@@ -1016,22 +1042,30 @@
   }
   let paneShelf = null;
   const tabbed = window.matchMedia('(max-width: 900px)');
+  let narrowPane = 'preview';
   // A wider window has no panes: the layout is the full studio again, and the gallery is
   // the compact strip unless a person opens it.
   tabbed.addEventListener('change', function (event) {
-    if (!event.matches) setPane('preview');
+    setPane(event.matches ? narrowPane : 'preview');
     sizePanes();
   });
   // The tabs' height decides where a pane starts; it changes with the locale and the
   // workspace set.
   function sizePanes() {
     const topbar = document.querySelector('.topbar');
-    if (topbar) document.documentElement.style.setProperty('--topbar-h', Math.round(topbar.getBoundingClientRect().height) + 'px');
+    const headerHeight = topbar ? Math.ceil(topbar.getBoundingClientRect().height) : 0;
+    const operationHeight = document.getElementById('shared-operation').getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--topbar-h', headerHeight + 'px');
+    document.documentElement.style.setProperty('--pane-top', (headerHeight + Math.ceil(operationHeight)) + 'px');
   }
   window.addEventListener('resize', sizePanes);
+  const paneObserver = new ResizeObserver(sizePanes);
+  paneObserver.observe(document.querySelector('.topbar'));
+  paneObserver.observe(document.getElementById('shared-operation'));
   function setPane(pane) {
     // The panes exist only below the tabbed breakpoint.
-    if (!tabbed.matches) pane = 'preview';
+    if (tabbed.matches) narrowPane = pane;
+    else pane = 'preview';
     document.body.dataset.pane = pane;
     for (const button of paneSwitch.querySelectorAll('button')) {
       button.setAttribute('aria-pressed', String(button.dataset.pane === pane));
@@ -1060,6 +1094,21 @@
     const button = event.target.closest('[data-pane]');
     if (button) setPane(button.dataset.pane);
   });
+  document.addEventListener('studio-navigate', function (event) {
+    setPane(event.detail.pane);
+    if (!event.detail.target) return;
+    requestAnimationFrame(function () {
+      const field = document.getElementById(event.detail.target);
+      if (!field || field.disabled || field.closest('[inert]')) return;
+      field.focus({preventScroll: true});
+      field.scrollIntoView({block: 'nearest'});
+    });
+  });
+  document.addEventListener('navigation-ready', function (event) {
+    event.detail.bindSwipe(document.getElementById('image-stage'), direction => strip?.step(direction));
+    event.detail.bindSwipe(videoStudio, direction => videoStudio.stepClip(direction));
+    event.detail.bindSwipe(voiceStudio, direction => voiceStudio.stepTake(direction));
+  });
   sizePanes();
   setPane('preview');
 
@@ -1078,6 +1127,7 @@
     voiceStudio.pausePlayback();
     musicStudio.pausePlayback();
     await setMediaMode('video');
+    if (mediaMode === 'video') setPane('controls');
   }
 
   function dataUrlFor(entry) {
@@ -1102,7 +1152,7 @@
         base64: reference.b64,
       });
     });
-    setMediaMode('video');
+    setMediaMode('video').then(function () { if (mediaMode === 'video') setPane('controls'); });
   }
 
   function base64FromDataUrl(src) {
@@ -1324,6 +1374,7 @@
   }
 
   function renderVideoTemplates() {
+    setPane('controls');
     const capabilities = videoCapabilities();
     videoTemplatesMenu.replaceChildren();
     const head = document.createElement('div');
@@ -1389,7 +1440,7 @@
         src: src,
         base64: base64FromDataUrl(src),
       });
-      setMediaMode('video');
+      setMediaMode('video').then(function () { if (mediaMode === 'video') setPane('controls'); });
     }).catch(function (error) {
       showToast('error', t('page.error.imageAsVideoRef', {message: error.message}));
     });
@@ -1399,6 +1450,15 @@
   document.getElementById('media-video-mode').addEventListener('click', function () { setMediaMode('video'); });
   document.getElementById('media-music-mode').addEventListener('click', function () { setMediaMode('music'); });
   document.getElementById('media-voice-mode').addEventListener('click', function () { setMediaMode('voice'); });
+  document.getElementById('workspace-toggle').addEventListener('click', function () {
+    menus.toggleMenu(document.getElementById('workspace-menu'));
+  });
+  document.getElementById('workspace-menu').addEventListener('click', function (event) {
+    const button = event.target.closest('[data-workspace]');
+    if (!button || button.disabled) return;
+    menus.closeMenus();
+    setMediaMode(button.dataset.workspace);
+  });
   form.addEventListener('submit', function (event) {
     if (!['voice', 'music'].includes(mediaMode)) return;
     event.preventDefault();
@@ -1422,7 +1482,7 @@
         }, event.detail.epoch);
       } else {
         formApi.addReference(base64, event.detail.name);
-        setMediaMode('image');
+        setMediaMode('image').then(function () { if (mediaMode === 'image') setPane('controls'); });
       }
     };
     reader.onerror = function () {
@@ -1432,6 +1492,7 @@
     reader.readAsDataURL(event.detail.blob);
   });
   document.addEventListener('video-output-reuse', function (event) {
+    setPane('controls');
     const detail = event.detail || {};
     const seed = document.getElementById('video-seed');
     if (typeof detail.prompt === 'string') {
@@ -1972,9 +2033,10 @@
     }
     videoStudio.clearError();
     status.textContent = '';
-    videoRunRequestId = newVideoRequestId();
+    videoRunRequestId = studioIdentity();
     const submittedDraftId = drafts?.submit('video');
     setVideoRunState('starting');
+    setPane('preview');
     let progressTimer = null;
     let progressRequestPending = false;
     let progressFailures = 0;
@@ -2086,6 +2148,7 @@
     } catch (error) {
       videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed') : error.message);
       status.textContent = t('page.error.videoFailed');
+      setPane('controls');
     } finally {
       if (progressTimer !== null) window.clearInterval(progressTimer);
       videoStudio.setGenerationProgress(null, 0);
@@ -2321,7 +2384,6 @@
   // the module evaluates after that, so the manager is always here before the
   // first click. The sections are built in the handler, which is the same slot
   // in the load they took before.
-  let menus = null;
   document.addEventListener('popup-menus-ready', function (event) {
     menus = event.detail;
     setupBackends();
@@ -2445,6 +2507,7 @@
   // An image made in this tab carries its base64. A kept one reads it from its
   // blob only when it is used, so a long strip does not hold every image twice.
   async function referFrom(entry) {
+    setPane('controls');
     if (!entry.src && entry.loadMedia) {
       try { await kept.hydrate(entry); }
       catch (error) {
@@ -2468,6 +2531,7 @@
   }
 
   function editThis(entry) {
+    setPane('controls');
     const editRadio = document.getElementById('mode-edit');
     if (!editRadio.checked) {
       editRadio.checked = true;
@@ -2889,6 +2953,8 @@
           STUDIO.music = {backend: {id: music.active, name: music.capabilities.name, badge: music.capabilities.badge},
             backends: music.backends.map(one => [one.id, one.name, '']), capabilities: music.capabilities};
           document.getElementById('media-music-mode').hidden = false;
+          document.querySelector('#workspace-menu [data-workspace="music"]').hidden = false;
+          document.querySelector('#workspace-menu [data-workspace="music"]').disabled = false;
           translateServerLabels(STUDIO);
           musicStudio.configure?.({capabilities: music.capabilities, clientId: CLIENT_ID, libraryId: LIBRARY_ID,
             keeping: () => keeping, autoplay: () => autoplay, notify: showToast, onSendToVideo: sendVoiceToVideo,
@@ -2901,6 +2967,8 @@
             backends: voice.backends.map(function (one) { return [one.id, one.name, one.description || '']; }),
             capabilities: voice.capabilities};
           document.getElementById('media-voice-mode').hidden = false;
+          document.querySelector('#workspace-menu [data-workspace="voice"]').hidden = false;
+          document.querySelector('#workspace-menu [data-workspace="voice"]').disabled = false;
           translateServerLabels(STUDIO);
           if (voiceStudio.configure) voiceStudio.configure({capabilities: voice.capabilities, clientId: CLIENT_ID,
             libraryId: LIBRARY_ID, keeping: function () { return keeping; }, autoplay: function () { return autoplay; }, notify: showToast,

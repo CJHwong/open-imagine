@@ -14,6 +14,7 @@
 
 import './focus-editor.js';
 import {t, plural} from './i18n.js';
+import {navigate} from './navigation.js';
 
 const page = {};
 
@@ -781,6 +782,7 @@ const PLACEHOLDER = /\[[^\]\n]+\]/;
 // The list is rebuilt on each open, because it follows the current mode. The
 // header and the hint are not items, so arrow keys and Tab skip them.
 function openTemplates() {
+  navigate('controls');
   const menus = page.menus();
   const region = page.region();
   const templatesMenu = page.el.templatesMenu;
@@ -809,6 +811,7 @@ function openTemplates() {
 }
 
 function useTemplate(text) {
+  navigate('controls');
   page.el.promptInput.value = text;
   growPrompt();
   refreshForm();

@@ -1,3 +1,4 @@
+import {uuid} from './uuid.js';
 import {t} from './i18n.js';
 
 let opening;
@@ -79,7 +80,7 @@ function createDrafts(page) {
   };
   function queue(action) { writes = writes.then(action).catch(failure); return writes; }
   function record(inputs, submitted = null) {
-    return {id: crypto.randomUUID(), updatedAt: stamp(), inputs: structuredClone(inputs), submitted};
+    return {id: uuid(), updatedAt: stamp(), inputs: structuredClone(inputs), submitted};
   }
   function changed(workspace, force = false) {
     if (applying || stateDepth || !page.keeping()) return;

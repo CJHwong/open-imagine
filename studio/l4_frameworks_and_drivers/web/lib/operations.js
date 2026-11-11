@@ -1,5 +1,6 @@
 import {screenAwake} from './screen-awake.js';
 import {t} from './i18n.js';
+import {navigate} from './navigation.js';
 const awake = screenAwake();
 // Every tab reads the same operation. Results outlive the request that made them.
 const page = {};
@@ -97,7 +98,7 @@ function render(operation) {
     ? String(operation.model || '').replace(/\s*\(MLX Q8\)\s*$/i, '').trim()
     : operation.model;
   const detail = [model, operation.batch_total ? t('operation.detail.itemOf', {index: operation.batch_index || 1, total: operation.batch_total})
-    : state.label ? t('operation.detail.image', {label: state.label}) : ''].filter(Boolean).join(' · ');
+    : state.label ? t('operation.detail.image', {label: state.label}) : ''].filter(Boolean).join(', ');
   // A rewrite reports its own stages, and the first poll can land before the rewriter
   // names one, so an idle rewrite still reads as preparing.
   label.textContent = !stopping && operation.kind === 'rewrite' && ['idle', 'preparing'].includes(state.stage)
@@ -132,6 +133,7 @@ async function cancelHidden() {
 async function cancelActive() {
   if (!active) return cancelHidden();
   page.prepareNativeCancel(active);
+  navigate('controls');
   const operationId = active.id;
   document.getElementById('shared-operation-cancel').disabled = true;
   try {
