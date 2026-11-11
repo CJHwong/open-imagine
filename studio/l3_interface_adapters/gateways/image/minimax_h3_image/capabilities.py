@@ -56,8 +56,11 @@ MAX_REFERENCES = 4
 #   Edit, other shapes
 #              Match from 1600 x 900, 2720 x 1536   130.0 s   18.9 per step
 #              2560 x 1440, four of 2048 x 2048     548.4 s   83.1 per step
-#              Match from one of 6000 x 2000, which the gateway sends at 3547 x 1182,
-#              3552 x 1184                          184.4 s   (the estimate says 143 s)
+#   Edit with Match, from one long reference of about 4 MP
+#              2896 x 1448 (2:1), 2912 x 1440       164.8 s   23.9 per step
+#              6000 x 2000 (3:1), which the gateway sends at 3547 x 1182,
+#              3552 x 1184                          184.4 s
+#              4096 x 1024 (4:1), 4096 x 1024       208.4 s   30.3 per step
 #
 # A step grows with the pixel count, so the exponent is 1. The rest of a run is about ten
 # seconds: four children start, and the transformer loads before the first step.
@@ -67,7 +70,19 @@ GENERATE_ESTIMATE = Estimate(step_cost=1.85, exponent=1.0, overhead=10.0, overhe
 # one 2048 x 2048 reference reaches, the engine stops holding the transformer and streams it.
 # The constants take a large reference, as a phone photo is. The page reads Match as 1 MP and
 # every Edit size is about 4 MP, so the exponent is 0 and the step cost is the cost at 4 MP.
-EDIT_ESTIMATE = Estimate(step_cost=20.7, exponent=0.0, overhead=20.0, overhead_per_image=True, per_reference=0.95)
+#
+# The text encoder reads each reference a second time with its short side at 1024 pixels, so a
+# reference of 3:1 gives it three times the rows of a square one, at any pixel count. The three
+# long runs above each sit near one more 0.165 of the step cost for each unit of the ratio past
+# 1:1: this estimate says 165, 185 and 206 s for them. The gateway refuses a reference past 4:1.
+EDIT_ESTIMATE = Estimate(
+    step_cost=20.7,
+    exponent=0.0,
+    overhead=20.0,
+    overhead_per_image=True,
+    per_reference=0.95,
+    per_reference_ratio=0.165,
+)
 
 
 def minimax_h3_image_capabilities() -> Capabilities:

@@ -119,3 +119,23 @@ def test_the_shape_comes_from_the_resolution_the_size_or_one_megapixel():
     assert (unseen.width, unseen.height) == (1024, 1024)
     assert (sized.width, sized.height) == (768, 512)
     assert (unsized.width, unsized.height) == (724, 1448)
+
+
+def test_a_long_reference_adds_its_ratio_past_square_to_the_step_cost():
+    model = Estimate(10.0, 0.0, 0, False, per_reference=1.0, per_reference_ratio=0.5)
+    mode = ModeSpec(id="edit", label="Edit", params=(STEPS,), max_references=4, estimate=model)
+    square, wide, tall = (2048, 2048), (3000, 1000), (1000, 2000)
+
+    def seconds(*sizes, **kwargs):
+        return estimate_image(mode, {"steps": 1}, sizes, 1, **kwargs).per_item_seconds
+
+    assert seconds(square) == 10.0
+    # 3:1 is two past square: 1 + 0.5 x 2. The long side over the short one, so 1:2 counts as 2:1.
+    assert seconds(wide) == 20.0
+    assert seconds(tall) == 15.0
+    # Each picture adds its own: 1 + 1.0 for the second picture + 0.5 x (2 + 1).
+    assert seconds(wide, tall) == 35.0
+    # A run of one result each carries one picture, so it takes the mean: 1 + 0.5 x 1.5.
+    assert seconds(wide, tall, each=True) == 17.5
+    # The mask is not a picture: 1 + 1.0 for the mask + 0.5 x 2.
+    assert seconds(wide, (64, 640), mask=True) == 30.0

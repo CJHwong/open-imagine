@@ -100,6 +100,7 @@ def discovery_schemas() -> dict[str, Any]:
                 "two_pass": boolean,
                 "per_reference": number,
                 "strength_scales_steps": boolean,
+                "per_reference_ratio": number,
             },
         },
         "VideoEstimate": {
