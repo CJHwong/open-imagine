@@ -486,7 +486,7 @@ def test_a_pack_is_built_like_the_base_packs_from_its_own_section(monkeypatch, t
     assert [lora.id for lora in backend.capabilities().loras] == ["example_warm"]
     runner = backend._runner
     assert (runner._model, runner._model_key) == (str((tmp_path / "pack").resolve()), "pack_dir")
-    assert runner._cli == str(tmp_path / "bin/ltx-2-mlx")
+    assert runner._cli == [str(tmp_path / "bin/ltx-2-mlx")]
     assert runner._enhances is True and runner._enhanced_prompt is enhanced
     assert runner._keyframe_two_stage is (family == "ltx23")
     assert runner._lora_files.files[0].path == str(tmp_path / "warm.safetensors")

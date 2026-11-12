@@ -62,8 +62,9 @@ batch_policy = "auto"
 # It uses float16 transformer computation with the same q8 weights; generated details can differ.
 # The 8-bit pack in the cache the other models use, and ffmpeg for padding a short track.
 # docs/how-to/set-up-models.md names the download that fills the pack directory. Video's
-# engine builds itself from the wrapper the studio ships, so cli_path stays empty. A
-# machine that runs only the stub never reads any of this.
+# engine builds itself from the wrapper the studio ships, so cli_path stays empty. The
+# studio runs the wrapper with `uv run --script`, using the uv named by UV or found on
+# PATH. A machine that runs only the stub never reads any of this.
 ffmpeg_path = "/opt/homebrew/bin/ffmpeg"
 model_ltx25 = "~/Library/Caches/models/ltx-2.5-q8"
 model_ltx23 = "dgrauet/ltx-2.3-mlx-q8"
