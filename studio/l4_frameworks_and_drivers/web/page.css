@@ -1889,8 +1889,36 @@
     /* An open browser uses the shelf's height. Its own cap left most of the pane
        empty while the thumbnails scrolled inside a short window. */
     :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-grid { max-height: none; overscroll-behavior: auto; }
+    /* An open gallery fills its area and hides the preview. The head and the
+       search row stay still, in one row with even spacing; only the thumbnail
+       grid scrolls. All four workspaces use this one layout. */
+    #video-studio:has(#video-gallery gallery-browser[expanded]) .video-preview-area,
+    #voice-studio:has(#voice-gallery gallery-browser[expanded]) .voice-preview-area,
+    music-studio:has(.music-gallery gallery-browser[expanded]) .music-preview-area { display: none; }
+    #video-studio:has(#video-gallery gallery-browser[expanded]) .video-studio-shell,
+    #voice-studio:has(#voice-gallery gallery-browser[expanded]) .voice-studio-shell,
+    music-studio:has(.music-gallery gallery-browser[expanded]) .music-studio-shell { grid-template-rows: minmax(0, 1fr); }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) {
+      display: grid; grid-template-columns: 1fr auto auto; grid-template-rows: auto auto auto auto auto minmax(0, 1fr) auto;
+      column-gap: 16px;
+      height: 100%; min-height: 0; max-height: none; overflow: hidden; }
+    .music-gallery:has(gallery-browser[expanded]) { grid-template-columns: 1fr auto auto auto; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) > .strip-head,
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) > .strip-head > gallery-browser,
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) > .strip-head > gallery-browser > .gallery-browser-panel { display: contents; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) > .strip-head > span:first-child { grid-row: 1; grid-column: 1; min-width: 0; align-self: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browse-toggle { grid-row: 1; grid-column: 2; align-self: center; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .music-background-pause { grid-row: 1; grid-column: 3; align-self: center; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .strip-actions { grid-row: 1; grid-column: 3; justify-self: end; align-self: center; }
+    .music-gallery:has(gallery-browser[expanded]) .strip-actions { grid-column: 4; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-tools { grid-row: 2; grid-column: 1 / -1; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-summary { grid-row: 3; grid-column: 1 / -1; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-help { grid-row: 4; grid-column: 1 / -1; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-error { grid-row: 5; grid-column: 1 / -1; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-grid { grid-row: 6; grid-column: 1 / -1; min-height: 0; overflow-y: auto; max-height: none; overscroll-behavior: auto; }
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-action-help { grid-row: 7; grid-column: 1 / -1; }
     body[data-media=image] .work:has(#image-gallery-browser[expanded]) #image-stage { display: none; }
-    body[data-media=image] #strip-wrap:has(gallery-browser[expanded]) { grid-row: 3 / span 2; min-height: 0; overflow: auto; }
+    body[data-media=image] #strip-wrap:has(gallery-browser[expanded]) { grid-row: 3 / span 2; min-height: 0; }
   }
 
   .control-help { display: block; margin: 6px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.45; }
