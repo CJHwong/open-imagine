@@ -12,7 +12,7 @@ from studio.l1_entities.lora import with_triggers
 from studio.l1_entities.video_job import VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 
-from .capabilities import BASE_FORWARDS, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
+from .capabilities import BASE, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
 from .launcher import uv_launcher
 from .runtime import DEFAULT_ENGINE, DEFAULT_MODELS, MAX_RESULT_BYTES, weights_ready
 
@@ -30,11 +30,27 @@ def unfit(lora_id, applied, unaccounted):
     return f"LoRA {lora_id} has {parts} with no matching layer in H3. No clip was made."
 
 
+# A clip keeps any ratio. The shapes are the page's menu, and the largest one bounds the pixels,
+# because the memory figures come from those runs. The host checks the same rule first.
+MOST_PIXELS = max(shape.width * shape.height for shape in CAPABILITIES.shapes)
+
+
+def _fits(width, height):
+    step = CAPABILITIES.dimension_step
+    sides = all(
+        CAPABILITIES.min_dimension <= side <= CAPABILITIES.max_dimension and not side % step for side in (width, height)
+    )
+    return sides and width * height <= MOST_PIXELS
+
+
 class MinimaxH3BackendGateway(VideoBackendGateway):
-    def __init__(self, context):
+    def __init__(self, context, variant=BASE):
         self._context = context
+        # Base H3 or Flash. Both have one envelope of sizes and frames, so the checks below
+        # read CAPABILITIES for either.
+        self._variant = variant
         # The host offers the LoRAs of the [[minimax_h3.loras]] tables on this record.
-        self._capabilities = CAPABILITIES if context.capabilities is None else context.capabilities
+        self._capabilities = variant.capabilities if context.capabilities is None else context.capabilities
 
     def capabilities(self):
         return self._capabilities
@@ -46,17 +62,20 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("H3 draws a new clip. It takes no clip to change.")
         if not job.include_audio:
             raise InvalidJob("An H3 clip always includes its sound.")
+        if job.fast_mode and not self._variant.capabilities.fast_mode:
+            raise InvalidJob(f"{self._variant.name} has no Fast mode. Turn Fast mode off.")
         if any(shutil.which(tool) is None for tool in ("ffmpeg", "ffprobe")):
             raise InvalidJob("Install ffmpeg and ffprobe before generating an H3 clip.")
         if (
-            (job.width, job.height) not in {(shape.width, shape.height) for shape in CAPABILITIES.shapes}
+            not _fits(job.width, job.height)
             or not CAPABILITIES.min_frames <= job.num_frames <= CAPABILITIES.max_frames
             or (job.num_frames - CAPABILITIES.min_frames) % CAPABILITIES.frame_step
             or job.frame_rate != 24
         ):
             raise InvalidJob(
-                f"Choose an offered H3 size and a {CAPABILITIES.min_frames}-{CAPABILITIES.max_frames} "
-                "frame clip at 24 fps."
+                f"Choose an H3 size of {CAPABILITIES.min_dimension}-{CAPABILITIES.max_dimension} pixels a side "
+                f"on the {CAPABILITIES.dimension_step} pixel grid, with at most {MOST_PIXELS} pixels, "
+                f"and a {CAPABILITIES.min_frames}-{CAPABILITIES.max_frames} frame clip at 24 fps."
             )
         frames = [reference.frame_index for reference in job.references]
         if (
@@ -77,15 +96,16 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                 "Shorten the clip, place fewer keyframes, or turn Fast mode off."
             )
         loras = self._lora_files(job)
-        forwards = FAST_FORWARDS if job.fast_mode else BASE_FORWARDS
+        forwards = FAST_FORWARDS if job.fast_mode else self._variant.forwards
         settings = self._context.settings
         engine = Path(settings.get("engine_dir", DEFAULT_ENGINE)).expanduser()
         models = Path(settings.get("model_dir", DEFAULT_MODELS)).expanduser()
         if not (engine / "scripts" / "generate_staged.py").is_file():
             raise InvalidJob("Install the pinned H3 engine source first. See the H3 setup guide.")
         uv = uv_launcher()
-        if not weights_ready(models):
-            raise InvalidJob("H3 weights are incomplete. Complete the H3 weight setup before generating.")
+        if not weights_ready(models, self._variant.pack):
+            name = self._variant.name
+            raise InvalidJob(f"{name} weights are incomplete. Complete the {name} weight setup before generating.")
         seed = job.seed if job.seed is not None else secrets.randbelow(2**32)
         # The stills and the track travel without their names, which the engine has no use for.
         request = json.dumps(
@@ -102,6 +122,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                 "audio": base64.b64encode(job.audio.data).decode() if job.audio is not None else None,
                 "loras": loras,
                 "forwards": forwards,
+                "flash": self._variant.flash,
             }
         ).encode()
         output = bytearray()

@@ -18,10 +18,12 @@ GET these routes relative to the user's base URL:
 Inspect the chosen mode's `params`, `min_references`, `max_references`, `each_reference`,
 `region_marking`, `looks`, `templates` and `estimate`. The page computes the time of one image as
 `steps x step_cost x (1 + per_reference x max(0, references - 1)) x megapixels ^ exponent`, plus
-`overhead` once per image or once per batch (`overhead_per_image`). Give the user that figure as a
-rough guide, and compare it with each result's `elapsed`. A listed backend is not proof that its
-weights are already installed. Missing weights follow the server's download policy; an accepted
-request can still fail during preparation. Do not silently change the user's model.
+`overhead` once per image or once per batch (`overhead_per_image`). A mode with
+`per_reference_ratio` adds, inside the parentheses, that value times `long side / short side - 1`
+for each reference. Give the user that figure as a rough guide, and compare it with each result's
+`elapsed`. A listed backend is not proof that its weights are already installed. Missing weights
+follow the server's download policy; an accepted request can still fail during preparation. Do not
+silently change the user's model.
 
 ## Submit and follow your operation
 

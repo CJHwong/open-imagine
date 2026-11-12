@@ -53,6 +53,9 @@ class FakeController(FormController):
     def page(self):
         return self._view
 
+    def capabilities(self, backend_id):
+        return self._view.active
+
     def run(self, form):
         self.forms.append(dict(form))
         if self._runner is None:
@@ -1270,6 +1273,39 @@ def test_a_private_operation_records_none_of_its_callers_words():
     assert operation["client_id"] == "rx-1-1"
     assert "owner" not in operation
     assert api.studio()["private_operations"] is True
+
+
+def test_a_model_whose_engine_reads_plaintext_files_refuses_a_private_image_run():
+    from dataclasses import replace
+
+    from studio.l1_entities.errors import InvalidJob
+
+    files = replace(fake_capabilities(), private_operations=False)
+    api = api_for(
+        FakeController(run=lambda _: response(), view=StudioView(active=files, backends=(("fake", "Fake", ""),)))
+    )
+
+    with pytest.raises(InvalidJob, match="Fake does not take private operations"):
+        api.reserve({"kind": "image", "prompt": "pear"}, owner=OWNER)
+    with pytest.raises(InvalidJob, match="does not take private operations"):
+        api.reserve({"kind": "image", "items": [{"prompt": "pear"}]}, owner=OWNER)
+    assert api.state()["busy"] is False
+
+    assert api.reserve({"kind": "image", "prompt": "pear"})["status"] == "running"
+
+
+def test_a_private_image_run_on_an_unknown_model_leaves_the_refusal_to_the_run(monkeypatch):
+    from studio.l1_entities.errors import UnknownBackend
+
+    controller = FakeController(run=lambda _: response())
+
+    def missing(backend_id):
+        raise UnknownBackend(f"no backend registered as {backend_id}")
+
+    monkeypatch.setattr(controller, "capabilities", missing)
+    operation = api_for(controller).reserve({"kind": "image", "backend": "absent"}, owner=OWNER)
+
+    assert operation["status"] == "running"
 
 
 def test_only_the_owner_sees_a_private_operation_and_others_see_a_busy_studio():

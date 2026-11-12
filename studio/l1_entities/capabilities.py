@@ -108,8 +108,11 @@ class Estimate:
     runs two passes per step. The page halves or doubles it from there.
     `per_reference` is how much one more reference multiplies the step cost: each
     one is encoded and attended to, so a mode that takes several needs it. A
-    marked region rides as one more reference. `strength_scales_steps` says a
-    starting image shortens the schedule according to the selected strength.
+    marked region rides as one more reference. `per_reference_ratio` is how much
+    of the step cost each reference adds for each unit of its aspect ratio past
+    1:1, for an engine that reads a long reference at more pixels than a square
+    one. `strength_scales_steps` says a starting image shortens the schedule
+    according to the selected strength.
     """
 
     step_cost: float
@@ -120,6 +123,7 @@ class Estimate:
     two_pass: bool = False
     per_reference: float = 0.0
     strength_scales_steps: bool = False
+    per_reference_ratio: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -191,6 +195,9 @@ class Capabilities:
     # One line for the model picker, so a reader knows what each one is before
     # switching to it. Empty means the picker shows the name alone.
     description: str = ""
+    # False when the engine reads the prompt or a reference from a plaintext file. The API then
+    # refuses a private operation on this model, because a private run adds no copy on disk.
+    private_operations: bool = True
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

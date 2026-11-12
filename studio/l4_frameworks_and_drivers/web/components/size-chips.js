@@ -85,9 +85,9 @@ class SizeChips extends Drawn {
   render() {
     const ratio = ratioInForce();
     // Match sits beside the square, which is the shape the form opens on and the other thing
-    // that decides a size, the shape of a reference.
+    // that decides a size, the shape of a reference. A mode that does not offer it shows none.
     const rows = page.ratios.slice();
-    rows.splice(1, 0, 'match');
+    if (Array.from(page.sizeSelect.options).some((option) => option.value === 'match')) rows.splice(1, 0, 'match');
     return html`${rows.map((one) => html`<button type="button" class="chip" data-ratio=${one} aria-pressed=${String(one === ratio)} @click=${() => pickRatio(one)}>${glyph(one)}<span>${one === 'match' ? t('image.size.match') : one}</span></button>`)}`;
   }
 }
@@ -138,7 +138,10 @@ class SizeCaption extends Drawn {
     } else if (current) {
       text = current.width + ' × ' + current.height;
     } else {
-      text = reference ? t('image.size.reference') : t('image.size.default');
+      // Match under a size param: the label of the choice names the megapixels it gives.
+      const megapixels = page.matchMegapixels();
+      if (reference) text = t('image.size.reference', {megapixels: megapixels});
+      else text = megapixels === 1 ? t('image.size.default') : t('image.size.follows');
     }
     return html`${text}`;
   }

@@ -57,8 +57,12 @@ exclude = [
     "studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py",
     "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.py",
     "studio/l3_interface_adapters/gateways/image/flux3/flux3_child.py",
+    "studio/l3_interface_adapters/gateways/image/minimax_h3_image/minimax_h3_image_child.py",
     # The video engine wrapper imports the engine, which lives in the environment it builds.
     "studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py",
+    # The Flash changes and the Flash converter run on the H3 engine's Python and import the engine.
+    "studio/l3_interface_adapters/gateways/video/minimax_h3/flash.py",
+    "scripts/convert_h3_flash.py",
 ]
 
 # Branch coverage as well as statement coverage. A statement can run while one side

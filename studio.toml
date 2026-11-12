@@ -80,6 +80,9 @@ fetch_loras = false
 [minimax_h3]
 # Optional built-in Video model. See studio/l3_interface_adapters/gateways/video/minimax_h3/README.md.
 # Add minimax_h3 to visible_video_backends after installing its engine and weights.
+# H3 Flash, minimax_h3_flash, reads this section too. It needs the h3-flash-dit-q8 pack in model_dir.
+# Add minimax_h3_flash to visible_video_backends after installing that pack.
+# Flash offers the [[minimax_h3.loras]] tables too. No run tried a LoRA or a track on its weights.
 engine_dir = "~/Library/Caches/open-imagine/engines/minimax-h3-63893b3"
 model_dir = "~/Library/Caches/models/minimax-h3"
 
@@ -143,6 +146,16 @@ model_dir = "~/Library/Caches/models/flux3-image-klein"
 # weights are stored at int8, so this section takes no quantize. About 22 GB; the
 # model setup guide has the download.
 model_dir = "~/Library/Caches/models/krea-2-turbo-mflux-q8"
+
+[minimax_h3_image]
+# Optional six-step MiniMax H3-Image, text-to-image and edit. The int8 weights are about
+# 49 GB. The engine, h3-image-mlx, runs from the PEP 723 script header of its child, so uv
+# builds and caches its environment. Its int8 kernel needs an M5 or M6 GPU; another chip
+# takes the engine's portable path, which was not measured.
+# Add minimax_h3_image to visible_backends after the setup in the model setup guide. The
+# MiniMax-H3-Image Community License limits where and how you may use the weights; see
+# docs/reference/model-licenses.md.
+model_dir = "~/Library/Caches/models/minimax-h3-image"
 
 [viggle_turbo]
 quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged

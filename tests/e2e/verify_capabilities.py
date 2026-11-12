@@ -2,7 +2,9 @@
 
 It serves the real page and routes on two backends that make no model call:
 one with the qwen21 capabilities, and one with a generate mode only, a steps
-param only, no Looks and no templates. It needs no GPU and runs in seconds.
+param only, no Looks and no templates. A last one has the MiniMax H3-Image
+capabilities, whose Edit mode offers other sizes than its Generate mode. It needs
+no GPU and runs in seconds.
 
 Usage: uv run --with playwright python tests/e2e/verify_capabilities.py
 """
@@ -19,6 +21,7 @@ from playwright.sync_api import expect, sync_playwright
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import EDIT_TEMPLATES
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
@@ -114,7 +117,8 @@ def main():
     # None of the three declares a rewriter, and nothing here is about the
     # rewrite toggle, so each gets the absent one. `build_rewriters` gives every
     # visible backend an entry, and so does this.
-    backends = {"qwen21": qwen, "tiny": tiny, "plain": plain}
+    h3_image = StubBackendGateway(minimax_h3_image_capabilities())
+    backends = {"qwen21": qwen, "tiny": tiny, "plain": plain, "minimax_h3_image": h3_image}
     rewriters = {backend_id: NoPromptRewriterGateway() for backend_id in backends}
     studio = assemble_studio(backends, rewriters, "qwen21", tuple(backends))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
@@ -434,6 +438,39 @@ def main():
             "and no template that names a region, while the others are offered",
             "Mark a region" not in names and "Change a color or material" in names,
             names[:60],
+        )
+        # A backend whose modes offer different sizes. The size control has to follow the
+        # mode in use: Edit offers Match and only its own sizes, Generate offers no Match.
+        page.click("label[for=mode-generate]")
+        page.click("#backend-toggle")
+        page.get_by_role("menuitemradio", name="MiniMax H3-Image").click()
+        page.wait_for_function("STUDIO.backend.id === 'minimax_h3_image'")
+        shapes = "nodes => nodes.map(node => node.dataset.ratio)"
+        options = "nodes => nodes.map(node => node.value)"
+        drawn = page.locator("size-chips button").evaluate_all(shapes)
+        check("a mode without Match draws no Match chip", "match" not in drawn and "16:9" in drawn, str(drawn))
+        page.click("label[for=mode-edit]")
+        offered = page.locator("#size option").evaluate_all(options)
+        check(
+            "the size list follows the mode in use",
+            "match" in offered and "1024x1024" not in offered and "2560x1440" in offered,
+            str(offered),
+        )
+        check("the mode's own default size is picked", page.input_value("#size") == "match", page.input_value("#size"))
+        drawn = page.locator("size-chips button").evaluate_all(shapes)
+        check("a mode with Match draws the Match chip", "match" in drawn, str(drawn))
+        # This Match gives about 4 MP, so the caption must not promise the 1024 square of the others.
+        check(
+            "a Match of another size does not caption 1024 square",
+            page.inner_text("#size-caption") == "aspect ratio follows the image",
+            page.inner_text("#size-caption"),
+        )
+        page.click("label[for=mode-generate]")
+        offered = page.locator("#size option").evaluate_all(options)
+        check(
+            "the first mode's sizes come back with the mode",
+            "match" not in offered and page.input_value("#size") == "1024x1024",
+            f"{page.input_value('#size')} of {offered}",
         )
         check("no page errors", not errors, "; ".join(errors))
     server.shutdown()

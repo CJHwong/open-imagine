@@ -19,6 +19,10 @@ The built-in integration drives Phosphene's staged runner at commit
 - Landscape, portrait and square canvases. The initial landscape canvas is 512 x 288. The high
   quality class is 1280 x 704 and 704 x 1280, the same sizes as LTX's. On a 64 GiB Mac the
   memory gate takes them up to 158 frames. See "Memory gate" below.
+- These canvases are the page's menu, not a limit. Through the API a clip can have any ratio,
+  for example 640 x 480 for a 4:3 picture. Each side is from 256 to 1280 pixels, on the 32 pixel
+  grid, and the clip has no more pixels than 1280 x 704. The memory gate estimates such a size
+  by its packed rows, as it does for the sizes on the menu.
 - The base schedule uses nine sigma points and eight transformer evaluations.
 - Fast mode runs four on the same weights, for clips up to the size of 1024 x 576 at 124 frames with one keyframe. See
   "Fast mode" below.
@@ -28,7 +32,8 @@ The built-in integration drives Phosphene's staged runner at commit
 
 Video edits, prompt rewriting, Looks, templates, clips longer than 175 frames and
 distilled Fast adapters are not offered in this version. A keyframe has no strength setting.
-No time estimate is published from a single small smoke test.
+Base H3 publishes no time estimate: a single small smoke test is not a fit. H3 Flash has one.
+See "H3 Flash" below.
 
 ## Install the engine
 
@@ -94,6 +99,65 @@ H3 ships with Studio. If an earlier setup installed `open-imagine-minimax-h3`, r
 that distribution from Studio's environment (`uv pip uninstall open-imagine-minimax-h3`)
 and remove its old `--with` option. Its entry point would otherwise conflict with the
 built-in `minimax_h3` ID; duplicate-ID protection remains enabled.
+
+## H3 Flash
+
+HyperFlow H3 Flash is a second Video model on this engine, with the id `minimax_h3_flash`. It is
+H3 trained to finish in six steps, where base H3 takes eight. Each step tells the transformer the time that
+it is at and the time that it steps to, and the model has three blocks fewer. Studio changes two
+functions of the loaded engine in memory for it, so the engine tree stays at its pinned commit.
+
+Flash uses the engine, the text encoder and the VAEs of base H3, so install base H3 first. Flash
+adds one transformer pack, `h3-flash-dit-q8`, in the same model folder. It reads the
+`[minimax_h3]` settings and has no section of its own.
+
+Flash takes text, up to three keyframes and an audio track, at the sizes and lengths of base H3.
+It offers the LoRAs of the `[[minimax_h3.loras]]` tables, with the limits in [LoRAs](#loras).
+No run tried a track or a LoRA on the Flash weights, so either can fail or make a poor clip. A
+LoRA trained on base H3 can fit the distilled weights badly. Flash refuses Fast mode.
+
+### Install the Flash pack
+
+Download the INT8 transformer and the model terms at the pinned revision. It is about 16 GB.
+
+```sh
+hf download VideoRebirthAI/hyperflow-h3-flash \
+  --revision 61f1311bb1c8fac290d1c5121f4ebbb44525f446 \
+  --include "fl2va_int8_convrot/*" LICENSE NOTICE \
+  --local-dir ~/Library/Caches/models/src/hyperflow-h3-flash
+```
+
+With Studio stopped and the GPU free, convert it in an ephemeral environment with the engine's
+pins. The converter makes each layer dense, gives it the engine's names and quantizes it to Q8.
+It holds one layer at a time. Run it from the Open Imagine repository.
+
+```sh
+uv run --no-project --python 3.11 \
+  --with-requirements studio/l3_interface_adapters/gateways/video/minimax_h3/engine-requirements.txt \
+  python scripts/convert_h3_flash.py \
+  --engine ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3 \
+  --src ~/Library/Caches/models/src/hyperflow-h3-flash/fl2va_int8_convrot \
+  --out ~/Library/Caches/models/minimax-h3/h3-flash-dit-q8
+```
+
+Then add `minimax_h3_flash` to `visible_video_backends` in `studio.toml`, or start with `--all-backends`.
+
+### Time estimate
+
+`POST /api/v1/videos/plan` names the seconds of a Flash clip. The fit comes from five text runs
+through the Studio API on an M5 Pro with 64 GiB, at Q8, one run at a time.
+
+| Size | Frames | Measured | Plan |
+|---|---|---|---|
+| 512 x 288 | 73 | 59 s | 60 s |
+| 512 x 512 | 124 | 170 s | 180 s |
+| 768 x 448 | 124 | 247 s | 250 s |
+| 768 x 448 | 175 | 388 s | 380 s |
+| 1024 x 576 | 124 | 511 s | 510 s |
+
+The figure has no term for a keyframe. One first frame took 181 s at 512 x 512 and 124 frames.
+A first and a last frame took 277 s at 768 x 448 and 124 frames. Add about 6 to 12% for a clip
+with keyframes.
 
 ## Fast mode
 
@@ -289,6 +353,7 @@ GiB footprint. Other programs moved free memory by up to 4 percent over the run.
 about 1.5 times the tokens of 1024 x 576, and the step took twice as long. 704 x 1280 has the
 same tokens as 1280 x 704. It, 576 x 1024, 288 x 512 and 512 x 512 are offered, but no run
 measured them at any length.
+A size off the menu, such as 640 x 480, has no run either.
 
 ### Memory gate
 
@@ -322,4 +387,6 @@ This integration's code is MIT. The engine port is Apache-2.0. The weights use t
 [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE),
 which includes territory restrictions. The Qwen text encoder retains its source terms.
 Read the downloaded LICENSE, NOTICE and modification notices before use or redistribution.
+The H3 Flash weights are a derivative of H3 and carry the same model license. Their inference code
+is Apache-2.0.
 No model weights are included in this package.

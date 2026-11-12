@@ -89,6 +89,8 @@ curl -sS http://localhost:8765/api/v1/operations \
 
 The studio keeps the SHA-256 of the key, not the key.
 `/api/v1/studio` reports `"private_operations": true` when the server supports this.
+An image model can refuse the key. Its capabilities then report `"private_operations": false`, and a request with the key answers `400`.
+MiniMax H3-Image refuses it, because its engine reads the prompt and the references from plaintext files.
 
 | What | A private operation |
 |---|---|
@@ -131,7 +133,7 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 | Copy | How long it lasts |
 |---|---|
 | Prompt and inputs in the engine's memory | Until the run ends |
-| Scratch files in the system temp folder, from FLUX3, Qwen edit, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, MiniMax H3-Image, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them. MiniMax H3-Image writes the prompt and settings in `request.json`, and one `reference-N.png` per reference |
 | The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
 | Music reference transcription score and exports in worker memory | Until another reference/task replaces them or the worker unloads |
 | The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |
@@ -757,6 +759,22 @@ adding their fields to a Studio payload. Multi-shot prose does not create an API
 on the pinned checkpoint. Studio enhances LTX Generate prompts by default, including 2.3 and 2.5;
 send enhance=false to keep a prompt word for word. The page always enhances. Rewrite remains
 a separate API operation. References checked 2026-10-22.
+
+## Video size
+
+A video's `width` and `height` can have any ratio. Send the ratio of your picture to keep its
+shape. The model's `shapes` are the sizes that the page offers. They do not limit the API.
+
+A size must obey three rules:
+
+- Each side is in the range from `min_dimension` to `max_dimension`.
+- Each side is a multiple of `dimension_step`.
+- The size has no more pixels than the largest size in `shapes`.
+
+On MiniMax H3, for example, 640 x 480 keeps a 4:3 picture. The largest shape is 1280 x 704, so
+1024 x 768 is also valid, but 1280 x 960 is too large. An effect with its own size keeps that
+size. An adapter that doubles its reference accepts twice any size that obeys the rules, up to the
+pixels of the largest shape that stays in range when it doubles.
 
 ## Video Fast mode
 

@@ -72,6 +72,8 @@ def estimate_image(
     # that these options ask for.
     passes = (2 if _two_pass(options) else 1) / (2 if model.two_pass else 1)
     growth = 1 + model.per_reference * max(0, carried - 1) if model.per_reference else 1
+    if model.per_reference_ratio:
+        growth += model.per_reference_ratio * _excess_ratio(pictures, each)
     step_seconds = model.step_cost * passes * growth * math.pow(pixels / 1e6, model.exponent)
     per_item = steps * step_seconds + (model.overhead if model.overhead_per_image else 0)
     setup = 0.0 if model.overhead_per_image else model.overhead
@@ -112,6 +114,13 @@ def _shape(
     if width.isdigit() and height.isdigit():
         return int(width) * int(height), int(width), int(height)
     return MATCH_SIDE * MATCH_SIDE, *_sides(MATCH_SIDE * MATCH_SIDE, ratio)
+
+
+def _excess_ratio(pictures: tuple[tuple[int, int], ...], each: bool) -> float:
+    """How far the pictures of one run are from square: the long side over the short side,
+    less 1, summed. With `each`, a run carries one picture, so this is the mean."""
+    excess = sum(max(width, height) / min(width, height) - 1 for width, height in pictures)
+    return excess / len(pictures) if each and pictures else excess
 
 
 def _two_pass(options: Mapping[str, OptionValue]) -> bool:

@@ -88,6 +88,8 @@ under MEMORY, which does not exist on disk, so a read that bypasses them fails.
 A LoRA is a file on disk, which the engine reads itself. The engine only prints a warning
 when it cannot apply all of one, and that text goes nowhere, so this adapter reads the
 engine's own count instead and stops the run before the denoise.
+
+A request with `flash` runs the Flash pack: `flash.py` changes the loaded engine for it.
 """
 
 import base64
@@ -159,6 +161,10 @@ def render(engine, models, request, emit):
     for lora in request.get("loras", ()):
         flags += ["--lora", f"{lora['path']}:{lora['scale']}"]
     forwards = request.get("forwards", BASE_FORWARDS)
+    pack = "h3-dit-q8"
+    if request.get("flash"):
+        pack = "h3-flash-dit-q8"
+        flags += load_module(Path(__file__).with_name("flash.py"), "_open_imagine_h3_flash").install(engine)
 
     held = set(stills) | ({TRACK} if track is not None else set())
 
@@ -237,7 +243,7 @@ def render(engine, models, request, emit):
     sys.argv = [
         "h3-studio-worker",
         "--dit",
-        str(models / "h3-dit-q8"),
+        str(models / pack),
         "--compact-root",
         str(models / "ddalcu-q8"),
         "--text-config",

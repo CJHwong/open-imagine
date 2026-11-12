@@ -38,6 +38,7 @@ def test_every_builtin_declares_storage_without_loading_an_engine():
             "flux2",
             "flux3",
             "krea2",
+            "minimax_h3_image",
             "viggle_turbo",
             "yue2",
             "drama3",

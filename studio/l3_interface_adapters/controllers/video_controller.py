@@ -403,24 +403,54 @@ def _adapter_dimensions(payload: Mapping, adapter: VideoAdapter) -> tuple[int, i
 
 
 def _shape(width: int, height: int, capabilities: VideoCapabilities, adapter: VideoAdapter | None = None) -> None:
-    """A rendered shape is one the model declares, or, for an adapter that doubles the
-    reference's size, exactly twice one.
+    """A rendered size keeps any ratio, so a clip from a picture keeps the picture's shape.
 
-    Every declared shape sits on the 64 pixel grid, so a doubled target sits on the 128 pixel
-    grid, which is the pair the upscaler's card asks for. A target past the model's largest
-    side was refused by `_dimension` before this check.
+    The declared shapes are the page's menu, not a limit of the API. A size may hold no more
+    pixels than the largest declared shape: the memory and time figures come from those runs.
+    An adapter that doubles the reference's size may ask for exactly twice a size that fits,
+    up to the pixels of the largest doubled shape.
+    Each side is on the grid and in range already, because `_dimension` checked it first.
     """
-    if any(shape.width == width and shape.height == height for shape in capabilities.shapes):
+    if _fits(width, height, capabilities):
         return
-    if adapter is not None and adapter.doubles_output and _half_is_declared(width, height, capabilities):
+    if adapter is not None and adapter.doubles_output and _half_fits(width, height, capabilities):
         return
-    choices = ", ".join(shape.ratio for shape in capabilities.shapes)
-    raise InvalidJob(f"width and height must match a supported video shape: {choices}")
+    raise InvalidJob(
+        f"width x height must be at most {_most_pixels(capabilities)} pixels, "
+        "the size of the largest supported video shape"
+    )
 
 
-def _half_is_declared(width: int, height: int, capabilities: VideoCapabilities) -> bool:
+def _most_pixels(capabilities: VideoCapabilities) -> int:
+    return max(shape.width * shape.height for shape in capabilities.shapes)
+
+
+def _fits(width: int, height: int, capabilities: VideoCapabilities) -> bool:
+    return width * height <= _most_pixels(capabilities)
+
+
+def _half_fits(width: int, height: int, capabilities: VideoCapabilities) -> bool:
+    """Whether half of each side is a size on the grid that fits: the reference's size."""
+    doubled_step = 2 * capabilities.dimension_step
+    if width % doubled_step or height % doubled_step:
+        return False
+    if width * height > _most_doubled_pixels(capabilities):
+        return False
     half_width, half_height = width // 2, height // 2
-    return any(shape.width == half_width and shape.height == half_height for shape in capabilities.shapes)
+    return min(half_width, half_height) >= capabilities.min_dimension and _fits(half_width, half_height, capabilities)
+
+
+def _most_doubled_pixels(capabilities: VideoCapabilities) -> int:
+    """The pixels of the largest declared shape that stays in range when each side doubles.
+
+    Without this bound a doubled size could hold four times the pixels of the largest shape,
+    which is more than a doubled shape ever held.
+    """
+    longest = capabilities.max_dimension // 2
+    return max(
+        (4 * shape.width * shape.height for shape in capabilities.shapes if max(shape.width, shape.height) <= longest),
+        default=0,
+    )
 
 
 def _frame_count(value, capabilities: VideoCapabilities) -> int:

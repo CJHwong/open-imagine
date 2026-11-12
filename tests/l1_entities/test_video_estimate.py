@@ -126,3 +126,17 @@ def test_a_model_without_constants_names_no_seconds():
     assert (estimate.steps, estimate.reference_count) == (33, 2)
     assert estimate.total_seconds is None and estimate.setup_seconds is None
     assert estimate.excludes == ()
+
+
+def test_a_model_with_one_stage_takes_its_own_steps_on_all_the_tokens():
+    model = VideoEstimate(
+        load=(2.0, 1.0), stage_1=(9.0, 9.0), stage_2=(1.0, 0.1), decode=(-10.0, 1.0), fixed_seconds=20.0, forwards=6
+    )
+
+    # Load 2 + 8.16; 6 steps of 8.16 + 0.1 x 8.16^2; decode -10 + 63.19 megapixels of frames.
+    # Stage 1 has no part in it.
+    assert run_seconds(model, 960, 544, 121) == pytest.approx(152.2624)
+    figure = estimate_clip(model, 960, 544, 121, references=1)
+    assert (figure.steps, figure.setup_seconds, figure.total_seconds) == (6, 20.0, 170.0)
+    # An effect keeps its own steps.
+    assert estimate_clip(model, 960, 544, 121, adapter=EFFECT).steps == 8

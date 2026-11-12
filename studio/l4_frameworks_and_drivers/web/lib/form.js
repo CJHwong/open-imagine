@@ -42,14 +42,44 @@ function maxReferences() {
   return currentMode().max_references;
 }
 
-// A choice param fills its hidden select, so the request stays a plain form.
+// A choice param fills its hidden select, so the request stays a plain form. The mode in use
+// names the choices, because a mode can offer its own: an edit that works only at a large
+// size offers no small one. A mode without the param leaves the first list that has it.
+function choiceSpec(id) {
+  const inUse = editing() ? 'edit' : 'generate';
+  const specs = page.studio.modes.map(function (mode) {
+    return { mode: mode.id, spec: mode.params.find(function (param) { return param.id === id; }) };
+  }).filter(function (entry) { return entry.spec; });
+  const entry = specs.find(function (one) { return one.mode === inUse; }) || specs[0];
+  return entry && entry.spec;
+}
+
 function fillSelect(select, id) {
-  const spec = page.studio.modes.map(function (mode) {
-    return mode.params.find(function (param) { return param.id === id; });
-  }).find(Boolean);
+  const spec = choiceSpec(id);
   if (!spec) return;
+  select.replaceChildren();
   spec.choices.forEach(function (choice) { select.add(new Option(choice.label, choice.value)); });
   select.value = spec.default;
+}
+
+// A mode switch refills a select whose choices differ in the new mode. A value the new mode
+// also offers stays when the switch keeps the settings.
+function followModeChoices(preserveValues) {
+  let refilled = false;
+  [page.el.sizeSelect, page.el.resolutionSelect].forEach(function (select) {
+    const spec = choiceSpec(select.name);
+    if (!spec) return;
+    const offered = Array.from(select.options).map(function (option) { return option.value; });
+    const wanted = spec.choices.map(function (choice) { return choice.value; });
+    if (offered.join() === wanted.join()) return;
+    const kept = select.value;
+    fillSelect(select, select.name);
+    if (preserveValues && wanted.indexOf(kept) >= 0) select.value = kept;
+    refilled = true;
+  });
+  if (!refilled) return;
+  readSizes();
+  redrawSizes();
 }
 
 // A number param takes its range from the spec of the mode in use. The value
@@ -65,6 +95,7 @@ function applyParams(preserveValues = false) {
     node.hidden = !paramSpec(node.dataset.param);
   });
   document.getElementById('size-field').hidden = !paramSpec('size') && !paramSpec('resolution');
+  followModeChoices(preserveValues);
   currentMode().params.filter(function (param) { return param.kind === 'number'; }).forEach(function (param) {
     const input = document.getElementById(param.id);
     if (!input) return;
@@ -183,19 +214,24 @@ async function addFiles(files) {
 // ---- Size -----------------------------------------------------------------
 // The hidden selects stay the form fields, filled by the server as before.
 // The chips only drive them, so the request is exactly what it was.
-let sizeOptions = [];
-let ratios = [];
+// The size chips hold these two arrays, so a new list goes into the same arrays.
+const sizeOptions = [];
+const ratios = [];
+const resolutionOptions = [];
 
 function readSizes() {
-  sizeOptions = Array.from(page.el.sizeSelect.options).filter(function (option) {
+  sizeOptions.length = 0;
+  ratios.length = 0;
+  resolutionOptions.length = 0;
+  Array.from(page.el.resolutionSelect.options).forEach(function (option) { resolutionOptions.push(option.value); });
+  Array.from(page.el.sizeSelect.options).filter(function (option) {
     return option.value !== 'match';
-  }).map(function (option) {
+  }).forEach(function (option) {
     const parts = option.value.split('x').map(Number);
     const named = option.textContent.match(/\((\d+:\d+)\)/);
-    return { value: option.value, width: parts[0], height: parts[1],
-             ratio: parts[0] === parts[1] ? '1:1' : (named ? named[1] : parts[0] + ':' + parts[1]) };
+    sizeOptions.push({ value: option.value, width: parts[0], height: parts[1],
+                       ratio: parts[0] === parts[1] ? '1:1' : (named ? named[1] : parts[0] + ':' + parts[1]) });
   });
-  ratios = [];
   sizeOptions.forEach(function (option) {
     if (ratios.indexOf(option.ratio) < 0) ratios.push(option.ratio);
   });
@@ -203,6 +239,22 @@ function readSizes() {
 
 function currentOption() {
   return sizeOptions.find(function (option) { return option.value === page.el.sizeSelect.value; });
+}
+
+// The megapixels a Match choice names in its own label, such as "about 4 MP". A label that
+// names none is the 1 MP the first backends match at.
+function matchMegapixels() {
+  const match = Array.from(page.el.sizeSelect.options).find(function (option) { return option.value === 'match'; });
+  const named = match && match.textContent.match(/(\d+(?:\.\d+)?) MP/);
+  return named ? Number(named[1]) : 1;
+}
+
+// The size chips redraw on a change of the form. A new list of choices under the same
+// values is no such change, so the list asks for the redraw itself.
+function redrawSizes() {
+  document.querySelectorAll('size-chips, tier-sizes, edit-sizes, size-caption').forEach(function (node) {
+    if (node.requestUpdate) node.requestUpdate();
+  });
 }
 
 function setSelect(select, value) {
@@ -490,8 +542,15 @@ function twoPass() {
   return !paramSpec('negative') || Boolean(negativeText());
 }
 
+// The key names every input the estimate scales by, so a rate learned for one shape is not
+// reused for another. The reference aspect ratio is one of them, but only for a backend that
+// charges for it: the constants then hold it through `per_reference_ratio`, and a square
+// reference says nothing about the rate of a long one.
 function costKey() {
+  const model = estimateModel();
+  const ratio = model && model.per_reference_ratio ? excessRatio() : 0;
   return page.studio.backend.id + ' ' + currentMode().id + ' ' + engineReferences() + ' images'
+    + (ratio ? ' ratio ' + ratio : '')
     + (twoPass() ? ' two-pass' : '');
 }
 
@@ -517,8 +576,19 @@ function engineReferences() {
 }
 
 function referenceFactor(model) {
-  if (!model.per_reference) return 1;
-  return 1 + model.per_reference * Math.max(0, engineReferences() - 1);
+  const growth = model.per_reference
+    ? 1 + model.per_reference * Math.max(0, engineReferences() - 1) : 1;
+  return model.per_reference_ratio ? growth + model.per_reference_ratio * excessRatio() : growth;
+}
+
+// How far the pictures of one run are from square: the long side over the short side, less
+// 1, summed. A batch of one result each carries one picture a run, so it takes the mean. A
+// picture that did not load yet has no sides, and counts as square.
+function excessRatio() {
+  const pictures = page.references().filter((entry) => entry.width && entry.height);
+  const excess = pictures.reduce((sum, entry) =>
+    sum + Math.max(entry.width, entry.height) / Math.min(entry.width, entry.height) - 1, 0);
+  return chosenEach() && page.references().length ? excess / page.references().length : excess;
 }
 
 function targetPixels() {
@@ -1403,6 +1473,7 @@ const handle = {
     pushForm();
     pushLook();
     refreshForm();
+    redrawSizes();
   },
   observeMode: function (mode) {
     const radio = page.el.form.querySelector('input[name=mode][value="' + mode + '"]');
@@ -1488,7 +1559,8 @@ const handle = {
     detail.configure({
       sizes: sizeOptions,
       ratios: ratios,
-      resolutions: Array.from(page.el.resolutionSelect.options).map(function (option) { return option.value; }),
+      resolutions: resolutionOptions,
+      matchMegapixels: matchMegapixels,
       setSelect: setSelect,
       sizeSelect: page.el.sizeSelect,
       resolutionSelect: page.el.resolutionSelect,

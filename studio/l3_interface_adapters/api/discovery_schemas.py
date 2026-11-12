@@ -100,6 +100,7 @@ def discovery_schemas() -> dict[str, Any]:
                 "two_pass": boolean,
                 "per_reference": number,
                 "strength_scales_steps": boolean,
+                "per_reference_ratio": number,
             },
         },
         "VideoEstimate": {
@@ -118,6 +119,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "guided_with_references": boolean,
                 "edit": {"type": "array", "items": number},
                 "excludes": {"type": "array", "items": string},
+                "forwards": {
+                    "type": "integer",
+                    "description": "The steps of a model with one stage. 0 means two stages. A number above 0 means the run has no stage 1: it takes that many steps of stage_2 on all the tokens.",
+                },
             },
             "description": "The constants behind a clip's time. POST /api/v1/videos/plan applies them to one clip; a client can apply them to every size and length at once.",
         },
@@ -150,6 +155,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "description": string,
                 "max_batch": integer,
                 "modes": {"type": "array", "items": {"$ref": "#/components/schemas/ImageMode"}},
+                "private_operations": {
+                    "type": "boolean",
+                    "description": "False when this model refuses a request that sends X-Studio-Private-Key. Its engine reads the prompt and the references from plaintext files.",
+                },
             },
         },
         "VideoMode": {
@@ -257,7 +266,7 @@ def discovery_schemas() -> dict[str, Any]:
                 },
                 "estimate": {"$ref": "#/components/schemas/VideoEstimate"},
             },
-            "description": "Choose an exact shape pair. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
+            "description": "The shapes are a menu: a size can keep any ratio, with each side on the dimension_step grid from min_dimension to max_dimension and no more pixels than the largest shape. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
         },
         "MediaInput": {
             "type": "object",

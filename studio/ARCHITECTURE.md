@@ -79,7 +79,7 @@ Every generation model has one concrete gateway in its own media/model package:
 
 ```text
 gateways/
-  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,krea2,qwen_checkpoint}/
+  image/{qwen21,qwen21_turbo,viggle_turbo,flux2,flux3,krea2,minimax_h3_image,qwen_checkpoint}/
   video/{ltx25,ltx23,minimax_h3,ltx_checkpoint}/
   voice/{drama3,auk,auk_flash}/
   music/yue2/

@@ -1,6 +1,8 @@
 """The H3 envelope: one short clip with its own soundtrack, from text, keyframes or a track."""
 
-from studio.l1_entities.video_capabilities import VideoCapabilities, VideoMode, VideoShape
+from dataclasses import dataclass, replace
+
+from studio.l1_entities.video_capabilities import VideoCapabilities, VideoEstimate, VideoMode, VideoShape
 
 # A still at frame 0 is the first frame, and a still on any later frame is a keyframe there.
 # Three were measured on 2026-11-07 on an M5 Pro with 64 GiB, at 512 x 288 and 73 frames.
@@ -83,3 +85,68 @@ CAPABILITIES = VideoCapabilities(
         "may differ. Takes clips up to the size of 1024 x 576 at 124 frames with one keyframe."
     ),
 )
+
+# HyperFlow H3 Flash: H3 distilled to six steps, with three blocks fewer. It takes a track and the
+# LoRAs of base H3 by the user's decision on 2026-11-11, and no run tried either on its weights:
+# a LoRA trained on base H3 can fit the distilled weights badly. Fast mode stays off.
+FLASH_FORWARDS = 6
+
+# Fitted to five text runs through the Studio API on 2026-11-11: M5 Pro 64 GiB, Q8, seed 42, six
+# steps, sound on, one run at a time. The seconds are the wall time of the request.
+#
+#   size         frames  tokens  measured  this fit
+#   512 x 288      73     1.44      59 s      56 s
+#   512 x 512     124     4.10     170 s     176 s
+#   768 x 448     124     5.38     247 s     248 s
+#   768 x 448     175     7.39     388 s     379 s
+#   1024 x 576    124     9.22     511 s     515 s
+#
+# A step costs 3.92 N + 0.454 N^2 seconds over N thousand latent tokens. N is the count of
+# `video_estimate.tokens`, on the LTX grid: a measure of the clip's size, not H3's own rows. The decode costs 0.8 s
+# for each megapixel of all the frames: a spike run timed it at 26.8 s for 512 x 512 at 124
+# frames. The rest, 8 s, is the text encoder and the loads. The formula has no term for a
+# keyframe, and a keyframe adds rows: one first frame took 181 s at 512 x 512, and a first and
+# a last frame took 277 s at 768 x 448. So a figure is 6 to 12% low for a clip with keyframes.
+FLASH_ESTIMATE = VideoEstimate(
+    load=(0.0, 0.0),
+    stage_1=(0.0, 0.0),
+    stage_2=(3.92, 0.454),
+    decode=(0.0, 0.8),
+    fixed_seconds=8.0,
+    forwards=FLASH_FORWARDS,
+    # The fit holds the text run only. It has no term for the rows a keyframe adds, and it
+    # adds no LoRA time, because no run measured either. The shared video estimate names the
+    # two every figure lacks, so this one names them too.
+    excludes=("weight download", "queue wait", "keyframe rows", "LoRA time"),
+)
+
+FLASH_CAPABILITIES = replace(
+    CAPABILITIES,
+    backend_id="minimax_h3_flash",
+    name="HyperFlow H3 Flash",
+    badge="Q8 · 6 steps · 24 fps",
+    description=(
+        "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. "
+        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. "
+        "A track and a LoRA are untested on these weights."
+    ),
+    fast_mode=False,
+    fast_mode_note="",
+    estimate=FLASH_ESTIMATE,
+)
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One model on the H3 engine: its record, the name in its messages, the folder of its
+    transformer under the model folder, and the transformer evaluations of its schedule."""
+
+    capabilities: VideoCapabilities
+    name: str
+    pack: str
+    forwards: int
+    flash: bool = False
+
+
+BASE = Variant(CAPABILITIES, "H3", "h3-dit-q8", BASE_FORWARDS)
+FLASH = Variant(FLASH_CAPABILITIES, "H3 Flash", "h3-flash-dit-q8", FLASH_FORWARDS, flash=True)

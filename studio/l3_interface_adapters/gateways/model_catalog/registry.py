@@ -5,6 +5,9 @@ from functools import partial
 from studio.l3_interface_adapters.gateways.image.flux2.construction import PROVIDER as flux2_provider
 from studio.l3_interface_adapters.gateways.image.flux3.construction import PROVIDER as flux3_provider
 from studio.l3_interface_adapters.gateways.image.krea2.construction import PROVIDER as krea2_provider
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction import (
+    PROVIDER as minimax_h3_image_provider,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.construction import PROVIDER as qwen21_provider
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.construction import PROVIDER as qwen21_turbo_provider
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.construction import PROVIDER as viggle_turbo_provider
@@ -12,6 +15,9 @@ from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gatewa
 from studio.l3_interface_adapters.gateways.music.yue2.construction import PROVIDER as yue2_provider
 from studio.l3_interface_adapters.gateways.video.ltx23.construction import PROVIDER as ltx23_provider
 from studio.l3_interface_adapters.gateways.video.ltx25.construction import PROVIDER as ltx25_provider
+from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import (
+    FLASH_PROVIDER as minimax_h3_flash_provider,
+)
 from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import PROVIDER as minimax_h3_provider
 from studio.l3_interface_adapters.gateways.voice.auk.construction import PROVIDER as auk_provider
 from studio.l3_interface_adapters.gateways.voice.auk_flash.construction import PROVIDER as auk_flash_provider
@@ -23,10 +29,12 @@ BUILTIN_PROVIDERS = (
     flux2_provider,
     flux3_provider,
     krea2_provider,
+    minimax_h3_image_provider,
     viggle_turbo_provider,
     ltx25_provider,
     ltx23_provider,
     minimax_h3_provider,
+    minimax_h3_flash_provider,
     auk_flash_provider,
     auk_provider,
     drama3_provider,

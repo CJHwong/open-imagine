@@ -78,6 +78,10 @@ The engine itself stays a source checkout. No model plugin installation is neede
 If you previously installed `open-imagine-minimax-h3`, remove that distribution from
 Studio's environment and remove its old `--with` option to avoid a duplicate model ID.
 
+H3 Flash is a second model on the same engine. It needs the base H3 setup and one more
+transformer pack. Follow [Install the Flash pack](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-flash-pack),
+then add `minimax_h3_flash` to `visible_video_backends`, or use `--all-backends`.
+
 ## Default Voice: Drama-3
 
 The child pins MLX Audio commit `2209e6d76c18d0a24f7ff64d35b4176258acd909` and checkpoint revision `fedc7cc92bab5a180709cbaae6208d10b390bb97`. Its separate environment is declared in the script. To download the weights into the default Hugging Face cache before a run:
@@ -196,6 +200,34 @@ uv run studio --backend krea2
 Set `[krea2].model_dir` if you install elsewhere. The weights are stored at eight bits, so the
 section takes no `quantize`. The model runs the 8 steps it was distilled for, without guidance.
 Add one reference to start from it; the strength sets how close the result stays.
+
+## Optional Image: MiniMax H3-Image
+
+MiniMax H3-Image is optional. It runs on [h3-image-mlx](https://github.com/Anionex/h3-image-mlx),
+an Apache-2.0 MLX engine, from the PEP 723 script header of its child. uv builds and caches that
+environment, so the studio's own environment needs no engine. The engine's int8 kernel needs an
+M5 or M6 GPU. On another chip the engine uses its portable path, which this project did not measure. Read the [license terms](../reference/model-licenses.md) before you download.
+
+Keep `uv` on the server's PATH, including for its child processes, as the Drama-3 and AuK
+sections say. The child's script header pins the engine, so the first run builds its environment.
+
+Download the five weight files (about 49 GB), then check their hashes. The fetch and the verify
+run in an ephemeral environment with the same pinned engine:
+
+```sh
+E="h3-image-mlx @ git+https://github.com/Anionex/h3-image-mlx@64df997cd00a698302b1303f51028eee179487fe"
+M=~/Library/Caches/models/minimax-h3-image
+uv run --with "$E" h3-image-mlx fetch --models "$M" --source huggingface
+uv run --with "$E" h3-image-mlx verify --models "$M"
+uv run studio --backend minimax_h3_image
+```
+
+`fetch` resumes a partial file, so run it again if the connection drops.
+Set `[minimax_h3_image].model_dir` if you install elsewhere. The weights are
+stored at eight bits, so the section takes no `quantize`. The model runs six steps without guidance.
+Edit takes one to four references at about 4 MP. A smaller edit came out posterized, so the studio
+does not offer one. On an M5 Pro, a picture takes about 20 seconds at 1 MP and about a minute at 4 MP.
+An edit takes about two and a half minutes with one large reference and about nine with four. Name a reference in the prompt as `<Picture 1>`, in the order you added it.
 
 ## Offer the installed models
 
