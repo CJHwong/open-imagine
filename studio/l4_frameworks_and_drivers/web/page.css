@@ -1886,6 +1886,9 @@
     :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery) > .strip { display: none; }
     :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):not(:has(gallery-browser[expanded])) :is(.strip-actions, .gallery-action-help) { display: none; }
     :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery) .strip-head { min-height: 44px; padding: 0; }
+    /* An open browser uses the shelf's height. Its own cap left most of the pane
+       empty while the thumbnails scrolled inside a short window. */
+    :is(#strip-wrap, #video-gallery, #voice-gallery, .music-gallery):has(gallery-browser[expanded]) .gallery-browser-grid { max-height: none; overscroll-behavior: auto; }
     body[data-media=image] .work:has(#image-gallery-browser[expanded]) #image-stage { display: none; }
     body[data-media=image] #strip-wrap:has(gallery-browser[expanded]) { grid-row: 3 / span 2; min-height: 0; overflow: auto; }
   }
