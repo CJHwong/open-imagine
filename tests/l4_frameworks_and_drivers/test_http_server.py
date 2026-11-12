@@ -1832,9 +1832,3 @@ def test_a_full_queue_failure_answers_429():
         raise QueueFull("The queue is full.")
 
     assert Stub()._api_result(refuse) == ({"error": "The queue is full."}, 429)
-
-
-def test_the_phone_connection_route_reports_when_it_is_off(served):
-    status, _, body = call(served[1], "/api/v1/connect")
-
-    assert status == 200 and json.loads(body) == {"enabled": False, "running": False}

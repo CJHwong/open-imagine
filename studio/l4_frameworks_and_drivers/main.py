@@ -433,7 +433,7 @@ def assemble_studio(
         memory_status=residency.status,
     )
     return Studio(
-        handler=make_handler(controller, presenter, video_controller, api, allowed_origins, connect),
+        handler=make_handler(controller, presenter, video_controller, api, allowed_origins),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,

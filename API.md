@@ -1164,28 +1164,6 @@ against free memory with the 8 GiB system reserve.
 `POST /api/v1/memory/release` frees every model under either policy. The page's
 workspace switch follows the policy.
 
-### Phone connection
-
-`GET /api/v1/connect` reports the phone listener:
-
-```json
-{
-  "enabled": true,
-  "running": true,
-  "transport": "dumbpipe",
-  "port": 8765,
-  "ticket": "endpoint...",
-  "url": "openimagine://pair?v=1&ticket=endpoint...&port=8765",
-  "qr_svg": "<svg ...",
-  "error": ""
-}
-```
-
-`ticket`, `url` and `qr_svg` appear only while the listener runs. The ticket is a
-credential that reaches the whole studio. Rotate the identity file to revoke it.
-The route refuses `X-Studio-Private-Key`. With `[connect] enabled = false`, it returns
-`{"enabled": false, "running": false}`.
-
 ## Model storage and cleanup
 
 Settings is a modal with Appearance, Generation, Library and Model storage sections.

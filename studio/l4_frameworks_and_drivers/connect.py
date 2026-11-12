@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Protocol
 
 import qrcode
-import qrcode.image.svg
 
 from studio.l1_entities.errors import StudioError
 
@@ -159,32 +158,6 @@ def _find_ticket(output: str) -> str | None:
 def pair_url(status: ConnectStatus) -> str:
     """What the QR carries: the ticket and the loopback port the phone must bind."""
     return f"{PAIR_SCHEME}://pair?v=1&ticket={status.ticket}&port={status.port}"
-
-
-def connect_document(transport: ConnectTransport | None) -> dict[str, object]:
-    """The page's and the app's view of the phone connection. It names the ticket,
-    which is a credential, so this route is for the local page only."""
-    if transport is None:
-        return {"enabled": False, "running": False}
-    status = transport.status()
-    document: dict[str, object] = {
-        "enabled": status.enabled,
-        "running": status.running,
-        "transport": status.transport,
-        "port": status.port,
-        "error": status.error,
-    }
-    if status.running and status.ticket:
-        url = pair_url(status)
-        document.update({"ticket": status.ticket, "url": url, "qr_svg": qr_svg(url)})
-    return document
-
-
-def qr_svg(text: str) -> str:
-    image = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage)
-    buffer = io.BytesIO()
-    image.save(buffer)
-    return buffer.getvalue().decode("utf-8")
 
 
 def qr_terminal(text: str) -> str:

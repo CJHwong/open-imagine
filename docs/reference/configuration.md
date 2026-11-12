@@ -165,6 +165,6 @@ model settings and public operations. Rotate the identity file and restart to re
 it. The file is created with mode 0600 and is never logged. The listener binds
 loopback only; nothing is exposed on the local network.
 
-`GET /api/v1/connect` returns the connection status for the local page and the app.
-It refuses `X-Studio-Private-Key`. The Tailcat adapter is not built yet; the transport
-port exists so it can be added without changing the endpoint or the app.
+The terminal prints the pairing QR once the listener runs. The app stores the ticket
+from that code and keeps it. The Tailcat adapter is not built yet; the transport port
+exists so it can be added without changing the app.

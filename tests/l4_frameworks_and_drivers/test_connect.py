@@ -3,10 +3,7 @@ import stat
 from studio.l4_frameworks_and_drivers.connect import (
     ConnectStatus,
     DumbpipeTransport,
-    connect_document,
     pair_url,
-    qr_svg,
-    qr_terminal,
 )
 
 TICKET = "endpoint" + "a" * 60
@@ -103,38 +100,6 @@ def test_the_pair_url_carries_the_ticket_and_the_port():
     status = ConnectStatus(True, True, "dumbpipe", TICKET, 8765)
 
     assert pair_url(status) == f"openimagine://pair?v=1&ticket={TICKET}&port=8765"
-
-
-def test_the_connect_document_is_empty_when_no_transport_is_configured():
-    assert connect_document(None) == {"enabled": False, "running": False}
-
-
-def test_the_connect_document_names_the_ticket_only_while_the_listener_runs():
-    class Transport:
-        def __init__(self, status):
-            self._status = status
-
-        def status(self):
-            return self._status
-
-        def start(self):
-            return self._status
-
-        def stop(self):
-            pass
-
-    running = connect_document(Transport(ConnectStatus(True, True, "dumbpipe", TICKET, 8765)))
-    stopped = connect_document(Transport(ConnectStatus(True, False, "dumbpipe", "", 8765, "no dumbpipe")))
-
-    url, svg = running["url"], running["qr_svg"]
-    assert running["ticket"] == TICKET and isinstance(url, str) and url.endswith("port=8765")
-    assert isinstance(svg, str) and "<svg" in svg and running["error"] == ""
-    assert "ticket" not in stopped and stopped["error"] == "no dumbpipe"
-
-
-def test_a_qr_code_renders_for_a_terminal_and_an_svg():
-    assert "<svg" in qr_svg("hello")
-    assert qr_terminal("hello").strip()
 
 
 def test_an_existing_identity_is_reused_across_restarts(tmp_path):

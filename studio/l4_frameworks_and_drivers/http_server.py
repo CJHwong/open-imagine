@@ -30,7 +30,6 @@ from studio.l3_interface_adapters.controllers.image_import_controller import (
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.json_presenter import lora_document, rewrite_document
-from studio.l4_frameworks_and_drivers.connect import ConnectTransport, connect_document
 
 # Where the page's own files live. GET /page/<name> serves one of them, and a
 # test points WEB at a directory of its own to reach both rules below.
@@ -64,7 +63,6 @@ def make_handler(
     video_controller: VideoController | None = None,
     api: JsonApi | None = None,
     allowed_origins: tuple[str, ...] = (),
-    connect: ConnectTransport | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """`allowed_origins` are pages at another address that may post here, such as
     a Tailscale serve URL that proxies to this port."""
@@ -243,11 +241,7 @@ def make_handler(
             if status != 200:
                 self._send_json(viewer, status=status)
                 return
-            if path in ("/api/v1/settings", "/api/v1/model-storage", "/api/v1/connect") and self._refused_private_key():
-                return
-            if path == "/api/v1/connect":
-                body, status = self._api_result(lambda: connect_document(connect))
-                self._send_json(body, status=status)
+            if path in ("/api/v1/settings", "/api/v1/model-storage") and self._refused_private_key():
                 return
             readers = {
                 "/api/v1/openapi.json": api.openapi,

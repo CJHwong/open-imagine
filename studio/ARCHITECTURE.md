@@ -436,9 +436,9 @@ the boundary, and the resident model IDs.
 `l4_frameworks_and_drivers/connect.py` owns the phone transport. `ConnectTransport` is
 the port; `DumbpipeTransport` runs `generate-ticket` and `listen-tcp` with an owner-only
 identity file, and exposes a short-lived ticket. The ticket is a bearer credential, so
-the server logs neither it nor the identity. `GET /api/v1/connect` answers the local
-page and the app. A Tailcat adapter can implement the same port without moving the
-endpoint or the app.
+the server logs neither it nor the identity, and the terminal prints the pairing QR
+once the listener runs. A Tailcat adapter can implement the same port without moving
+the app.
 
 ### Download ownership and cleanup
 
