@@ -28,16 +28,18 @@ const LIFETIME = 4000;
 
 // Where the stack starts. It clears the shared operation bar when that bar is
 // up, because the bar owns the strip under the top bar while a run is visible.
-// Horizontally it stays over the work column, as it was before the popover: a
-// stack centred on the window leaned over the sidebar's own menus.
+// Horizontally it follows the work column on the desktop, where a stack centred
+// on the window leaned over the sidebar's own menus. A narrow window is one or
+// two columns with no room to spare, so the stack centres on the window there.
 function toastPlacement() {
   const bar = document.getElementById('shared-operation');
   const bottom = bar && !bar.hidden && bar.getClientRects().length ? bar.getBoundingClientRect().bottom : 0;
+  const narrow = window.matchMedia('(max-width: 900px)').matches;
   const work = document.querySelector('.work');
   const middle = work ? work.getBoundingClientRect() : null;
   return {
     top: Math.max(68, Math.round(bottom) + 12) + 'px',
-    left: middle ? Math.round(middle.left + middle.width / 2) + 'px' : '50%',
+    left: narrow || !middle ? '50%' : Math.round(middle.left + middle.width / 2) + 'px',
   };
 }
 
