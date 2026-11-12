@@ -50,8 +50,9 @@ identity_path = "~/.config/open-imagine/dumbpipe-identity"
 settings_path = "~/.config/open-imagine/settings.json"
 
 [mlx_video]
-# Image-aware LTX enhancement requires mlx-vlm==0.4.3 in this CLI environment.
-# It reads the first attached keyframe and frees Gemma before video rendering.
+# Image-aware LTX enhancement runs as its own uv script environment (mlx-vlm 0.7.3),
+# not in this CLI environment. It reads the first attached keyframe and frees Gemma
+# before video rendering.
 # Auto selects a measured reuse profile by output geometry, length, and physical memory.
 # Auto shares prompt enhancement before eligible video reuse.
 # Enhance_only shares enhancement but creates a fresh video pipeline for each clip.

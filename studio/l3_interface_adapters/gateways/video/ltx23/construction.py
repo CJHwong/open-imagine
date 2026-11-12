@@ -22,7 +22,7 @@ def ltx23_mlx_backend(
     loras = parse_lora_tables(config.backend("ltx23_mlx"), "ltx23_mlx", policy=LORA_POLICY)
     model = str(config.backend("mlx_video").get("model_ltx23", ""))
     if services is not None and enhanced_prompt is None:
-        enhanced_prompt = enhancer(config, services).is_enhanced
+        enhanced_prompt = enhancer(services).is_enhanced
     runner = _mlx_video_runner(
         config,
         model,

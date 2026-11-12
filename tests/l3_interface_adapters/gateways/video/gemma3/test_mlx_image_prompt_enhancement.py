@@ -52,10 +52,10 @@ def test_vision_uses_pixels_native_instructions_seed_and_sampling(tmp_path, monk
     assert calls == ["same-gemma", ("seed", 7), "generated"]
 
 
-def test_missing_vision_dependency_names_the_engine_install(monkeypatch):
+def test_missing_vision_dependency_names_the_enhancement_environment(monkeypatch):
     def unavailable(name):
         raise ModuleNotFoundError(name)
 
     monkeypatch.setattr(importlib, "import_module", unavailable)
-    with pytest.raises(RuntimeError, match=r"mlx-vlm==0\.4\.3"):
+    with pytest.raises(RuntimeError, match=r"mlx-vlm is not available"):
         ImagePromptEnhancer().load("gemma")

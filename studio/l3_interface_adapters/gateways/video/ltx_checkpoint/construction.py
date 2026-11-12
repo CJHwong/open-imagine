@@ -50,7 +50,7 @@ def ltx_checkpoint_backend(
     validate_lora_section(config, pack.backend_id)
     loras = parse_lora_tables(config.backend(pack.backend_id), pack.backend_id, policy=LORA_POLICY)
     if services is not None and enhanced_prompt is None:
-        enhanced_prompt = enhancer(config, services).is_enhanced
+        enhanced_prompt = enhancer(services).is_enhanced
     runner = _mlx_video_runner(
         config,
         pack_dir,
