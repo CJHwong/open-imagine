@@ -22,6 +22,9 @@ KREA2_SMALL_PIXELS = 512 * 512
 KREA2_PEAK_GIB = 47.0
 KREA2_MAX_PIXELS = 1024 * 1024
 KREA2_DEFAULT_SIZE = "1024x1024"
+# The stored int8 weights are 22 GB, as the peak note above records. Idle, the model
+# holds those weights and little else, so this is what a boundary policy retains.
+KREA2_WEIGHTS_GIB = 22.0
 
 
 def estimate_peak_gib(payload: Mapping[str, object]) -> float | None:

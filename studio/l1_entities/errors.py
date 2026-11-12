@@ -30,6 +30,10 @@ class BackendBusy(StudioError):
     """A run or a switch was asked for while a run is in flight."""
 
 
+class QueueFull(StudioError):
+    """The queue already holds every request it accepts."""
+
+
 class ResourceEstimateUnavailable(StudioError):
     """No safe memory estimate exists for this request setup."""
 

@@ -23,7 +23,7 @@ def setup():
         visible_ids=("first-video", "second-video"),
     )
     residency = InMemoryModelResidencyGateway({"first-video": first, "second-video": second})
-    residency.activate("first-video")
+    residency.claim("first-video")
     return catalog, residency, threading.Lock(), first, second
 
 

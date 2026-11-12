@@ -20,3 +20,7 @@ class ModelProvider:
     storage_assets: Callable[[ModelConfigurationGateway], tuple[ModelAsset, ...]] | None = None
     storage_name: str = ""
     storage_roots: tuple[str, ...] = ()
+    resident_gib: float | None = None
+    """The memory this model holds while it is loaded and idle, from its weight size.
+    A boundary policy can keep only a model with this figure, because it cannot count
+    the cost of one without it. A run's transient peak still goes through admission."""

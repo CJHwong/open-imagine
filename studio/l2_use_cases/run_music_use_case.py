@@ -38,7 +38,7 @@ class RunMusicUseCase:
                 self._backend = self._catalog.get(backend_id)
             self._progress.clear_cancel()
             self._progress.begin("", kind="music")
-            self._residency.activate(backend_id)
+            self._residency.claim(backend_id)
             return self._run_loaded(jobs, completed, started)
         finally:
             self._progress.finish()

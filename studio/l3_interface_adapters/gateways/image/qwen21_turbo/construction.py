@@ -4,7 +4,10 @@ from functools import partial
 
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
-from studio.l3_interface_adapters.gateways.image.qwen21_turbo.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.image.qwen21_turbo.memory_estimate import (
+    QWEN_TURBO_WEIGHTS_GIB,
+    estimate_peak_gib,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.official_qwen_turbo_backend_gateway import (
     OfficialQwenTurboBackendGateway,
 )
@@ -71,4 +74,5 @@ PROVIDER = ModelProvider(
     rewriter_cache=rewriter_cache,
     storage_assets=storage_assets,
     storage_name="Qwen Turbo",
+    resident_gib=QWEN_TURBO_WEIGHTS_GIB,
 )

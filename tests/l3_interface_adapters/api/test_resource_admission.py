@@ -40,7 +40,7 @@ def test_memory_rejection_explains_the_shortfall_and_how_to_retry():
 
     message = str(rejected.value)
     assert "Not enough memory to start" in message
-    assert "53.1 GiB" in message and "8 GiB reserved" in message
+    assert "52.0 GiB" in message and "8 GiB reserved" in message
     assert "59.0 GiB is available" in message
     assert "Close other memory-heavy apps" in message
     assert "release the loaded model" in message
@@ -61,7 +61,7 @@ def test_admission_allows_a_request_without_a_measured_model_estimate():
 
 @pytest.mark.parametrize("resolution", ("match", "512", "768"))
 @pytest.mark.parametrize("count", (1, 2))
-def test_admission_allows_qwen_edits_without_claiming_a_measured_peak(resolution, count):
+def test_admission_charges_qwen_edits_for_their_measured_peak(resolution, count):
     payload = {
         "kind": "image",
         "backend": "qwen21_turbo",
@@ -70,8 +70,10 @@ def test_admission_allows_qwen_edits_without_claiming_a_measured_peak(resolution
         "references": [{"png_base64": encoded_png(512, 512)}] * count,
     }
 
-    assert estimate_peak_gib(payload, 64) is None
-    assert admission_for(lambda: (64 * GIB, 50 * GIB))(payload) is None
+    assert estimate_peak_gib(payload, 64) is not None
+    with pytest.raises(InsufficientMemory):
+        admission_for(lambda: (64 * GIB, 50 * GIB))(payload)
+    assert admission_for(lambda: (64 * GIB, 64 * GIB))(payload) is None
 
 
 def test_krea2_needs_its_peak_and_the_reserve_free():
@@ -90,7 +92,7 @@ def test_app_policy_blocks_unmeasured_requests_until_disabled():
     from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
     from studio.l4_frameworks_and_drivers.config import Config
 
-    settings = InMemoryStudioSettingsGateway()
+    settings = InMemoryStudioSettingsGateway(True)
     admission = ResourceAdmission(lambda: (64 * GIB, GIB), build_memory_estimates(Config("", (), "", (), {})), settings)
     payload = {"kind": "video", "backend": "ltx25_mlx", "references": ["unmeasured"]}
     with pytest.raises(ResourceEstimateUnavailable, match="Settings > Generation"):
@@ -108,12 +110,12 @@ def test_app_policy_requires_every_batch_item_to_be_measured():
     from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
     from studio.l4_frameworks_and_drivers.config import Config
 
-    settings = InMemoryStudioSettingsGateway()
+    settings = InMemoryStudioSettingsGateway(True)
     admission = ResourceAdmission(
         lambda: (64 * GIB, 64 * GIB), build_memory_estimates(Config("", (), "", (), {})), settings
     )
     measured = {"mode": "generate", "size": "512x512"}
-    unmeasured = {"mode": "edit", "references": [{"png_base64": encoded_png(512, 512)}]}
+    unmeasured = {"mode": "edit", "references": [{"png_base64": encoded_png(512, 512)}], "loras": [{"id": "x"}]}
     batch = {"kind": "image", "backend": "qwen21_turbo", "items": [measured, unmeasured]}
     with pytest.raises(ResourceEstimateUnavailable):
         admission(batch)

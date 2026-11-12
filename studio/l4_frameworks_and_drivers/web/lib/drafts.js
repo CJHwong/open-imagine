@@ -143,7 +143,7 @@ function createDrafts(page) {
       if (!saved?.submitted || loading.has(workspace)) continue;
       const operation = ordered.find(one => one.workspace === workspace && one.client_id === saved.submitted.clientId
         && one.settings?.draft_id === saved.id);
-      if (operation && !['running', 'stopping'].includes(operation.status) && !page.blocked() && !finishing.has(operation.id)) {
+      if (operation && !['queued', 'running', 'stopping'].includes(operation.status) && !page.blocked() && !finishing.has(operation.id)) {
         finish(workspace, saved, operation).catch(failure);
       }
     }

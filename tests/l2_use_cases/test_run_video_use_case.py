@@ -170,7 +170,7 @@ def setup(failure=None, progress=None):
     video_backends = {"video-fake": video, "other-video": other_video}
     catalog = InMemoryVideoBackendCatalogGateway(video_backends, "video-fake", tuple(video_backends))
     residency = InMemoryModelResidencyGateway({"fake": image, **video_backends})
-    residency.activate("fake")
+    residency.claim("fake")
     engine_lock = threading.Lock()
     progress = progress or InMemoryProgressGateway()
     use_case = RunVideoUseCase(catalog, progress, engine_lock, residency)

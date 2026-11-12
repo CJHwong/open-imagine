@@ -177,7 +177,7 @@ def test_a_cancel_an_engine_obeys_leaves_the_engine_warm():
 def test_targeted_watch_preserves_the_escalation_and_uses_its_release_guard():
     residency = FakeModelResidencyGateway()
     cancel = CancelRunUseCase(InMemoryProgressGateway(), residency, patience=0)
-    residency.activate("fake")
+    residency.claim("fake")
     guarded = threading.Event()
     known = {thread.ident for thread in threading.enumerate()}
 
@@ -188,7 +188,7 @@ def test_targeted_watch_preserves_the_escalation_and_uses_its_release_guard():
     cancel.watch(lambda: True, guard, "operation")
     assert guarded.wait(2)
     _join_watch_threads(known)
-    assert residency.events == ["activate fake", "release fake"]
+    assert residency.events == ["claim fake", "release fake"]
 
 
 def test_separate_operations_can_each_have_a_cancel_watch():

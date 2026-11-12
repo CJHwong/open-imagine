@@ -9,6 +9,7 @@ USAGE:
     uv run studio                      # http://127.0.0.1:8765, official Qwen Turbo
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
+    uv run studio --memory-policy boundary --memory-boundary-percent 84 --queue-max-size 8
     uv run studio --stub --port 8832   # the page on fake engines, for page work
     uv run studio --allow-origin https://my-mac.example.ts.net:8765   # behind a proxy
 """
@@ -23,6 +24,7 @@ from studio.l3_interface_adapters.gateways.model_catalog.rewriter_cache_status i
     rewriter_cache_line as rewriter_cache_line,
 )
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
+from studio.l4_frameworks_and_drivers.connect import pair_url, qr_terminal
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
 from studio.l4_frameworks_and_drivers.main import (
@@ -67,6 +69,28 @@ def allowed_origin(value: str) -> str:
     return f"{parts.scheme}://{host}{suffix}"
 
 
+def memory_percent(value: str) -> int:
+    """A whole percentage from 1 to 100, for the boundary policy."""
+    try:
+        percent = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"give a whole percentage, not {value!r}") from error
+    if not 1 <= percent <= 100:
+        raise argparse.ArgumentTypeError(f"give a percentage from 1 to 100, not {value!r}")
+    return percent
+
+
+def queue_size(value: str) -> int:
+    """A whole number of waiting operations, zero or more."""
+    try:
+        size = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"give a whole number, not {value!r}") from error
+    if size < 0:
+        raise argparse.ArgumentTypeError(f"give zero or more, not {value!r}")
+    return size
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Serve a local multimedia generation studio with temporary public and encrypted private results."
@@ -80,6 +104,26 @@ def parse_args():
         help="folder for encrypted private results; stub storage stays isolated unless this is set",
     )
     parser.add_argument("--backend", help="open on this backend instead of the configured default")
+    parser.add_argument(
+        "--memory-policy",
+        choices=("immediate", "boundary"),
+        help="free a model when another runs (immediate), or keep models under a memory boundary (boundary); "
+        "default: the studio.toml value",
+    )
+    parser.add_argument(
+        "--memory-boundary-percent",
+        type=memory_percent,
+        metavar="PERCENT",
+        help="the share of physical memory loaded models may hold under the boundary policy; "
+        "default: the studio.toml value",
+    )
+    parser.add_argument(
+        "--queue-max-size",
+        type=queue_size,
+        metavar="N",
+        help="how many asynchronous operations may wait behind the running one; 0 refuses instead of queuing; "
+        "default: the studio.toml value",
+    )
     parser.add_argument(
         "--all-backends",
         action="store_true",
@@ -119,6 +163,9 @@ def main():
             visible=(*IMAGE_BACKEND_FACTORIES, *plugins.ids("image")) if args.all_backends else None,
             visible_video=(*VIDEO_BACKEND_FACTORIES, *plugins.ids("video")) if args.all_backends else None,
             visible_voice=(*VOICE_BACKEND_FACTORIES, *plugins.ids("voice")) if args.all_backends else None,
+            memory_policy=args.memory_policy,
+            memory_boundary_percent=args.memory_boundary_percent,
+            queue_max_size=args.queue_max_size,
         )
         studio = create_studio(
             config,
@@ -126,6 +173,7 @@ def main():
             plugins=plugins,
             allowed_origins=tuple(args.allow_origin),
             private_results_dir=args.private_results_dir,
+            port=args.port,
         )
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
@@ -144,6 +192,19 @@ def main():
     if rewriters:
         print(rewriters, flush=True)
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
+    try:
+        connection = studio.start_connect()
+    except StudioError as error:
+        server.server_close()
+        studio.shutdown()
+        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {error}")
+    if connection is not None and not connection.running:
+        server.server_close()
+        studio.shutdown()
+        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {connection.error}")
+    if connection is not None:
+        print("\nScan this code with the Open Imagine phone app:\n", flush=True)
+        print(qr_terminal(pair_url(connection)), flush=True)
     if args.allow_origin:
         print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
     print(

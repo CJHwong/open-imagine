@@ -11,6 +11,27 @@ GIB = 1024**3
 
 # The 384 square, 25 frame LTX run used 25 GiB of system headroom. A 1920 by
 # 1088, 97 frame run stayed within 64 GiB. Keep 10 GiB for host overhead there.
+#
+# Measured again on 2026-11-12, office M5 Pro, 64 GiB, one seed per case, through
+# the studio's own API, with free memory and the process tree sampled once a
+# second. Drop is the fall in free memory; footprint is the whole server tree.
+#
+#   case                              drop GiB   footprint GiB   seconds
+#   384x384x25                         21.33       49.04          26.2
+#   768x768x97                         12.80       51.04         135.1
+#   1280x704x97                        14.08       53.04         269.2
+#   1920x1088x97                       14.08       59.04         750.9
+#   frames 25 / 49 / 121 at 768        15.36 / 13.44 / 15.36   59.4 / 88.7 / 200.6
+#   keyframes 1 / 2 / 4 / 8 at 768     16.64 / 16.64 / 18.35 / 18.56
+#                                      162.3 / 171.4 / 199.7 / 245.9
+#   fast 768x768x121                   20.48       51.04         149.1
+#   no-enhance 768x768x97              21.76       51.04         160.3
+#   audio 768x768x97                   24.96       58.04         849.1
+#
+# The drop of the large case is small because its weights were already in the
+# server. The footprint is the figure that approaches the machine's limit, and
+# the largest was 59.04 GiB. The 54 GiB ceiling stays: a 64 GiB machine then keeps
+# under 10 GiB for the host, which is what the ceiling already reserves.
 LTX_SMALL_CLIP_PEAK_GIB = 25.0
 LTX_LARGE_CLIP_CEILING_GIB = 54.0
 LTX_SMALL_TOKENS = tokens(384, 384, 25)

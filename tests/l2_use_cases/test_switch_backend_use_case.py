@@ -45,7 +45,7 @@ class SwitchSetup:
         self.residency = InMemoryModelResidencyGateway(
             {"first": self.first, "second": self.second, "hidden": self.hidden}
         )
-        self.residency.activate("first")
+        self.residency.claim("first")
         self.engine_lock = threading.Lock()
 
 

@@ -7,6 +7,9 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `--host` | `127.0.0.1` | Bind address. |
 | `--port` | `8765` | Server port. Browser storage belongs to the address and port. |
 | `--backend` | `default_backend` | Initial Image model; adds it to the offered models. |
+| `--memory-policy` | `[memory].policy` | `immediate` or `boundary`. Overrides the file for this start. |
+| `--memory-boundary-percent` | `[memory].boundary_percent` | The share of physical memory loaded models may hold under the boundary policy. Overrides the file. |
+| `--queue-max-size` | `[queue].max_size` | How many asynchronous operations may wait behind the running one. `0` refuses instead of queuing. Overrides the file. |
 | `--all-backends` | Off | Enable model selectors across Image, Video, and Voice. |
 | `-q`, `--quantize` | Model configuration | Opening Image model quantization: 0, 3, 4, 5, 6, or 8 bits; 0 means full precision. |
 | `--config` | `studio.toml` | Configuration file. |
@@ -22,8 +25,16 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_backend`, `visible_backends` | Initial and available Image models. |
 | `default_video_backend`, `visible_video_backends` | Initial and available Video models. |
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
-| `require_memory_estimate` | `true`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
+| `require_memory_estimate` | `false`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
 | `settings_path` | `~/.config/open-imagine/settings.json`. Stores app preferences across restarts, without operation data. Relative paths resolve beside the TOML file. Stub servers keep preferences in memory and do not read or write this file. |
+| `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
+| `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
+| `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
+| `[connect].enabled` | `false`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
+| `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
+| `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |
+| `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
+| `[connect].identity_path` | `~/.config/open-imagine/dumbpipe-identity`. The stable dumbpipe identity, created with mode 0600. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
 | Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
@@ -133,14 +144,34 @@ See [Music setup](../how-to/music.md) for the default download recipe and input 
 ## Memory policy
 
 The Settings menu's Memory section applies to every workspace and API caller.
-“Require a measured memory estimate” is on by default. A missing estimate returns
-503 with instructions for changing the setting; it is not a claim that a workflow
-is unsupported. Turn the setting off to run unmeasured workflows. Known estimates
-continue to enforce the model peak plus the macOS reserve in either mode.
+“Require a measured memory estimate” is off by default, so a setup with no measured
+peak may run. Turn it on to refuse an unmeasured setup with 503 and instructions
+for changing the setting; that is not a claim that a workflow is unsupported.
+Known estimates continue to enforce the model peak plus the macOS reserve in either mode.
 The current measurements apply to a 64 GiB Mac; other hosts have no calibrated
-estimate and require disabling this setting before running. Smaller output alone
+estimate. Smaller output alone
 does not create an estimate for an unmeasured workflow.
 
 Changes take effect on the next admission check and do not stop a running operation.
 Saved preferences take precedence over `require_memory_estimate` in TOML; remove
 the preferences file to return to the configured default.
+
+## Phone connection
+
+`[connect] enabled = true` starts a dumbpipe listener on `127.0.0.1:studio_port` and
+prints a QR code after the server binds. The QR carries the ticket and the loopback
+port. The phone runs `dumbpipe connect-tcp` and opens `http://127.0.0.1:<port>` in
+its embedded browser.
+
+The ticket is a credential. Anyone who scans it reaches the studio, including its
+model settings and public operations. Rotate the identity file and restart to revoke
+it. The file is created with mode 0600 and is never logged. The listener binds
+loopback only; nothing is exposed on the local network.
+
+The terminal prints the pairing QR once the listener runs. The page's **Phone** button
+shows the same QR, and **New code** rotates the identity and restarts the listener, so
+every phone that held the old ticket stops working. The app stores the ticket from the
+QR and keeps it. The ticket stays the same across a restart while the identity file
+stays. The studio exits at startup when the connection is enabled but the transport
+cannot start, instead of leaving the feature on and broken. The Tailcat adapter is not
+built yet; the transport port exists so it can be added without changing the app.

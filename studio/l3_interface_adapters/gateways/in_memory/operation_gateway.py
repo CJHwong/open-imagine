@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing
+from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, QueueFull
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
@@ -25,8 +25,14 @@ class InMemoryOperationGateway(OperationGateway):
         max_age: float = 600,
         clock: Callable[[], float] = time.time,
         private_directory: Path | None = None,
+        max_queue: int = 0,
     ):
+        if max_queue < 0:
+            raise ValueError("max_queue must be zero or more")
         self._lock = threading.RLock()
+        self._condition = threading.Condition(self._lock)
+        self._queue: list[str] = []
+        self._max_queue = max_queue
         self._records: dict[str, dict[str, Any]] = {}
         self._results: dict[str, Any] = {}
         self._items: dict[str, list[Any]] = {}
@@ -42,7 +48,7 @@ class InMemoryOperationGateway(OperationGateway):
         self._private_keys: dict[str, bytes] = {}
         for record in self._private_results.records():
             operation_id = record["id"]
-            if record["status"] in ("running", "stopping"):
+            if record["status"] in ("queued", "running", "stopping"):
                 record.update(
                     status="failed", finished_at=self._clock(), error="The server restarted during this operation."
                 )
@@ -52,23 +58,28 @@ class InMemoryOperationGateway(OperationGateway):
             self._measure(operation_id)
         self._prune()
 
-    def begin(self, description: dict[str, Any], private_key: str = "") -> dict[str, Any]:
+    def begin(self, description: dict[str, Any], private_key: str = "", *, queued: bool = False) -> dict[str, Any]:
         with self._lock:
             self._prune()
             if description.get("owner") and not private_key:
                 raise InvalidJob("A private operation requires its original key.")
-            if self._active is not None or self._reservation is not None:
+            waiting = self._active is not None or self._reservation is not None
+            if waiting and (not queued or self._max_queue == 0):
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
+            if waiting and len(self._queue) >= self._max_queue:
+                raise QueueFull("The queue is full. Wait for a request to finish, or retry later.")
             operation_id = uuid.uuid4().hex
             record = {
                 **description,
                 "id": operation_id,
-                "status": "running",
+                "status": "queued" if waiting else "running",
                 "started_at": self._clock(),
                 "finished_at": None,
                 "error": None,
                 "result_retained": False,
             }
+            if waiting:
+                record["pending_admission"] = True
             size = len(json.dumps(record).encode())
             if description.get("owner"):
                 key = encryption_key(private_key, operation_id)
@@ -76,13 +87,49 @@ class InMemoryOperationGateway(OperationGateway):
                 self._private_keys[operation_id] = key
             self._records[operation_id] = record
             self._sizes[operation_id] = size
-            self._active = operation_id
+            if waiting:
+                self._queue.append(operation_id)
+            else:
+                self._active = operation_id
             return self.get(operation_id)
+
+    def queueing(self) -> bool:
+        with self._lock:
+            return self._max_queue > 0
+
+    def wait_for_turn(self, operation_id: str) -> None:
+        """Block until this queued operation is first and no other one is active.
+
+        A reserved operation that was never queued is already the active one, so it
+        returns at once. A cancel or a delete while it waits ends the wait.
+        """
+        with self._condition:
+            while True:
+                self._prune()
+                record = self._records.get(operation_id)
+                if record is None:
+                    raise OperationMissing("The operation expired or does not exist.")
+                if record["status"] in ("cancelled", "failed"):
+                    raise Cancelled("The operation was cancelled before it started.")
+                if operation_id not in self._queue:
+                    return
+                if self._active is None and self._reservation is None and self._queue[0] == operation_id:
+                    self._queue.pop(0)
+                    record.update(status="running", started_at=self._clock())
+                    self._active = operation_id
+                    return
+                self._condition.wait()
+
+    def queue_position(self, operation_id: str) -> int | None:
+        with self._lock:
+            if operation_id not in self._queue:
+                return None
+            return self._queue.index(operation_id) + 1
 
     def busy(self) -> bool:
         with self._lock:
             self._prune()
-            return self._active is not None or self._reservation is not None
+            return self._active is not None or self._reservation is not None or bool(self._queue)
 
     def exclusive(self, action: Callable[[], None]) -> None:
         with self._lock:
@@ -94,6 +141,7 @@ class InMemoryOperationGateway(OperationGateway):
         finally:
             with self._lock:
                 self._reservation = None
+                self._condition.notify_all()
 
     def cancelling(self, operation_id: str) -> bool:
         with self._lock:
@@ -109,6 +157,7 @@ class InMemoryOperationGateway(OperationGateway):
         finally:
             with self._lock:
                 self._reservation = None
+                self._condition.notify_all()
 
     def active(self) -> dict[str, Any] | None:
         with self._lock:
@@ -145,6 +194,11 @@ class InMemoryOperationGateway(OperationGateway):
     def stopping(self, operation_id: str) -> dict[str, Any]:
         with self._lock:
             self.get(operation_id)
+            if operation_id in self._queue:
+                self._queue.remove(operation_id)
+                self._records[operation_id].update(status="cancelled", finished_at=self._clock())
+                self._condition.notify_all()
+                return self.get(operation_id)
             if self._active != operation_id:
                 raise BackendBusy("This operation is no longer active.")
             self._records[operation_id]["status"] = "stopping"
@@ -234,6 +288,7 @@ class InMemoryOperationGateway(OperationGateway):
         self._records[operation_id].update(status="cancelled", finished_at=self._clock())
         del self._continuations[operation_id]
         self._active = None
+        self._condition.notify_all()
 
     def finish(self, operation_id: str, result: object) -> float:
         with self._lock:
@@ -267,6 +322,7 @@ class InMemoryOperationGateway(OperationGateway):
             self._private_keys.pop(operation_id, None)
             self._measure(operation_id)
             self._prune()
+            self._condition.notify_all()
             return record["finished_at"]
 
     def fail(self, operation_id: str, error: Exception) -> None:
@@ -280,6 +336,7 @@ class InMemoryOperationGateway(OperationGateway):
             self._private_keys.pop(operation_id, None)
             self._measure(operation_id)
             self._prune()
+            self._condition.notify_all()
 
     def expire(self) -> None:
         with self._lock:
@@ -290,6 +347,9 @@ class InMemoryOperationGateway(OperationGateway):
             self.get(operation_id)
             if operation_id == self._active:
                 raise BackendBusy("Cancel the operation before deleting it.")
+            if operation_id in self._queue:
+                self._queue.remove(operation_id)
+                self._condition.notify_all()
             self._discard(operation_id)
 
     def close(self) -> None:
@@ -311,6 +371,8 @@ class InMemoryOperationGateway(OperationGateway):
             if operation_id == self._active:
                 continue
             record = self._records[operation_id]
+            if record["finished_at"] is None:
+                continue  # queued, so its caller still waits for it
             private = bool(record.get("owner"))
             max_age = 3600 if private else self._max_age
             expired = self._clock() - record["finished_at"] > max_age

@@ -157,6 +157,30 @@ def sample_layout(page, workspace, stage, generate, width, height, failures):
         picker = check_picker(page, width, height, case, failures)
         picker.locator("header button").tap()
         expect(toggle).to_be_focused()
+        # One strip design in all four workspaces: the head alone, at the same
+        # height, until its browser opens.
+        shelf = {
+            "image": "#strip-wrap",
+            "video": "#video-gallery",
+            "voice": "#voice-gallery",
+            "music": ".music-gallery",
+        }[workspace]
+        if page.locator(shelf).is_visible():
+            box = page.locator(shelf).bounding_box()
+            record(failures, box and box["height"] <= 64, case + "/shelf-minimized", box)
+            record(failures, page.locator(shelf + " > .strip").is_hidden(), case + "/shelf-thumbs-hidden", shelf)
+    page.evaluate("() => document.querySelector('toast-host').notify('info', 'fold toast')")
+    toast = page.locator("#toasts").evaluate(
+        """host => {
+        const box = host.getBoundingClientRect();
+        const work = document.querySelector('.work').getBoundingClientRect();
+        return {centre: box.left + box.width / 2, window: innerWidth / 2,
+                work: work.left + work.width / 2};
+    }"""
+    )
+    target = toast["window"] if width <= 900 else toast["work"]
+    record(failures, abs(toast["centre"] - target) <= 2, case + "/toast", toast)
+    page.evaluate("() => document.querySelector('toast-host').clear()")
 
 
 def check_workspace(browser, base, spec, failures):

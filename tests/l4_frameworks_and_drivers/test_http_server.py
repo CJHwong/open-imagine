@@ -1720,7 +1720,7 @@ def test_the_server_checks_expiry_at_most_once_per_minute(monkeypatch):
 
 def test_app_settings_apply_to_other_callers_and_discovery(served):
     server = served[1]
-    assert json.loads(call(server, "/api/v1/settings")[2]) == {"require_memory_estimate": True}
+    assert json.loads(call(server, "/api/v1/settings")[2]) == {"require_memory_estimate": False}
     status, _, body = post_json(server, "/api/v1/settings", {"require_memory_estimate": False})
     assert status == 200 and json.loads(body) == {"require_memory_estimate": False}
     assert json.loads(call(server, "/api/v1/settings")[2])["require_memory_estimate"] is False
@@ -1739,7 +1739,7 @@ def test_app_settings_apply_to_other_callers_and_discovery(served):
 )
 def test_app_settings_refuse_ambiguous_or_unknown_values(served, payload):
     assert post_json(served[1], "/api/v1/settings", payload)[0] == 400
-    assert json.loads(call(served[1], "/api/v1/settings")[2])["require_memory_estimate"] is True
+    assert json.loads(call(served[1], "/api/v1/settings")[2])["require_memory_estimate"] is False
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
@@ -1756,7 +1756,7 @@ def test_app_policy_changes_admission_without_a_restart(tmp_path):
         {"fake": fast(StubPromptRewriterGateway())},
         "fake",
         ("fake",),
-        settings=JsonStudioSettingsGateway(tmp_path / "settings.json"),
+        settings=JsonStudioSettingsGateway(tmp_path / "settings.json", True),
         resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
         memory_estimates=build_memory_estimates(Config("", (), "", (), {})),
     )
@@ -1817,3 +1817,183 @@ def test_model_storage_routes_and_private_header_rejection(tmp_path):
         server.shutdown()
         server.server_close()
         studio.shutdown()
+
+
+def test_a_full_queue_failure_answers_429():
+    from studio.l1_entities.errors import QueueFull
+
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None))
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            pass
+
+    def refuse():
+        raise QueueFull("The queue is full.")
+
+    assert Stub()._api_result(refuse) == ({"error": "The queue is full."}, 429)
+
+
+def _connect_stub(connect):
+    from studio.l4_frameworks_and_drivers import http_server
+
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None), connect=connect)
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            self.sent = []
+
+        def _send(self, body, status=200, content_type="text/html"):
+            self.sent.append((body, status, content_type))
+
+        def _send_json(self, payload, status=200):
+            self.sent.append((json.dumps(payload), status, "application/json"))
+
+    return Stub()
+
+
+def test_the_page_qr_route_serves_only_a_running_listener():
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def status(self):
+            return running
+
+        def refresh(self):
+            return running
+
+    stub = _connect_stub(Fake())
+    stub._connect_qr()
+    body, status, content_type = stub.sent[0]
+    assert status == 200 and "<svg" in body and content_type.startswith("image/svg")
+
+    off = ConnectStatus(True, False, "dumbpipe", "", 8765, "off")
+
+    class Off:
+        def status(self):
+            return off
+
+    stub = _connect_stub(Off())
+    stub._connect_qr()
+    assert stub.sent[0][1] == 404
+
+    stub = _connect_stub(None)
+    stub._connect_qr()
+    assert stub.sent[0][1] == 404
+
+
+def test_the_page_refresh_route_reports_each_failure():
+    from studio.l1_entities.errors import StudioError
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def __init__(self, status=None, error=None):
+            self._status = status
+            self._error = error
+
+        def refresh(self):
+            if self._error is not None:
+                raise self._error
+            return self._status
+
+    stub = _connect_stub(None)
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 404
+
+    stub = _connect_stub(Fake(error=StudioError("no identity")))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 503
+
+    dead = ConnectStatus(True, False, "dumbpipe", "", 8765, "listener died")
+    stub = _connect_stub(Fake(status=dead))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 503
+
+    stub = _connect_stub(Fake(status=running))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 204
+
+
+def test_the_page_connect_routes_reach_the_transport():
+    from studio.l4_frameworks_and_drivers import http_server
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def __init__(self):
+            self.refreshed = 0
+
+        def status(self):
+            return running
+
+        def devices(self):
+            return [{"id": "nodeabc", "active": True, "seen": 1}]
+
+        def refresh(self):
+            self.refreshed += 1
+            return running
+
+        def preflight(self):
+            return None
+
+        def start(self):
+            return running
+
+        def stop(self):
+            return None
+
+    connect = Fake()
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None), connect=connect)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urllib.request.urlopen(base + "/connect/qr.svg", timeout=5) as answer:
+            assert answer.status == 200
+            assert answer.headers["Content-Type"].startswith("image/svg")
+            assert b"<svg" in answer.read()
+        with urllib.request.urlopen(base + "/connect/devices", timeout=5) as answer:
+            assert answer.status == 200
+            assert json.loads(answer.read())["total"] == 1
+        request = urllib.request.Request(base + "/connect/refresh", data=b"", method="POST")
+        with urllib.request.urlopen(request, timeout=5) as answer:
+            assert answer.status == 204
+        assert connect.refreshed == 1
+        refused = urllib.request.Request(
+            base + "/connect/refresh",
+            data=b"",
+            method="POST",
+            headers={"X-Studio-Private-Key": "k" * 32},
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(refused, timeout=5)
+        assert rejected.value.code == 400
+        assert connect.refreshed == 1
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_the_page_device_route_lists_the_listener_devices():
+    class Fake:
+        def devices(self):
+            return [{"id": "nodeabc", "active": True, "seen": 2}]
+
+    stub = _connect_stub(Fake())
+    stub._connect_devices()
+    body, status, _ = stub.sent[0]
+    assert status == 200
+    assert json.loads(body) == {
+        "devices": [{"id": "nodeabc", "active": True, "seen": 2}],
+        "active": 1,
+        "total": 1,
+    }
+
+    stub = _connect_stub(None)
+    stub._connect_devices()
+    assert json.loads(stub.sent[0][0]) == {"devices": [], "active": 0, "total": 0}

@@ -10,6 +10,7 @@ from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import In
 from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gateway import (
     InMemoryVideoBackendCatalogGateway,
 )
+from studio.l4_frameworks_and_drivers.connect import ConnectStatus, ConnectTransport
 
 
 @dataclass(frozen=True)
@@ -24,8 +25,21 @@ class Studio:
 
     video_rewriter: PromptRewriterGateway | None = None
 
+    connect: ConnectTransport | None = None
+
     def active_capabilities(self):
         return self.catalog.get(self.catalog.active_id()).capabilities()
+
+    def start_connect(self) -> ConnectStatus | None:
+        """Start the phone listener, if one is configured.
+
+        A preflight failure raises, so an enabled connection that cannot run stops
+        the studio instead of leaving the feature on but broken.
+        """
+        if self.connect is None:
+            return None
+        self.connect.preflight()
+        return self.connect.start()
 
     def expire(self) -> None:
         self.operations.expire()
@@ -43,3 +57,5 @@ class Studio:
             self.rewriter.release()
         if self.video_rewriter is not None:
             self.video_rewriter.release()
+        if self.connect is not None:
+            self.connect.stop()

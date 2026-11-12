@@ -28,7 +28,7 @@ def job(seed=7):
 def test_music_run_shares_model_slot_and_releases_lock(catalog):
     usecase, backend, progress, lock, residency = setup(catalog)
     assert usecase.execute(job()).seed == 7
-    residency.activate.assert_called_once_with("yue2")
+    residency.claim.assert_called_once_with("yue2")
     backend.load.assert_called_once()
     assert not progress.snapshot().running and not lock.locked()
 

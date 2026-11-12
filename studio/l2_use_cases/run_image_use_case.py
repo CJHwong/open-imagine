@@ -143,7 +143,7 @@ class RunImageUseCase:
         self._check_batch_cancel(cancelled)
         if self._rewriter is not None:
             self._rewriter.release()
-        self._residency.activate(backend_id)
+        self._residency.claim(backend_id)
         self._progress.begin("Preparing batch")
         backend.prepare_batch(jobs, lambda: cancelled() or self._progress.cancel_requested())
         results = []
@@ -277,7 +277,7 @@ class RunImageUseCase:
         # rebuild after a rewrite, 3.8s for mflux.
         if self._rewriter is not None:
             self._rewriter.release()
-        self._residency.activate(backend_id)
+        self._residency.claim(backend_id)
         self._progress.begin(label)
         should_stop = (
             (lambda: cancelled() or self._progress.cancel_requested()) if cancelled else self._progress.cancel_requested

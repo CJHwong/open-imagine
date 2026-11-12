@@ -132,6 +132,56 @@ def test_an_origin_that_can_never_match_or_lets_every_site_post_stops_the_start(
     assert "give scheme://host[:port]" in capsys.readouterr().err
 
 
+def test_the_memory_and_queue_flags_parse(monkeypatch):
+    argv(
+        monkeypatch,
+        "--memory-policy",
+        "boundary",
+        "--memory-boundary-percent",
+        "70",
+        "--queue-max-size",
+        "4",
+    )
+
+    args = entry.parse_args()
+
+    assert args.memory_policy == "boundary"
+    assert args.memory_boundary_percent == 70
+    assert args.queue_max_size == 4
+
+
+def test_no_memory_or_queue_flag_leaves_the_file_values_in_charge(monkeypatch):
+    argv(monkeypatch)
+
+    args = entry.parse_args()
+
+    assert args.memory_policy is None
+    assert args.memory_boundary_percent is None
+    assert args.queue_max_size is None
+
+
+@pytest.mark.parametrize("value", ["0", "101", "abc", "50.5"])
+def test_a_boundary_percent_flag_outside_one_to_one_hundred_stops_the_start(value, monkeypatch, capsys):
+    argv(monkeypatch, "--memory-boundary-percent", value)
+
+    with pytest.raises(SystemExit) as exits:
+        entry.parse_args()
+
+    assert exits.value.code == 2
+    assert "percentage" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(("value", "reason"), [("-1", "zero or more"), ("abc", "whole number")])
+def test_a_queue_size_flag_below_zero_or_not_a_whole_number_stops_the_start(value, reason, monkeypatch, capsys):
+    argv(monkeypatch, f"--queue-max-size={value}")
+
+    with pytest.raises(SystemExit) as exits:
+        entry.parse_args()
+
+    assert exits.value.code == 2
+    assert reason in capsys.readouterr().err
+
+
 def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeypatch, capsys):
     """The first rewrite in a mode fetches about 19 GB with the progress bar off, so
     the page looks merely busy. The wait has to be visible before the button is pressed."""
@@ -207,7 +257,7 @@ def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkey
 
 def test_startup_does_not_load_or_prewarm_a_model(tmp_path, monkeypatch, capsys):
     """The server starts without model memory; the first run loads its model."""
-    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock())
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=None))
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
@@ -244,7 +294,17 @@ def test_the_full_precision_flag_reaches_the_settings_file(tmp_path, monkeypatch
     until 2026-10-19, which made two documented commands fail at argparse."""
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
+    def fake_load_config(
+        path,
+        backend=None,
+        quantize=None,
+        visible=None,
+        visible_video=None,
+        visible_voice=None,
+        memory_policy=None,
+        memory_boundary_percent=None,
+        queue_max_size=None,
+    ):
         seen["quantize"] = quantize
         raise SystemExit(0)
 
@@ -263,7 +323,17 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
     the registry's own list, so a backend added later is offered by the same flag."""
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
+    def fake_load_config(
+        path,
+        backend=None,
+        quantize=None,
+        visible=None,
+        visible_video=None,
+        visible_voice=None,
+        memory_policy=None,
+        memory_boundary_percent=None,
+        queue_max_size=None,
+    ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
         seen["visible_voice"] = visible_voice
@@ -290,7 +360,17 @@ def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch)
         entry, "discover_plugins", lambda: type("Plugins", (), {"ids": lambda self, kind: ("external_" + kind,)})()
     )
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
+    def fake_load_config(
+        path,
+        backend=None,
+        quantize=None,
+        visible=None,
+        visible_video=None,
+        visible_voice=None,
+        memory_policy=None,
+        memory_boundary_percent=None,
+        queue_max_size=None,
+    ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
         seen["visible_voice"] = visible_voice
@@ -311,7 +391,17 @@ def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch)
 def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, monkeypatch):
     seen = {}
 
-    def fake_load_config(path, backend=None, quantize=None, visible=None, visible_video=None, visible_voice=None):
+    def fake_load_config(
+        path,
+        backend=None,
+        quantize=None,
+        visible=None,
+        visible_video=None,
+        visible_voice=None,
+        memory_policy=None,
+        memory_boundary_percent=None,
+        queue_max_size=None,
+    ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
         seen["visible_voice"] = visible_voice
@@ -352,3 +442,58 @@ def test_startup_reports_private_storage_ownership_errors(tmp_path, monkeypatch)
     with pytest.raises(SystemExit) as exits:
         entry.main()
     assert exit_message(exits) == "Cannot start the studio: private storage already in use"
+
+
+def test_startup_prints_the_phone_qr_when_the_listener_runs(tmp_path, monkeypatch, capsys):
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    status = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=status))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    entry.main()
+
+    assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
+
+
+def test_startup_exits_when_the_phone_listener_cannot_start(tmp_path, monkeypatch):
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    status = ConnectStatus(True, False, "dumbpipe", "", 8765, "no dumbpipe")
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=status))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
+
+    assert "cannot start: no dumbpipe" in exit_message(exits)
+    studio.shutdown.assert_called_once_with()
+
+
+def test_startup_exits_when_the_pipe_preflight_fails(tmp_path, monkeypatch):
+    from studio.l1_entities.errors import StudioError
+
+    studio = SimpleNamespace(
+        handler=Mock(),
+        shutdown=Mock(),
+        expire=Mock(),
+        start_connect=Mock(side_effect=StudioError("the transport is missing")),
+    )
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
+
+    assert "cannot start: the transport is missing" in exit_message(exits)

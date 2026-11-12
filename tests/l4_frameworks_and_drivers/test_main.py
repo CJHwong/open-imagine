@@ -333,8 +333,27 @@ def test_singular_voice_backend_assembly_still_uses_shared_residency():
         ("fake",),
         voice_backend=StubVoiceBackendGateway(auk_capabilities("flash")),
     )
-    studio.residency.activate("auk")
+    studio.residency.claim("auk")
     assert studio.residency.active_id() == "auk"
+    studio.shutdown()
+
+
+def test_a_boundary_assembly_keeps_two_models_that_fit_and_frees_the_oldest_first():
+    studio = assemble_studio(
+        {"first": FakeBackendGateway(), "second": FakeBackendGateway()},
+        {"fake": NoPromptRewriterGateway()},
+        "first",
+        ("first", "second"),
+        resident_memory={"first": 10.0, "second": 20.0},
+        memory_policy="boundary",
+        memory_boundary_percent=75,
+        total_memory_gib=40.0,
+    )
+    studio.residency.claim("first")
+    studio.residency.claim("second")
+
+    assert studio.residency.resident_ids() == ("first", "second")
+    assert studio.residency.status()["boundary_gib"] == 30.0
     studio.shutdown()
 
 
@@ -793,3 +812,49 @@ def test_startup_wires_app_memory_settings_and_isolates_the_stub(tmp_path, monke
     main.create_studio(config, stub=stub, plugins=install(monkeypatch, pack_entries()))
     preferences = assembly.call_args.kwargs["settings"]
     assert preferences.require_memory_estimate() is (required if stub else not required)
+
+
+def test_shutdown_stops_the_phone_listener():
+    from studio.l4_frameworks_and_drivers.studio import Studio
+
+    connect = Mock()
+    studio = Studio(
+        handler=Mock(),
+        catalog=Mock(),
+        video_catalog=None,
+        residency=Mock(),
+        cancel=Mock(),
+        operations=Mock(),
+        connect=connect,
+    )
+
+    studio.shutdown()
+
+    connect.stop.assert_called_once_with()
+
+
+def test_start_connect_preflights_before_it_starts():
+    from studio.l1_entities.errors import StudioError
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+    from studio.l4_frameworks_and_drivers.studio import Studio
+
+    connect = Mock()
+    studio = Studio(
+        handler=Mock(),
+        catalog=Mock(),
+        video_catalog=None,
+        residency=Mock(),
+        cancel=Mock(),
+        operations=Mock(),
+        connect=connect,
+    )
+    status = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+    connect.start.return_value = status
+
+    assert studio.start_connect() == status
+    connect.preflight.assert_called_once_with()
+
+    connect.preflight.side_effect = StudioError("missing")
+    with pytest.raises(StudioError, match="missing"):
+        studio.start_connect()
+    connect.start.assert_called_once_with()

@@ -21,7 +21,15 @@ class Config:
     default_music_backend: str = "yue2"
     visible_music_backends: tuple[str, ...] = ("yue2",)
 
-    require_memory_estimate: bool = True
+    require_memory_estimate: bool = False
+    memory_policy: str = "immediate"
+    memory_boundary_percent: int = 84
+    queue_max_size: int = 0
+    connect_enabled: bool = False
+    connect_transport: str = "dumbpipe"
+    connect_studio_port: int = 8765
+    connect_dumbpipe_path: str = ""
+    connect_identity_path: Path | None = None
     settings_path: Path | None = None
 
     def backend(self, backend_id: str) -> dict:
@@ -42,10 +50,14 @@ def load_config(
     visible: tuple[str, ...] | None = None,
     visible_video: tuple[str, ...] | None = None,
     visible_voice: tuple[str, ...] | None = None,
+    memory_policy: str | None = None,
+    memory_boundary_percent: int | None = None,
+    queue_max_size: int | None = None,
 ) -> Config:
     """`backend` opens the page on that backend and makes sure the page offers it.
     `quantize` applies to the backend the page opens with. `visible` offers exactly the
-    backends it names. The video and voice overrides follow the same rule."""
+    backends it names. The video and voice overrides follow the same rule. The memory and
+    queue overrides are the command-line flags: a flag wins over the file."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
     visible = visible if visible else tuple(raw.get("visible_backends", [default]))
@@ -59,9 +71,42 @@ def load_config(
     visible_voice = visible_voice if visible_voice else tuple(raw.get("visible_voice_backends", [default_voice]))
     if default_voice not in visible_voice:
         visible_voice = (default_voice, *visible_voice)
-    required = raw.get("require_memory_estimate", True)
+    required = raw.get("require_memory_estimate", False)
     if not isinstance(required, bool):
         raise ConfigError("require_memory_estimate in studio.toml must be true or false")
+    memory = raw.get("memory", {})
+    if not isinstance(memory, dict):
+        raise ConfigError("[memory] in studio.toml must be a table")
+    policy = memory_policy if memory_policy is not None else memory.get("policy", "immediate")
+    if policy not in ("immediate", "boundary"):
+        raise ConfigError('memory.policy in studio.toml must be "immediate" or "boundary"')
+    percent = memory_boundary_percent if memory_boundary_percent is not None else memory.get("boundary_percent", 84)
+    if type(percent) is not int or not 1 <= percent <= 100:
+        raise ConfigError("memory.boundary_percent in studio.toml must be a whole number from 1 to 100")
+    queue = raw.get("queue", {})
+    if not isinstance(queue, dict):
+        raise ConfigError("[queue] in studio.toml must be a table")
+    max_queue = queue_max_size if queue_max_size is not None else queue.get("max_size", 0)
+    if type(max_queue) is not int or max_queue < 0:
+        raise ConfigError("queue.max_size in studio.toml must be a whole number of zero or more")
+    connect = raw.get("connect", {})
+    if not isinstance(connect, dict):
+        raise ConfigError("[connect] in studio.toml must be a table")
+    connect_enabled = connect.get("enabled", False)
+    if not isinstance(connect_enabled, bool):
+        raise ConfigError("connect.enabled in studio.toml must be true or false")
+    transport = connect.get("transport", "dumbpipe")
+    if transport != "dumbpipe":
+        raise ConfigError('connect.transport in studio.toml must be "dumbpipe"; the tailcat adapter is not built yet')
+    connect_port = connect.get("studio_port", 8765)
+    if type(connect_port) is not int or not 1 <= connect_port <= 65535:
+        raise ConfigError("connect.studio_port in studio.toml must be a port number")
+    dumbpipe_path = connect.get("dumbpipe_path", "")
+    if not isinstance(dumbpipe_path, str):
+        raise ConfigError("connect.dumbpipe_path in studio.toml must be a path or blank")
+    identity_path = Path(connect.get("identity_path", "~/.config/open-imagine/dumbpipe-identity")).expanduser()
+    if not identity_path.is_absolute():
+        identity_path = (path.parent / identity_path).resolve()
     settings_path = Path(raw.get("settings_path", "~/.config/open-imagine/settings.json")).expanduser()
     settings_path = (path.parent / settings_path).resolve()
     sections = {name: _settings(value, path.parent) for name, value in raw.items() if isinstance(value, dict)}
@@ -74,6 +119,14 @@ def load_config(
         visible_video_backends=visible_video,
         sections=sections,
         require_memory_estimate=required,
+        memory_policy=policy,
+        memory_boundary_percent=percent,
+        queue_max_size=max_queue,
+        connect_enabled=connect_enabled,
+        connect_transport=transport,
+        connect_studio_port=connect_port,
+        connect_dumbpipe_path=dumbpipe_path,
+        connect_identity_path=identity_path,
         settings_path=settings_path,
         default_voice_backend=default_voice,
         visible_voice_backends=visible_voice,

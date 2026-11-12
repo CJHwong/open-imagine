@@ -1,7 +1,10 @@
 """Composition factory for image/qwen21."""
 
+from functools import partial
+
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
+from studio.l3_interface_adapters.gateways.image.qwen21.memory_estimate import estimate_peak_gib
 from studio.l3_interface_adapters.gateways.image.qwen21.qwen21_backend_gateway import Qwen21BackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.edit import Qwen21Edit
@@ -31,10 +34,15 @@ def qwen21_backend(config: ModelConfigurationGateway, **_) -> Qwen21BackendGatew
     )
 
 
+def memory_estimator(config):
+    return partial(estimate_peak_gib, quantize=config.backend("qwen21").get("quantize"))
+
+
 PROVIDER = ModelProvider(
     "qwen21",
     "image",
     qwen21_backend,
+    estimator=memory_estimator,
     rewriter=build_rewriter,
     rewriter_cache=rewriter_cache,
     storage_assets=storage_assets,

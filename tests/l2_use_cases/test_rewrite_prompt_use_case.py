@@ -146,7 +146,7 @@ def use_case(catalog, rewriter, progress=None, residency=None):
         residency = InMemoryModelResidencyGateway(
             {backend_id: catalog.get(backend_id) for backend_id in catalog.visible_ids()}
         )
-        residency.activate(catalog.active_id())
+        residency.claim(catalog.active_id())
     return RewritePromptUseCase(
         rewriter,
         catalog,
@@ -317,8 +317,17 @@ def test_a_rewrite_does_not_queue_behind_an_image_run():
 
 def test_a_rewrite_releases_its_lock_if_it_cannot_release_the_previous_model():
     class FailedResidency(ModelResidencyGateway):
-        def activate(self, backend_id):
-            raise AssertionError("rewrite does not activate a generator")
+        def select(self, backend_id):
+            raise AssertionError("a rewrite does not select a generator")
+
+        def claim(self, backend_id):
+            raise AssertionError("a rewrite does not claim a generator")
+
+        def release_active(self):
+            raise AssertionError("a rewrite does not release a generator")
+
+        def release_idle(self):
+            raise AssertionError("a rewrite does not release a generator")
 
         def release(self):
             raise StudioError("old model did not release")
