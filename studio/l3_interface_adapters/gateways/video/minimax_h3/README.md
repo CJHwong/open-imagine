@@ -38,8 +38,7 @@ See "H3 Flash" below.
 ## Install the engine
 
 Use an Apple Silicon Mac with 64 GiB of unified memory, `uv` and ffmpeg/ffprobe on PATH.
-Reserve about 120 GB for downloads and conversion; this is a planning allowance.
-The original BF16 DiT stays on disk after conversion. Delete it explicitly if it is no longer needed.
+The DiT pack is 35.3 GB. The text encoder, VAEs and tokenizer add less.
 
 From the Open Imagine repository:
 
@@ -56,27 +55,13 @@ The worker declares the engine's packages in a PEP 723 header, pinned to the ver
 no `uv venv` and no `uv pip install`. The first run needs network access for the packages.
 The engine stays a source checkout, and the worker checks its commit and tracked source.
 
-The download utility pins every source revision and fetches the model terms.
-It downloads the pruned BF16 DiT, the Q8 text encoder, compact VAEs and tokenizer,
-and the upstream text configuration. It never loads a model.
-The engine's own download script follows branch tips, so use this utility for reproducibility.
-
-With Studio stopped and the GPU free, build Q8 using the pinned engine:
-
-```sh
-uv run --no-project --python 3.11 \
-  --with-requirements studio/l3_interface_adapters/gateways/video/minimax_h3/engine-requirements.txt \
-  python ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/scripts/quantize_stream.py \
-  --src ~/Library/Caches/models/minimax-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors \
-  --out ~/Library/Caches/models/minimax-h3/h3-dit-q8
-```
-
-The converter runs in an ephemeral environment with the same pins. Run it from the Open Imagine
-repository, or give the requirements file by its full path.
-
-The builder's closing validation holds the BF16 source and Q8 model in one process.
-That phase can approach the memory ceiling on a 64 GiB Mac. Close other model workers first.
-Do not run conversion beside a render.
+The download utility pins every source revision and fetches the model terms. It downloads
+[`pipenetwork/MiniMax-H3-MLX-8bit`](https://huggingface.co/pipenetwork/MiniMax-H3-MLX-8bit/tree/e55f97c8ebf340066de8d6b4554a2a6767fe54e9)
+at revision `e55f97c8ebf340066de8d6b4554a2a6767fe54e9` into `h3-dit-q8`. The pack is already
+quantized to eight bits and holds seven shards, its index, its config and its quantization
+config. The utility also fetches the Q8 text encoder, the compact VAEs and tokenizer, and the
+upstream text configuration. It never loads a model. The engine's own download script follows
+branch tips, so use this utility for reproducibility.
 
 ## Run in Studio
 
@@ -383,10 +368,13 @@ the M4A index move, private diagnostic suppression and cancellation.
 
 ## License
 
-This integration's code is MIT. The engine port is Apache-2.0. The weights use the
+This integration's code is MIT. The engine port is Apache-2.0. The DiT pack is
+[pipenetwork/MiniMax-H3-MLX-8bit](https://huggingface.co/pipenetwork/MiniMax-H3-MLX-8bit/tree/e55f97c8ebf340066de8d6b4554a2a6767fe54e9),
+a pre-quantized derivative of H3. The weights use the
 [MiniMax H3 Community License](https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE),
 which includes territory restrictions. The Qwen text encoder retains its source terms.
-Read the downloaded LICENSE, NOTICE and modification notices before use or redistribution.
+Read the pack's LICENSE and README, and the encoder's NOTICE and modification notices,
+before use or redistribution.
 The H3 Flash weights are a derivative of H3 and carry the same model license. Their inference code
 is Apache-2.0.
 No model weights are included in this package.

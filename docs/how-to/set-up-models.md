@@ -70,8 +70,12 @@ LTX-2.3 requires its own pack and is optional.
 
 ## Optional Video: MiniMax H3
 
-H3 ships with Studio. Follow its [pinned engine and weight setup](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-engine),
-then add `minimax_h3` to `visible_video_backends`, or use `--all-backends`.
+H3 ships with Studio. Follow its [pinned engine and weight setup](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-engine).
+It clones the engine at its pinned commit and downloads the pre-quantized MLX pack
+[`pipenetwork/MiniMax-H3-MLX-8bit`](https://huggingface.co/pipenetwork/MiniMax-H3-MLX-8bit/tree/e55f97c8ebf340066de8d6b4554a2a6767fe54e9)
+at revision `e55f97c8ebf340066de8d6b4554a2a6767fe54e9` into `h3-dit-q8`. The pack is 35.3 GB
+and needs no local quantization. Then add `minimax_h3` to `visible_video_backends`, or use
+`--all-backends`.
 Keep `uv` on the server's PATH, including for its child processes, as the Drama-3 section says.
 The worker's PEP 723 header pins the engine's packages, so `uv` builds and caches that environment.
 The engine itself stays a source checkout. No model plugin installation is needed.
