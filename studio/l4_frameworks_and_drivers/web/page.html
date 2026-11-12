@@ -119,9 +119,6 @@
         <button type="button" id="guide-toggle" class="icon-btn labeled-action" aria-expanded="false"
           aria-label="How to use this studio"
           data-i18n-attr='{"aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg><span class="control-label" data-i18n="ui.action.help">Help</span></button>
-        <button type="button" id="connect-phone" class="icon-btn labeled-action" aria-haspopup="dialog"
-          aria-controls="connect-dialog" aria-label="Connect phone"
-          data-i18n-attr='{"aria-label":"connect.toggle"}'><svg class="icon"><use href="#i-qr"/></svg><span class="control-label" data-i18n="ui.action.phone">Phone</span></button>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn labeled-action" aria-haspopup="dialog" aria-expanded="false"
           aria-controls="settings-dialog" aria-label="Settings"
@@ -3488,6 +3485,44 @@
     return {imported, skipped};
   };
 </script>
+<script>
+  // The Android app cannot hand a blob: URL to its Download manager. When the
+  // app injects StudioBridge, send the bytes there instead of an anchor. A
+  // desktop browser has no bridge and keeps the normal download.
+  (() => {
+    const channel = () => window.StudioBridge || null;
+    const send = async (blob, name) => {
+      const bridge = channel();
+      if (!bridge) return false;
+      bridge.postMessage(JSON.stringify({kind: 'begin', name, mime: blob.type || 'application/octet-stream'}));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const step = 512 * 1024;
+      for (let offset = 0; offset < bytes.length; offset += step) {
+        const slice = bytes.subarray(offset, offset + step);
+        let binary = '';
+        for (let index = 0; index < slice.length; index += 0x8000) {
+          binary += String.fromCharCode(...slice.subarray(index, index + 0x8000));
+        }
+        bridge.postMessage(JSON.stringify({kind: 'chunk', data: btoa(binary)}));
+      }
+      bridge.postMessage(JSON.stringify({kind: 'end'}));
+      return true;
+    };
+    const nativeClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download && this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:'))) {
+        const name = this.download;
+        fetch(this.href)
+          .then(response => response.blob())
+          .then(blob => send(blob, name))
+          .then(saved => { if (!saved) nativeClick.call(this); })
+          .catch(() => nativeClick.call(this));
+        return;
+      }
+      return nativeClick.call(this);
+    };
+  })();
+</script>
 <dialog id="connect-dialog" class="connect-dialog" aria-labelledby="connect-title">
   <form method="dialog" class="connect-head">
     <h2 id="connect-title" data-i18n="connect.title">Connect a phone</h2>
@@ -3504,11 +3539,10 @@
 </dialog>
 <script>
   (() => {
-    const button = document.getElementById('connect-phone');
     const dialog = document.getElementById('connect-dialog');
     const image = document.getElementById('connect-qr');
     const note = document.getElementById('connect-note');
-    if (!button || !dialog || !image || !note) return;
+    if (!dialog || !image || !note) return;
     const load = async () => {
       image.hidden = true;
       note.hidden = false;
@@ -3523,7 +3557,11 @@
         note.textContent = error.message;
       }
     };
-    button.addEventListener('click', () => { dialog.showModal(); load(); });
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest?.('#settings-phone-open')) return;
+      dialog.showModal();
+      load();
+    });
     document.getElementById('connect-close').addEventListener('click', () => dialog.close());
     document.getElementById('connect-refresh').addEventListener('click', async () => {
       const answer = await fetch('/connect/refresh', {method: 'POST'});
