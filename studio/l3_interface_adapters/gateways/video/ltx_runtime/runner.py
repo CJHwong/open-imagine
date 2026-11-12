@@ -20,9 +20,10 @@ from studio.l1_entities.errors import Cancelled, StudioError
 from studio.l1_entities.video_job import VideoEdit, VideoJob, VideoResult
 from studio.l3_interface_adapters.gateways.lora_files import LoraFiles
 from studio.l3_interface_adapters.gateways.video.shared.engine_paths import (
+    checked_engine,
     checked_executable,
     child_command,
-    engine_executable,
+    engine_command,
 )
 from studio.l3_interface_adapters.gateways.video.shared.process_errors import crash_report as _crash_report
 
@@ -61,7 +62,7 @@ class MlxVideoRunner:
         # was measured fused.
         self._lora_files = lora_files or LoraFiles()
         self._enhanced_prompt = enhanced_prompt or (lambda prompt, image: False)
-        self._cli = engine_executable(settings)
+        self._cli = engine_command(settings)
         self._ffmpeg = str(settings.get("ffmpeg_path") or (shutil.which("ffmpeg") or ""))
         self._ffmpeg_configured = bool(settings.get("ffmpeg_path"))
         self._model = os.path.expanduser(model)
@@ -96,9 +97,7 @@ class MlxVideoRunner:
         job = self._prepared_job(job)
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
-        self._checked(
-            self._cli, "The bundled Video engine is missing. Reinstall the studio, or set cli_path under [mlx_video]."
-        )
+        self._check_engine()
         # Before any work: a missing file is refused here, and never reaches the engine as a name.
         loras = self._lora_files.paths(job.loras)
         environment = self._environment()
@@ -154,9 +153,7 @@ class MlxVideoRunner:
             return self._sequential_batch(jobs, completed, started, progress, cancelled)
         if not self._model:
             raise StudioError(f"Set {self._model_key} under [mlx_video] to a q8 pack id.")
-        self._checked(
-            self._cli, "The bundled Video engine is missing. Reinstall the studio, or set cli_path under [mlx_video]."
-        )
+        self._check_engine()
         # One pipeline serves the whole batch, and its LoRAs attach when it loads, so the
         # controller lets a batch through only with one set.
         loras = self._lora_files.paths(jobs[0].loras)
@@ -234,7 +231,7 @@ class MlxVideoRunner:
         # A prompt the enhancer will rewrite gets its trigger words after the rewrite.
         prompt = job.prompt if self._will_enhance(job) else self._lora_files.with_triggers(job.prompt, job.loras)
         command = [
-            self._cli,
+            *self._cli,
             "a2v" if audio is not None else "generate",
             "-p",
             prompt,
@@ -292,10 +289,12 @@ class MlxVideoRunner:
         clip.write_bytes(edit.clip)
         if edit.lora_file:
             lora = self._lora(edit, cancelled)
-            entrypoint = [self._cli, "ic-lora", "--lora", str(lora), f"{edit.strength:g}"]
+            arguments = ["ic-lora", "--lora", str(lora), f"{edit.strength:g}"]
             if edit.stage_2_conditioning:
                 child = Path(__file__).with_name("mlx_layout_to_render_child.py")
-                entrypoint = child_command(self._cli, child, *entrypoint[1:])
+                entrypoint = child_command(self._cli, child, *arguments)
+            else:
+                entrypoint = [*self._cli, *arguments]
         else:
             entrypoint = child_command(self._cli, Path(__file__).with_name("mlx_video_edit_child.py"))
         command = [
@@ -414,6 +413,9 @@ class MlxVideoRunner:
             detail = result.stderr.decode(errors="replace").strip().splitlines()[-1:] or [""]
             raise StudioError(f"The track could not be padded to the clip: {detail[0]}")
         return target
+
+    def _check_engine(self) -> None:
+        self._cli = checked_engine(self._cli)
 
     _checked = staticmethod(checked_executable)
 

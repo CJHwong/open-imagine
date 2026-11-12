@@ -202,11 +202,13 @@ def test_a_wrong_port_executable_says_which_setting_to_fill(tmp_path):
         runner.run(VideoJob("a cat", 384, 384, 121, 24, 7))
 
 
-def test_an_empty_setting_uses_the_wrapper_that_ships_with_the_studio():
+def test_an_empty_setting_runs_the_shipped_wrapper_with_the_studio_s_uv(monkeypatch):
+    monkeypatch.setenv("UV", "/chosen/uv")
     runner = make_runner({}, "pack", False)
 
-    assert runner._cli.endswith("ltx_runtime/ltx_engine.py")
-    assert Path(runner._cli).is_file()
+    assert runner._cli[:3] == ["/chosen/uv", "run", "--script"]
+    assert runner._cli[-1].endswith("ltx_runtime/ltx_engine.py")
+    assert Path(runner._cli[-1]).is_file()
 
 
 def test_a_model_path_expands_the_home_directory(tmp_path):
@@ -1156,15 +1158,11 @@ def test_mlx_enhanced_batch_live(tmp_path, fast_mode):
     import json
     import socket
 
-    from studio.l3_interface_adapters.gateways.video.shared.engine_paths import engine_executable
     from studio.l4_frameworks_and_drivers.config import load_config
 
     settings = load_config(Path("studio.toml")).backend("mlx_video")
     if not Path(settings["model_ltx25"]).is_dir():
         pytest.skip("Install the configured LTX-2.5 weights first.")
-    settings["cli_path"] = engine_executable(settings)
-    if not Path(settings["cli_path"]).is_file():
-        pytest.skip("Install the configured LTX MLX environment first.")
     with socket.socket() as connection:
         assert connection.connect_ex(("127.0.0.1", 8765)) != 0, "Stop the user Studio server before a live GPU check."
     processes = subprocess.check_output(["ps", "-axo", "pid,command"]).decode()

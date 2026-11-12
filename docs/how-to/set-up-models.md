@@ -1,6 +1,6 @@
 # Set up model weights and engines
 
-Use this guide to prepare a model before running it. Start from the repository root with `uv` on the server and child processes’ `PATH`.
+Use this guide to prepare a model before running it. Start from the repository root with `uv` on the server and child processes’ `PATH`, or set `UV` to the `uv` executable.
 Edit [studio.toml](../../studio.toml) to change engine paths or model directories.
 For model capabilities and reference requirements, see [Models](../reference/models.md).
 
@@ -14,6 +14,8 @@ Set that directory before starting if you want another disk or already have the 
 Video builds its own engine environment on the first run. The studio ships a wrapper,
 `studio/l3_interface_adapters/gateways/video/ltx_runtime/ltx_engine.py`, which declares the
 pinned [ltx-2-mlx](https://github.com/dgrauet/ltx-2-mlx) port and its exact package versions.
+The studio starts it as `uv run --script`. It reads `UV` first, then finds `uv` on `PATH`, so the
+engine uses the same `uv` binary as the studio.
 `uv` builds and caches that environment, so there is no clone and no `cli_path` to set.
 The first run needs network access for the packages, about 1 GB once.
 
