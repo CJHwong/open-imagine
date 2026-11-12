@@ -1,4 +1,18 @@
-"""Expose the same Gemma strategies used by the LTX CLI without rendering video."""
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "mlx==0.32.2", "mlx-lm==0.31.1", "mlx-vlm==0.7.3",
+#   "transformers==5.17.0", "pillow==12.3.0",
+#   "ltx-core-mlx @ git+https://github.com/dgrauet/ltx-2-mlx@5fed9e2a588102c231658d2a2b7be1ef7bf350b4#subdirectory=packages/ltx-core-mlx",
+#   "ltx-pipelines-mlx @ git+https://github.com/dgrauet/ltx-2-mlx@5fed9e2a588102c231658d2a2b7be1ef7bf350b4#subdirectory=packages/ltx-pipelines-mlx",
+# ]
+# ///
+"""Expose the same Gemma strategies used by the LTX CLI without rendering video.
+
+`uv` builds the environment this file declares, so the enhancer needs neither the video
+engine nor a separate Python. The versions are the ones the studio resolves.
+"""
 
 import importlib
 import json

@@ -23,8 +23,14 @@ The engine keeps its own environment because the port pins `mlx-vlm 0.4.3` and
 `transformers 5.3.0`, and the studio's image rewriters need `mlx-vlm 0.7.3` or newer with
 `transformers` 5.5 or newer. One environment cannot hold both sets.
 
+The prompt enhancer is a second script engine. `mlx_prompt_enhancement_child.py` declares
+its own environment with `mlx-vlm 0.7.3`, and the studio runs it with `uv run --script`.
+It uses the `uv` that started the studio, from the `UV` variable. A studio started another
+way falls back to `uv` on the server's `PATH`. It needs no `cli_path`. The first
+enhancement builds that environment, so it takes longer than a warm one.
+
 An engine checkout you already have still works. Set `[mlx_video].cli_path` to its CLI, and the
-studio runs its child scripts under that environment's `python`.
+studio runs its rendering child scripts under that environment's `python`.
 
 Accept the model terms at [dgrauet/ltx-2.5-mlx-q8](https://huggingface.co/dgrauet/ltx-2.5-mlx-q8), then authenticate:
 

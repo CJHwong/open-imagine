@@ -1,4 +1,4 @@
-"""Image-aware Gemma enhancement inside the pinned video environment.
+"""Image-aware Gemma enhancement inside the environment that runs this module.
 
 Only this preparation pass uses mlx-vlm. Video text encoding stays on the engine's
 existing implementation, and the caller frees this model before loading a video pack.
@@ -13,9 +13,7 @@ class ImagePromptEnhancer:
         try:
             self._vlm = cast(Any, importlib.import_module("mlx_vlm"))
         except ModuleNotFoundError as error:
-            raise RuntimeError(
-                "Install mlx-vlm==0.4.3 in the LTX engine environment for image-aware enhancement."
-            ) from error
+            raise RuntimeError("mlx-vlm is not available in this enhancement environment.") from error
         self._model, self._processor = self._vlm.load(path)
         encoder = cast(Any, importlib.import_module("ltx_core_mlx.text_encoders.gemma.encoders.base_encoder"))
         self._system = encoder.GemmaLanguageModel().default_gemma_i2v_system_prompt

@@ -42,10 +42,9 @@ def test_external_model_has_no_builtin_cache_report():
 
 
 def test_ltx_enhancer_is_reused_only_within_one_studio_instance():
-    config = Config("", (), "", (), {})
     services = ModelServices(Mock())
-    assert enhancer(config, services) is enhancer(config, services)
-    assert enhancer(config, ModelServices(Mock())) is not enhancer(config, services)
+    assert enhancer(services) is enhancer(services)
+    assert enhancer(ModelServices(Mock())) is not enhancer(services)
 
 
 def test_both_ltx_providers_recognize_their_own_rewriter_output():
