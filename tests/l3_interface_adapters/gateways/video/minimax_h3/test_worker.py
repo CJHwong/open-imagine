@@ -182,6 +182,7 @@ def test_worker_main_checks_the_pin_and_sanitizes_failures(fake_engine, tmp_path
     monkeypatch.setattr(worker.os, "dup2", lambda *_: None)
     monkeypatch.setattr(worker.os, "fdopen", lambda fd, *_args, **_kw: output if fd == 1 else events)
     monkeypatch.setattr(worker.sys, "argv", ["worker", str(tmp_path / "engine"), str(tmp_path / "models")])
+    monkeypatch.setattr(worker.sys, "path", list(sys.path))
     monkeypatch.setattr(
         worker.sys, "stdin", io.StringIO("invalid private words" if malformed else json.dumps(request()))
     )
@@ -196,6 +197,8 @@ def test_worker_main_checks_the_pin_and_sanitizes_failures(fake_engine, tmp_path
 
     code = worker.main()
 
+    # The engine is a checkout, not a package, so its directory comes first on the path.
+    assert sys.path[0] == str(tmp_path / "engine")
     assert "private" not in events.getvalue()
     if dirty or head != ENGINE_COMMIT or malformed:
         assert code == 1 and not output.getvalue()

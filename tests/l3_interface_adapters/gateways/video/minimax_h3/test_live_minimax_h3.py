@@ -2,6 +2,7 @@
 
 import io
 import os
+import shutil
 import socket
 import subprocess
 import wave
@@ -22,9 +23,10 @@ from studio.plugins.video import VideoAudio, VideoBackendGateway, VideoJob, Vide
 pytestmark = [
     pytest.mark.live,
     pytest.mark.skipif(
-        not (Path(DEFAULT_ENGINE).expanduser() / ".venv/bin/python").is_file()
+        shutil.which("uv") is None
+        or not (Path(DEFAULT_ENGINE).expanduser() / "scripts/generate_staged.py").is_file()
         or not weights_ready(Path(DEFAULT_MODELS).expanduser()),
-        reason="Install the pinned H3 engine and complete local weights first.",
+        reason="Install uv, the pinned H3 engine source and complete local weights first.",
     ),
     pytest.mark.skipif(os.environ.get("STUDIO_H3_LIVE") != "1", reason="Set STUDIO_H3_LIVE=1 with the GPU free."),
 ]

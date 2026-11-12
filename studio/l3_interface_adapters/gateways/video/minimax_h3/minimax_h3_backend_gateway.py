@@ -1,4 +1,4 @@
-"""Run one owned H3 child with input and output held in memory."""
+"""Run one owned H3 child, in the environment its script declares, with input and output held in memory."""
 
 import base64
 import json
@@ -13,6 +13,7 @@ from studio.l1_entities.video_job import VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 
 from .capabilities import BASE_FORWARDS, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
+from .launcher import uv_launcher
 from .runtime import DEFAULT_ENGINE, DEFAULT_MODELS, MAX_RESULT_BYTES, weights_ready
 
 
@@ -80,9 +81,9 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
         settings = self._context.settings
         engine = Path(settings.get("engine_dir", DEFAULT_ENGINE)).expanduser()
         models = Path(settings.get("model_dir", DEFAULT_MODELS)).expanduser()
-        python = Path(settings.get("python_path", engine / ".venv" / "bin" / "python")).expanduser()
-        if not python.is_file() or not (engine / "scripts" / "generate_staged.py").is_file():
-            raise InvalidJob("Install the pinned H3 engine and its Python environment first. See the H3 setup guide.")
+        if not (engine / "scripts" / "generate_staged.py").is_file():
+            raise InvalidJob("Install the pinned H3 engine source first. See the H3 setup guide.")
+        uv = uv_launcher()
         if not weights_ready(models):
             raise InvalidJob("H3 weights are incomplete. Complete the H3 weight setup before generating.")
         seed = job.seed if job.seed is not None else secrets.randbelow(2**32)
@@ -142,7 +143,7 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                     raise InvalidJob(unfit(job.loras[event["index"]].id, event["applied"], event["unaccounted"]))
 
         self._context.run_process(
-            [str(python), str(Path(__file__).with_name("worker.py")), str(engine), str(models)],
+            [uv, "run", "--script", str(Path(__file__).with_name("worker.py")), str(engine), str(models)],
             cancelled=cancelled,
             consume=consume,
             input_bytes=request,
