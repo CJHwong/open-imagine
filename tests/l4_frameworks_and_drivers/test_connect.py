@@ -1,4 +1,5 @@
 import stat
+from typing import Any, cast
 
 import pytest
 
@@ -186,3 +187,106 @@ def test_stop_kills_a_listener_that_ignores_termination(tmp_path):
     transport.stop()
 
     assert not transport.status().running
+
+
+def test_devices_report_a_connection_from_the_listener(tmp_path):
+    import time as clock
+
+    at = int(clock.time())
+    binary = fake_binary(
+        tmp_path,
+        f'case "$1" in\n'
+        f'  generate-ticket) echo "{TICKET}";;\n'
+        f'  listen) echo \'{{"kind":"device","id":"nodeabc","state":"active","at":{at}}}\';'
+        f" sleep 30;;\n"
+        f"esac\n",
+    )
+    transport = DumbpipeTransport(str(binary), tmp_path / "identity", 8765, settle=0.05, wait=1.0)
+    transport.start()
+    try:
+        found = []
+        for _ in range(20):
+            found = transport.devices()
+            if found:
+                break
+            clock.sleep(0.05)
+        assert found[0]["id"] == "nodeabc" and found[0]["active"] is True
+    finally:
+        transport.stop()
+
+
+def test_a_device_seen_long_ago_is_not_active(tmp_path):
+    import time as clock
+
+    at = int(clock.time()) - 120
+    binary = fake_binary(
+        tmp_path,
+        f'case "$1" in\n'
+        f'  generate-ticket) echo "{TICKET}";;\n'
+        f'  listen) echo \'{{"kind":"device","id":"oldnode","state":"idle","at":{at}}}\';'
+        f" sleep 30;;\n"
+        f"esac\n",
+    )
+    transport = DumbpipeTransport(str(binary), tmp_path / "identity", 8765, settle=0.05, wait=1.0)
+    transport.start()
+    try:
+        found = []
+        for _ in range(20):
+            found = transport.devices()
+            if found:
+                break
+            clock.sleep(0.05)
+        assert found[0]["id"] == "oldnode" and found[0]["active"] is False
+        assert cast(int, found[0]["seen"]) >= 100
+    finally:
+        transport.stop()
+
+
+def test_device_status_ignores_lines_it_cannot_read(tmp_path):
+    import time as clock
+
+    binary = fake_binary(
+        tmp_path,
+        'case "$1" in\n'
+        f'  generate-ticket) echo "{TICKET}";;\n'
+        "  listen) echo 'not json'; echo '[]'; echo '{\"kind\":\"other\"}';"
+        ' echo \'{"kind":"device","id":7}\';'
+        ' echo \'{"kind":"device","id":"nodeok","state":"active","at":\'$(date +%s)\'}\';'
+        " sleep 30;;\n"
+        "esac\n",
+    )
+    transport = DumbpipeTransport(str(binary), tmp_path / "identity", 8765, settle=0.05, wait=1.0)
+    transport.start()
+    try:
+        found = []
+        for _ in range(20):
+            found = transport.devices()
+            if found:
+                break
+            clock.sleep(0.05)
+        assert [one["id"] for one in found] == ["nodeok"]
+    finally:
+        transport.stop()
+
+
+def test_reading_device_status_without_a_pipe_is_safe(tmp_path):
+    class NoPipe:
+        stdout = None
+
+    transport = DumbpipeTransport("dumbpipe", tmp_path / "identity", 8765)
+
+    transport._read_status(cast(Any, NoPipe()))
+
+
+def test_stopping_a_listener_without_a_pipe_is_safe(tmp_path):
+    from unittest.mock import Mock
+
+    transport = DumbpipeTransport("dumbpipe", tmp_path / "identity", 8765)
+    listener = Mock()
+    listener.stdin = None
+    listener.poll.return_value = 0
+    transport._listener = listener
+
+    transport.stop()
+
+    listener.wait.assert_called_once_with()

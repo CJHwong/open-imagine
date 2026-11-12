@@ -3531,6 +3531,10 @@
   <div class="connect-body">
     <img id="connect-qr" alt="Pairing QR code" width="256" height="256" hidden>
     <p id="connect-note" data-i18n="connect.note">Scan this code in the Open Imagine phone app. The code reaches the whole studio.</p>
+    <div class="connect-devices" id="connect-devices" hidden>
+      <p id="connect-device-summary"></p>
+      <ul id="connect-device-list"></ul>
+    </div>
     <div class="connect-actions">
       <button type="button" id="connect-refresh" data-i18n="connect.refresh">New code</button>
       <button type="button" id="connect-close" data-i18n="ui.action.close">Close</button>
@@ -3543,6 +3547,37 @@
     const image = document.getElementById('connect-qr');
     const note = document.getElementById('connect-note');
     if (!dialog || !image || !note) return;
+    const devices = document.getElementById('connect-devices');
+    const deviceSummary = document.getElementById('connect-device-summary');
+    const deviceList = document.getElementById('connect-device-list');
+    let deviceTimer = null;
+    const loadDevices = async () => {
+      try {
+        const answer = await fetch('/connect/devices?t=' + Date.now());
+        if (!answer.ok) throw new Error();
+        const data = await answer.json();
+        devices.hidden = false;
+        if (!data.total) {
+          deviceSummary.textContent = 'No device has connected yet.';
+          deviceList.replaceChildren();
+          return;
+        }
+        deviceSummary.textContent = `${data.active} connected, ${data.total} seen`;
+        deviceList.replaceChildren(...data.devices.map(device => {
+          const item = document.createElement('li');
+          const id = document.createElement('span');
+          id.textContent = device.id.slice(0, 10);
+          const state = document.createElement('b');
+          state.textContent = device.active
+            ? 'active'
+            : `seen ${device.seen < 60 ? device.seen + 's' : Math.round(device.seen / 60) + 'm'} ago`;
+          item.append(id, state);
+          return item;
+        }));
+      } catch {
+        devices.hidden = true;
+      }
+    };
     const load = async () => {
       image.hidden = true;
       note.hidden = false;
@@ -3561,6 +3596,12 @@
       if (!event.target.closest?.('#settings-phone-open')) return;
       dialog.showModal();
       load();
+      loadDevices();
+      deviceTimer = setInterval(loadDevices, 5000);
+    });
+    dialog.addEventListener('close', () => {
+      clearInterval(deviceTimer);
+      deviceTimer = null;
     });
     document.getElementById('connect-close').addEventListener('click', () => dialog.close());
     document.getElementById('connect-refresh').addEventListener('click', async () => {

@@ -1846,6 +1846,9 @@ def _connect_stub(connect):
         def _send(self, body, status=200, content_type="text/html"):
             self.sent.append((body, status, content_type))
 
+        def _send_json(self, payload, status=200):
+            self.sent.append((json.dumps(payload), status, "application/json"))
+
     return Stub()
 
 
@@ -1928,6 +1931,9 @@ def test_the_page_connect_routes_reach_the_transport():
         def status(self):
             return running
 
+        def devices(self):
+            return [{"id": "nodeabc", "active": True, "seen": 1}]
+
         def refresh(self):
             self.refreshed += 1
             return running
@@ -1951,6 +1957,9 @@ def test_the_page_connect_routes_reach_the_transport():
             assert answer.status == 200
             assert answer.headers["Content-Type"].startswith("image/svg")
             assert b"<svg" in answer.read()
+        with urllib.request.urlopen(base + "/connect/devices", timeout=5) as answer:
+            assert answer.status == 200
+            assert json.loads(answer.read())["total"] == 1
         request = urllib.request.Request(base + "/connect/refresh", data=b"", method="POST")
         with urllib.request.urlopen(request, timeout=5) as answer:
             assert answer.status == 204
@@ -1968,3 +1977,23 @@ def test_the_page_connect_routes_reach_the_transport():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_the_page_device_route_lists_the_listener_devices():
+    class Fake:
+        def devices(self):
+            return [{"id": "nodeabc", "active": True, "seen": 2}]
+
+    stub = _connect_stub(Fake())
+    stub._connect_devices()
+    body, status, _ = stub.sent[0]
+    assert status == 200
+    assert json.loads(body) == {
+        "devices": [{"id": "nodeabc", "active": True, "seen": 2}],
+        "active": 1,
+        "total": 1,
+    }
+
+    stub = _connect_stub(None)
+    stub._connect_devices()
+    assert json.loads(stub.sent[0][0]) == {"devices": [], "active": 0, "total": 0}

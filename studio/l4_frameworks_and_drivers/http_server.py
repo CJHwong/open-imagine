@@ -79,6 +79,9 @@ def make_handler(
             if path == "/connect/qr.svg":
                 self._connect_qr()
                 return
+            if path == "/connect/devices":
+                self._connect_devices()
+                return
             if path.startswith("/api/v1/"):
                 self._api_get(path)
                 return
@@ -243,6 +246,16 @@ def make_handler(
                 )
                 return
             self._send(qr_svg(pair_url(connect.status())), status=200, content_type="image/svg+xml")
+
+        def _connect_devices(self) -> None:
+            devices = [] if connect is None else connect.devices()
+            self._send_json(
+                {
+                    "devices": devices,
+                    "active": sum(1 for device in devices if device.get("active")),
+                    "total": len(devices),
+                }
+            )
 
         def _refresh_connect(self) -> None:
             if connect is None:

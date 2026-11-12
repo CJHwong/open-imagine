@@ -6,6 +6,7 @@ makes the ticket stable, so it is created with owner-only access and never logge
 """
 
 import io
+import json
 import os
 import re
 import secrets
@@ -14,7 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import qrcode
 import qrcode.image.svg
@@ -38,6 +39,7 @@ class ConnectStatus:
 
 
 class ConnectTransport(Protocol):
+    def devices(self) -> list[dict[str, object]]: ...
     def preflight(self) -> None: ...
     def start(self) -> ConnectStatus: ...
     def refresh(self) -> ConnectStatus: ...
@@ -66,6 +68,8 @@ class DumbpipeTransport:
         self._wait = wait
         self._lock = threading.RLock()
         self._listener: subprocess.Popen | None = None
+        self._reader: threading.Thread | None = None
+        self._devices: dict[str, dict] = {}
         self._ticket = ""
         self._error = ""
 
@@ -75,6 +79,7 @@ class DumbpipeTransport:
                 return self.status()
             self._error = ""
             self._ticket = ""
+            self._devices = {}
             try:
                 secret = self._identity()
                 self._ticket = self._stable_ticket(secret)
@@ -82,9 +87,12 @@ class DumbpipeTransport:
                     [self._binary, "listen", "--port", str(self._studio_port)],
                     env={**os.environ, "IROH_SECRET": secret, "RUST_LOG": "error"},
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
+                    text=True,
                 )
+                self._reader = threading.Thread(target=self._read_status, args=(self._listener,), daemon=True)
+                self._reader.start()
                 time.sleep(self._settle)
                 if self._listener.poll() is not None:
                     raise StudioError(f"dumbpipe stopped at once with code {self._listener.returncode}.")
@@ -92,6 +100,42 @@ class DumbpipeTransport:
                 self.stop()
                 self._error = str(error)
             return self.status()
+
+    def devices(self) -> list[dict[str, object]]:
+        """Every endpoint that reached this listener, newest activity first."""
+        with self._lock:
+            now = time.time()
+            found = []
+            for identifier, state in self._devices.items():
+                seen = max(0.0, now - state["at"])
+                found.append(
+                    {
+                        "id": identifier,
+                        "active": bool(state["active"]) or seen < 30,
+                        "seen": round(seen),
+                    }
+                )
+            found.sort(key=lambda one: cast(float, one["seen"]))
+            return found
+
+    def _read_status(self, listener: subprocess.Popen) -> None:
+        if listener.stdout is None:
+            return
+        for line in listener.stdout:
+            try:
+                message = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # the ticket line, or a log line
+            if not isinstance(message, dict) or message.get("kind") != "device":
+                continue
+            identifier = message.get("id")
+            if not isinstance(identifier, str):
+                continue
+            with self._lock:
+                self._devices[identifier] = {
+                    "active": message.get("state") == "active",
+                    "at": float(message.get("at", time.time())),
+                }
 
     def preflight(self) -> None:
         """Refuse to turn the feature on when this machine cannot run the pipe."""
@@ -119,13 +163,11 @@ class DumbpipeTransport:
                 return
             if listener.stdin is not None:
                 listener.stdin.close()
+            # A rotate must drop established connections at once. The listener
+            # holds no state that needs a graceful exit.
             if listener.poll() is None:
-                listener.terminate()
-                try:
-                    listener.wait(timeout=self._wait)
-                except subprocess.TimeoutExpired:
-                    listener.kill()
-                    listener.wait(timeout=self._wait)
+                listener.kill()
+            listener.wait()
 
     def status(self) -> ConnectStatus:
         with self._lock:
