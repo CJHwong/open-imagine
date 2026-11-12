@@ -102,6 +102,38 @@ Run this flow when you add a backend. Also run it when you change one: its capab
     - ARCHITECTURE.md, if a rule changed.
 12. **Clean up.** Delete the scratch scripts and images. Stop your server and your background jobs. Commit only when the user says so. Commit messages follow Conventional Commits, with body lines of 100 characters at most.
 
+
+## How a model gateway runs
+
+One gateway interface serves every engine. Two transports sit behind it.
+
+1. An engine whose dependencies differ from the studio's runs as a PEP 723 script child. The child
+   header pins its packages, and the gateway runs `run --script` with the uv from `UV`.
+2. The launcher is `os.environ.get("UV") or shutil.which("uv")`, made absolute. The parent uv
+   exports `UV`, so the child uses the same uv and version as the studio. Refuse with a clear
+   message when neither exists.
+3. Do not add the engine to `pyproject.toml` or `uv.lock`. Do not create a venv, a runtime project
+   or a `python_path`. An engine runs in process only when its dependency set already matches the
+   studio's.
+4. Keep the residency. A model that was warm between calls stays in a resident child. A model that
+   loaded per call keeps loading per call. Never make a warm path cold.
+5. Cancellation and progress use the existing contract. The host stops the child, and the child
+   reports its step events.
+
+## Where to fetch a model
+
+1. Prefer a pre-quantized pack in the engine's own layout. For an MLX engine that means a directory
+   with `quant_config.json` and `model.safetensors.index.json`. A single file from another
+   framework, such as ComfyUI, diffusers or SVDQuant, does not load.
+2. Check the pack against the loader before you adopt it: the tensor keys, the bit width, the group
+   size and the AdaLN setting. A matching `quant_config.json` and key set is the evidence.
+3. Record the repository, the revision, the license and the size in the setup guide.
+4. Download a conversion source only when no native pack exists. Build the pack with the engine's
+   own converter, and state whether the source can be deleted.
+5. Put the files under the configured `model_dir`, in the folder names the runtime checks.
+6. Prove a pack with one live run on the studio path at port 8765, then record the memory and time
+   in `docs/reference/measured-memory-and-time.md`.
+
 ## Skill changes
 
 The agent skill ships as the plugin in `plugins/open-imagine/`. A change there raises `version` in both `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`; CI fails otherwise.
