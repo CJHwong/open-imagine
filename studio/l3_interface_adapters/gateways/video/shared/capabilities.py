@@ -55,6 +55,23 @@ from studio.l3_interface_adapters.gateways.video.ltx_runtime.prompt_aids import 
 #
 # Upscale 2x sits off that fit: 986.1 s for a 768 x 1280 x 121 output, 0.62 of the fit's
 # 1598 s. Layout to Render has no timed run, so it takes the fit as it is.
+#
+# The 2026-11-12 sweep through the studio's API measured these, one seed each, the prompt
+# pass on:
+#
+#   384 x 384 x 25                            26.2 s
+#   768 x 768 x 97                           135.1 s
+#   1280 x 704 x 97                          269.2 s
+#   1920 x 1088 x 97                         750.9 s
+#   768 x 768 x 25 / 49 / 121                 59.4 / 88.7 / 200.6 s
+#   768 x 768 x 97, 1 / 2 / 4 / 8 keyframes  162.3 / 171.4 / 199.7 / 245.9 s
+#   768 x 768 x 121, Fast mode               149.1 s
+#   768 x 768 x 97, no prompt pass           160.3 s
+#   768 x 768 x 97, audio track              849.1 s
+#
+# The fit was not refit from these. The audio run took 6.3 times its clip, against the
+# 2.5 factor below, while the keyframes landed near their clip. One factor cannot hold
+# both, and a second seed is needed before either moves.
 GENERATE_LOAD = (2.33, 0.874)
 GENERATE_STAGE_1 = (2.037, 0.1260)
 GENERATE_STAGE_2 = (2.628, 0.08134)
