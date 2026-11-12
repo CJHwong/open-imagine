@@ -127,12 +127,14 @@ hf download VideoRebirthAI/hyperflow-h3-flash \
   --local-dir ~/Library/Caches/models/src/hyperflow-h3-flash
 ```
 
-With Studio stopped and the GPU free, convert it with the engine's Python. The converter makes
-each layer dense, gives it the engine's names and quantizes it to Q8. It holds one layer at a time.
+With Studio stopped and the GPU free, convert it in an ephemeral environment with the engine's
+pins. The converter makes each layer dense, gives it the engine's names and quantizes it to Q8.
+It holds one layer at a time. Run it from the Open Imagine repository.
 
 ```sh
-~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/.venv/bin/python -I \
-  scripts/convert_h3_flash.py \
+uv run --no-project --python 3.11 \
+  --with-requirements studio/l3_interface_adapters/gateways/video/minimax_h3/engine-requirements.txt \
+  python scripts/convert_h3_flash.py \
   --engine ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3 \
   --src ~/Library/Caches/models/src/hyperflow-h3-flash/fl2va_int8_convrot \
   --out ~/Library/Caches/models/minimax-h3/h3-flash-dit-q8
