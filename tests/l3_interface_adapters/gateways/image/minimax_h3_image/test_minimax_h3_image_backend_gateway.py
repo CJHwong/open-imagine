@@ -328,3 +328,7 @@ def test_the_edit_estimate_tracks_the_measured_runs_from_a_long_reference(refere
     figure = estimate_image(edit, edit.parse_options({}), (reference,), 1)
 
     assert figure.total_seconds == pytest.approx(measured, rel=0.03)
+
+
+def test_the_model_refuses_private_operations_because_its_engine_reads_files():
+    assert minimax_h3_image_capabilities().private_operations is False

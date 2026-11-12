@@ -195,6 +195,9 @@ class Capabilities:
     # One line for the model picker, so a reader knows what each one is before
     # switching to it. Empty means the picker shows the name alone.
     description: str = ""
+    # False when the engine reads the prompt or a reference from a plaintext file. The API then
+    # refuses a private operation on this model, because a private run adds no copy on disk.
+    private_operations: bool = True
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

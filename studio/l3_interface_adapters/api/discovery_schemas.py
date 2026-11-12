@@ -155,6 +155,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "description": string,
                 "max_batch": integer,
                 "modes": {"type": "array", "items": {"$ref": "#/components/schemas/ImageMode"}},
+                "private_operations": {
+                    "type": "boolean",
+                    "description": "False when this model refuses a request that sends X-Studio-Private-Key. Its engine reads the prompt and the references from plaintext files.",
+                },
             },
         },
         "VideoMode": {
