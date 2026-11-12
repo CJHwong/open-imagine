@@ -318,6 +318,9 @@ while `consume` continues to receive stderr. Both options are optional. Set
 `terminate_group=True` to start an owned process session and stop its group on cancellation,
 timeout or a consumer error. The built-in H3 integration uses this path, so its prompt and media need no files.
 
+An Image model whose engine must read its inputs from files sets `private_operations=False` in its
+`Capabilities`. The API then refuses a request that sends `X-Studio-Private-Key` for that model.
+
 ## Compatibility and installation
 
 API version 1 identifies this contract independently of the plugin package's version. Install

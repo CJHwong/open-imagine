@@ -173,6 +173,20 @@ class JsonApi:
         operation = self.reserve({**payload, "kind": kind}, source=source)
         return self.complete(operation["id"], action, serialize)
 
+    def _refuse_plaintext_engine(self, backend: str) -> None:
+        """Refuse a private image run on a model whose engine reads its inputs from files."""
+        try:
+            capabilities = self._controller.capabilities(backend)
+        except UnknownBackend:
+            # The run itself reports a model that does not exist.
+            return
+        if not capabilities.private_operations:
+            raise InvalidJob(
+                f"{capabilities.name} does not take private operations. "
+                "Its engine reads the prompt and the references from plaintext files. "
+                "Send the request without X-Studio-Private-Key, or use another model."
+            )
+
     def reserve(
         self, payload: Mapping[str, object], *, source: str = "api", owner: str = "", queued: bool = False
     ) -> dict[str, Any]:
@@ -212,6 +226,8 @@ class JsonApi:
         document = self.studio().get(workspace)
         backend = payload.get("backend") or (document["active"] if document else "")
         model = next((one["name"] for one in document["backends"] if one["id"] == backend), "") if document else ""
+        if owner and kind == "image":
+            self._refuse_plaintext_engine(str(backend))
         batch_metadata = {}
         batch_items = None
         if "items" in payload:

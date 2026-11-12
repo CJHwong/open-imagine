@@ -92,6 +92,9 @@ def minimax_h3_image_capabilities() -> Capabilities:
         badge="int8",
         max_batch=4,
         description="Six-step image generation up to 4 MP, and edits with multiple references.",
+        # The engine takes its request as request.json and its references as PNG files, and
+        # its VAE stage writes the result as a file. A private run keeps no plaintext on disk.
+        private_operations=False,
         modes=(
             ModeSpec(
                 "generate",
