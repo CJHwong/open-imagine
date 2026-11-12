@@ -32,7 +32,7 @@ No time estimate is published from a single small smoke test.
 
 ## Install the engine
 
-Use an Apple Silicon Mac with 64 GiB of unified memory and ffmpeg/ffprobe on PATH.
+Use an Apple Silicon Mac with 64 GiB of unified memory, `uv` and ffmpeg/ffprobe on PATH.
 Reserve about 120 GB for downloads and conversion; this is a planning allowance.
 The original BF16 DiT stays on disk after conversion. Delete it explicitly if it is no longer needed.
 
@@ -43,11 +43,13 @@ git clone --filter=blob:none --no-checkout https://github.com/mrbizarro/minimax-
   ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3
 git -C ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3 checkout --detach \
   63893b3f33a62316a8b2065bcfba69ec0cc49aff
-uv venv --python 3.11 ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/.venv
-uv pip install --python ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/.venv/bin/python \
-  -r studio/l3_interface_adapters/gateways/video/minimax_h3/engine-requirements.txt
 uv run python -m studio.l3_interface_adapters.gateways.video.minimax_h3.download
 ```
+
+The worker declares the engine's packages in a PEP 723 header, pinned to the versions in
+`engine-requirements.txt`. `uv` builds and caches that environment on the first clip, so there is
+no `uv venv` and no `uv pip install`. The first run needs network access for the packages.
+The engine stays a source checkout, and the worker checks its commit and tracked source.
 
 The download utility pins every source revision and fetches the model terms.
 It downloads the pruned BF16 DiT, the Q8 text encoder, compact VAEs and tokenizer,
@@ -57,11 +59,15 @@ The engine's own download script follows branch tips, so use this utility for re
 With Studio stopped and the GPU free, build Q8 using the pinned engine:
 
 ```sh
-~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/.venv/bin/python \
-  ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/scripts/quantize_stream.py \
+uv run --no-project --python 3.11 \
+  --with-requirements studio/l3_interface_adapters/gateways/video/minimax_h3/engine-requirements.txt \
+  python ~/Library/Caches/open-imagine/engines/minimax-h3-63893b3/scripts/quantize_stream.py \
   --src ~/Library/Caches/models/minimax-h3/deepbeep-pruned-bf16/MiniMax-H3-FL2VA-pruned_bf16.safetensors \
   --out ~/Library/Caches/models/minimax-h3/h3-dit-q8
 ```
+
+The converter runs in an ephemeral environment with the same pins. Run it from the Open Imagine
+repository, or give the requirements file by its full path.
 
 The builder's closing validation holds the BF16 source and Q8 model in one process.
 That phase can approach the memory ceiling on a 64 GiB Mac. Close other model workers first.
@@ -79,7 +85,7 @@ Add `--stub` to verify the form without loading models. The sample config offers
 H3 and the existing LTX-2.5 backend. An ordinary config can add `minimax_h3` to
 `visible_video_backends` after installing its engine and weights.
 
-The optional `[minimax_h3]` settings are `engine_dir`, `model_dir` and `python_path`.
+The optional `[minimax_h3]` settings are `engine_dir` and `model_dir`.
 Defaults match the commands above. Startup does not inspect or load weights.
 The worker checks the engine commit and tracked source before running.
 Generation stays offline and refuses incomplete weights.

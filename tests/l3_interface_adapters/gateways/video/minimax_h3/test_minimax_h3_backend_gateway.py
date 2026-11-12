@@ -1,5 +1,6 @@
 import base64
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -7,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from studio.l3_interface_adapters.gateways.video.minimax_h3 import minimax_h3_backend_gateway as h3_gateway
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
     BASE_FORWARDS,
     CAPABILITIES,
@@ -33,7 +35,7 @@ def job(**changes):
 def ready(tmp_path, media_tools):
     engine = tmp_path / "engine"
     models = tmp_path / "models"
-    for path in (engine / ".venv/bin/python", engine / "scripts/generate_staged.py", *model_files(models)):
+    for path in (engine / "scripts/generate_staged.py", *model_files(models)):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"fixture weights")
     (models / "h3-dit-q8/quant_config.json").write_text('{"bits":8,"group_size":64}')
@@ -228,14 +230,73 @@ def test_gateway_refuses_missing_media_tools_before_starting_a_model(ready, monk
 
 
 def test_gateway_names_missing_engine_and_missing_weights(ready):
-    python = Path(ready.settings["engine_dir"]) / ".venv/bin/python"
-    python.unlink()
+    script = Path(ready.settings["engine_dir"]) / "scripts/generate_staged.py"
+    script.unlink()
     with pytest.raises(InvalidJob, match="engine"):
         MinimaxH3BackendGateway(ready).run(job())
-    python.touch()
+    script.touch()
     model_files(Path(ready.settings["model_dir"]))[0].unlink()
     with pytest.raises(InvalidJob, match="weights"):
         MinimaxH3BackendGateway(ready).run(job())
+
+
+def test_gateway_runs_the_worker_as_a_script_with_the_uv_that_runs_the_studio(ready, tmp_path, monkeypatch):
+    launcher = tmp_path / "uv"
+    launcher.write_bytes(b"uv")
+    monkeypatch.setenv("UV", str(launcher))
+    seen = []
+
+    def execute(command, **options):
+        seen.append(command)
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    MinimaxH3BackendGateway(ready).run(job())
+
+    assert seen[0] == [
+        str(launcher.absolute()),
+        "run",
+        "--script",
+        str(Path(h3_gateway.__file__).with_name("worker.py")),
+        ready.settings["engine_dir"],
+        ready.settings["model_dir"],
+    ]
+
+
+def test_gateway_finds_uv_on_path_when_the_UV_variable_is_unset(ready, media_tools, monkeypatch):
+    monkeypatch.delenv("UV", raising=False)
+    seen = []
+
+    def execute(command, **options):
+        seen.append(command)
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+
+    MinimaxH3BackendGateway(ready).run(job())
+
+    assert seen[0][0] == str(Path(media_tools["uv"]).absolute())
+
+
+def test_gateway_refuses_a_missing_uv_before_starting_a_child(ready, media_tools, monkeypatch):
+    found = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == "uv" else found(name))
+    monkeypatch.delenv("UV", raising=False)
+
+    with pytest.raises(InvalidJob, match="Install uv"):
+        MinimaxH3BackendGateway(ready).run(job())
+
+    ready.run_process.assert_not_called()
+
+
+def test_gateway_refuses_a_UV_that_names_no_file(ready, tmp_path, monkeypatch):
+    monkeypatch.setenv("UV", str(tmp_path / "missing-uv"))
+
+    with pytest.raises(InvalidJob, match="is not a file"):
+        MinimaxH3BackendGateway(ready).run(job())
+
+    ready.run_process.assert_not_called()
 
 
 @pytest.mark.parametrize(

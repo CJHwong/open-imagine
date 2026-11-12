@@ -64,7 +64,9 @@ LTX-2.3 requires its own pack and is optional.
 
 H3 ships with Studio. Follow its [pinned engine and weight setup](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md#install-the-engine),
 then add `minimax_h3` to `visible_video_backends`, or use `--all-backends`.
-Its separate engine environment remains necessary; no model plugin installation is needed.
+Keep `uv` on the server's PATH, including for its child processes, as the Drama-3 section says.
+The worker's PEP 723 header pins the engine's packages, so `uv` builds and caches that environment.
+The engine itself stays a source checkout. No model plugin installation is needed.
 If you previously installed `open-imagine-minimax-h3`, remove that distribution from
 Studio's environment and remove its old `--with` option to avoid a duplicate model ID.
 

@@ -23,5 +23,9 @@ def media_tools(tmp_path_factory, monkeypatch):
         )
         shim.chmod(0o755)
         tools[name] = str(shim)
+    # The gateway starts the worker with the uv that runs the studio. A mocked run never
+    # executes it, so any file stands in for the binary.
+    (folder / "uv").write_bytes(b"stand-in for the uv binary")
+    tools["uv"] = str(folder / "uv")
     monkeypatch.setattr(shutil, "which", tools.get)
     return tools
