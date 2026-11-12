@@ -37,6 +37,7 @@ MiniMax H3 keeps its experimental warning in both languages of the model picker.
 | Voice | AuK Flash | `auk` | Design, Clone, Edit | Eight-bit Flash; four steps |
 
 Capabilities from `GET /api/v1/studio` are the runtime source of truth for supported modes, controls, sizes, templates, and limits.
+[Measured memory and time](measured-memory-and-time.md) gives the peak memory and elapsed time for each measured case.
 Image quantization is controlled by each backend’s `quantize` setting; `-q 8` overrides the opening Image model. `krea2` runs its stored eight-bit weights and refuses any other quantize.
 Image Rewrite quantizes its rewriter as it loads when the backend sets `rewrite_quantize`. The shipped `studio.toml` sets 8, which halves a rewrite; 0, the default, keeps full precision.
 
