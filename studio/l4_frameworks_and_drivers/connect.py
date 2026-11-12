@@ -81,7 +81,7 @@ class DumbpipeTransport:
                 self._listener = subprocess.Popen(
                     [self._binary, "listen", "--port", str(self._studio_port)],
                     env={**os.environ, "IROH_SECRET": secret, "RUST_LOG": "error"},
-                    stdin=subprocess.DEVNULL,
+                    stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
@@ -117,6 +117,8 @@ class DumbpipeTransport:
             self._listener = None
             if listener is None:
                 return
+            if listener.stdin is not None:
+                listener.stdin.close()
             if listener.poll() is None:
                 listener.terminate()
                 try:
