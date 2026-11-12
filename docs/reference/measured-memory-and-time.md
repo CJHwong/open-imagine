@@ -2,7 +2,8 @@
 
 Measured peak memory and elapsed time for each case, on one Mac with an Apple M5 Pro and 64 gibibytes (GiB) of memory.
 The measurements ran on 2026-11-12 and 2026-11-13 through the studio API.
-The measured tables hold 70 cases: 67 succeeded and 3 stopped at an engine limit.
+The measured tables hold 72 cases: 69 succeeded and 3 stopped at an engine limit.
+The H3 rows used a pre-quantized MLX q8 pack, not a local build.
 
 | Item | Value |
 |---|---|
@@ -88,6 +89,8 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `ltx25/generate/text/1920x1088x97` | ltx25_mlx, generate, 1920x1088, 97 frames | 14.08 | 59.04 | 750.9 | Succeeded | 1 |
 | `ltx25/generate/text/384x384x25` | ltx25_mlx, generate, 384x384, 25 frames | 21.33 | 49.04 | 26.2 | Succeeded | 1 |
 | `ltx25/generate/text/768x768x97` | ltx25_mlx, generate, 768x768, 97 frames | 16.00 | 24.07 | 117.9 | Succeeded | 3 |
+| `minimax_h3/generate/text/512x288x73` | minimax_h3, generate, 512x288, 73 frames, 24 fps | 26.24 | 33.07 | 120.0 | Succeeded | 2 |
+| `minimax_h3/generate/text/1024x576x175` | minimax_h3, generate, 1024x576, 175 frames, 24 fps | 36.48 | 33.07 | 1608.8 | Succeeded | 1 |
 
 ## Voice
 
@@ -123,7 +126,6 @@ Complete the setup, then rerun the named case file.
 | flux2 | 7 cases: `flux2/generate/text/512`, `flux2/generate/text/768`, `flux2/generate/text/1024`, `flux2/generate/match/in1600x900`, `flux2/edit/one-ref/in512x512`, `flux2/edit/one-ref/in2048x2048`, `flux2/edit/one-ref/in4032x3024` | The weights are missing at the local model path named in the error. | Install them from [Optional Image: FLUX.2](../how-to/set-up-models.md#optional-image-flux2), then rerun `cases.batch1.json`. |
 | krea2 | 8 cases: `krea2/generate/text/512`, `krea2/generate/text/768`, `krea2/generate/text/1024`, `krea2/generate/one-ref/in512x512`, `krea2/generate/one-ref/in1024x1024`, `krea2/generate/one-ref/in2048x2048`, `krea2/generate/one-ref/in1600x900`, `krea2/generate/one-ref/in4032x3024` | The int8 weights are incomplete. | Install them from [Image: Krea 2 Turbo](../how-to/set-up-models.md#image-krea-2-turbo), then rerun `cases.batch1.json`. |
 | viggle_turbo | 4 cases: `viggle_turbo/generate/text/512`, `viggle_turbo/generate/text/1024`, `viggle_turbo/edit/one-ref/match`, `viggle_turbo/edit/one-ref/out1024` | The LoRA file is missing. | Install it from [Optional Image: Qwen and Viggle Turbo](../how-to/set-up-models.md#optional-image-qwen-and-viggle-turbo), then rerun `cases.batch1.json`. |
-| minimax_h3 | 3 cases: `minimax_h3/generate/text/512x288x73`, `minimax_h3/generate/text/1024x576x175`, `minimax_h3/generate/text/1280x704x175` | The pinned H3 engine and weights are missing. | Install them from [Optional Video: MiniMax H3](../how-to/set-up-models.md#optional-video-minimax-h3), and set `[minimax_h3]` `engine_dir` and `model_dir` in `studio.toml`. Then rerun `cases.batch2.json`. |
 
 Three groups stopped on the payload, not on a model gap.
 `flux2/edit/1-refs/out1024` and `flux2/edit/4-refs/out1024` used a `size` value the API rejects.
