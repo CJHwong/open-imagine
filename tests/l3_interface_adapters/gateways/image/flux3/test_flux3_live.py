@@ -1,6 +1,7 @@
 """Small opt-in smoke test through the owned child and pinned local weights."""
 
 import io
+import shutil
 from pathlib import Path
 
 import pytest
@@ -11,13 +12,12 @@ from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway imp
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 MODEL_DIR = Path.home() / "Library/Caches/models/flux3-image-klein"
-PYTHON_PATH = Path.home() / "Library/Caches/models/flux3-runtime/bin/python"
 
 
 @pytest.mark.live
-@pytest.mark.skipif(not MODEL_DIR.is_dir() or not PYTHON_PATH.is_file(), reason="FLUX3 setup is not installed")
+@pytest.mark.skipif(not MODEL_DIR.is_dir() or shutil.which("uv") is None, reason="FLUX3 setup or uv is not installed")
 def test_real_generate_and_reference_edit():
-    backend = Flux3BackendGateway(str(MODEL_DIR), str(PYTHON_PATH), 8, "int8", SubprocessRunner().execute)
+    backend = Flux3BackendGateway(str(MODEL_DIR), 8, "int8", SubprocessRunner().execute)
     references = ()
     try:
         for mode, color in [("generate", "red"), ("edit", "blue")]:

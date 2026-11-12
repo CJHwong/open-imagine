@@ -4,13 +4,23 @@ import io
 import json
 import math
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult
+from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.flux3.capabilities import flux3_capabilities
+
+
+def uv_launcher() -> str:
+    """The uv that runs the studio, so the child's environment matches the parent's version."""
+    launcher = os.environ.get("UV") or shutil.which("uv")
+    if not launcher:
+        raise ModelConfigurationError("FLUX3 needs uv on PATH. Follow the FLUX3 setup in docs/how-to/set-up-models.md.")
+    return launcher
 
 
 def image_size(job: ImageJob) -> tuple[int, int]:
@@ -34,20 +44,18 @@ def engine_failure(code, lines):
 
 
 class Flux3BackendGateway(ImageBackendGateway):
-    def __init__(self, model_dir: str, python_path: str, quantize: int | None, badge: str, execute_process):
+    def __init__(self, model_dir: str, quantize: int | None, badge: str, execute_process):
         self._model_dir = model_dir
-        self._python_path = python_path
         self._quantize = quantize
         self._badge = badge
         self._execute = execute_process
+        self._uv = uv_launcher()
 
     def capabilities(self):
         return flux3_capabilities(self._badge)
 
     def load(self):
-        # Readiness only: the child loads weights inside run, not at startup or selection.
-        if not Path(self._python_path).is_file():
-            raise InvalidJob("FLUX3 runtime is missing. Follow the FLUX3 setup in docs/how-to/set-up-models.md.")
+        # Readiness only: uv builds the script environment, and the child loads weights inside run.
         if not Path(self._model_dir).is_dir():
             raise InvalidJob("FLUX3 weights are missing. Follow the FLUX3 setup in docs/how-to/set-up-models.md.")
         if self._quantize not in (None, 4, 6, 8):
@@ -104,7 +112,14 @@ class Flux3BackendGateway(ImageBackendGateway):
                 )
             )
             self._execute(
-                [self._python_path, str(Path(__file__).with_name("flux3_child.py")), str(request), str(output)],
+                [
+                    self._uv,
+                    "run",
+                    "--script",
+                    str(Path(__file__).with_name("flux3_child.py")),
+                    str(request),
+                    str(output),
+                ],
                 cancelled=should_stop,
                 consume=consume,
                 environment={"PATH": "/opt/homebrew/bin:" + os.environ.get("PATH", ""), "HF_HUB_OFFLINE": "1"},

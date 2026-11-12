@@ -1,3 +1,13 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12,<3.13"
+# dependencies = [
+#   "certifi>=2026.10.23",
+#   "mflux @ git+https://github.com/mflux-community/mflux@63cec2b005bbb255447e0b42521c5cc6d6d5121c",
+#   # Pillow 13 imports numbers._IntegralLike, unavailable in CPython 3.12.
+#   "pillow>=12.3,<13",
+# ]
+# ///
 """Standalone child: no Studio imports, no queue, no nested subprocesses."""
 
 import json
