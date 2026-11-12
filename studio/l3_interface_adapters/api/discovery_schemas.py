@@ -119,6 +119,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "guided_with_references": boolean,
                 "edit": {"type": "array", "items": number},
                 "excludes": {"type": "array", "items": string},
+                "forwards": {
+                    "type": "integer",
+                    "description": "The steps of a model with one stage. 0 means two stages. A number above 0 means the run has no stage 1: it takes that many steps of stage_2 on all the tokens.",
+                },
             },
             "description": "The constants behind a clip's time. POST /api/v1/videos/plan applies them to one clip; a client can apply them to every size and length at once.",
         },
