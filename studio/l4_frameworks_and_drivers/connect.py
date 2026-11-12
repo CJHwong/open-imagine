@@ -84,7 +84,14 @@ class DumbpipeTransport:
                 secret = self._identity()
                 self._ticket = self._stable_ticket(secret)
                 self._listener = subprocess.Popen(
-                    [self._binary, "listen", "--port", str(self._studio_port)],
+                    [
+                        self._binary,
+                        "listen",
+                        "--port",
+                        str(self._studio_port),
+                        "--identity",
+                        str(self._identity_path),
+                    ],
                     env={**os.environ, "IROH_SECRET": secret, "RUST_LOG": "error"},
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,

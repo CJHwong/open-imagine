@@ -61,6 +61,29 @@ def test_a_second_start_keeps_the_first_listener(tmp_path):
     transport.stop()
 
 
+def test_the_listener_watches_the_identity_file_it_was_given(tmp_path):
+    recorded = tmp_path / "arguments"
+    binary = fake_binary(
+        tmp_path,
+        f'case "$1" in\n'
+        f'  generate-ticket) echo "{TICKET}";;\n'
+        f'  listen) printf "%s\\n" "$@" > "{recorded}"; exec sleep 30;;\n'
+        f"esac\n",
+    )
+    transport = DumbpipeTransport(str(binary), tmp_path / "identity", 8765, settle=0.05, wait=1.0)
+
+    transport.start()
+
+    assert recorded.read_text().splitlines() == [
+        "listen",
+        "--port",
+        "8765",
+        "--identity",
+        str(tmp_path / "identity"),
+    ]
+    transport.stop()
+
+
 def test_preflight_accepts_a_working_transport(tmp_path):
     transport = scripted(tmp_path)
 
