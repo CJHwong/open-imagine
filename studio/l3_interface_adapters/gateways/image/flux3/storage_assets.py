@@ -1,7 +1,7 @@
 """Storage owned by this model integration."""
 
-from studio.l3_interface_adapters.gateways.model_configuration.storage_assets import configured_asset, runtime_asset
+from studio.l3_interface_adapters.gateways.model_configuration.storage_assets import configured_asset
 
 
 def storage_assets(config):
-    return configured_asset(config, "flux3", "model_dir", "Weights") + runtime_asset(config, "flux3")
+    return configured_asset(config, "flux3", "model_dir", "Weights")

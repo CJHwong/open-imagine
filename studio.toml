@@ -131,11 +131,11 @@ quantize = 0
 model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # docs/how-to/set-up-models.md has the download
 
 [flux3]
-# Optional distilled checkpoint; Qwen remains the default. Separate pinned runtime
-# keeps its newer mflux version out of the host. See the model setup guide.
+# Optional distilled checkpoint; Qwen remains the default. The child declares its
+# own pinned script environment, so its newer mflux stays out of the host. See the
+# model setup guide.
 quantize = 8
 model_dir = "~/Library/Caches/models/flux3-image-klein"
-python_path = "~/Library/Caches/models/flux3-runtime/bin/python"
 
 [krea2]
 # Optional 8-step Krea 2 Turbo, text-to-image and img2img from one reference. The

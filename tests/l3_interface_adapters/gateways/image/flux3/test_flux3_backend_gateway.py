@@ -1,16 +1,18 @@
 import io
 import json
-import sys
+import shutil
 from pathlib import Path
 
 import pytest
 from PIL import Image
 
+from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.image.flux3.capabilities import flux3_capabilities
 from studio.l3_interface_adapters.gateways.image.flux3.flux3_backend_gateway import (
     Flux3BackendGateway,
     engine_failure,
     image_size,
+    uv_launcher,
 )
 from studio.plugins.image import Cancelled, ImageJob, InvalidJob, ReferenceImage
 
@@ -30,11 +32,37 @@ def job(mode="generate", size="512x512", references=()):
 def gateway(runner, tmp_path, **settings):
     return Flux3BackendGateway(
         str(settings.get("model_dir", tmp_path)),
-        settings.get("python_path", sys.executable),
         settings.get("quantize", 8),
         "int8",
         runner,
     )
+
+
+def test_child_runs_as_a_uv_script(monkeypatch, tmp_path):
+    monkeypatch.setenv("UV", "/parent/uv/bin/uv")
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        Path(command[-1]).write_bytes(png((512, 512)))
+
+    gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)
+    assert commands[0][0] == "/parent/uv/bin/uv"
+    assert Path(commands[0][0]).is_absolute()
+    assert commands[0][1:3] == ["run", "--script"]
+    assert Path(commands[0][3]).name == "flux3_child.py"
+    assert len(commands[0]) == 6
+
+
+def test_child_uses_the_parent_uv_binary(monkeypatch):
+    monkeypatch.setenv("UV", "/parent/uv/bin/uv")
+    assert uv_launcher() == "/parent/uv/bin/uv"
+    monkeypatch.delenv("UV")
+    monkeypatch.setattr(shutil, "which", lambda name: "/found/uv" if name == "uv" else None)
+    assert uv_launcher() == "/found/uv"
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    with pytest.raises(ModelConfigurationError, match="uv"):
+        uv_launcher()
 
 
 def test_declared_native_controls():
@@ -72,11 +100,10 @@ def test_request_transport_progress_and_cleanup(mode, count, tmp_path):
     refs = tuple(ReferenceImage(png(), 64, 48) for _ in range(count))
 
     def run(command, **kwargs):
-        request = json.loads(Path(command[2]).read_text())
+        request = json.loads(Path(command[-2]).read_text())
         saved.update(request)
-        saved["root"] = Path(command[2]).parent
-        assert command[0] == sys.executable
-        assert Path(command[1]).name == "flux3_child.py"
+        saved["root"] = Path(command[-2]).parent
+        assert Path(command[3]).name == "flux3_child.py"
         assert len(request["references"]) == count
         assert all(Path(path).read_bytes() == png() for path in request["references"])
         assert kwargs["environment"]["HF_HUB_OFFLINE"] == "1"
@@ -85,7 +112,7 @@ def test_request_transport_progress_and_cleanup(mode, count, tmp_path):
         for part in ["loading\nFLUX3_EV", 'ENT {"type":"step","step":1,', '"total":16}\n']:
             kwargs["consume"](part)
         kwargs["consume"]('FLUX3_EVENT {"type":"result"}\n')
-        Path(command[3]).write_bytes(png((512, 512)))
+        Path(command[-1]).write_bytes(png((512, 512)))
 
     progress = []
     result = gateway(run, tmp_path).run(job(mode, references=refs), lambda *args: progress.append(args), lambda: False)
@@ -109,7 +136,7 @@ def test_cancel_propagates_and_removes_references(tmp_path):
     roots = []
 
     def run(command, **kwargs):
-        roots.append(Path(command[2]).parent)
+        roots.append(Path(command[-2]).parent)
         raise Cancelled("Owned child terminated")
 
     with pytest.raises(Cancelled):
@@ -126,16 +153,11 @@ def test_invalid_engine_setting_does_not_launch(tmp_path):
         )
 
 
-def test_uninstalled_engine_gives_setup_instruction(tmp_path):
-    with pytest.raises(InvalidJob, match="runtime is missing"):
-        gateway(None, tmp_path, python_path="/does/not/exist").load()
-
-
 @pytest.mark.parametrize("bad_output", [None, (16, 16)])
 def test_missing_or_wrong_output_is_not_success(bad_output, tmp_path):
     def run(command, **kwargs):
         if bad_output:
-            Path(command[3]).write_bytes(png(bad_output))
+            Path(command[-1]).write_bytes(png(bad_output))
 
     with pytest.raises(InvalidJob):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)
@@ -168,7 +190,7 @@ def test_cancel_after_child_finishes_discards_result(tmp_path):
 
     def run(command, **kwargs):
         nonlocal stopped
-        Path(command[3]).write_bytes(png((512, 512)))
+        Path(command[-1]).write_bytes(png((512, 512)))
         stopped = True
 
     with pytest.raises(Cancelled):
@@ -177,7 +199,7 @@ def test_cancel_after_child_finishes_discards_result(tmp_path):
 
 def test_non_png_output_is_rejected(tmp_path):
     def run(command, **kwargs):
-        Image.new("RGB", (512, 512)).save(command[3], format="BMP")
+        Image.new("RGB", (512, 512)).save(command[-1], format="BMP")
 
     with pytest.raises(InvalidJob, match="unexpected image format"):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)

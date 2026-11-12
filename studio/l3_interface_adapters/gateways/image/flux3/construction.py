@@ -12,7 +12,6 @@ def flux3_backend(config: ModelConfigurationGateway, *, execute_process: Process
     quantize = config.backend("flux3").get("quantize", 8)
     return Flux3BackendGateway(
         config.required("flux3", "model_dir"),
-        config.required("flux3", "python_path"),
         quantize,
         badge=badge(quantize),
         execute_process=execute_process,
