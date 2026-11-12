@@ -114,6 +114,10 @@ FLASH_ESTIMATE = VideoEstimate(
     decode=(0.0, 0.8),
     fixed_seconds=8.0,
     forwards=FLASH_FORWARDS,
+    # The fit holds the text run only. It has no term for the rows a keyframe adds, and it
+    # adds no LoRA time, because no run measured either. The shared video estimate names the
+    # two every figure lacks, so this one names them too.
+    excludes=("weight download", "queue wait", "keyframe rows", "LoRA time"),
 )
 
 FLASH_CAPABILITIES = replace(

@@ -374,6 +374,7 @@
   "label.backend.ltx23_mlx": "Continuous video shots with synchronized sound and image or audio guidance.",
   "label.backend.ltx25_mlx": "Connected video shots with synchronized sound and image or audio guidance.",
   "label.backend.minimax_h3": "Experimental short videos with synchronized sound, guided by keyframes or audio.",
+  "label.backend.minimax_h3_flash": "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. A track and a LoRA are untested on these weights.",
   "label.backend.minimax_h3_image": "Six-step image generation up to 4 MP, and edits with multiple references.",
   "label.backend.qwen21": "Precise image edits and readable text with multiple references.",
   "label.backend.qwen21_turbo": "Fast image generation and editing in eight steps.",

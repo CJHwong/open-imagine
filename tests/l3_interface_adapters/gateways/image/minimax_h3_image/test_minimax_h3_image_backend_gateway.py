@@ -181,7 +181,23 @@ def test_a_reference_reaches_the_engine_at_the_measured_pixel_count_at_most(tmp_
 
     assert sent == [(3547, 1182), (640, 480)]
     assert sent[0][0] * sent[0][1] <= 2048 * 2048
-    assert reference_png(references[1]) is small
+    # A reference under the measured pixel count keeps its size, and still reaches the engine
+    # as RGB, the one pixel format it reads.
+    with Image.open(io.BytesIO(reference_png(references[1]))) as image:
+        assert (image.mode, image.size) == ("RGB", (640, 480))
+
+
+@pytest.mark.parametrize("mode", ["RGBA", "L", "P"])
+def test_a_reference_of_any_pixel_format_reaches_the_engine_as_rgb(mode):
+    """The engine reads one pixel format. A reference of any mode is decoded and written as
+    RGB, whether or not it needed a downscale."""
+    data = io.BytesIO()
+    Image.new(mode, (320, 240), "blue").save(data, format="PNG")
+
+    sent = reference_png(ReferenceImage(data.getvalue(), 320, 240))
+
+    with Image.open(io.BytesIO(sent)) as image:
+        assert (image.mode, image.size) == ("RGB", (320, 240))
 
 
 @pytest.mark.parametrize("line", ["H3_IMAGE_EVENT {bad", 'H3_IMAGE_EVENT {"step": 2}', "H3_IMAGE_EVENT 7"])

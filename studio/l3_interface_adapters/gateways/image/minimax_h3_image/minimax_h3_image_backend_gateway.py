@@ -51,17 +51,21 @@ def image_size(job: ImageJob) -> tuple[int, int]:
 
 
 def reference_png(reference) -> bytes:
-    """The reference for the engine, made smaller when it has more pixels than a measured one."""
+    """The reference for the engine in RGB, made smaller when it has more pixels than a measured one.
+
+    Every reference is decoded and written again, so the engine reads one pixel format at
+    every size: a palette or alpha input reaches it as RGB."""
     from PIL import Image
 
     pixels = reference.width * reference.height
-    if pixels <= MAX_REFERENCE_PIXELS:
-        return reference.png
-    scale = math.sqrt(MAX_REFERENCE_PIXELS / pixels)
-    size = (max(1, int(reference.width * scale)), max(1, int(reference.height * scale)))
     data = io.BytesIO()
     with Image.open(io.BytesIO(reference.png)) as image:
-        image.convert("RGB").resize(size, Image.Resampling.LANCZOS).save(data, format="PNG")
+        converted = image.convert("RGB")
+        if pixels > MAX_REFERENCE_PIXELS:
+            scale = math.sqrt(MAX_REFERENCE_PIXELS / pixels)
+            size = (max(1, int(reference.width * scale)), max(1, int(reference.height * scale)))
+            converted = converted.resize(size, Image.Resampling.LANCZOS)
+        converted.save(data, format="PNG")
     return data.getvalue()
 
 

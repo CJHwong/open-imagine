@@ -542,8 +542,15 @@ function twoPass() {
   return !paramSpec('negative') || Boolean(negativeText());
 }
 
+// The key names every input the estimate scales by, so a rate learned for one shape is not
+// reused for another. The reference aspect ratio is one of them, but only for a backend that
+// charges for it: the constants then hold it through `per_reference_ratio`, and a square
+// reference says nothing about the rate of a long one.
 function costKey() {
+  const model = estimateModel();
+  const ratio = model && model.per_reference_ratio ? excessRatio() : 0;
   return page.studio.backend.id + ' ' + currentMode().id + ' ' + engineReferences() + ' images'
+    + (ratio ? ' ratio ' + ratio : '')
     + (twoPass() ? ' two-pass' : '');
 }
 

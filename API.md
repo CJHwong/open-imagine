@@ -133,7 +133,7 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 | Copy | How long it lasts |
 |---|---|
 | Prompt and inputs in the engine's memory | Until the run ends |
-| Scratch files in the system temp folder, from FLUX3, Qwen edit, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, MiniMax H3-Image, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them. MiniMax H3-Image writes the prompt and settings in `request.json`, and one `reference-N.png` per reference |
 | The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
 | Music reference transcription score and exports in worker memory | Until another reference/task replaces them or the worker unloads |
 | The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |

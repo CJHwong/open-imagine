@@ -706,6 +706,12 @@ def test_the_flash_estimate_stays_near_the_runs_it_was_fitted_to(width, height, 
     assert figure.total_seconds == pytest.approx(measured, abs=10)
 
 
+def test_the_flash_estimate_names_the_time_it_does_not_hold():
+    figure = estimate_clip(FLASH_CAPABILITIES.estimate, 768, 448, 124)
+
+    assert figure.excludes == ("weight download", "queue wait", "keyframe rows", "LoRA time")
+
+
 @pytest.mark.parametrize("text", ['{"hyperflow_gate":0.25}', "[]", "not json"])
 def test_flash_weights_are_incomplete_without_the_facts_of_the_pack(flash_ready, text):
     (Path(flash_ready.settings["model_dir"]) / FLASH_PACK / "flash.json").write_text(text)

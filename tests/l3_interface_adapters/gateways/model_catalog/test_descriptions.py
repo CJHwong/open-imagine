@@ -16,7 +16,12 @@ from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.capabilities import viggle_turbo_capabilities
 from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
-from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import CAPABILITIES as minimax_capabilities
+from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
+    CAPABILITIES as minimax_capabilities,
+)
+from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
+    FLASH_CAPABILITIES as minimax_h3_flash_capabilities,
+)
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
     ltx23_mlx_capabilities,
     ltx25_mlx_capabilities,
@@ -35,6 +40,11 @@ DESCRIPTIONS = {
     "ltx25_mlx": "Connected video shots with synchronized sound and image or audio guidance.",
     "ltx23_mlx": "Continuous video shots with synchronized sound and image or audio guidance.",
     "minimax_h3": "Experimental short videos with synchronized sound, guided by keyframes or audio.",
+    "minimax_h3_flash": (
+        "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. "
+        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. "
+        "A track and a LoRA are untested on these weights."
+    ),
     "drama3": "Expressive speech and voice cloning with delivery cues inside the script.",
     "auk_base": "Voice design, cloning, and recording edits, with a focus on quality.",
     "auk": "Fast voice design, cloning, and recording edits in four steps.",
@@ -54,6 +64,7 @@ def all_capabilities():
         ltx25_mlx_capabilities(),
         ltx23_mlx_capabilities(),
         minimax_capabilities,
+        minimax_h3_flash_capabilities,
         drama_capabilities(),
         auk_capabilities("base"),
         auk_capabilities("flash"),

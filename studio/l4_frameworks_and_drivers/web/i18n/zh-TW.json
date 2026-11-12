@@ -370,6 +370,7 @@
   "label.backend.ltx23_mlx": "生成連續鏡頭與同步聲音，可用圖片或音軌引導。",
   "label.backend.ltx25_mlx": "生成連貫分鏡與同步聲音，可用圖片或音軌引導。",
   "label.backend.minimax_h3": "實驗性有聲短片，以關鍵影格或音軌引導。",
+  "label.backend.minimax_h3_flash": "實驗性 H3 蒸餾為六步，並同步生成聲音。僅支援短片。關鍵影格可設為第一格、中間格或最後一格。音軌會帶動動作，並成為聲音。音軌與 LoRA 尚未在這些權重上測試。",
   "label.backend.minimax_h3_image": "六步生成最高 4 MP 的圖片，並可用多張參考圖編輯。",
   "label.backend.qwen21": "精準編輯與清晰文字，支援多張參考圖。",
   "label.backend.qwen21_turbo": "八步快速生成與編輯圖片。",
