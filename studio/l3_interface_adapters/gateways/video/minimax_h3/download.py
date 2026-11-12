@@ -1,4 +1,7 @@
-"""Download the three pinned weight sources without loading a model."""
+"""Download the three pinned weight sources without loading a model.
+
+The DiT is the pre-quantized MLX pack, so no local quantization step follows the download.
+"""
 
 import argparse
 from pathlib import Path
@@ -7,10 +10,23 @@ from .runtime import DEFAULT_MODELS
 
 SOURCES = (
     (
-        "DeepBeepMeep/MiniMax-H3",
-        "1393e9b5638161ed1206bf75cdb57043f75f6526",
-        "deepbeep-pruned-bf16",
-        ("MiniMax-H3-FL2VA-pruned_bf16.safetensors",),
+        "pipenetwork/MiniMax-H3-MLX-8bit",
+        "e55f97c8ebf340066de8d6b4554a2a6767fe54e9",
+        "h3-dit-q8",
+        (
+            "model-00001-of-00007.safetensors",
+            "model-00002-of-00007.safetensors",
+            "model-00003-of-00007.safetensors",
+            "model-00004-of-00007.safetensors",
+            "model-00005-of-00007.safetensors",
+            "model-00006-of-00007.safetensors",
+            "model-00007-of-00007.safetensors",
+            "model.safetensors.index.json",
+            "config.json",
+            "quant_config.json",
+            "LICENSE",
+            "README.md",
+        ),
     ),
     (
         "ddalcu/MiniMax-H3-FL2VA-MLX-Serve-8bit",
