@@ -434,11 +434,14 @@ takes the conditional path for a workspace leave and the unconditional one for
 the boundary, and the resident model IDs.
 
 `l4_frameworks_and_drivers/connect.py` owns the phone transport. `ConnectTransport` is
-the port; `DumbpipeTransport` runs `generate-ticket` and `listen-tcp` with an owner-only
-identity file, and exposes a short-lived ticket. The ticket is a bearer credential, so
-the server logs neither it nor the identity, and the terminal prints the pairing QR
-once the listener runs. A Tailcat adapter can implement the same port without moving
-the app.
+the port; `DumbpipeTransport` runs the bundled `openimagine-pipe` binary with an
+owner-only identity file. The binary is precompiled and lives in
+`l4_frameworks_and_drivers/bin`; `connect.dumbpipe_path` overrides it. The ticket is a
+bearer credential, so the server logs neither it nor the identity. The terminal prints
+the pairing QR, the page's Phone button shows it, and New code rotates the identity and
+restarts the listener. A preflight failure stops the studio when the feature is enabled,
+so it cannot stay on in a broken state. A Tailcat adapter can implement the same port
+without moving the app.
 
 ### Download ownership and cleanup
 

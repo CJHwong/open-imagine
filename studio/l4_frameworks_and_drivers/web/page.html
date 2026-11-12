@@ -58,6 +58,7 @@
   <symbol id="i-brush" viewBox="0 0 24 24"><path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></symbol>
   <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></symbol>
   <symbol id="i-video" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></symbol>
+  <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM19 14h2v2h-2zM14 19h2v2h-2zM19 19h2v2h-2z"/></symbol>
   <symbol id="i-voice" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M8 21h8"/></symbol>
   <symbol id="i-image-in" viewBox="0 0 24 24"><path d="M20 11v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7"/><path d="M4 16l4-4 4 4 3-3 5 5"/><path d="M18 3v6M15 6h6"/></symbol>
   <symbol id="i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/></symbol>
@@ -118,6 +119,9 @@
         <button type="button" id="guide-toggle" class="icon-btn labeled-action" aria-expanded="false"
           aria-label="How to use this studio"
           data-i18n-attr='{"aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg><span class="control-label" data-i18n="ui.action.help">Help</span></button>
+        <button type="button" id="connect-phone" class="icon-btn labeled-action" aria-haspopup="dialog"
+          aria-controls="connect-dialog" aria-label="Connect phone"
+          data-i18n-attr='{"aria-label":"connect.toggle"}'><svg class="icon"><use href="#i-qr"/></svg><span class="control-label" data-i18n="ui.action.phone">Phone</span></button>
         <div class="menu-anchor">
         <button type="button" id="theme-toggle" class="icon-btn labeled-action" aria-haspopup="dialog" aria-expanded="false"
           aria-controls="settings-dialog" aria-label="Settings"
@@ -3483,6 +3487,54 @@
     }
     return {imported, skipped};
   };
+</script>
+<dialog id="connect-dialog" class="connect-dialog" aria-labelledby="connect-title">
+  <form method="dialog" class="connect-head">
+    <h2 id="connect-title" data-i18n="connect.title">Connect a phone</h2>
+    <button type="submit" class="icon-btn" aria-label="Close" data-i18n-attr='{"aria-label":"ui.action.close"}'><svg class="icon"><use href="#i-x"/></svg></button>
+  </form>
+  <div class="connect-body">
+    <img id="connect-qr" alt="Pairing QR code" width="256" height="256" hidden>
+    <p id="connect-note" data-i18n="connect.note">Scan this code in the Open Imagine phone app. The code reaches the whole studio.</p>
+    <div class="connect-actions">
+      <button type="button" id="connect-refresh" data-i18n="connect.refresh">New code</button>
+      <button type="button" id="connect-close" data-i18n="ui.action.close">Close</button>
+    </div>
+  </div>
+</dialog>
+<script>
+  (() => {
+    const button = document.getElementById('connect-phone');
+    const dialog = document.getElementById('connect-dialog');
+    const image = document.getElementById('connect-qr');
+    const note = document.getElementById('connect-note');
+    if (!button || !dialog || !image || !note) return;
+    const load = async () => {
+      image.hidden = true;
+      note.hidden = false;
+      note.textContent = 'Loading the pairing code...';
+      try {
+        const answer = await fetch('/connect/qr.svg?t=' + Date.now());
+        if (!answer.ok) throw new Error((await answer.text()).trim() || 'The phone connection is off.');
+        image.src = URL.createObjectURL(await answer.blob());
+        image.hidden = false;
+        note.hidden = true;
+      } catch (error) {
+        note.textContent = error.message;
+      }
+    };
+    button.addEventListener('click', () => { dialog.showModal(); load(); });
+    document.getElementById('connect-close').addEventListener('click', () => dialog.close());
+    document.getElementById('connect-refresh').addEventListener('click', async () => {
+      const answer = await fetch('/connect/refresh', {method: 'POST'});
+      if (!answer.ok) {
+        note.hidden = false;
+        note.textContent = (await answer.text()).trim() || 'The code could not be refreshed.';
+        return;
+      }
+      await load();
+    });
+  })();
 </script>
 </body>
 </html>

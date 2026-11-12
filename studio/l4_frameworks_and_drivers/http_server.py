@@ -30,6 +30,7 @@ from studio.l3_interface_adapters.controllers.image_import_controller import (
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.json_presenter import lora_document, rewrite_document
+from studio.l4_frameworks_and_drivers.connect import ConnectTransport, pair_url, qr_svg
 
 # Where the page's own files live. GET /page/<name> serves one of them, and a
 # test points WEB at a directory of its own to reach both rules below.
@@ -63,6 +64,7 @@ def make_handler(
     video_controller: VideoController | None = None,
     api: JsonApi | None = None,
     allowed_origins: tuple[str, ...] = (),
+    connect: ConnectTransport | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """`allowed_origins` are pages at another address that may post here, such as
     a Tailscale serve URL that proxies to this port."""
@@ -74,6 +76,9 @@ def make_handler(
 
         def do_GET(self):
             path = urlsplit(self.path).path
+            if path == "/connect/qr.svg":
+                self._connect_qr()
+                return
             if path.startswith("/api/v1/"):
                 self._api_get(path)
                 return
@@ -149,6 +154,11 @@ def make_handler(
             if path.startswith("/api/v1/"):
                 self._api_post(path)
                 return
+            if path == "/connect/refresh":
+                if self._refused_private_key():
+                    return
+                self._refresh_connect()
+                return
             if self._refused_private_key():
                 return
             if path == "/image/normalize":
@@ -223,6 +233,30 @@ def make_handler(
                 self._send_shared(api.cancel_hidden, success=204, content_type="text/plain")
             else:
                 self._send("not found", status=404, content_type="text/plain")
+
+        def _connect_qr(self) -> None:
+            if connect is None or not connect.status().running:
+                self._send(
+                    "The phone connection is off. Set [connect] enabled = true and restart the studio.",
+                    status=404,
+                    content_type="text/plain",
+                )
+                return
+            self._send(qr_svg(pair_url(connect.status())), status=200, content_type="image/svg+xml")
+
+        def _refresh_connect(self) -> None:
+            if connect is None:
+                self._send("The phone connection is off.", status=404, content_type="text/plain")
+                return
+            try:
+                status = connect.refresh()
+            except StudioError as error:
+                self._send(str(error), status=503, content_type="text/plain")
+                return
+            if not status.running:
+                self._send(status.error or "The listener did not start.", status=503, content_type="text/plain")
+                return
+            self._send("", status=204, content_type="text/plain")
 
         def _run_image_form(self, form) -> str:
             if api is None:

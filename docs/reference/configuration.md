@@ -30,7 +30,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[connect].enabled` | `false`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
 | `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
 | `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |
-| `[connect].dumbpipe_path` | `dumbpipe`. The executable, or its absolute path. |
+| `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
 | `[connect].identity_path` | `~/.config/open-imagine/dumbpipe-identity`. The stable dumbpipe identity, created with mode 0600. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
@@ -165,6 +165,10 @@ model settings and public operations. Rotate the identity file and restart to re
 it. The file is created with mode 0600 and is never logged. The listener binds
 loopback only; nothing is exposed on the local network.
 
-The terminal prints the pairing QR once the listener runs. The app stores the ticket
-from that code and keeps it. The Tailcat adapter is not built yet; the transport port
-exists so it can be added without changing the app.
+The terminal prints the pairing QR once the listener runs. The page's **Phone** button
+shows the same QR, and **New code** rotates the identity and restarts the listener, so
+every phone that held the old ticket stops working. The app stores the ticket from the
+QR and keeps it. The ticket stays the same across a restart while the identity file
+stays. The studio exits at startup when the connection is enabled but the transport
+cannot start, instead of leaving the feature on and broken. The Tailcat adapter is not
+built yet; the transport port exists so it can be added without changing the app.

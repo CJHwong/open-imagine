@@ -831,3 +831,30 @@ def test_shutdown_stops_the_phone_listener():
     studio.shutdown()
 
     connect.stop.assert_called_once_with()
+
+
+def test_start_connect_preflights_before_it_starts():
+    from studio.l1_entities.errors import StudioError
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+    from studio.l4_frameworks_and_drivers.studio import Studio
+
+    connect = Mock()
+    studio = Studio(
+        handler=Mock(),
+        catalog=Mock(),
+        video_catalog=None,
+        residency=Mock(),
+        cancel=Mock(),
+        operations=Mock(),
+        connect=connect,
+    )
+    status = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+    connect.start.return_value = status
+
+    assert studio.start_connect() == status
+    connect.preflight.assert_called_once_with()
+
+    connect.preflight.side_effect = StudioError("missing")
+    with pytest.raises(StudioError, match="missing"):
+        studio.start_connect()
+    connect.start.assert_called_once_with()

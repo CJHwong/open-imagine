@@ -240,9 +240,10 @@ def test_a_phone_port_outside_the_port_range_is_refused(tmp_path, value):
         load_config(write(tmp_path, SETTINGS + f"\n[connect]\nstudio_port = {value}\n"))
 
 
-def test_a_phone_connection_needs_a_named_dumbpipe_binary(tmp_path):
-    with pytest.raises(ConfigError, match=r"connect\.dumbpipe_path"):
-        load_config(write(tmp_path, SETTINGS + '\n[connect]\ndumbpipe_path = " "\n'))
+def test_a_blank_dumbpipe_path_uses_the_bundled_binary(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS + '\n[connect]\ndumbpipe_path = ""\n'))
+
+    assert config.connect_dumbpipe_path == ""
 
 
 def test_the_phone_connection_switch_must_be_a_boolean(tmp_path):
@@ -253,3 +254,8 @@ def test_the_phone_connection_switch_must_be_a_boolean(tmp_path):
 def test_the_phone_connection_table_must_be_a_table(tmp_path):
     with pytest.raises(ConfigError, match=r"\[connect\]"):
         load_config(write(tmp_path, 'connect = "yes"\n' + SETTINGS))
+
+
+def test_a_non_string_dumbpipe_path_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match=r"connect\.dumbpipe_path"):
+        load_config(write(tmp_path, SETTINGS + "\n[connect]\ndumbpipe_path = 3\n"))

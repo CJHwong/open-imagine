@@ -1,5 +1,7 @@
 import stat
 
+import pytest
+
 from studio.l4_frameworks_and_drivers.connect import (
     ConnectStatus,
     DumbpipeTransport,
@@ -22,7 +24,7 @@ def scripted(tmp_path, listener_exit: int = 0) -> DumbpipeTransport:
         tmp_path,
         f'case "$1" in\n'
         f'  generate-ticket) echo "using secret key $IROH_SECRET"; echo "{TICKET}";;\n'
-        f"  listen-tcp) {listener};;\n"
+        f"  listen) {listener};;\n"
         f"esac\n",
     )
     return DumbpipeTransport(
@@ -55,6 +57,45 @@ def test_a_second_start_keeps_the_first_listener(tmp_path):
     second = transport.start()
 
     assert first == second
+    transport.stop()
+
+
+def test_preflight_accepts_a_working_transport(tmp_path):
+    transport = scripted(tmp_path)
+
+    transport.preflight()
+
+    assert (tmp_path / "identity").exists()
+
+
+def test_preflight_refuses_a_missing_binary(tmp_path):
+    from studio.l1_entities.errors import StudioError
+
+    transport = DumbpipeTransport(str(tmp_path / "missing"), tmp_path / "identity", 8765, settle=0.01)
+
+    with pytest.raises(StudioError, match="missing"):
+        transport.preflight()
+
+
+def test_refresh_reports_an_identity_it_cannot_rotate(tmp_path):
+    transport = scripted(tmp_path)
+    transport.start()
+    transport._identity_path = tmp_path  # a directory, so unlink fails
+
+    status = transport.refresh()
+
+    assert not status.running and "could not rotate" in status.error
+
+
+def test_refresh_rotates_the_identity_and_the_ticket(tmp_path):
+    transport = scripted(tmp_path)
+    transport.start()
+    secret = (tmp_path / "identity").read_text()
+
+    second = transport.refresh()
+
+    assert second.running
+    assert (tmp_path / "identity").read_text() != secret
     transport.stop()
 
 
@@ -137,7 +178,7 @@ def test_dumbpipe_that_prints_no_ticket_is_reported(tmp_path):
 def test_stop_kills_a_listener_that_ignores_termination(tmp_path):
     binary = fake_binary(
         tmp_path,
-        f'case "$1" in\n  generate-ticket) echo "{TICKET}";;\n  listen-tcp) trap \'\' TERM; exec sleep 30;;\nesac\n',
+        f'case "$1" in\n  generate-ticket) echo "{TICKET}";;\n  listen) trap \'\' TERM; exec sleep 30;;\nesac\n',
     )
     transport = DumbpipeTransport(str(binary), tmp_path / "identity", 8765, settle=0.05, wait=1.0)
     assert transport.start().running

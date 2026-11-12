@@ -28,7 +28,7 @@ class Config:
     connect_enabled: bool = False
     connect_transport: str = "dumbpipe"
     connect_studio_port: int = 8765
-    connect_dumbpipe_path: str = "dumbpipe"
+    connect_dumbpipe_path: str = ""
     connect_identity_path: Path | None = None
     settings_path: Path | None = None
 
@@ -97,9 +97,9 @@ def load_config(
     connect_port = connect.get("studio_port", 8765)
     if type(connect_port) is not int or not 1 <= connect_port <= 65535:
         raise ConfigError("connect.studio_port in studio.toml must be a port number")
-    dumbpipe_path = connect.get("dumbpipe_path", "dumbpipe")
-    if not isinstance(dumbpipe_path, str) or not dumbpipe_path.strip():
-        raise ConfigError("connect.dumbpipe_path in studio.toml must name the dumbpipe executable")
+    dumbpipe_path = connect.get("dumbpipe_path", "")
+    if not isinstance(dumbpipe_path, str):
+        raise ConfigError("connect.dumbpipe_path in studio.toml must be a path or blank")
     identity_path = Path(connect.get("identity_path", "~/.config/open-imagine/dumbpipe-identity")).expanduser()
     if not identity_path.is_absolute():
         identity_path = (path.parent / identity_path).resolve()

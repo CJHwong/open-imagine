@@ -41,7 +41,8 @@ enabled = false
 transport = "dumbpipe"
 # The port the phone must reach. Keep it equal to the studio's --port.
 studio_port = 8765
-dumbpipe_path = "dumbpipe"
+# Blank runs the precompiled binary in studio/l4_frameworks_and_drivers/bin.
+dumbpipe_path = ""
 identity_path = "~/.config/open-imagine/dumbpipe-identity"
 # The app preferences file contains no operation data. Stub mode keeps settings in memory.
 settings_path = "~/.config/open-imagine/settings.json"

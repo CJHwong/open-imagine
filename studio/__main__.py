@@ -146,12 +146,19 @@ def main():
     if rewriters:
         print(rewriters, flush=True)
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    connection = studio.start_connect()
-    if connection is not None and connection.running:
+    try:
+        connection = studio.start_connect()
+    except StudioError as error:
+        server.server_close()
+        studio.shutdown()
+        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {error}")
+    if connection is not None and not connection.running:
+        server.server_close()
+        studio.shutdown()
+        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {connection.error}")
+    if connection is not None:
         print("\nScan this code with the Open Imagine phone app:\n", flush=True)
         print(qr_terminal(pair_url(connection)), flush=True)
-    elif connection is not None:
-        print(f"\nPhone connection is off: {connection.error}", flush=True)
     if args.allow_origin:
         print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
     print(

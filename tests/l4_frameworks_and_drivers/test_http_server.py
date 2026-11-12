@@ -1832,3 +1832,139 @@ def test_a_full_queue_failure_answers_429():
         raise QueueFull("The queue is full.")
 
     assert Stub()._api_result(refuse) == ({"error": "The queue is full."}, 429)
+
+
+def _connect_stub(connect):
+    from studio.l4_frameworks_and_drivers import http_server
+
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None), connect=connect)
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            self.sent = []
+
+        def _send(self, body, status=200, content_type="text/html"):
+            self.sent.append((body, status, content_type))
+
+    return Stub()
+
+
+def test_the_page_qr_route_serves_only_a_running_listener():
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def status(self):
+            return running
+
+        def refresh(self):
+            return running
+
+    stub = _connect_stub(Fake())
+    stub._connect_qr()
+    body, status, content_type = stub.sent[0]
+    assert status == 200 and "<svg" in body and content_type.startswith("image/svg")
+
+    off = ConnectStatus(True, False, "dumbpipe", "", 8765, "off")
+
+    class Off:
+        def status(self):
+            return off
+
+    stub = _connect_stub(Off())
+    stub._connect_qr()
+    assert stub.sent[0][1] == 404
+
+    stub = _connect_stub(None)
+    stub._connect_qr()
+    assert stub.sent[0][1] == 404
+
+
+def test_the_page_refresh_route_reports_each_failure():
+    from studio.l1_entities.errors import StudioError
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def __init__(self, status=None, error=None):
+            self._status = status
+            self._error = error
+
+        def refresh(self):
+            if self._error is not None:
+                raise self._error
+            return self._status
+
+    stub = _connect_stub(None)
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 404
+
+    stub = _connect_stub(Fake(error=StudioError("no identity")))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 503
+
+    dead = ConnectStatus(True, False, "dumbpipe", "", 8765, "listener died")
+    stub = _connect_stub(Fake(status=dead))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 503
+
+    stub = _connect_stub(Fake(status=running))
+    stub._refresh_connect()
+    assert stub.sent[0][1] == 204
+
+
+def test_the_page_connect_routes_reach_the_transport():
+    from studio.l4_frameworks_and_drivers import http_server
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    running = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+
+    class Fake:
+        def __init__(self):
+            self.refreshed = 0
+
+        def status(self):
+            return running
+
+        def refresh(self):
+            self.refreshed += 1
+            return running
+
+        def preflight(self):
+            return None
+
+        def start(self):
+            return running
+
+        def stop(self):
+            return None
+
+    connect = Fake()
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None), connect=connect)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urllib.request.urlopen(base + "/connect/qr.svg", timeout=5) as answer:
+            assert answer.status == 200
+            assert answer.headers["Content-Type"].startswith("image/svg")
+            assert b"<svg" in answer.read()
+        request = urllib.request.Request(base + "/connect/refresh", data=b"", method="POST")
+        with urllib.request.urlopen(request, timeout=5) as answer:
+            assert answer.status == 204
+        assert connect.refreshed == 1
+        refused = urllib.request.Request(
+            base + "/connect/refresh",
+            data=b"",
+            method="POST",
+            headers={"X-Studio-Private-Key": "k" * 32},
+        )
+        with pytest.raises(urllib.error.HTTPError) as rejected:
+            urllib.request.urlopen(refused, timeout=5)
+        assert rejected.value.code == 400
+        assert connect.refreshed == 1
+    finally:
+        server.shutdown()
+        server.server_close()

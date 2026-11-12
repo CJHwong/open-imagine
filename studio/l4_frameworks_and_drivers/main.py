@@ -230,7 +230,7 @@ def create_studio(
     if config.connect_enabled:
         assert config.connect_identity_path is not None  # load_config always resolves it
         connect = DumbpipeTransport(
-            config.connect_dumbpipe_path,
+            config.connect_dumbpipe_path or None,
             config.connect_identity_path,
             port or config.connect_studio_port,
         )
@@ -433,7 +433,7 @@ def assemble_studio(
         memory_status=residency.status,
     )
     return Studio(
-        handler=make_handler(controller, presenter, video_controller, api, allowed_origins),
+        handler=make_handler(controller, presenter, video_controller, api, allowed_origins, connect),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,

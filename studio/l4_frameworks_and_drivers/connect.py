@@ -17,12 +17,14 @@ from pathlib import Path
 from typing import Protocol
 
 import qrcode
+import qrcode.image.svg
 
 from studio.l1_entities.errors import StudioError
 
 TICKET = re.compile(r"\b(?:endpoint|node)[A-Za-z0-9]+")
 TICKET_MIN_LENGTH = 40
 PAIR_SCHEME = "openimagine"
+BUNDLED_BINARY = Path(__file__).with_name("bin") / "openimagine-pipe"
 
 
 @dataclass(frozen=True)
@@ -36,7 +38,9 @@ class ConnectStatus:
 
 
 class ConnectTransport(Protocol):
+    def preflight(self) -> None: ...
     def start(self) -> ConnectStatus: ...
+    def refresh(self) -> ConnectStatus: ...
     def stop(self) -> None: ...
     def status(self) -> ConnectStatus: ...
 
@@ -48,14 +52,14 @@ class DumbpipeTransport:
 
     def __init__(
         self,
-        binary: str,
+        binary: str | None,
         identity_path: Path,
         studio_port: int,
         *,
         settle: float = 0.3,
         wait: float = 5.0,
     ):
-        self._binary = binary
+        self._binary = str(binary or BUNDLED_BINARY)
         self._identity_path = identity_path
         self._studio_port = studio_port
         self._settle = settle
@@ -75,7 +79,7 @@ class DumbpipeTransport:
                 secret = self._identity()
                 self._ticket = self._stable_ticket(secret)
                 self._listener = subprocess.Popen(
-                    [self._binary, "listen-tcp", "--host", f"127.0.0.1:{self._studio_port}"],
+                    [self._binary, "listen", "--port", str(self._studio_port)],
                     env={**os.environ, "IROH_SECRET": secret, "RUST_LOG": "error"},
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
@@ -88,6 +92,24 @@ class DumbpipeTransport:
                 self.stop()
                 self._error = str(error)
             return self.status()
+
+    def preflight(self) -> None:
+        """Refuse to turn the feature on when this machine cannot run the pipe."""
+        binary = Path(self._binary)
+        if not binary.is_file():
+            raise StudioError(f"The phone transport is missing at {binary}.")
+        self._stable_ticket(self._identity())
+
+    def refresh(self) -> ConnectStatus:
+        """Rotate the identity, restart the listener and invalidate every old phone."""
+        with self._lock:
+            self.stop()
+            try:
+                self._identity_path.unlink(missing_ok=True)
+            except OSError as error:
+                self._error = f"Studio could not rotate the dumbpipe identity: {error}."
+                return self.status()
+            return self.start()
 
     def stop(self) -> None:
         with self._lock:
@@ -158,6 +180,13 @@ def _find_ticket(output: str) -> str | None:
 def pair_url(status: ConnectStatus) -> str:
     """What the QR carries: the ticket and the loopback port the phone must bind."""
     return f"{PAIR_SCHEME}://pair?v=1&ticket={status.ticket}&port={status.port}"
+
+
+def qr_svg(text: str) -> str:
+    image = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    return buffer.getvalue().decode("utf-8")
 
 
 def qr_terminal(text: str) -> str:

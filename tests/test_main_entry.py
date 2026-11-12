@@ -370,7 +370,7 @@ def test_startup_prints_the_phone_qr_when_the_listener_runs(tmp_path, monkeypatc
     assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
 
 
-def test_startup_reports_a_phone_listener_that_could_not_start(tmp_path, monkeypatch, capsys):
+def test_startup_exits_when_the_phone_listener_cannot_start(tmp_path, monkeypatch):
     from studio.l4_frameworks_and_drivers.connect import ConnectStatus
 
     status = ConnectStatus(True, False, "dumbpipe", "", 8765, "no dumbpipe")
@@ -381,6 +381,29 @@ def test_startup_reports_a_phone_listener_that_could_not_start(tmp_path, monkeyp
     monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
     argv(monkeypatch, "--config", str(settings_file(tmp_path)))
 
-    entry.main()
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
 
-    assert "Phone connection is off: no dumbpipe" in capsys.readouterr().out
+    assert "cannot start: no dumbpipe" in exit_message(exits)
+    studio.shutdown.assert_called_once_with()
+
+
+def test_startup_exits_when_the_pipe_preflight_fails(tmp_path, monkeypatch):
+    from studio.l1_entities.errors import StudioError
+
+    studio = SimpleNamespace(
+        handler=Mock(),
+        shutdown=Mock(),
+        expire=Mock(),
+        start_connect=Mock(side_effect=StudioError("the transport is missing")),
+    )
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
+
+    assert "cannot start: the transport is missing" in exit_message(exits)

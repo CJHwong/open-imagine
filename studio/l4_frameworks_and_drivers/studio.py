@@ -31,9 +31,15 @@ class Studio:
         return self.catalog.get(self.catalog.active_id()).capabilities()
 
     def start_connect(self) -> ConnectStatus | None:
-        """Start the phone listener, if one is configured. A failure is reported in
-        the status rather than stopping a studio that still serves this machine."""
-        return None if self.connect is None else self.connect.start()
+        """Start the phone listener, if one is configured.
+
+        A preflight failure raises, so an enabled connection that cannot run stops
+        the studio instead of leaving the feature on but broken.
+        """
+        if self.connect is None:
+            return None
+        self.connect.preflight()
+        return self.connect.start()
 
     def expire(self) -> None:
         self.operations.expire()

@@ -1962,3 +1962,38 @@
   .image-import-actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
   .image-import-actions .btn { min-height: 44px; white-space: normal; }
   .image-import-resize { flex: 1 1 100%; background: var(--text); color: var(--chrome); font-weight: 600; }
+
+
+/* The phone pairing panel. The image is the page's only QR, and it is shown
+   only while the listener runs. */
+.connect-dialog {
+  width: min(360px, 92vw);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--chrome-2);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.connect-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+.connect-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.connect-head h2 { margin: 0; font-size: 1.05rem; }
+.connect-body { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px; text-align: center; }
+.connect-body img { width: 256px; height: 256px; padding: 10px; border-radius: 8px; background: #fff; }
+.connect-body p { margin: 0; color: var(--text-2); font-size: .9rem; }
+.connect-actions { display: flex; gap: 8px; }
+.connect-actions button {
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--chrome-3);
+  color: var(--text);
+  cursor: pointer;
+}
+.connect-actions #connect-refresh { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); }

@@ -20,7 +20,7 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
-        exclude: ^studio/l4_frameworks_and_drivers/web/vendor/
+        exclude: ^(studio/l4_frameworks_and_drivers/web/vendor/|studio/l4_frameworks_and_drivers/bin/)
       - id: debug-statements
       - id: detect-private-key
 
