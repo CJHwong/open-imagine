@@ -7,6 +7,9 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `--host` | `127.0.0.1` | Bind address. |
 | `--port` | `8765` | Server port. Browser storage belongs to the address and port. |
 | `--backend` | `default_backend` | Initial Image model; adds it to the offered models. |
+| `--memory-policy` | `[memory].policy` | `immediate` or `boundary`. Overrides the file for this start. |
+| `--memory-boundary-percent` | `[memory].boundary_percent` | The share of physical memory loaded models may hold under the boundary policy. Overrides the file. |
+| `--queue-max-size` | `[queue].max_size` | How many asynchronous operations may wait behind the running one. `0` refuses instead of queuing. Overrides the file. |
 | `--all-backends` | Off | Enable model selectors across Image, Video, and Voice. |
 | `-q`, `--quantize` | Model configuration | Opening Image model quantization: 0, 3, 4, 5, 6, or 8 bits; 0 means full precision. |
 | `--config` | `studio.toml` | Configuration file. |
@@ -22,7 +25,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_backend`, `visible_backends` | Initial and available Image models. |
 | `default_video_backend`, `visible_video_backends` | Initial and available Video models. |
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
-| `require_memory_estimate` | `true`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
+| `require_memory_estimate` | `false`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
 | `settings_path` | `~/.config/open-imagine/settings.json`. Stores app preferences across restarts, without operation data. Relative paths resolve beside the TOML file. Stub servers keep preferences in memory and do not read or write this file. |
 | `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
 | `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
@@ -141,12 +144,12 @@ See [Music setup](../how-to/music.md) for the default download recipe and input 
 ## Memory policy
 
 The Settings menu's Memory section applies to every workspace and API caller.
-“Require a measured memory estimate” is on by default. A missing estimate returns
-503 with instructions for changing the setting; it is not a claim that a workflow
-is unsupported. Turn the setting off to run unmeasured workflows. Known estimates
-continue to enforce the model peak plus the macOS reserve in either mode.
+“Require a measured memory estimate” is off by default, so a setup with no measured
+peak may run. Turn it on to refuse an unmeasured setup with 503 and instructions
+for changing the setting; that is not a claim that a workflow is unsupported.
+Known estimates continue to enforce the model peak plus the macOS reserve in either mode.
 The current measurements apply to a 64 GiB Mac; other hosts have no calibrated
-estimate and require disabling this setting before running. Smaller output alone
+estimate. Smaller output alone
 does not create an estimate for an unmeasured workflow.
 
 Changes take effect on the next admission check and do not stop a running operation.

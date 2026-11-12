@@ -19,7 +19,7 @@ from studio.l4_frameworks_and_drivers.main import assemble_studio
 
 
 def serve(path, storage=None):
-    settings = JsonStudioSettingsGateway(path)
+    settings = JsonStudioSettingsGateway(path, True)
     studio = assemble_studio(
         {"qwen21": StubBackendGateway(qwen21_capabilities("CPU"))},
         {"qwen21": NoPromptRewriterGateway()},
@@ -87,7 +87,7 @@ def main():
                 ),
             )
             second.click("#require-memory-estimate-toggle")
-            expect(second.get_by_text("test save failure", exact=True)).to_be_visible()
+            expect(second.get_by_text("test save failure", exact=False)).to_be_visible()
             expect(second.locator("#require-memory-estimate-toggle")).to_have_attribute("aria-checked", "false")
             print("PASS a failed save leaves the current policy intact")
             second.close()

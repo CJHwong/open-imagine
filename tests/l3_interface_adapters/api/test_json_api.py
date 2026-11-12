@@ -1481,7 +1481,7 @@ def test_public_operations_do_not_support_private_deletion():
 
 def test_an_embedded_api_without_app_settings_reports_the_default_but_cannot_change_it():
     api = api_for(FakeController())
-    assert api.settings() == {"require_memory_estimate": True}
+    assert api.settings() == {"require_memory_estimate": False}
     with pytest.raises(InvalidJob, match="settings are not configured"):
         api.update_settings({"require_memory_estimate": False})
 

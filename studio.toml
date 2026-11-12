@@ -15,8 +15,10 @@ visible_voice_backends = ["drama3"]
 default_music_backend = "yue2"
 visible_music_backends = ["yue2"]
 # App-wide memory policy. Settings > Memory can change it for every caller.
-# Saved UI choices override this startup default and survive restarts.
-require_memory_estimate = true
+# Saved UI choices override this startup default and survive restarts. Off by
+# default: a setup with no measured peak may run, and a measured one still
+# enforces its peak.
+require_memory_estimate = false
 # Model memory. `immediate` frees the loaded model when another one runs, or when the
 # page leaves its workspace. `boundary` keeps loaded models and frees the oldest first,
 # and only when the next model would take the total past boundary_percent of physical

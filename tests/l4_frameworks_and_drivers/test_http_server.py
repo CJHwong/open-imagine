@@ -1720,7 +1720,7 @@ def test_the_server_checks_expiry_at_most_once_per_minute(monkeypatch):
 
 def test_app_settings_apply_to_other_callers_and_discovery(served):
     server = served[1]
-    assert json.loads(call(server, "/api/v1/settings")[2]) == {"require_memory_estimate": True}
+    assert json.loads(call(server, "/api/v1/settings")[2]) == {"require_memory_estimate": False}
     status, _, body = post_json(server, "/api/v1/settings", {"require_memory_estimate": False})
     assert status == 200 and json.loads(body) == {"require_memory_estimate": False}
     assert json.loads(call(server, "/api/v1/settings")[2])["require_memory_estimate"] is False
@@ -1739,7 +1739,7 @@ def test_app_settings_apply_to_other_callers_and_discovery(served):
 )
 def test_app_settings_refuse_ambiguous_or_unknown_values(served, payload):
     assert post_json(served[1], "/api/v1/settings", payload)[0] == 400
-    assert json.loads(call(served[1], "/api/v1/settings")[2])["require_memory_estimate"] is True
+    assert json.loads(call(served[1], "/api/v1/settings")[2])["require_memory_estimate"] is False
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
@@ -1756,7 +1756,7 @@ def test_app_policy_changes_admission_without_a_restart(tmp_path):
         {"fake": fast(StubPromptRewriterGateway())},
         "fake",
         ("fake",),
-        settings=JsonStudioSettingsGateway(tmp_path / "settings.json"),
+        settings=JsonStudioSettingsGateway(tmp_path / "settings.json", True),
         resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
         memory_estimates=build_memory_estimates(Config("", (), "", (), {})),
     )

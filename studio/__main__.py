@@ -9,6 +9,7 @@ USAGE:
     uv run studio                      # http://127.0.0.1:8765, official Qwen Turbo
     uv run studio --port 9000
     uv run studio --backend qwen21 -q 8
+    uv run studio --memory-policy boundary --memory-boundary-percent 84 --queue-max-size 8
     uv run studio --stub --port 8832   # the page on fake engines, for page work
     uv run studio --allow-origin https://my-mac.example.ts.net:8765   # behind a proxy
 """
@@ -68,6 +69,28 @@ def allowed_origin(value: str) -> str:
     return f"{parts.scheme}://{host}{suffix}"
 
 
+def memory_percent(value: str) -> int:
+    """A whole percentage from 1 to 100, for the boundary policy."""
+    try:
+        percent = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"give a whole percentage, not {value!r}") from error
+    if not 1 <= percent <= 100:
+        raise argparse.ArgumentTypeError(f"give a percentage from 1 to 100, not {value!r}")
+    return percent
+
+
+def queue_size(value: str) -> int:
+    """A whole number of waiting operations, zero or more."""
+    try:
+        size = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f"give a whole number, not {value!r}") from error
+    if size < 0:
+        raise argparse.ArgumentTypeError(f"give zero or more, not {value!r}")
+    return size
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Serve a local multimedia generation studio with temporary public and encrypted private results."
@@ -81,6 +104,26 @@ def parse_args():
         help="folder for encrypted private results; stub storage stays isolated unless this is set",
     )
     parser.add_argument("--backend", help="open on this backend instead of the configured default")
+    parser.add_argument(
+        "--memory-policy",
+        choices=("immediate", "boundary"),
+        help="free a model when another runs (immediate), or keep models under a memory boundary (boundary); "
+        "default: the studio.toml value",
+    )
+    parser.add_argument(
+        "--memory-boundary-percent",
+        type=memory_percent,
+        metavar="PERCENT",
+        help="the share of physical memory loaded models may hold under the boundary policy; "
+        "default: the studio.toml value",
+    )
+    parser.add_argument(
+        "--queue-max-size",
+        type=queue_size,
+        metavar="N",
+        help="how many asynchronous operations may wait behind the running one; 0 refuses instead of queuing; "
+        "default: the studio.toml value",
+    )
     parser.add_argument(
         "--all-backends",
         action="store_true",
@@ -120,6 +163,9 @@ def main():
             visible=(*IMAGE_BACKEND_FACTORIES, *plugins.ids("image")) if args.all_backends else None,
             visible_video=(*VIDEO_BACKEND_FACTORIES, *plugins.ids("video")) if args.all_backends else None,
             visible_voice=(*VOICE_BACKEND_FACTORIES, *plugins.ids("voice")) if args.all_backends else None,
+            memory_policy=args.memory_policy,
+            memory_boundary_percent=args.memory_boundary_percent,
+            queue_max_size=args.queue_max_size,
         )
         studio = create_studio(
             config,

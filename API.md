@@ -1124,7 +1124,7 @@ Path("synchronous-metadata.json").write_text(json.dumps(metadata, indent=2), enc
 
 ## App-wide settings
 
-`GET /api/v1/settings` returns `{"require_memory_estimate": true}` by default.
+`GET /api/v1/settings` returns `{"require_memory_estimate": false}` by default.
 The same object is included as `settings` in `GET /api/v1/studio`.
 
 `POST /api/v1/settings` accepts exactly one boolean:

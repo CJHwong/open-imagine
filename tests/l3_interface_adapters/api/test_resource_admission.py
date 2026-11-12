@@ -92,7 +92,7 @@ def test_app_policy_blocks_unmeasured_requests_until_disabled():
     from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
     from studio.l4_frameworks_and_drivers.config import Config
 
-    settings = InMemoryStudioSettingsGateway()
+    settings = InMemoryStudioSettingsGateway(True)
     admission = ResourceAdmission(lambda: (64 * GIB, GIB), build_memory_estimates(Config("", (), "", (), {})), settings)
     payload = {"kind": "video", "backend": "ltx25_mlx", "references": ["unmeasured"]}
     with pytest.raises(ResourceEstimateUnavailable, match="Settings > Generation"):
@@ -110,7 +110,7 @@ def test_app_policy_requires_every_batch_item_to_be_measured():
     from studio.l3_interface_adapters.gateways.model_catalog.registry import build_memory_estimates
     from studio.l4_frameworks_and_drivers.config import Config
 
-    settings = InMemoryStudioSettingsGateway()
+    settings = InMemoryStudioSettingsGateway(True)
     admission = ResourceAdmission(
         lambda: (64 * GIB, 64 * GIB), build_memory_estimates(Config("", (), "", (), {})), settings
     )

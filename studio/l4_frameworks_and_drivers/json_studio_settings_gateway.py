@@ -9,7 +9,7 @@ from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSetting
 
 
 class JsonStudioSettingsGateway(StudioSettingsGateway):
-    def __init__(self, path: Path, require_memory_estimate: bool = True):
+    def __init__(self, path: Path, require_memory_estimate: bool = False):
         self._path = path
         self._lock = threading.Lock()
         self._required = require_memory_estimate

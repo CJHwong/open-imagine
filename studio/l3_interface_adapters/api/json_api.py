@@ -115,7 +115,7 @@ class JsonApi:
         return result
 
     def settings(self) -> dict[str, bool]:
-        return {"require_memory_estimate": self._settings.require_memory_estimate() if self._settings else True}
+        return {"require_memory_estimate": self._settings.require_memory_estimate() if self._settings else False}
 
     def update_settings(self, payload: Mapping[str, object]) -> dict[str, bool]:
         if set(payload) != {"require_memory_estimate"} or not isinstance(payload["require_memory_estimate"], bool):

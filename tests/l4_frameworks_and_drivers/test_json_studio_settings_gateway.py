@@ -9,16 +9,16 @@ from studio.l1_entities.errors import StudioError
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
 
 
-def test_settings_default_to_required_and_survive_restart(tmp_path):
+def test_settings_default_to_allowed_and_survive_restart(tmp_path):
     path = tmp_path / "config" / "settings.json"
     settings = JsonStudioSettingsGateway(path)
-    assert settings.require_memory_estimate() is True
-    settings.set_require_memory_estimate(False)
     assert settings.require_memory_estimate() is False
-    assert json.loads(path.read_text()) == {"require_memory_estimate": False}
-    assert JsonStudioSettingsGateway(path).require_memory_estimate() is False
     settings.set_require_memory_estimate(True)
-    assert JsonStudioSettingsGateway(path, False).require_memory_estimate() is True
+    assert settings.require_memory_estimate() is True
+    assert json.loads(path.read_text()) == {"require_memory_estimate": True}
+    assert JsonStudioSettingsGateway(path).require_memory_estimate() is True
+    settings.set_require_memory_estimate(False)
+    assert JsonStudioSettingsGateway(path, True).require_memory_estimate() is False
     assert not path.with_suffix(".json.tmp").exists()
 
 
@@ -41,7 +41,7 @@ def test_unreadable_preferences_are_explained(tmp_path):
 
 def test_a_failed_save_keeps_the_current_setting_and_cleans_up(tmp_path, monkeypatch):
     path = tmp_path / "settings.json"
-    settings = JsonStudioSettingsGateway(path)
+    settings = JsonStudioSettingsGateway(path, True)
 
     def fail(*args):
         raise OSError("read only")

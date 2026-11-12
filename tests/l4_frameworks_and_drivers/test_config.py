@@ -137,10 +137,10 @@ def test_model_lists_accept_startup_overrides_and_include_the_default(tmp_path, 
 
 def test_memory_policy_defaults_and_app_preferences_location(tmp_path):
     config = load_config(write(tmp_path, SETTINGS))
-    assert config.require_memory_estimate is True
-    assert config.settings_path == (Path.home() / ".config/open-imagine/settings.json").resolve()
-    config = load_config(write(tmp_path, 'require_memory_estimate = false\nsettings_path = "prefs.json"\n' + SETTINGS))
     assert config.require_memory_estimate is False
+    assert config.settings_path == (Path.home() / ".config/open-imagine/settings.json").resolve()
+    config = load_config(write(tmp_path, 'require_memory_estimate = true\nsettings_path = "prefs.json"\n' + SETTINGS))
+    assert config.require_memory_estimate is True
     assert config.settings_path == tmp_path / "prefs.json"
 
 
@@ -205,6 +205,23 @@ def test_a_queue_size_below_zero_or_not_a_whole_number_is_refused(tmp_path, valu
 def test_the_queue_table_must_be_a_table(tmp_path):
     with pytest.raises(ConfigError, match=r"\[queue\]"):
         load_config(write(tmp_path, 'queue = "yes"\n' + SETTINGS))
+
+
+def test_a_startup_flag_wins_over_the_memory_and_queue_values(tmp_path):
+    path = write(
+        tmp_path,
+        SETTINGS + '\n[memory]\npolicy = "immediate"\nboundary_percent = 70\n\n[queue]\nmax_size = 2\n',
+    )
+    config = load_config(
+        path,
+        memory_policy="boundary",
+        memory_boundary_percent=60,
+        queue_max_size=9,
+    )
+
+    assert config.memory_policy == "boundary"
+    assert config.memory_boundary_percent == 60
+    assert config.queue_max_size == 9
 
 
 def test_the_phone_connection_is_off_unless_the_file_enables_it(tmp_path):
