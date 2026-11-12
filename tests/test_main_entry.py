@@ -207,7 +207,7 @@ def test_a_busy_port_exits_with_the_message_that_names_the_flag(tmp_path, monkey
 
 def test_startup_does_not_load_or_prewarm_a_model(tmp_path, monkeypatch, capsys):
     """The server starts without model memory; the first run loads its model."""
-    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock())
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=None))
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
@@ -352,3 +352,35 @@ def test_startup_reports_private_storage_ownership_errors(tmp_path, monkeypatch)
     with pytest.raises(SystemExit) as exits:
         entry.main()
     assert exit_message(exits) == "Cannot start the studio: private storage already in use"
+
+
+def test_startup_prints_the_phone_qr_when_the_listener_runs(tmp_path, monkeypatch, capsys):
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    status = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=status))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    entry.main()
+
+    assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
+
+
+def test_startup_reports_a_phone_listener_that_could_not_start(tmp_path, monkeypatch, capsys):
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    status = ConnectStatus(True, False, "dumbpipe", "", 8765, "no dumbpipe")
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=status))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    entry.main()
+
+    assert "Phone connection is off: no dumbpipe" in capsys.readouterr().out

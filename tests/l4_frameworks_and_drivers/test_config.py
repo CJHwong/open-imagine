@@ -148,3 +148,108 @@ def test_memory_policy_defaults_and_app_preferences_location(tmp_path):
 def test_memory_policy_requires_a_boolean(tmp_path, value):
     with pytest.raises(ConfigError, match=r"require_memory_estimate.*true or false"):
         load_config(write(tmp_path, f"require_memory_estimate = {value}\n" + SETTINGS))
+
+
+def test_the_memory_release_policy_defaults_to_immediate_at_84_percent(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS))
+
+    assert config.memory_policy == "immediate"
+    assert config.memory_boundary_percent == 84
+
+
+def test_a_boundary_policy_and_its_percent_load_from_the_file(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS + '\n[memory]\npolicy = "boundary"\nboundary_percent = 70\n'))
+
+    assert config.memory_policy == "boundary"
+    assert config.memory_boundary_percent == 70
+
+
+def test_an_unknown_memory_policy_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match=r"memory\.policy"):
+        load_config(write(tmp_path, SETTINGS + '\n[memory]\npolicy = "lazy"\n'))
+
+
+@pytest.mark.parametrize("value", ['"84"', "true", "0", "101", "84.5"])
+def test_a_boundary_percent_outside_one_to_one_hundred_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match="boundary_percent"):
+        load_config(write(tmp_path, SETTINGS + f"\n[memory]\nboundary_percent = {value}\n"))
+
+
+def test_the_memory_table_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match=r"\[memory\]"):
+        load_config(write(tmp_path, 'memory = "boundary"\n' + SETTINGS))
+
+
+def test_the_queue_is_off_unless_the_file_enables_it(tmp_path):
+    assert load_config(write(tmp_path, SETTINGS)).queue_max_size == 0
+
+
+def test_the_shipping_config_queues_requests(tmp_path):
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+
+    assert config.queue_max_size == 8
+
+
+def test_a_queue_size_loads_from_the_file(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS + "\n[queue]\nmax_size = 3\n"))
+
+    assert config.queue_max_size == 3
+
+
+@pytest.mark.parametrize("value", ["-1", '"8"', "true"])
+def test_a_queue_size_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"queue\.max_size"):
+        load_config(write(tmp_path, SETTINGS + f"\n[queue]\nmax_size = {value}\n"))
+
+
+def test_the_queue_table_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match=r"\[queue\]"):
+        load_config(write(tmp_path, 'queue = "yes"\n' + SETTINGS))
+
+
+def test_the_phone_connection_is_off_unless_the_file_enables_it(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS))
+
+    assert config.connect_enabled is False
+    assert config.connect_transport == "dumbpipe"
+    assert config.connect_studio_port == 8765
+    assert config.connect_identity_path == (Path.home() / ".config/open-imagine/dumbpipe-identity").expanduser()
+
+
+def test_a_phone_connection_loads_its_fields_and_resolves_its_identity(tmp_path):
+    text = SETTINGS + (
+        '\n[connect]\nenabled = true\ntransport = "dumbpipe"\nstudio_port = 9000\n'
+        'dumbpipe_path = "/opt/homebrew/bin/dumbpipe"\nidentity_path = "keys/phone"\n'
+    )
+
+    config = load_config(write(tmp_path, text))
+
+    assert config.connect_enabled is True
+    assert config.connect_studio_port == 9000
+    assert config.connect_identity_path == tmp_path / "keys/phone"
+
+
+def test_the_tailcat_transport_is_not_built_yet(tmp_path):
+    with pytest.raises(ConfigError, match="tailcat adapter is not built"):
+        load_config(write(tmp_path, SETTINGS + '\n[connect]\ntransport = "tailcat"\n'))
+
+
+@pytest.mark.parametrize("value", ["0", "70000", '"8765"', "true"])
+def test_a_phone_port_outside_the_port_range_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"connect\.studio_port"):
+        load_config(write(tmp_path, SETTINGS + f"\n[connect]\nstudio_port = {value}\n"))
+
+
+def test_a_phone_connection_needs_a_named_dumbpipe_binary(tmp_path):
+    with pytest.raises(ConfigError, match=r"connect\.dumbpipe_path"):
+        load_config(write(tmp_path, SETTINGS + '\n[connect]\ndumbpipe_path = " "\n'))
+
+
+def test_the_phone_connection_switch_must_be_a_boolean(tmp_path):
+    with pytest.raises(ConfigError, match=r"connect\.enabled"):
+        load_config(write(tmp_path, SETTINGS + '\n[connect]\nenabled = "yes"\n'))
+
+
+def test_the_phone_connection_table_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match=r"\[connect\]"):
+        load_config(write(tmp_path, 'connect = "yes"\n' + SETTINGS))

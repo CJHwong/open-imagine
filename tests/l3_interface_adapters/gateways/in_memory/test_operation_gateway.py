@@ -1,6 +1,8 @@
+import threading
+
 import pytest
 
-from studio.l1_entities.errors import BackendBusy, Cancelled
+from studio.l1_entities.errors import BackendBusy, Cancelled, OperationMissing, QueueFull
 from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway as Operations
 
 
@@ -371,3 +373,130 @@ def test_a_private_batch_can_publish_its_first_item_without_a_manifest():
     assert manifest["completed"] == 1
     assert operations.result(operation["id"], "key") == manifest
     assert operations.item_result(operation["id"], 1, "key") == {"images": ["one"]}
+
+
+def test_a_queue_accepts_requests_behind_the_active_one_and_reports_positions():
+    operations = Operations(max_queue=2)
+    first = operations.begin({"kind": "image"})
+
+    second = operations.begin({"kind": "image"}, queued=True)
+    third = operations.begin({"kind": "image"}, queued=True)
+
+    assert first["status"] == "running"
+    assert second["status"] == "queued" and operations.queue_position(second["id"]) == 1
+    assert third["status"] == "queued" and operations.queue_position(third["id"]) == 2
+    assert operations.queueing() and operations.busy()
+    with pytest.raises(QueueFull, match="queue is full"):
+        operations.begin({"kind": "image"}, queued=True)
+
+
+def test_a_queue_disabled_studio_refuses_a_second_request():
+    operations = Operations()
+    operations.begin({"kind": "image"})
+
+    assert not operations.queueing()
+    with pytest.raises(BackendBusy):
+        operations.begin({"kind": "image"}, queued=True)
+
+
+def test_wait_for_turn_claims_the_first_queued_operation_when_the_active_one_ends():
+    operations = Operations(max_queue=1)
+    first = operations.begin({"kind": "image"})
+    second = operations.begin({"kind": "image"}, queued=True)
+    claimed = threading.Event()
+
+    def wait():
+        operations.wait_for_turn(second["id"])
+        claimed.set()
+
+    thread = threading.Thread(target=wait)
+    thread.start()
+    assert not claimed.wait(0.2)
+    assert active_id(operations) == first["id"]
+
+    operations.finish(first["id"], {})
+    assert claimed.wait(2)
+    thread.join(2)
+    assert operations.get(second["id"])["status"] == "running"
+    assert active_id(operations) == second["id"]
+    assert operations.queue_position(second["id"]) is None
+
+
+def test_a_direct_reservation_does_not_wait_for_a_turn():
+    operations = Operations()
+    operation = operations.begin({"kind": "image"})
+
+    operations.wait_for_turn(operation["id"])
+
+    assert operations.get(operation["id"])["status"] == "running"
+
+
+def test_cancelling_a_queued_operation_wakes_its_waiter():
+    operations = Operations(max_queue=1)
+    first = operations.begin({"kind": "image"})
+    second = operations.begin({"kind": "image"}, queued=True)
+    outcome = []
+
+    def wait():
+        try:
+            operations.wait_for_turn(second["id"])
+        except Cancelled as error:
+            outcome.append(str(error))
+
+    thread = threading.Thread(target=wait)
+    thread.start()
+    assert operations.stopping(second["id"])["status"] == "cancelled"
+    thread.join(2)
+
+    assert outcome == ["The operation was cancelled before it started."]
+    assert operations.busy() and active_id(operations) == first["id"]
+    with pytest.raises(BackendBusy):
+        operations.stopping(second["id"])
+
+
+def test_deleting_a_queued_operation_wakes_its_waiter_with_missing():
+    operations = Operations(max_queue=1)
+    operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image"}, queued=True)
+    outcome = []
+
+    def wait():
+        try:
+            operations.wait_for_turn(queued["id"])
+        except OperationMissing:
+            outcome.append("missing")
+
+    thread = threading.Thread(target=wait)
+    thread.start()
+    operations.delete(queued["id"])
+    thread.join(2)
+
+    assert outcome == ["missing"]
+    assert operations.queue_position(queued["id"]) is None
+
+
+def test_a_queued_operation_is_not_pruned_while_its_caller_waits():
+    operations = Operations(max_count=1, max_age=0, max_queue=1, clock=lambda: 100.0)
+    operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image"}, queued=True)
+
+    operations.expire()
+
+    assert operations.get(queued["id"])["status"] == "queued"
+
+
+def test_restart_marks_a_queued_private_operation_failed(tmp_path):
+    operations = Operations(private_directory=tmp_path, max_queue=1)
+    operations.begin({"kind": "image", "owner": "digest"}, private_key="key")
+    queued = operations.begin({"kind": "image", "owner": "digest"}, private_key="key", queued=True)
+    operations.close()
+
+    restored = Operations(private_directory=tmp_path)
+
+    assert restored.get(queued["id"])["status"] == "failed"
+    restored.close()
+
+
+def test_a_negative_queue_size_is_refused():
+    with pytest.raises(ValueError, match="max_queue"):
+        Operations(max_queue=-1)

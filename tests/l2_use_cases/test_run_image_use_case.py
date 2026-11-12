@@ -69,7 +69,7 @@ def test_an_image_run_releases_an_inactive_video_model():
     image = FakeBackendGateway()
     video = FakeVideoBackendGateway()
     residency = InMemoryModelResidencyGateway({"fake": image, "video-fake": video})
-    residency.activate("video-fake")
+    residency.claim("video-fake")
     catalog = InMemoryBackendCatalogGateway({"fake": image}, "fake", ("fake",))
     run = RunImageUseCase(
         catalog,

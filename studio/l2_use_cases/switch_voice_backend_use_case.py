@@ -26,7 +26,7 @@ class SwitchVoiceBackendUseCase:
         if not self._engine_lock.acquire(blocking=False):
             raise BackendBusy("Wait for the run to end, or cancel it, before you switch.")
         try:
-            self._residency.activate(backend_id)
+            self._residency.select(backend_id)
             self._catalog.set_active(backend_id)
         finally:
             self._engine_lock.release()

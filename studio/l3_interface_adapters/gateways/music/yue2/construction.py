@@ -5,7 +5,7 @@ from pathlib import Path
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
-from studio.l3_interface_adapters.gateways.music.yue2.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.music.yue2.memory_estimate import YUE2_WEIGHT_FLOOR_GIB, estimate_peak_gib
 from studio.l3_interface_adapters.gateways.music.yue2.storage_assets import storage_assets
 from studio.l3_interface_adapters.gateways.music.yue2.yue2_backend_gateway import Yue2BackendGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
@@ -44,4 +44,5 @@ PROVIDER = ModelProvider(
     storage_assets=storage_assets,
     storage_name="YuE2",
     storage_roots=("~/Library/Caches/yue2-mlx-runtime",),
+    resident_gib=YUE2_WEIGHT_FLOOR_GIB,
 )

@@ -35,7 +35,7 @@ class RunVideoUseCase:
             self._progress.clear_cancel()
             self._progress.begin("", kind="video", request_id=request_id)
             try:
-                self._residency.activate(backend_id)
+                self._residency.claim(backend_id)
                 result = backend.run(job, self._progress.set_step, self._progress.cancel_requested)
                 return replace(result, loras=job.loras)
             except Cancelled:
@@ -71,7 +71,7 @@ class RunVideoUseCase:
                 raise BackendChanged("The video model changed in another tab. Reload the page.")
             self._progress.clear_cancel()
             self._progress.begin("Preparing clips", kind="video", request_id=request_id)
-            self._residency.activate(backend_id)
+            self._residency.claim(backend_id)
 
             def begin(index: int, total: int) -> None:
                 self._progress.begin(f"{index} of {total}", kind="video", request_id=request_id)

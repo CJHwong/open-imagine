@@ -1,4 +1,9 @@
-"""Return model memory when the user leaves its workspace."""
+"""Return model memory when the user leaves its workspace, or when they ask for it.
+
+The page leaves a workspace on every tab switch. Under a boundary policy that leave
+keeps the loaded models, because the boundary decides when one goes. An explicit
+release still frees every model.
+"""
 
 import threading
 
@@ -11,10 +16,13 @@ class ReleaseModelUseCase:
         self._engine_lock = engine_lock
         self._residency = residency
 
-    def execute(self) -> None:
+    def execute(self, explicit: bool = False) -> None:
         if not self._engine_lock.acquire(blocking=False):
             raise BackendBusy("Wait for the run to end before switching workspaces.")
         try:
-            self._residency.release()
+            if explicit:
+                self._residency.release()
+            else:
+                self._residency.release_idle()
         finally:
             self._engine_lock.release()

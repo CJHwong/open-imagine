@@ -24,6 +24,14 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
 | `require_memory_estimate` | `true`. Require a measured peak for every media run and batch item. Settings → Memory or `POST /api/v1/settings` can change this app-wide policy. `false` allows unmeasured workflows while retaining checks for known limits. Saved app preferences override this startup default. |
 | `settings_path` | `~/.config/open-imagine/settings.json`. Stores app preferences across restarts, without operation data. Relative paths resolve beside the TOML file. Stub servers keep preferences in memory and do not read or write this file. |
+| `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
+| `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
+| `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
+| `[connect].enabled` | `false`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
+| `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
+| `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |
+| `[connect].dumbpipe_path` | `dumbpipe`. The executable, or its absolute path. |
+| `[connect].identity_path` | `~/.config/open-imagine/dumbpipe-identity`. The stable dumbpipe identity, created with mode 0600. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | Image backend `model_dir` / `lora_path` | Local weights or adapter path, where supported. |
 | Image backend `rewrite_generate_model`, `rewrite_edit_model`, `rewrite_quantize` | Prompt rewriter for each mode, and its load-time quantization. 0, the default, keeps full precision; 2, 3, 4, 5, 6 and 8 are the widths MLX offers, and any other value stops the studio at start. The shipped `studio.toml` sets 8. |
@@ -144,3 +152,19 @@ does not create an estimate for an unmeasured workflow.
 Changes take effect on the next admission check and do not stop a running operation.
 Saved preferences take precedence over `require_memory_estimate` in TOML; remove
 the preferences file to return to the configured default.
+
+## Phone connection
+
+`[connect] enabled = true` starts a dumbpipe listener on `127.0.0.1:studio_port` and
+prints a QR code after the server binds. The QR carries the ticket and the loopback
+port. The phone runs `dumbpipe connect-tcp` and opens `http://127.0.0.1:<port>` in
+its embedded browser.
+
+The ticket is a credential. Anyone who scans it reaches the studio, including its
+model settings and public operations. Rotate the identity file and restart to revoke
+it. The file is created with mode 0600 and is never logged. The listener binds
+loopback only; nothing is exposed on the local network.
+
+`GET /api/v1/connect` returns the connection status for the local page and the app.
+It refuses `X-Studio-Private-Key`. The Tailcat adapter is not built yet; the transport
+port exists so it can be added without changing the endpoint or the app.

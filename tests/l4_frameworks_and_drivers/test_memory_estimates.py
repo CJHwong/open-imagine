@@ -35,7 +35,7 @@ def test_supported_default_workflows_keep_their_declared_bounds():
         64,
     )
 
-    assert image == pytest.approx(31.7, abs=0.1)
+    assert image == pytest.approx(31.0, abs=0.1)
     assert video == 25.0
 
 
@@ -49,7 +49,7 @@ def test_batch_estimate_uses_the_largest_item_and_output_reserve():
         64,
     )
 
-    assert result == pytest.approx(36.48, abs=0.01)
+    assert result == pytest.approx(31.125, abs=0.01)
 
 
 def test_unmeasured_batch_items_do_not_bypass_known_memory_limits():
@@ -57,12 +57,12 @@ def test_unmeasured_batch_items_do_not_bypass_known_memory_limits():
         "kind": "image",
         "backend": "qwen21_turbo",
         "items": [
-            {"mode": "edit", "resolution": "512", "references": [encoded_png(512, 512)]},
+            {"mode": "edit", "resolution": "512", "references": [encoded_png(512, 512)], "loras": [{"id": "x"}]},
             {"mode": "generate", "size": "1024x1024"},
         ],
     }
 
-    assert estimate_peak_gib(payload, 64) == pytest.approx(53.225)
+    assert estimate_peak_gib(payload, 64) == pytest.approx(52.125)
     with pytest.raises(InsufficientMemory):
         admission_for(lambda: (64 * GIB, 59 * GIB))(payload)
     assert admission_for(lambda: (64 * GIB, 64 * GIB))(payload) is None

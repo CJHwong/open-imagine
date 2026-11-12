@@ -44,6 +44,19 @@ def test_the_stub_still_builds_where_mlx_is_missing(no_mlx, config):
     assert create_studio(config, stub=True).active_capabilities().backend_id == "qwen21"
 
 
+def test_a_boundary_stub_uses_the_calibrated_machine_size(tmp_path, no_mlx):
+    path = tmp_path / "studio.toml"
+    path.write_text(
+        'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n[qwen21]\nquantize = 0\n'
+        '[memory]\npolicy = "boundary"\n'
+    )
+
+    studio = create_studio(load_config(path), stub=True)
+
+    assert studio.residency.status()["boundary_gib"] == 64.0 * 84 / 100
+    studio.shutdown()
+
+
 def test_the_turbo_and_video_stubs_build_without_weights_or_mlx(tmp_path, no_mlx):
     path = tmp_path / "studio.toml"
     path.write_text(
@@ -121,3 +134,19 @@ def test_a_host_with_no_mlx_package_answers_no(monkeypatch):
 def test_mlx_with_no_device_answers_no(monkeypatch):
     fake_mlx(monkeypatch, gpu_available=False)
     assert mlx_available() is False
+
+
+def test_a_connect_settings_file_builds_the_dumbpipe_transport(tmp_path, no_mlx):
+    from studio.l4_frameworks_and_drivers.connect import DumbpipeTransport
+
+    path = tmp_path / "studio.toml"
+    path.write_text(
+        'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n[qwen21]\nquantize = 0\n'
+        '[connect]\nenabled = true\nidentity_path = "identity"\n'
+    )
+
+    studio = create_studio(load_config(path), stub=True, port=9000)
+
+    assert isinstance(studio.connect, DumbpipeTransport)
+    assert studio.connect.status().port == 9000
+    studio.shutdown()

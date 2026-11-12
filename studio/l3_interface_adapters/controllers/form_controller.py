@@ -84,8 +84,8 @@ class FormController:
     def cancel_rewrite(self) -> None:
         self._cancel_rewrite.execute()
 
-    def release_model(self) -> None:
-        self._release_model.execute()
+    def release_model(self, explicit: bool = False) -> None:
+        self._release_model.execute(explicit)
 
     def switch(self, form: Mapping[str, str]) -> None:
         self._switch.execute(form.get("backend", ""))

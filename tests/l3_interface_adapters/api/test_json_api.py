@@ -202,6 +202,14 @@ def test_the_studio_document_names_models_and_capabilities():
     assert document["rewrite_modes"] == ["generate"]
 
 
+def test_the_studio_document_carries_the_memory_policy_when_the_studio_reports_one():
+    memory = {"policy": "boundary", "boundary_gib": 53.76, "resident": ["fake"]}
+
+    document = api_for(FakeController(), memory_status=lambda: dict(memory)).studio()
+
+    assert document["memory"] == memory
+
+
 def test_workspaces_names_the_optional_workspaces_the_studio_offers():
     """The page draws its tabs from this before the first state poll."""
     assert api_for(FakeController()).workspaces() == {"voice": False, "music": False}
@@ -367,7 +375,7 @@ def test_json_model_selection_and_release_follow_controllers(monkeypatch):
     video = FakeVideo()
     switched = []
     monkeypatch.setattr(controller, "switch", lambda form: switched.append(("image", form)))
-    monkeypatch.setattr(controller, "release_model", lambda: switched.append("release"))
+    monkeypatch.setattr(controller, "release_model", lambda explicit=False: switched.append("release"))
     monkeypatch.setattr(video, "switch", lambda form: switched.append(("video", form)))
     api = api_for(controller, video)
     with pytest.raises(InvalidJob, match="backend"):
@@ -666,7 +674,7 @@ def test_model_switch_and_release_cannot_race_an_operation_reservation(monkeypat
     api = api_for(controller)
     calls = []
 
-    def control(*arguments):
+    def control(*arguments, **options):
         calls.append(arguments)
         with pytest.raises(BackendBusy):
             api.reserve({"kind": "image"})
@@ -1533,3 +1541,130 @@ def test_storage_api_validates_and_returns_cleanup_result():
         "bytes": 123,
     }
     api._remove_assets.execute.assert_called_once_with(["a"], True, "v")
+
+
+def _pear_run(form):
+    return RunImageResponse(ImageResult(b"png", 8, 8, 1, 1), "generate", "pear", "1 image", 0.1, None)
+
+
+def _planning_controller():
+    controller = PlanningController(capabilities=fake_capabilities())
+    controller._runner = _pear_run
+    return controller
+
+
+def test_a_queued_reservation_waits_and_is_admitted_when_its_turn_comes():
+    class Admission:
+        def __init__(self):
+            self.calls = []
+
+        def require(self, payload):
+            self.calls.append("require")
+
+        def __call__(self, payload):
+            self.calls.append("check")
+
+    admission = Admission()
+    api = api_for(_planning_controller(), max_queue=1, resource_admission=admission)
+    first = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    second = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+
+    assert first["status"] == "running"
+    assert second["status"] == "queued" and second["queue_position"] == 1
+    assert api.operation(second["id"])["queue_position"] == 1
+    assert admission.calls == ["require", "require"]
+
+    outcome = []
+    thread = threading.Thread(target=lambda: outcome.append(api.execute_operation(second, {"kind": "image"})))
+    thread.start()
+    assert admission.calls == ["require", "require"]
+
+    api.complete(first["id"], lambda: {"images": []})
+    thread.join(2)
+
+    assert admission.calls == ["require", "require", "check"]
+    assert api.operation(second["id"])["status"] == "succeeded"
+    assert outcome
+
+
+def test_a_queued_request_that_fails_admission_is_recorded_and_releases_the_queue():
+    from studio.l1_entities.errors import InsufficientMemory
+
+    class Admission:
+        def require(self, payload):
+            return None
+
+        def __call__(self, payload):
+            raise InsufficientMemory("no room")
+
+    api = api_for(_planning_controller(), max_queue=2, resource_admission=Admission())
+    first = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    second = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    third = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    outcome = []
+
+    def run_second():
+        try:
+            api.execute_operation(second, {"kind": "image"})
+        except InsufficientMemory as error:
+            outcome.append(str(error))
+
+    thread = threading.Thread(target=run_second)
+    thread.start()
+    api.complete(first["id"], lambda: {"images": []})
+    thread.join(2)
+
+    assert outcome == ["no room"]
+    failed = api.operation(second["id"])
+    assert failed["status"] == "failed" and failed["error"] == "no room"
+    api._operations.wait_for_turn(third["id"])
+    assert api._operations.active()["id"] == third["id"]
+
+
+def test_a_queued_operation_runs_without_a_resource_policy():
+    api = api_for(_planning_controller(), max_queue=1)
+    first = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    second = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    thread = threading.Thread(target=lambda: api.execute_operation(second, {"kind": "image"}))
+    thread.start()
+
+    api.complete(first["id"], lambda: {"images": []})
+    thread.join(2)
+
+    assert api.operation(second["id"])["status"] == "succeeded"
+
+
+def test_a_queued_batch_is_admitted_with_its_items_when_its_turn_comes():
+    class Admission:
+        def __init__(self):
+            self.payloads = []
+
+        def require(self, payload):
+            self.payloads.append(payload)
+
+        def __call__(self, payload):
+            self.payloads.append(payload)
+
+    admission = Admission()
+    api = api_for(_planning_controller(), max_queue=1, resource_admission=admission)
+    first = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    second = api.reserve(
+        {"kind": "image", "items": [{"mode": "generate", "prompt": "pear"}, {"mode": "generate", "prompt": "pear"}]},
+        queued=True,
+    )
+    thread = threading.Thread(
+        target=lambda: api.execute_operation(
+            second,
+            {
+                "kind": "image",
+                "items": [{"mode": "generate", "prompt": "pear"}, {"mode": "generate", "prompt": "pear"}],
+            },
+        )
+    )
+    thread.start()
+
+    api.complete(first["id"], lambda: {"images": []})
+    thread.join(2)
+
+    assert len(admission.payloads[-1]["items"]) == 2
+    assert api.operation(second["id"])["status"] == "succeeded"

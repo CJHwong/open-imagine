@@ -71,7 +71,7 @@ class CancelRunUseCase:
                 return
             # Free the engine. A child is killed outright; an engine inside this process
             # frees its model, and the flag stops it at the next step either way.
-            guarded_release(self._residency.release)
+            guarded_release(self._residency.release_active)
         finally:
             with self._lock:
                 self._watching.remove(identity)

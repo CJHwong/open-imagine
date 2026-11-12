@@ -54,6 +54,7 @@ Image operations use `kind: "image"`. Prompt rewrites use `kind: "rewrite"` and 
 
 | Operation status | Meaning |
 |---|---|
+| `queued` | The request waits for the active operation. Read `queue_position`. |
 | `running` | The server prepares the model or runs it. |
 | `stopping` | The server has accepted cancellation and waits for the engine to stop. |
 | `succeeded` | The complete output is ready. |
@@ -64,8 +65,13 @@ Wait for `succeeded` before treating a video as complete.
 The sampler can reach its last step while decoding and saving continue.
 The page shows at most 99% during this interval.
 
-Only one operation runs at a time. A conflicting request returns `409`; the server has no queue.
-A stale cancellation also returns `409` and cannot stop a newer operation.
+One operation runs at a time. Asynchronous requests wait in FIFO order when
+`[queue] max_size` in `studio.toml` is above zero, which the shipping configuration
+sets to 8. A queued operation reports `queue_position`, and its memory admission runs
+when its turn comes. A full queue returns `429`. Setting `max_size = 0` restores the
+previous behavior, where a conflicting request returns `409` and is not queued.
+Synchronous generate routes are never queued and keep returning `409` while the
+studio is busy. A stale cancellation also returns `409` and cannot stop a newer operation.
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
@@ -414,7 +420,7 @@ The public API still accepts at most 16 items per operation.
 9. Fetch retained outputs, including completed partial outputs after failure or cancellation.
 10. Save the outputs before retention expires.
 
-A busy response does not create a queued operation. Wait for the active operation to finish before retrying.
+A queued response creates a waiting operation with `queue_position`. Poll it until it runs.
 Never interpret an engine's 100% sampler progress as a completed operation.
 
 ## Ordered batches
@@ -1075,8 +1081,9 @@ A `202` response acknowledges the operation; it does not mean generation succeed
 A running single result returns `409`. A batch manifest exposes completed items while later items run.
 The client downloads partial batch results before reporting a terminal failure.
 
-Invalid requests return `400`; a busy server or stale cancellation returns `409`. Missing Music support returns `503`.
-Engine failures appear in the operation's `error` field. Do not retry a busy request as though it entered a queue.
+Invalid requests return `400`; a busy synchronous route or stale cancellation returns `409`.
+A full asynchronous queue returns `429`. Missing Music support returns `503`.
+Engine failures appear in the operation's `error` field. Poll a queued operation instead of retrying it.
 Public results expire after at most ten minutes. The 32-operation and 256 MiB limits can evict them sooner, including metadata.
 Restarting the server clears public history. Private results remain encrypted for one hour after completion and survive restart.
 Expired or deleted results return `404`. Save downloads promptly; browser Keep is separate.
@@ -1135,6 +1142,49 @@ With `true`, any unmeasured media run or batch item returns 503 before work star
 with instructions to change the setting. With `false`, those workflows may run
 without a memory check. Measured limits remain enforced in both modes. A policy
 change does not cancel operations already admitted.
+
+### Model release policy
+
+`GET /api/v1/studio` includes `memory` with `policy`, `boundary_gib`, and the IDs of
+the resident models. The `[memory]` table in `studio.toml` sets the policy at startup:
+
+```toml
+[memory]
+policy = "boundary"
+boundary_percent = 84
+```
+
+`immediate` is the default. It frees the loaded model when another model runs, or
+when the page leaves its workspace. `boundary` keeps loaded models and frees the
+oldest first, and only when the next model's resident footprint would take the total
+past `boundary_percent` of physical memory. A model with no measured footprint is
+never kept. The boundary controls retention; a run's own peak is still checked
+against free memory with the 8 GiB system reserve.
+
+`POST /api/v1/memory/release` frees every model under either policy. The page's
+workspace switch follows the policy.
+
+### Phone connection
+
+`GET /api/v1/connect` reports the phone listener:
+
+```json
+{
+  "enabled": true,
+  "running": true,
+  "transport": "dumbpipe",
+  "port": 8765,
+  "ticket": "endpoint...",
+  "url": "openimagine://pair?v=1&ticket=endpoint...&port=8765",
+  "qr_svg": "<svg ...",
+  "error": ""
+}
+```
+
+`ticket`, `url` and `qr_svg` appear only while the listener runs. The ticket is a
+credential that reaches the whole studio. Rotate the identity file to revoke it.
+The route refuses `X-Studio-Private-Key`. With `[connect] enabled = false`, it returns
+`{"enabled": false, "running": false}`.
 
 ## Model storage and cleanup
 

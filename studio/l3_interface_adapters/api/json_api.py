@@ -38,6 +38,7 @@ from studio.l3_interface_adapters.api.audio_trim import trim_audio
 from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
 from studio.l3_interface_adapters.api.request_mapper import image_form, next_form, rewrite_form
+from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
 from studio.l3_interface_adapters.controllers.form_controller import FormController
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
@@ -67,7 +68,8 @@ class JsonApi:
         settings: StudioSettingsGateway | None = None,
         inspect_storage=None,
         remove_assets=None,
-        resource_admission: Callable[[Mapping[str, object]], None] | None = None,
+        resource_admission: ResourceAdmission | None = None,
+        memory_status: Callable[[], dict[str, object]] | None = None,
     ) -> None:
         self._controller = controller
         self._video = video
@@ -80,6 +82,7 @@ class JsonApi:
         self._settings = settings
         self._inspect_storage = inspect_storage
         self._remove_assets = remove_assets
+        self._memory_status = memory_status
 
     def model_storage(self):
         if self._inspect_storage is None:
@@ -170,7 +173,9 @@ class JsonApi:
         operation = self.reserve({**payload, "kind": kind}, source=source)
         return self.complete(operation["id"], action, serialize)
 
-    def reserve(self, payload: Mapping[str, object], *, source: str = "api", owner: str = "") -> dict[str, Any]:
+    def reserve(
+        self, payload: Mapping[str, object], *, source: str = "api", owner: str = "", queued: bool = False
+    ) -> dict[str, Any]:
         kind = payload.get("kind")
         if kind not in ("image", "video", "rewrite", "voice", "music"):
             raise InvalidJob("kind must be image, video, voice, music or rewrite")
@@ -213,7 +218,7 @@ class JsonApi:
             batch_items = self._batches.execute({**payload, "backend": backend})
             batch_metadata["batch_total"] = len(batch_items)
         if self._resource_admission is not None and kind != "rewrite":
-            if self._operations.busy():
+            if not queued and self._operations.busy():
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
             resource_payload = {
                 **payload,
@@ -225,10 +230,16 @@ class JsonApi:
             if batch_items is not None:
                 resource_payload["items"] = batch_items
             self._validate_resource_requests(str(kind), resource_payload)
-            self._resource_admission(resource_payload)
+            if queued:
+                # A queued request checks its headroom when its turn comes. Whether a
+                # measurement exists at all is decided now, so an unmeasurable setup
+                # still fails at push time.
+                self._resource_admission.require(resource_payload)
+            else:
+                self._resource_admission(resource_payload)
         excluded = {"references", "reference", "clip", "audio", "reference_audio", "reference_token", "items"}
         settings = {key: value for key, value in payload.items() if key not in excluded}
-        return operation_document(
+        document = operation_document(
             self._operations.begin(
                 {
                     **batch_metadata,
@@ -249,8 +260,30 @@ class JsonApi:
                     "owner": owner_digest(owner),
                 },
                 private_key=owner,
+                queued=queued,
             )
         )
+        position = self._operations.queue_position(document["id"])
+        if position is not None:
+            document["queue_position"] = position
+        return document
+
+    def _admit(self, operation: Mapping[str, Any], payload: Mapping[str, object]) -> None:
+        """Check a queued request when its turn comes, not when it was pushed, so a
+        request that waited for memory can use the memory that is free now."""
+        if self._resource_admission is None or operation["kind"] == "rewrite":
+            return
+        resource_payload = {
+            **payload,
+            "kind": operation["kind"],
+            "workspace": operation["workspace"],
+            "backend": operation["backend"],
+            "mode": operation["mode"],
+        }
+        if "items" in payload:
+            resource_payload["items"] = self._batches.execute({**payload, "backend": operation["backend"]})
+        self._validate_resource_requests(operation["kind"], resource_payload)
+        self._resource_admission(resource_payload)
 
     def _validate_resource_requests(self, kind: str, payload: Mapping[str, object]) -> None:
         requests = payload.get("items")
@@ -291,6 +324,13 @@ class JsonApi:
         mode = operation["mode"]
         kind = operation["kind"]
         body = {key: value for key, value in payload.items() if key not in ("kind", "workspace")}
+        self._operations.wait_for_turn(operation["id"])
+        if self._operations.get(operation["id"]).get("pending_admission"):
+            try:
+                self._admit(operation, payload)
+            except Exception as error:
+                self._operations.fail(operation["id"], error)
+                raise
 
         def action():
             if self._operations.get(operation["id"])["status"] == "stopping":
@@ -328,6 +368,9 @@ class JsonApi:
 
     def _operation_document(self, operation: dict[str, Any], viewer: str) -> dict[str, Any]:
         operation = operation_document(operation)
+        position = self._operations.queue_position(operation["id"])
+        if position is not None:
+            operation["queue_position"] = position
         if operation["status"] in ("running", "stopping"):
             operation["progress"] = (
                 self.rewrite_state(viewer, operation["id"])
@@ -401,6 +444,11 @@ class JsonApi:
         self._operations.exclusive(lambda: controller.switch({"backend": backend}))
 
     def release_model(self) -> None:
+        """The explicit release frees every model, whatever the memory policy is."""
+        self._operations.exclusive(lambda: self._controller.release_model(explicit=True))
+
+    def leave_workspace(self) -> None:
+        """A workspace switch frees the loaded models only under an immediate policy."""
         self._operations.exclusive(self._controller.release_model)
 
     def rewrite_state(self, viewer: str | None = None, operation_id: str | None = None) -> dict[str, Any]:
@@ -439,6 +487,8 @@ class JsonApi:
         document = studio_document(self._controller.page())
         document["private_operations"] = True
         document["settings"] = self.settings()
+        if self._memory_status is not None:
+            document["memory"] = self._memory_status()
         if self._voice is not None:
             document["voice"] = {
                 "active": self._voice.active_id(),

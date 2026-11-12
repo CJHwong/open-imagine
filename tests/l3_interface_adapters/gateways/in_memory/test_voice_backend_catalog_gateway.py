@@ -16,7 +16,7 @@ def catalog_setup(visible=("auk", "auk_base")):
     first, second = Mock(spec=VoiceBackendGateway), Mock(spec=VoiceBackendGateway)
     catalog = InMemoryVoiceBackendCatalogGateway({"auk": first, "auk_base": second}, "auk", visible)
     residency = InMemoryModelResidencyGateway({"auk": first, "auk_base": second})
-    residency.activate("auk")
+    residency.claim("auk")
     return catalog, residency, threading.Lock(), first, second
 
 

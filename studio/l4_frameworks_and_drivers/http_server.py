@@ -9,7 +9,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnreadableImage
+from studio.l1_entities.errors import (
+    BackendBusy,
+    Cancelled,
+    InvalidJob,
+    OperationMissing,
+    QueueFull,
+    StudioError,
+    UnreadableImage,
+)
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
@@ -22,6 +30,7 @@ from studio.l3_interface_adapters.controllers.image_import_controller import (
 from studio.l3_interface_adapters.controllers.video_controller import VideoController
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.json_presenter import lora_document, rewrite_document
+from studio.l4_frameworks_and_drivers.connect import ConnectTransport, connect_document
 
 # Where the page's own files live. GET /page/<name> serves one of them, and a
 # test points WEB at a directory of its own to reach both rules below.
@@ -55,6 +64,7 @@ def make_handler(
     video_controller: VideoController | None = None,
     api: JsonApi | None = None,
     allowed_origins: tuple[str, ...] = (),
+    connect: ConnectTransport | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """`allowed_origins` are pages at another address that may post here, such as
     a Tailscale serve URL that proxies to this port."""
@@ -184,7 +194,7 @@ def make_handler(
                     else "Voice generation is not configured."
                 )
             elif self.path == "/workspace":
-                self._send(self._outcome(lambda: (api.release_model() if api else controller.release_model()) or ""))
+                self._send(self._outcome(lambda: (api.leave_workspace() if api else controller.release_model()) or ""))
             elif self.path == "/rewrite":
                 # The page reads this one as data, so a failure arrives as JSON
                 # too. The other routes send HTML, which the page appends or toasts.
@@ -233,7 +243,11 @@ def make_handler(
             if status != 200:
                 self._send_json(viewer, status=status)
                 return
-            if path in ("/api/v1/settings", "/api/v1/model-storage") and self._refused_private_key():
+            if path in ("/api/v1/settings", "/api/v1/model-storage", "/api/v1/connect") and self._refused_private_key():
+                return
+            if path == "/api/v1/connect":
+                body, status = self._api_result(lambda: connect_document(connect))
+                self._send_json(body, status=status)
                 return
             readers = {
                 "/api/v1/openapi.json": api.openapi,
@@ -377,7 +391,7 @@ def make_handler(
 
             def reserve():
                 payload.update(self._read_json())
-                return api.reserve(payload, source=source, owner=owner)
+                return api.reserve(payload, source=source, owner=owner, queued=True)
 
             operation, status = self._api_result(reserve)
             if status != 200:
@@ -539,6 +553,8 @@ def make_handler(
                 return {"error": str(error)}, 400
             except BackendBusy as error:
                 return {"error": str(error)}, 409
+            except QueueFull as error:
+                return {"error": str(error)}, 429
             except StudioError as error:
                 return {"error": str(error)}, 503
             except Exception as error:

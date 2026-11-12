@@ -112,6 +112,7 @@ def operation_document(record: dict[str, Any]) -> dict[str, Any]:
     """Routes belong to the HTTP view, not the shared operation store."""
     document = dict(record)
     retained = document.pop("result_retained")
+    document.pop("pending_admission", None)
     # The owner is the digest of a caller's key. A document says only that one exists,
     # and a shared record keeps its old shape.
     if document.pop("owner", ""):

@@ -4,6 +4,7 @@ import base64
 import binascii
 import io
 import json
+import math
 from collections.abc import Mapping
 
 from PIL import Image, UnidentifiedImageError
@@ -59,6 +60,25 @@ def _reference_sizes(raw_references: object, raw_sizes: object) -> tuple[tuple[i
         except (binascii.Error, UnidentifiedImageError, OSError, ValueError):
             raise InvalidJob("A reference image is not readable.") from None
     return tuple(sizes)
+
+
+def _edit_megapixels(raw: object, references: tuple[tuple[int, int], ...], cap: int) -> float | None:
+    """The output area of an edit, from its resolution choice or the last reference.
+
+    An edit mode names a square side or "match". Match keeps the last reference's
+    area, bounded by the mode's own cap.
+    """
+    if raw in (None, "match"):
+        if not references:
+            return None
+        width, height = references[-1]
+        side = min(round(math.sqrt(width * height)), cap)
+        return side * side / 1_000_000
+    text = str(raw)
+    if text.isdigit():
+        side = int(text)
+        return side * side / 1_000_000
+    return None
 
 
 def _positive_integer(value: object) -> int | None:

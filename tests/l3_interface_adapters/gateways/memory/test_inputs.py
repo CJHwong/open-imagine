@@ -26,26 +26,20 @@ def test_reference_sizes_raise_for_unreadable_images(encoded):
 
 def test_reference_sizes_read_json_and_data_uri_inputs():
     encoded = encoded_png(512, 512)
-    assert (
-        estimate(
-            "image",
-            "qwen21_turbo",
-            "edit",
-            references=json_list_reference(encoded),
-            resolution="match",
-        )
-        is None
-    )
-    assert (
-        estimate(
-            "image",
-            "qwen21_turbo",
-            "edit",
-            references=[{"data": "data:image/png;base64," + encoded}],
-            resolution="match",
-        )
-        is None
-    )
+    assert estimate(
+        "image",
+        "qwen21_turbo",
+        "edit",
+        references=json_list_reference(encoded),
+        resolution="match",
+    ) == pytest.approx(51.51, abs=0.01)
+    assert estimate(
+        "image",
+        "qwen21_turbo",
+        "edit",
+        references=[{"data": "data:image/png;base64," + encoded}],
+        resolution="match",
+    ) == pytest.approx(51.51, abs=0.01)
 
 
 def test_reference_sizes_reject_bad_json_and_non_list_shapes():
@@ -61,3 +55,9 @@ def test_positive_integer_accepts_positive_integer_values(value):
 @pytest.mark.parametrize("value", (True, 0, -1, 1.5, "0", "bad"))
 def test_positive_integer_rejects_bad_dimensions(value):
     assert estimate("video", "ltx25_mlx", width=value, height=384, num_frames=25) is None
+
+
+def test_edit_area_needs_a_reference_for_match():
+    from studio.l3_interface_adapters.gateways.memory.inputs import _edit_megapixels
+
+    assert _edit_megapixels("match", (), 1344) is None

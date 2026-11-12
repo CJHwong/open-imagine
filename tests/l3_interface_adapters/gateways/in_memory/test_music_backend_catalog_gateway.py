@@ -23,11 +23,11 @@ def test_catalog_and_switch_share_the_model_residency():
     with pytest.raises(UnknownBackend):
         switch.execute("missing")
     switch.execute("one")
-    residency.activate.assert_not_called()
+    residency.select.assert_not_called()
     lock.acquire()
     with pytest.raises(BackendBusy):
         switch.execute("two")
     lock.release()
     switch.execute("two")
     assert catalog.active_id() == "two" and not lock.locked()
-    residency.activate.assert_called_once_with("two")
+    residency.select.assert_called_once_with("two")

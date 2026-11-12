@@ -26,20 +26,10 @@ class ResourceAdmission:
 
     def check(self, payload: Mapping[str, object]) -> None:
         total_bytes, available_bytes = self._memory_headroom()
-        estimate_gib = self._estimates.estimate(payload, total_bytes / GIB)
-        required = self._settings.require_memory_estimate()
-        items = payload.get("items")
-        if required and isinstance(items, list):
-            shared = {key: value for key, value in payload.items() if key != "items"}
-            if any(self._estimates.estimate({**shared, **item}, total_bytes / GIB) is None for item in items):
-                estimate_gib = None
+        estimate_gib = self._estimate(payload, total_bytes)
         if estimate_gib is None:
-            if required:
-                raise ResourceEstimateUnavailable(
-                    "Memory use has not been measured for this model and setup, so Studio cannot check whether it fits. "
-                    "To run it anyway, open Settings > Generation and turn off 'Require a measured memory estimate', "
-                    "then retry. This applies to all workspaces and API callers; known memory limits still apply."
-                )
+            if self._settings.require_memory_estimate():
+                raise self._unavailable()
             return
         available_gib = available_bytes / GIB
         required_gib = estimate_gib + OS_RESERVE_GIB
@@ -50,3 +40,30 @@ class ResourceAdmission:
                 "Close other memory-heavy apps or release the loaded model, then retry. "
                 "For images or video, try a smaller output or fewer references."
             )
+
+    def require(self, payload: Mapping[str, object]) -> None:
+        """Refuse a request whose setup has never been measured, before it is queued.
+
+        The headroom comparison waits for the run, because free memory changes while a
+        request waits. Whether a measurement exists at all does not change.
+        """
+        total_bytes, _ = self._memory_headroom()
+        if self._estimate(payload, total_bytes) is None and self._settings.require_memory_estimate():
+            raise self._unavailable()
+
+    def _estimate(self, payload: Mapping[str, object], total_bytes: int) -> float | None:
+        estimate_gib = self._estimates.estimate(payload, total_bytes / GIB)
+        items = payload.get("items")
+        if self._settings.require_memory_estimate() and isinstance(items, list):
+            shared = {key: value for key, value in payload.items() if key != "items"}
+            if any(self._estimates.estimate({**shared, **item}, total_bytes / GIB) is None for item in items):
+                estimate_gib = None
+        return estimate_gib
+
+    @staticmethod
+    def _unavailable() -> ResourceEstimateUnavailable:
+        return ResourceEstimateUnavailable(
+            "Memory use has not been measured for this model and setup, so Studio cannot check whether it fits. "
+            "To run it anyway, open Settings > Generation and turn off 'Require a measured memory estimate', "
+            "then retry. This applies to all workspaces and API callers; known memory limits still apply."
+        )

@@ -22,6 +22,7 @@ dependencies = [
     "mlx-vlm>=0.7.3",
     "cryptography>=46",
     "pillow-heif>=1.8.1",
+    "qrcode>=8.0",
 ]
 
 [project.scripts]

@@ -17,6 +17,32 @@ visible_music_backends = ["yue2"]
 # App-wide memory policy. Settings > Memory can change it for every caller.
 # Saved UI choices override this startup default and survive restarts.
 require_memory_estimate = true
+# Model memory. `immediate` frees the loaded model when another one runs, or when the
+# page leaves its workspace. `boundary` keeps loaded models and frees the oldest first,
+# and only when the next model would take the total past boundary_percent of physical
+# memory. A model with no measured footprint is never kept. Admission still checks the
+# run's own peak against free memory, with the 8 GiB OS reserve.
+[memory]
+policy = "immediate"
+boundary_percent = 84
+
+# Asynchronous operations wait their turn instead of returning 409 while another one
+# runs. max_size counts the requests waiting behind the running one. 0 keeps the old
+# behavior, where a busy studio refuses every new operation. A full queue answers 429.
+[queue]
+max_size = 8
+
+# Share this studio with the phone app over a dumbpipe ticket. The listener binds
+# 127.0.0.1 and the server prints a QR code at startup. The ticket is a credential:
+# anyone who scans it reaches this studio. The identity file makes the ticket stable
+# across restarts. Keep it owner-only; the server creates it with mode 0600.
+[connect]
+enabled = false
+transport = "dumbpipe"
+# The port the phone must reach. Keep it equal to the studio's --port.
+studio_port = 8765
+dumbpipe_path = "dumbpipe"
+identity_path = "~/.config/open-imagine/dumbpipe-identity"
 # The app preferences file contains no operation data. Stub mode keeps settings in memory.
 settings_path = "~/.config/open-imagine/settings.json"
 

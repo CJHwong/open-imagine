@@ -1817,3 +1817,24 @@ def test_model_storage_routes_and_private_header_rejection(tmp_path):
         server.shutdown()
         server.server_close()
         studio.shutdown()
+
+
+def test_a_full_queue_failure_answers_429():
+    from studio.l1_entities.errors import QueueFull
+
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None))
+
+    class Stub(handler):  # ty: ignore[unsupported-base]
+        def __init__(self):
+            pass
+
+    def refuse():
+        raise QueueFull("The queue is full.")
+
+    assert Stub()._api_result(refuse) == ({"error": "The queue is full."}, 429)
+
+
+def test_the_phone_connection_route_reports_when_it_is_off(served):
+    status, _, body = call(served[1], "/api/v1/connect")
+
+    assert status == 200 and json.loads(body) == {"enabled": False, "running": False}

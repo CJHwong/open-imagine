@@ -77,6 +77,7 @@ from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter impor
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
+from studio.l4_frameworks_and_drivers.connect import DumbpipeTransport
 from studio.l4_frameworks_and_drivers.engines import require_mlx
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
@@ -99,6 +100,20 @@ def build_rewriters(config, plugins=None, stub=False):
 
 
 PAGE = Path(__file__).with_name("web") / "page.html"
+
+GIB = 1024**3
+# The stub has no GPU and no memory probe. A boundary policy still needs a number, and
+# 64 GiB is the machine every estimator was calibrated on.
+STUB_MEMORY_GIB = 64.0
+
+
+def resident_memory() -> dict[str, float]:
+    """The idle footprint of each built-in model that declares one."""
+    return {
+        provider.backend_id: provider.resident_gib
+        for provider in BUILTIN_PROVIDERS
+        if provider.resident_gib is not None
+    }
 
 
 def build_image_backends(config: Config, plugins: InstalledModelCatalog | None = None, stub: bool = False) -> dict:
@@ -170,6 +185,7 @@ def create_studio(
     plugins: InstalledModelCatalog | None = None,
     allowed_origins: tuple[str, ...] = (),
     private_results_dir: Path | None = None,
+    port: int | None = None,
 ) -> Studio:
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page.
     `allowed_origins` are the pages at another address that may post, such as a proxy."""
@@ -207,6 +223,17 @@ def create_studio(
         require_mlx()
     if private_results_dir is None and not stub:
         private_results_dir = Path.home() / ".local" / "share" / "open-imagine" / "private-results"
+    total_memory_gib = None
+    if config.memory_policy == "boundary":
+        total_memory_gib = STUB_MEMORY_GIB if stub else memory_headroom()[0] / GIB
+    connect = None
+    if config.connect_enabled:
+        assert config.connect_identity_path is not None  # load_config always resolves it
+        connect = DumbpipeTransport(
+            config.connect_dumbpipe_path,
+            config.connect_identity_path,
+            port or config.connect_studio_port,
+        )
     return assemble_studio(
         backends,
         rewriters,
@@ -242,6 +269,12 @@ def create_studio(
             if config.settings_path is not None and not stub
             else InMemoryStudioSettingsGateway(config.require_memory_estimate)
         ),
+        resident_memory=resident_memory(),
+        memory_policy=config.memory_policy,
+        memory_boundary_percent=config.memory_boundary_percent,
+        total_memory_gib=total_memory_gib,
+        queue_max_size=config.queue_max_size,
+        connect=connect,
     )
 
 
@@ -268,6 +301,12 @@ def assemble_studio(
     memory_estimates=None,
     settings: StudioSettingsGateway | None = None,
     model_storage=None,
+    resident_memory: dict[str, float] | None = None,
+    memory_policy: str = "immediate",
+    memory_boundary_percent: int = 84,
+    total_memory_gib: float | None = None,
+    queue_max_size: int = 0,
+    connect=None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     settings = settings if settings is not None else InMemoryStudioSettingsGateway()
@@ -301,7 +340,15 @@ def assemble_studio(
             music_backends, default_music_id, visible_music_ids or tuple(music_backends)
         )
     runtimes = {**confined, **(video_backends or {}), **(voice_backends or {}), **(music_backends or {})}
-    residency = InMemoryModelResidencyGateway(runtimes)
+    boundary_gib = None
+    if memory_policy == "boundary" and total_memory_gib is not None:
+        boundary_gib = total_memory_gib * memory_boundary_percent / 100
+    residency = InMemoryModelResidencyGateway(
+        runtimes,
+        policy=memory_policy,
+        boundary_gib=boundary_gib,
+        footprints=resident_memory,
+    )
     resource_admission = (
         ResourceAdmission(
             resource_memory_headroom,
@@ -370,7 +417,7 @@ def assemble_studio(
             music_catalog,
             SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
         )
-    operations = InMemoryOperationGateway(private_directory=private_results_dir)
+    operations = InMemoryOperationGateway(private_directory=private_results_dir, max_queue=queue_max_size)
     api = JsonApi(
         controller,
         video_controller,
@@ -383,9 +430,10 @@ def assemble_studio(
         settings=settings,
         inspect_storage=InspectModelStorageUseCase(model_storage) if model_storage else None,
         remove_assets=RemoveModelAssetsUseCase(model_storage, engine_lock, residency) if model_storage else None,
+        memory_status=residency.status,
     )
     return Studio(
-        handler=make_handler(controller, presenter, video_controller, api, allowed_origins),
+        handler=make_handler(controller, presenter, video_controller, api, allowed_origins, connect),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,
@@ -393,4 +441,5 @@ def assemble_studio(
         operations=operations,
         rewriter=rewriter,
         video_rewriter=video_rewriter,
+        connect=connect,
     )

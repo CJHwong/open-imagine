@@ -23,6 +23,7 @@ from studio.l3_interface_adapters.gateways.model_catalog.rewriter_cache_status i
     rewriter_cache_line as rewriter_cache_line,
 )
 from studio.l4_frameworks_and_drivers.config import ConfigError, load_config
+from studio.l4_frameworks_and_drivers.connect import pair_url, qr_terminal
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
 from studio.l4_frameworks_and_drivers.main import (
@@ -126,6 +127,7 @@ def main():
             plugins=plugins,
             allowed_origins=tuple(args.allow_origin),
             private_results_dir=args.private_results_dir,
+            port=args.port,
         )
     except ConfigError as error:
         sys.exit(f"Bad settings in {args.config}: {error}")
@@ -144,6 +146,12 @@ def main():
     if rewriters:
         print(rewriters, flush=True)
     print(f"\nReady on http://{args.host}:{args.port}", flush=True)
+    connection = studio.start_connect()
+    if connection is not None and connection.running:
+        print("\nScan this code with the Open Imagine phone app:\n", flush=True)
+        print(qr_terminal(pair_url(connection)), flush=True)
+    elif connection is not None:
+        print(f"\nPhone connection is off: {connection.error}", flush=True)
     if args.allow_origin:
         print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
     print(

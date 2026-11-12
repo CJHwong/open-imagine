@@ -31,7 +31,7 @@ def test_single_voice_run_loads_model_and_clears_progress():
     assert result.seed == 7
     assert result.text == "Read this line."
     backend.load.assert_called_once()
-    residency.activate.assert_called_once_with("auk")
+    residency.claim.assert_called_once_with("auk")
     assert not lock.locked()
     assert not progress.snapshot().running
 
@@ -167,4 +167,4 @@ def test_catalog_voice_run_activates_the_selected_model_and_refuses_stale_choice
         use_case.execute(job(), "auk")
     assert not lock.locked()
     use_case.execute(job(), "auk_base")
-    residency.activate.assert_called_once_with("auk_base")
+    residency.claim.assert_called_once_with("auk_base")

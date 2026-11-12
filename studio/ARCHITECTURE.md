@@ -335,6 +335,7 @@ picker, the cookie and `?lang`.
 
 The JSON adapter records operations for browser and API requests. One reservation covers a complete Image, Video, or Voice batch, or one rewrite.
 The HTTP driver creates a worker thread only for the optional asynchronous route. Existing synchronous routes keep their response formats.
+`[queue] max_size` gives asynchronous operations a FIFO waiting list. A queued operation reports its position, and its memory admission runs when its turn comes. A full queue answers `429`. Zero disables the queue and restores the single-slot refusal.
 The operation store retains bounded metadata and results. It keeps completed items after cancellation or failure. Active batches expose their manifest and completed item URLs.
 A browser batch carries its operation ID in each continuation. A 30-second lease applies only between requests.
 An active engine call never expires through that lease. API batches need no continuation requests.
@@ -420,6 +421,24 @@ JSON driver persists only preferences through an atomic replacement; embedded
 and stub instances use an isolated in-memory gateway. The page has no independent
 policy in local storage. `require_memory_estimate` defaults to true. Disabling it
 permits missing measurements while keeping all known memory checks.
+
+The `[memory]` table selects the model release policy. `immediate`, the default, frees
+the previous model when another one runs or when the page leaves its workspace.
+`boundary` keeps loaded models in load order and frees the oldest first, and only when
+the next model's `resident_gib` would take the total past `boundary_percent` of physical
+memory. A provider declares `resident_gib` from its weight size; a model without one is
+never kept. The boundary covers retention only: `ResourceAdmission` still checks each
+run's peak against free memory and keeps its 8 GiB system reserve. `ReleaseModelUseCase`
+takes the conditional path for a workspace leave and the unconditional one for
+`POST /api/v1/memory/release` and asset removal. `/api/v1/studio` reports the policy,
+the boundary, and the resident model IDs.
+
+`l4_frameworks_and_drivers/connect.py` owns the phone transport. `ConnectTransport` is
+the port; `DumbpipeTransport` runs `generate-ticket` and `listen-tcp` with an owner-only
+identity file, and exposes a short-lived ticket. The ticket is a bearer credential, so
+the server logs neither it nor the identity. `GET /api/v1/connect` answers the local
+page and the app. A Tailcat adapter can implement the same port without moving the
+endpoint or the app.
 
 ### Download ownership and cleanup
 

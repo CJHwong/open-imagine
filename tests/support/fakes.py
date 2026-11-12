@@ -71,12 +71,31 @@ class FakeModelResidencyGateway(ModelResidencyGateway):
         self.current: str | None = None
         self.events: list[str] = []
 
-    def activate(self, backend_id: str) -> None:
+    def select(self, backend_id: str) -> None:
+        self._settle(backend_id, "select")
+
+    def claim(self, backend_id: str) -> tuple[str, ...]:
+        freed = self._settle(backend_id, "claim")
+        return tuple(freed)
+
+    def _settle(self, backend_id: str, verb: str) -> list[str]:
+        freed = []
         if self.current != backend_id:
             if self.current is not None:
+                freed.append(self.current)
                 self.events.append("release " + self.current)
             self.current = backend_id
-        self.events.append("activate " + backend_id)
+        self.events.append(verb + " " + backend_id)
+        return freed
+
+    def release_active(self) -> None:
+        if self.current is None:
+            return
+        self.events.append("release " + self.current)
+        self.current = None
+
+    def release_idle(self) -> None:
+        self.release()
 
     def release(self) -> None:
         if self.current is None:
