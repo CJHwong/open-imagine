@@ -1,6 +1,6 @@
 import io
 import json
-import sys
+import shutil
 from pathlib import Path
 
 import pytest
@@ -19,6 +19,7 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image.minimax_h3_ima
     engine_failure,
     image_size,
     reference_png,
+    uv_launcher,
 )
 from studio.plugins.image import Cancelled, ImageJob, InvalidJob, ReferenceImage
 
@@ -43,8 +44,8 @@ def weights(tmp_path):
     return tmp_path / "models"
 
 
-def gateway(runner, tmp_path, python_path=sys.executable):
-    return MinimaxH3ImageBackendGateway(str(weights(tmp_path)), python_path, runner)
+def gateway(runner, tmp_path):
+    return MinimaxH3ImageBackendGateway(str(weights(tmp_path)), runner)
 
 
 def test_declared_native_controls():
@@ -110,13 +111,15 @@ def test_each_stage_runs_as_its_own_child_with_the_engine_request(mode, count, s
     refs = tuple(ReferenceImage(png(), 64, 48) for _ in range(count))
 
     def run(command, **kwargs):
-        python, child, stage, root = command
+        uv, run_flag, script, child, stage, root = command
         request = json.loads((Path(root) / "request.json").read_text())
         saved.update(request=request, root=Path(root))
         ran.append(stage)
-        assert python == sys.executable and Path(child).name == "minimax_h3_image_child.py"
+        assert [run_flag, script] == ["run", "--script"] and Path(uv).name == "uv"
+        assert Path(child).name == "minimax_h3_image_child.py"
         assert all(Path(path).read_bytes() == png() for path in request["references"])
-        assert kwargs["environment"]["HF_HUB_OFFLINE"] == "1"
+        # The launcher is absolute, and no stage needs a binary from PATH.
+        assert kwargs["environment"] == {"HF_HUB_OFFLINE": "1"}
         assert not kwargs["cancelled"]()
         kwargs["consume"]("loading\n")
         if stage == "dit":
@@ -148,14 +151,47 @@ def test_each_stage_runs_as_its_own_child_with_the_engine_request(mode, count, s
     assert not saved["root"].exists()
 
 
+def test_every_stage_child_runs_under_the_uv_that_runs_the_studio(monkeypatch, tmp_path):
+    """The engine lives in the child's PEP 723 environment, not in the studio's. Every stage
+    starts the parent uv by its absolute path, so the child gets the same uv version."""
+    monkeypatch.setenv("UV", "/parent/bin/uv")
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command[:4])
+        if command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(png((1024, 1024)))
+
+    gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)
+
+    assert len(commands) == 3
+    assert all(head[:3] == ["/parent/bin/uv", "run", "--script"] for head in commands)
+    assert all(Path(head[3]).name == "minimax_h3_image_child.py" for head in commands)
+
+
+def test_the_launcher_falls_back_to_uv_on_path(monkeypatch):
+    monkeypatch.delenv("UV", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: "/elsewhere/bin/uv")
+
+    assert uv_launcher() == "/elsewhere/bin/uv"
+
+
+def test_a_missing_uv_gives_setup_instruction(monkeypatch):
+    monkeypatch.delenv("UV", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+
+    with pytest.raises(InvalidJob, match=r"needs uv on PATH.*set-up-models"):
+        uv_launcher()
+
+
 def test_the_prompt_stays_out_of_the_command_line(tmp_path):
     """A command line shows in the process list, so the prompt travels in the scratch file only."""
     commands = []
 
     def run(command, **kwargs):
         commands.append(command)
-        if command[2] == "vae":
-            (Path(command[3]) / "image.png").write_bytes(png((1024, 1024)))
+        if command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(png((1024, 1024)))
 
     gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)
     assert len(commands) == 3 and not any("OPEN" in part for command in commands for part in command)
@@ -167,12 +203,12 @@ def test_a_reference_reaches_the_engine_at_the_measured_pixel_count_at_most(tmp_
     sent = []
 
     def run(command, **kwargs):
-        root = Path(command[3])
-        if command[2] == "text":
+        root = Path(command[5])
+        if command[4] == "text":
             for name in ("reference-0.png", "reference-1.png"):
                 with Image.open(root / name) as image:
                     sent.append(image.size)
-        if command[2] == "vae":
+        if command[4] == "vae":
             (root / "image.png").write_bytes(png((2048, 2048)))
 
     small = png((640, 480))
@@ -206,8 +242,8 @@ def test_a_progress_line_that_does_not_parse_is_skipped(line, tmp_path):
 
     def run(command, **kwargs):
         kwargs["consume"](line + '\nH3_IMAGE_EVENT {"type": "step", "step": 3}\nH3_IMAGE_EVENT {"type": "note"}\n')
-        if command[2] == "vae":
-            (Path(command[3]) / "image.png").write_bytes(png((1024, 1024)))
+        if command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(png((1024, 1024)))
 
     gateway(run, tmp_path).run(job(), lambda step, total: steps.append(step), lambda: False)
 
@@ -218,7 +254,7 @@ def test_a_failed_child_removes_the_scratch_files(tmp_path):
     roots = []
 
     def run(command, **kwargs):
-        roots.append(Path(command[3]))
+        roots.append(Path(command[5]))
         raise StudioError("MiniMax H3-Image engine exited 1: boom")
 
     with pytest.raises(StudioError):
@@ -232,9 +268,9 @@ def test_cancel_after_the_last_stage_returns_no_image(tmp_path):
     stages = []
 
     def run(command, **kwargs):
-        stages.append(command[2])
-        if command[2] == "vae":
-            (Path(command[3]) / "image.png").write_bytes(png((1024, 1024)))
+        stages.append(command[4])
+        if command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(png((1024, 1024)))
 
     with pytest.raises(Cancelled):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: len(stages) == 3)
@@ -250,7 +286,7 @@ def test_cancel_propagates_and_removes_the_scratch_files(tmp_path):
     roots = []
 
     def run(command, **kwargs):
-        roots.append(Path(command[3]))
+        roots.append(Path(command[5]))
         raise Cancelled("Owned child terminated")
 
     with pytest.raises(Cancelled):
@@ -262,16 +298,11 @@ def test_cancel_between_stages_launches_no_later_stage(tmp_path):
     stages = []
 
     def run(command, **kwargs):
-        stages.append(command[2])
+        stages.append(command[4])
 
     with pytest.raises(Cancelled):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: bool(stages))
     assert stages == ["text"]
-
-
-def test_uninstalled_engine_gives_setup_instruction(tmp_path):
-    with pytest.raises(InvalidJob, match=r"runtime is missing.*set-up-models"):
-        gateway(None, tmp_path, python_path="/does/not/exist").load()
 
 
 @pytest.mark.parametrize("missing", WEIGHT_FILES)
@@ -285,8 +316,8 @@ def test_any_missing_weight_file_gives_setup_instruction(missing, tmp_path):
 @pytest.mark.parametrize("bad_output", [None, (16, 16)])
 def test_missing_or_wrong_output_is_not_success(bad_output, tmp_path):
     def run(command, **kwargs):
-        if bad_output and command[2] == "vae":
-            (Path(command[3]) / "image.png").write_bytes(png(bad_output))
+        if bad_output and command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(png(bad_output))
 
     with pytest.raises(InvalidJob):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)
@@ -294,7 +325,7 @@ def test_missing_or_wrong_output_is_not_success(bad_output, tmp_path):
 
 def test_non_png_output_is_rejected(tmp_path):
     def run(command, **kwargs):
-        Image.new("RGB", (1024, 1024)).save(Path(command[3]) / "image.png", format="BMP")
+        Image.new("RGB", (1024, 1024)).save(Path(command[5]) / "image.png", format="BMP")
 
     with pytest.raises(InvalidJob, match="unexpected image format"):
         gateway(run, tmp_path).run(job(), lambda *args: None, lambda: False)

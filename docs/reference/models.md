@@ -29,7 +29,7 @@ MiniMax H3 keeps its experimental warning in both languages of the model picker.
 | Image | FLUX.2 klein-base-9B, uncensored | `flux2` | Generate and Edit with up to four references | Full precision by default |
 | Image | Krea 2 Turbo | `krea2` | Generate and starting image | Eight-bit stored weights; distilled 8-step schedule |
 | Image | FLUX3 Image Klein | `flux3` | Generate and Edit with up to two references | Eight-bit by default; distilled 16-step schedule |
-| Image | MiniMax H3-Image | `minimax_h3_image` | Generate up to 4 MP, and Edit with up to four references at about 4 MP | Eight-bit stored weights; six steps without guidance; pinned h3-image-mlx runtime |
+| Image | MiniMax H3-Image | `minimax_h3_image` | Generate up to 4 MP, and Edit with up to four references at about 4 MP | Eight-bit stored weights; six steps without guidance; pinned h3-image-mlx script environment |
 | Video | **LTX-2.5 (default)** | `ltx25_mlx` | Generate and model-specific Edit effects | Eight-bit MLX pack |
 | Video | LTX-2.3 | `ltx23_mlx` | Generate and supported Edit effects | Optional eight-bit MLX pack |
 | Video | [MiniMax H3](../../studio/l3_interface_adapters/gateways/video/minimax_h3/README.md), experimental | `minimax_h3` | Short clips with native sound from text, up to three keyframes or an audio track, and one LoRA from your settings | Staged Q8; 512 x 288 runs of 73 and 175 frames, and one run each of 1024 x 576 and 1280 x 704 at 175 frames, measured on M5 Pro 64 GiB. With one LoRA, one run each of 512 x 288 at 73 frames and 1024 x 576 at 175 |

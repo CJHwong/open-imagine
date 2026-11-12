@@ -1,9 +1,10 @@
-"""Run the pinned h3-image-mlx engine, one owned child per stage, outside the host environment."""
+"""Run the pinned h3-image-mlx engine, one owned child per stage, from its own script environment."""
 
 import io
 import json
 import math
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -75,10 +76,22 @@ def engine_failure(code, lines):
     return f"MiniMax H3-Image engine exited {code}: {detail}"
 
 
+def uv_launcher() -> str:
+    """The uv that runs the studio, so a child's script environment uses the same version.
+
+    The parent uv exports its own path as UV. A server started another way falls back to PATH.
+    """
+    launcher = os.environ.get("UV") or shutil.which("uv")
+    if not launcher:
+        raise InvalidJob(
+            "MiniMax H3-Image needs uv on PATH. Install uv, or add it to PATH, and start the server with it. " + SETUP
+        )
+    return launcher
+
+
 class MinimaxH3ImageBackendGateway(ImageBackendGateway):
-    def __init__(self, model_dir: str, python_path: str, execute_process):
+    def __init__(self, model_dir: str, execute_process):
         self._model_dir = model_dir
-        self._python_path = python_path
         self._execute = execute_process
 
     def capabilities(self):
@@ -86,8 +99,6 @@ class MinimaxH3ImageBackendGateway(ImageBackendGateway):
 
     def load(self):
         # Readiness only: each stage child loads its own weights inside run.
-        if not Path(self._python_path).is_file():
-            raise InvalidJob(f"MiniMax H3-Image runtime is missing. {SETUP}")
         if not all((Path(self._model_dir) / name).is_file() for name in WEIGHT_FILES):
             raise InvalidJob(f"MiniMax H3-Image weights are missing. {SETUP}")
 
@@ -100,6 +111,7 @@ class MinimaxH3ImageBackendGateway(ImageBackendGateway):
 
         if should_stop():
             raise Cancelled("MiniMax H3-Image stopped")
+        launcher = uv_launcher()
         self.load()
         for reference in job.references:
             if max(reference.width, reference.height) > MAX_REFERENCE_RATIO * min(reference.width, reference.height):
@@ -150,10 +162,12 @@ class MinimaxH3ImageBackendGateway(ImageBackendGateway):
             child = str(Path(__file__).with_name("minimax_h3_image_child.py"))
             for stage in ("text", *(("references",) if references else ()), "dit", "vae"):
                 self._execute(
-                    [self._python_path, child, stage, str(root)],
+                    [launcher, "run", "--script", child, stage, str(root)],
                     cancelled=should_stop,
                     consume=consume,
-                    environment={"PATH": "/opt/homebrew/bin:" + os.environ.get("PATH", ""), "HF_HUB_OFFLINE": "1"},
+                    # The engine launches its own stages with the script environment's Python,
+                    # so no external binary comes from PATH. The launcher is absolute.
+                    environment={"HF_HUB_OFFLINE": "1"},
                     timeout_seconds=1500,
                     failure_message=engine_failure,
                 )

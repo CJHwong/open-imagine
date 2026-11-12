@@ -1,4 +1,4 @@
-"""Small opt-in smoke test through the owned stage children and the pinned local weights."""
+"""Small opt-in smoke test through the owned stage children and the local weights."""
 
 import io
 from pathlib import Path
@@ -13,13 +13,12 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image.minimax_h3_ima
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
 
 MODEL_DIR = Path.home() / "Library/Caches/models/minimax-h3-image"
-PYTHON_PATH = Path.home() / "Library/Caches/open-imagine/engines/h3-image-mlx-64df997/bin/python"
 
 
 @pytest.mark.live
-@pytest.mark.skipif(not MODEL_DIR.is_dir() or not PYTHON_PATH.is_file(), reason="MiniMax H3-Image is not installed")
+@pytest.mark.skipif(not MODEL_DIR.is_dir(), reason="MiniMax H3-Image weights are not installed")
 def test_real_generate_and_reference_edit():
-    backend = MinimaxH3ImageBackendGateway(str(MODEL_DIR), str(PYTHON_PATH), SubprocessRunner().execute)
+    backend = MinimaxH3ImageBackendGateway(str(MODEL_DIR), SubprocessRunner().execute)
     references = ()
     for mode, size, expected, prompt in [
         ("generate", "1024x576", (1024, 576), "A red ceramic teapot on a pale wooden table, soft daylight."),

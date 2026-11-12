@@ -25,7 +25,6 @@ def minimax_h3_image_backend(
         )
     return MinimaxH3ImageBackendGateway(
         config.required("minimax_h3_image", "model_dir"),
-        config.required("minimax_h3_image", "python_path"),
         execute_process=execute_process,
     )
 

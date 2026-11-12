@@ -446,9 +446,7 @@ def test_krea2_takes_no_quantize_or_its_own_eight(tmp_path: Path, section, flags
     assert build_image_backends(settings(tmp_path, KREA2 + section, **flags))["krea2"].capabilities().badge == "int8"
 
 
-H3_IMAGE = (
-    'default_backend = "minimax_h3_image"\n[minimax_h3_image]\nmodel_dir = "weights"\npython_path = "bin/python"\n'
-)
+H3_IMAGE = 'default_backend = "minimax_h3_image"\n[minimax_h3_image]\nmodel_dir = "weights"\n'
 
 
 @pytest.mark.parametrize(("section", "flags"), [("quantize = 4\n", {}), ("quantize = 0\n", {}), ("", {"quantize": 0})])
@@ -463,10 +461,9 @@ def test_minimax_h3_image_takes_no_quantize_or_its_own_eight(tmp_path: Path, sec
     assert backend.capabilities().badge == "int8"
 
 
-@pytest.mark.parametrize("key", ["model_dir", "python_path"])
-def test_minimax_h3_image_names_a_missing_setting(tmp_path: Path, key):
-    text = "\n".join(line for line in H3_IMAGE.splitlines() if not line.startswith(key)) + "\n"
-    with pytest.raises(ConfigError, match=rf"no {key} under \[minimax_h3_image\]"):
+def test_minimax_h3_image_names_a_missing_model_dir(tmp_path: Path):
+    text = "\n".join(line for line in H3_IMAGE.splitlines() if not line.startswith("model_dir")) + "\n"
+    with pytest.raises(ConfigError, match=r"no model_dir under \[minimax_h3_image\]"):
         build_image_backends(settings(tmp_path, text))
 
 

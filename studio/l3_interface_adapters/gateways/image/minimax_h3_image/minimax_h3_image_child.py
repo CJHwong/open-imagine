@@ -1,3 +1,10 @@
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.12,<3.13"
+# dependencies = [
+#   "h3-image-mlx @ git+https://github.com/Anionex/h3-image-mlx@64df997cd00a698302b1303f51028eee179487fe",
+# ]
+# ///
 """Standalone child: one engine stage, then exit. No Studio imports, no nested subprocesses."""
 
 import json
