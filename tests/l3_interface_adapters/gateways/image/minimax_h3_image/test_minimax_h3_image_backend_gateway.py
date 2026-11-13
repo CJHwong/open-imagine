@@ -53,7 +53,7 @@ def test_declared_native_controls():
         assert {p.id for p in mode.params} == {"size", "steps"}
         steps = next(p for p in mode.params if p.id == "steps")
         assert (steps.default, steps.minimum, steps.maximum) == (6, 6, 6)
-        assert not mode.looks and not mode.templates and not mode.loras
+        assert mode.looks and mode.templates and not mode.loras
     generate, edit = CAPABILITIES.mode("generate"), CAPABILITIES.mode("edit")
     assert (generate.min_references, generate.max_references) == (0, 0)
     assert (edit.min_references, edit.max_references) == (1, 4)
@@ -379,3 +379,49 @@ def test_the_edit_estimate_tracks_the_measured_runs_from_a_long_reference(refere
 
 def test_the_model_refuses_private_operations_because_its_engine_reads_files():
     assert minimax_h3_image_capabilities().private_operations is False
+
+
+def test_the_prompt_aids_are_the_ones_the_sample_kept():
+    capabilities = minimax_h3_image_capabilities()
+    generate, edit = capabilities.mode("generate"), capabilities.mode("edit")
+    assert [(row.name, len(row.options)) for row in generate.looks] == [
+        ("Medium", 3),
+        ("Film", 3),
+        ("Color", 3),
+        ("Light", 3),
+        ("Camera", 2),
+        ("Room for text", 1),
+        ("Realism", 1),
+        ("Portrait", 2),
+    ]
+    assert [(row.name, len(row.options)) for row in edit.looks] == [
+        ("Exposure", 2),
+        ("White balance", 2),
+        ("Grade", 2),
+        ("Lens", 3),
+        ("Finish", 3),
+        ("Retouch", 2),
+    ]
+    assert [template.name for template in generate.templates] == [
+        "Portrait photo",
+        "Product shot",
+        "Landscape",
+        "Poster with text",
+        "Illustration",
+        "Deadpan absurdity",
+        "Banner",
+    ]
+    assert [template.name for template in edit.templates] == [
+        "Replace the background",
+        "Add text",
+        "Add an object",
+        "Turn into a skeleton",
+        "Turn into a pose figure",
+    ]
+
+
+def test_a_look_this_model_refused_is_not_offered():
+    capabilities = minimax_h3_image_capabilities()
+    camera = next(row for row in capabilities.mode("generate").looks if row.name == "Camera")
+    assert "Top-down" not in dict(camera.options)
+    assert all(template.name != "Mark a region" for template in capabilities.mode("edit").templates)
