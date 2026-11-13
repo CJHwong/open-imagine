@@ -21,6 +21,11 @@ GIB = 1024**3
 # covers, so 47.0 remains the peak.
 DRAMA_CALIBRATED_PEAK_GIB = 47.0
 DRAMA_TEXT_GIB_PER_CHARACTER = 0.00015
+# The pinned eight-bit pack holds about 42 GB of weights, which is 39.1 GiB. The
+# child holds them while it stays loaded, so admission subtracts this from the peak
+# of a second run. The measured drop of 41.6 to 43.5 GiB keeps the decode buffers,
+# so the subtraction charges those and stays conservative.
+DRAMA_WEIGHTS_GIB = 39.1
 
 
 def estimate_peak_gib(payload: Mapping[str, object]) -> float | None:

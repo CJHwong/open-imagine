@@ -88,6 +88,9 @@ class FakeModelResidencyGateway(ModelResidencyGateway):
         self.events.append(verb + " " + backend_id)
         return freed
 
+    def resident_gib(self, backend_id: str) -> float:
+        return 0.0
+
     def release_active(self) -> None:
         if self.current is None:
             return

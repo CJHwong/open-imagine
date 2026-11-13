@@ -6,7 +6,10 @@ from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConf
 from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 from studio.l3_interface_adapters.gateways.voice.drama3.drama3_backend_gateway import Drama3BackendGateway
-from studio.l3_interface_adapters.gateways.voice.drama3.memory_estimate import estimate_peak_gib
+from studio.l3_interface_adapters.gateways.voice.drama3.memory_estimate import (
+    DRAMA_WEIGHTS_GIB,
+    estimate_peak_gib,
+)
 from studio.l3_interface_adapters.gateways.voice.drama3.storage_assets import storage_assets
 
 
@@ -30,4 +33,5 @@ PROVIDER = ModelProvider(
     estimator=memory_estimator,
     storage_assets=storage_assets,
     storage_name="Drama-3",
+    resident_gib=DRAMA_WEIGHTS_GIB,
 )

@@ -428,7 +428,10 @@ the previous model when another one runs or when the page leaves its workspace.
 the next model's `resident_gib` would take the total past `boundary_percent` of physical
 memory. A provider declares `resident_gib` from its weight size; a model without one is
 never kept. The boundary covers retention only: `ResourceAdmission` still checks each
-run's peak against free memory and keeps its 8 GiB system reserve. `ReleaseModelUseCase`
+run's peak against free memory and keeps its 8 GiB system reserve. For a model that is
+loaded already, admission subtracts its `resident_gib` from the peak, because free
+memory excludes a loaded model and the measured peak counts it again; the run pays
+only for what it allocates on top of the weights it holds. `ReleaseModelUseCase`
 takes the conditional path for a workspace leave and the unconditional one for
 `POST /api/v1/memory/release` and asset removal. `/api/v1/studio` reports the policy,
 the boundary, and the resident model IDs.

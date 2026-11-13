@@ -38,6 +38,12 @@ class InMemoryModelResidencyGateway(ModelResidencyGateway):
         self._active_id: str | None = None
         self._lock = threading.RLock()
 
+    def resident_gib(self, backend_id: str) -> float:
+        with self._lock:
+            if backend_id not in self._resident:
+                return 0.0
+            return self._footprints.get(backend_id, 0.0)
+
     def select(self, backend_id: str) -> None:
         with self._lock:
             self._check(backend_id)

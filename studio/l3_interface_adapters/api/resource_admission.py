@@ -16,10 +16,12 @@ class ResourceAdmission:
         memory_headroom: Callable[[], tuple[int, int]],
         estimates: MemoryEstimateGateway,
         settings: StudioSettingsGateway,
+        resident_gib: Callable[[str], float] | None = None,
     ):
         self._memory_headroom = memory_headroom
         self._estimates = estimates
         self._settings = settings
+        self._resident_gib = resident_gib
 
     def __call__(self, payload: Mapping[str, object]) -> None:
         self.check(payload)
@@ -32,10 +34,11 @@ class ResourceAdmission:
                 raise self._unavailable()
             return
         available_gib = available_bytes / GIB
-        required_gib = estimate_gib + OS_RESERVE_GIB
+        needed_gib = self._needed(estimate_gib, payload)
+        required_gib = needed_gib + OS_RESERVE_GIB
         if required_gib > available_gib:
             raise InsufficientMemory(
-                f"Not enough memory to start this request. It needs about {estimate_gib:.1f} GiB "
+                f"Not enough memory to start this request. It needs about {needed_gib:.1f} GiB "
                 f"plus {OS_RESERVE_GIB:.0f} GiB reserved for macOS; about {available_gib:.1f} GiB is available. "
                 "Close other memory-heavy apps or release the loaded model, then retry. "
                 "For images or video, try a smaller output or fewer references."
@@ -50,6 +53,18 @@ class ResourceAdmission:
         total_bytes, _ = self._memory_headroom()
         if self._estimate(payload, total_bytes) is None and self._settings.require_memory_estimate():
             raise self._unavailable()
+
+    def _needed(self, estimate_gib: float, payload: Mapping[str, object]) -> float:
+        """The run's peak, less the model that is loaded already.
+
+        Free memory leaves out a loaded model, and the measured peak counts it again,
+        so charging the whole peak would ask for the model twice. The subtraction
+        charges only what the run allocates on top of the weights it already holds.
+        """
+        if self._resident_gib is None:
+            return estimate_gib
+        backend = payload.get("backend")
+        return max(0.0, estimate_gib - self._resident_gib(str(backend or "")))
 
     def _estimate(self, payload: Mapping[str, object], total_bytes: int) -> float | None:
         estimate_gib = self._estimates.estimate(payload, total_bytes / GIB)
