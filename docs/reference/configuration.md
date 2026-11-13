@@ -134,9 +134,10 @@ The page is read at startup; restart the stub after page changes and between sui
 
 `default_music_backend = "yue2"` and `visible_music_backends = ["yue2"]` select the
 independent Music catalog. YuE2 uses native Apple Silicon MLX Q8 exclusively.
-`[yue2]` takes `model_dir`, a separate `vae_dir`, `transcription_cache_dir`, and optional `python_path` for
-the pinned runtime. `engine` may be omitted or set to `mlx-q8`; legacy engine
-values are rejected. The default runtime environment and weight setup are in
+`[yue2]` takes `model_dir`, a separate `vae_dir`, and `transcription_cache_dir` for the
+pinned transcription weights and the instrumental helpers. The worker always runs as a
+uv script with its own pinned environment, so `python_path` is rejected. `engine` may be
+omitted or set to `mlx-q8`; legacy engine values are rejected. The default runtime environment and weight setup are in
 [Music setup](../how-to/music.md).
 Startup loads no Music weights; generation uses installed local checkpoints only.
 See [Music setup](../how-to/music.md) for the default download recipe and input controls.

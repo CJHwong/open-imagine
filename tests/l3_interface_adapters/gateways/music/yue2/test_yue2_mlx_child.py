@@ -84,19 +84,111 @@ def snapshot(tmp_path):
 
 
 def test_download_entrypoint_never_starts_gpu(monkeypatch, tmp_path):
+    # The `__main__` guard is the path uv runs, so prove it fetches and returns.
     monkeypatch.setattr(
         sys,
         "argv",
-        ["worker", "--model-dir", str(tmp_path / "model"), "--vae-dir", str(tmp_path / "vae"), "--download"],
+        [
+            "worker",
+            "--model-dir",
+            str(tmp_path / "model"),
+            "--vae-dir",
+            str(tmp_path / "vae"),
+            "--download-transcription",
+        ],
     )
-    monkeypatch.setitem(
-        sys.modules, "huggingface_hub", SimpleNamespace(snapshot_download=Mock(return_value=str(snapshot(tmp_path))))
-    )
+    download = Mock(return_value=str(snapshot(tmp_path)))
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(snapshot_download=download))
     runpy.run_path(child.__file__, run_name="__main__")
-    download = Mock()
-    monkeypatch.setattr(child, "download_weights", download)
+    assert download.call_count == len(child.TRANSCRIPTION_MODELS)
+    weights, helpers = Mock(), Mock()
+    monkeypatch.setattr(child, "download_weights", weights)
+    monkeypatch.setattr(child, "install_helpers", helpers)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "worker",
+            "--model-dir",
+            str(tmp_path / "model"),
+            "--vae-dir",
+            str(tmp_path / "vae"),
+            "--transcription-cache-dir",
+            str(tmp_path / "cache"),
+            "--download",
+        ],
+    )
     child.main()
-    download.assert_called_once()
+    weights.assert_called_once()
+    helpers.assert_called_once_with(str(tmp_path / "cache"))
+
+
+def test_main_makes_the_installed_helpers_importable(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["worker", "--model-dir", "model", "--vae-dir", "vae", "--transcription-cache-dir", str(tmp_path)],
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    monkeypatch.setattr(child, "Worker", Mock(return_value=Mock()))
+    original = list(sys.path)
+    try:
+        child.main()
+        assert sys.path[0] == str(tmp_path)
+    finally:
+        sys.path[:] = original
+
+
+def test_fetch_reads_and_closes_the_answer(monkeypatch):
+    urlopen = Mock(return_value=io.BytesIO(b"body"))
+    monkeypatch.setattr(child.urllib.request, "urlopen", urlopen)
+    assert child.fetch("https://example.test/LICENSE") == b"body"
+    urlopen.assert_called_once_with("https://example.test/LICENSE", timeout=60)
+
+
+def test_helper_fetch_verifies_the_pinned_blob(monkeypatch):
+    monkeypatch.setattr(child, "fetch", lambda url: b"test content\n")
+    expected = child.git_blob_sha(b"test content\n")
+    assert child.fetch_helper("common.py", expected) == b"test content\n"
+    with pytest.raises(ValueError, match="integrity mismatch"):
+        child.fetch_helper("common.py", "0" * 40)
+
+
+def test_install_helpers_writes_a_namespaced_package_with_provenance(tmp_path, monkeypatch):
+    source = (
+        b"from abc_tools import parse_abc\nfrom common import write_json\nfrom compile_score import compile_events\n"
+    )
+    monkeypatch.setattr(child, "fetch_helper", lambda name, expected: source)
+    monkeypatch.setattr(child, "fetch", lambda url: b"Apache License 2.0\n")
+    package = child.install_helpers(tmp_path)
+    assert package == tmp_path / "yue2_instrumental_support"
+    installed = (package / "instrumentalize.py").read_text()
+    assert "from .abc_tools import parse_abc" in installed
+    assert "from .common import write_json" in installed
+    assert "from .compile_score import compile_events" in installed
+    provenance = json.loads((package / "SOURCES.json").read_text())
+    assert provenance["revision"] == child.HELPER_REVISION
+    assert set(provenance["files"]) == set(child.HELPER_FILES)
+    assert (package / "LICENSE").read_text() == "Apache License 2.0\n"
+
+
+def test_helper_failure_leaves_no_partial_package(tmp_path, monkeypatch):
+    def corrupt(name, expected):
+        raise ValueError("corrupt upstream helper")
+
+    monkeypatch.setattr(child, "fetch_helper", corrupt)
+    with pytest.raises(ValueError, match="corrupt upstream"):
+        child.install_helpers(tmp_path)
+    assert not (tmp_path / "yue2_instrumental_support").exists()
+
+
+def test_transcription_download_pins_both_checkpoints(tmp_path, monkeypatch):
+    download = Mock()
+    monkeypatch.setitem(sys.modules, "huggingface_hub", SimpleNamespace(snapshot_download=download))
+    child.download_transcription(tmp_path / "cache")
+    assert [call.kwargs["repo_id"] for call in download.call_args_list] == list(child.TRANSCRIPTION_MODELS)
+    assert [call.kwargs["revision"] for call in download.call_args_list] == list(child.TRANSCRIPTION_MODELS.values())
+    assert all(call.kwargs["cache_dir"] == str(tmp_path / "cache") for call in download.call_args_list)
 
 
 def test_mlx_download_is_pinned_and_keeps_decoder_and_cache_outside_model(monkeypatch, tmp_path):
@@ -361,15 +453,15 @@ def test_cover_uses_transcribed_notation_and_task_without_loading_both_models(mo
 def test_instrumental_score_uses_pinned_converter_and_only_section_tags(monkeypatch):
     converter = Mock(return_value=("X:1\n% verse\nV:Ins\nC4|\n% outro\n", {"preserved": True}))
     monkeypatch.setitem(
-        sys.modules, "lyra.music_tools.instrumental_support.instrumentalize", SimpleNamespace(convert_score=converter)
+        sys.modules, "yue2_instrumental_support.instrumentalize", SimpleNamespace(convert_score=converter)
     )
     converted, lyrics, report = child.instrumental_score("source")
     converter.assert_called_once_with("source", overlap="vocal", keep_chords=True)
     assert converted.startswith("X:1") and lyrics == "[Verse]\n\n[Outro]" and report == {"preserved": True}
     converter.return_value = ("X:1", {})
     assert child.instrumental_score("source")[1] == ""
-    monkeypatch.setitem(sys.modules, "lyra.music_tools.instrumental_support.instrumentalize", None)
-    with pytest.raises(ValueError, match="setup_yue2_workflows"):
+    monkeypatch.setitem(sys.modules, "yue2_instrumental_support.instrumentalize", None)
+    with pytest.raises(ValueError, match="--download"):
         child.instrumental_score("source")
 
 
@@ -437,7 +529,7 @@ def test_instrumental_header_changes_only_display_labels_and_preserves_title_in_
     converted = "X:1\n% verse\nV:Ins\nC4|\n"
     converter = Mock(return_value=(converted, {"preserved": True}))
     monkeypatch.setitem(
-        sys.modules, "lyra.music_tools.instrumental_support.instrumentalize", SimpleNamespace(convert_score=converter)
+        sys.modules, "yue2_instrumental_support.instrumentalize", SimpleNamespace(convert_score=converter)
     )
     score, lyrics, report = child.instrumental_score(original)
     normalized = converter.call_args.args[0]

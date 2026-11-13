@@ -2,7 +2,11 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
+#   "mido==1.3.3",
+#   "mir-eval==0.8.2",
 #   "mlx-yue @ git+https://github.com/vanch007/mlx-Yue.git@c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8",
+#   "pretty-midi==0.2.11.post0",
+#   "scipy>=1.13,<2",
 # ]
 # ///
 """Pinned native MLX Q8 worker, isolated from Studio's dependency environment."""
@@ -18,12 +22,27 @@ import os
 import re
 import shutil
 import sys
+import urllib.request
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 MODEL_REVISION = "5f7620e546fb3c6130a09a7e18172e3bb7aaeddb"
+HELPER_REVISION = "1647252d68b70cbead046ffd3f7caf036dde47ee"
+HELPER_ROOT = f"https://raw.githubusercontent.com/multimodal-art-projection/YuE/{HELPER_REVISION}"
+HELPER_URL = f"{HELPER_ROOT}/skills/yue2-music/instrumental/scripts"
+HELPER_FILES = {
+    "abc_tools.py": "88b66e5bb73a4ba3633ae4c7a417118806e0e606",
+    "common.py": "4b6c2d502f131539b26069753b6e4482eb2db280",
+    "compile_score.py": "d20e19965eb58437af0415ebf4816a0070732e23",
+    "instrumentalize.py": "dfd008b3537967164dd3a4aa8c0401284dcdb679",
+}
+HELPER_PACKAGE = "yue2_instrumental_support"
+TRANSCRIPTION_MODELS = {
+    "m-a-p/SheetSage2": "eab522a8168e8b8b8c4856bf8609cd86198f01fe",
+    "m-a-p/MERT-v2-FullSong": "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42",
+}
 
 
 def log(message):
@@ -57,6 +76,72 @@ def download_weights(args):
             target = vae_dir / path.relative_to(source / "vae")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(path, target)
+
+
+def fetch(url):
+    with urllib.request.urlopen(url, timeout=60) as answer:
+        return answer.read()
+
+
+def git_blob_sha(data):
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data, usedforsecurity=False).hexdigest()
+
+
+def adapt_helper_imports(source):
+    text = source.decode("utf-8")
+    for module in ("abc_tools", "common", "compile_score"):
+        text = text.replace(f"from {module} import ", f"from .{module} import ")
+    return text.encode("utf-8")
+
+
+def fetch_helper(name, expected):
+    data = fetch(f"{HELPER_URL}/{name}")
+    if git_blob_sha(data) != expected:
+        raise ValueError(f"Upstream helper integrity mismatch: {name}")
+    return data
+
+
+def install_helpers(cache_dir):
+    """Install the pinned instrumental helpers as a package in the extras cache.
+
+    The helpers are a directory of the upstream repository, not a Python package, so the
+    script header cannot carry them. Every file is fetched and checked before the first
+    write, so a failed fetch leaves an earlier installation untouched.
+    """
+    prepared = {name: adapt_helper_imports(fetch_helper(name, expected)) for name, expected in HELPER_FILES.items()}
+    license_text = fetch(f"{HELPER_ROOT}/LICENSE")
+    package = Path(cache_dir).expanduser() / HELPER_PACKAGE
+    package.mkdir(parents=True, exist_ok=True)
+    for name, data in prepared.items():
+        (package / name).write_bytes(data)
+    (package / "__init__.py").write_text('"""Pinned YuE2 instrumental helpers; see SOURCES.json and LICENSE."""\n')
+    (package / "LICENSE").write_bytes(license_text)
+    sources = {
+        "repository": "https://github.com/multimodal-art-projection/YuE",
+        "revision": HELPER_REVISION,
+        "directory": "skills/yue2-music/instrumental/scripts",
+        "license": "Apache-2.0",
+        "modification": "Sibling imports made relative; source logic is unchanged.",
+        "files": {
+            name: {"git_blob_sha1": HELPER_FILES[name], "sha256": hashlib.sha256(data).hexdigest()}
+            for name, data in prepared.items()
+        },
+    }
+    (package / "SOURCES.json").write_text(json.dumps(sources, indent=2) + "\n")
+    return package
+
+
+def download_transcription(cache_dir):
+    """Fetch the pinned SheetSage2 and MERT-v2 checkpoints that transcription reads."""
+    from huggingface_hub import snapshot_download
+
+    for repository, revision in TRANSCRIPTION_MODELS.items():
+        snapshot_download(
+            repo_id=repository,
+            revision=revision,
+            cache_dir=str(Path(cache_dir).expanduser()),
+            allow_patterns=["config.json", "model.safetensors", "LICENSE"],
+        )
 
 
 def load_engine(args):
@@ -208,9 +293,9 @@ def instrumental_header(score):
 
 def instrumental_score(score):
     try:
-        from lyra.music_tools.instrumental_support.instrumentalize import convert_score
+        from yue2_instrumental_support.instrumentalize import convert_score
     except ImportError as error:
-        raise ValueError("Install the pinned instrumental helpers with scripts/setup_yue2_workflows.py.") from error
+        raise ValueError("Install the pinned instrumental helpers with --download.") from error
     normalized, original_title = instrumental_header(score)
     converted, report = convert_score(normalized, overlap="vocal", keep_chords=True)
     if original_title:
@@ -331,7 +416,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--vae-dir", required=True)
-    parser.add_argument("--download", action="store_true")
+    parser.add_argument("--download", action="store_true", help="Fetch the weights and the instrumental helpers.")
+    parser.add_argument(
+        "--download-transcription", action="store_true", help="Fetch the SheetSage2 and MERT-v2 checkpoints."
+    )
     parser.add_argument(
         "--transcription-cache-dir", default=str(Path.home() / "Library/Caches/models/yue2-transcription")
     )
@@ -339,7 +427,12 @@ def main():
     with contextlib.redirect_stdout(sys.stderr):
         if args.download:
             download_weights(args)
+            install_helpers(args.transcription_cache_dir)
             return
+        if args.download_transcription:
+            download_transcription(args.transcription_cache_dir)
+            return
+        sys.path.insert(0, str(Path(args.transcription_cache_dir).expanduser()))
         engine = Worker(args)
     log("ready")
     try:
