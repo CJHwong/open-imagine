@@ -17,15 +17,11 @@ There is no PyTorch Music engine or precision fallback.
 
 The worker pins [mlx-Yue](https://github.com/vanch007/mlx-Yue) at
 `c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8`, including MLX 0.32.2 and mlx-lm 0.31.3.
-Create the isolated Python 3.12 environment used by the default configuration:
+It runs as a uv script with its own pinned environment, so it needs no separate venv.
+Fetch the weights and the pinned instrumental helpers:
 
 ```sh
-runtime="$HOME/Library/Caches/yue2-mlx-runtime/c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8"
-uv venv --python 3.12 "$runtime/venv"
-uv pip install --python "$runtime/venv/bin/python" \
-  'mlx-yue @ git+https://github.com/vanch007/mlx-Yue.git@c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8'
-"$runtime/venv/bin/python" \
-  studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py \
+uv run --script studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py \
   --download \
   --model-dir "$HOME/Library/Caches/models/yue2-mlx" \
   --vae-dir "$HOME/Library/Caches/models/yue2-mlx-vae"
@@ -38,11 +34,14 @@ that directory; placing it inside invalidates the upstream integrity check.
 The downloader refuses unexpected files in an existing generator directory and
 keeps them intact. Choose an empty directory instead of a previous Hub checkout.
 
-`[yue2]` in `studio.toml` defaults to `engine = "mlx-q8"`, with `model_dir`,
-`vae_dir`, and the pinned environment's `python_path`. Without `python_path`, the
-worker uses its isolated `uv run --script` environment. An old `engine = "torch"`
-setting is rejected. Startup and stub mode load no weights; generation uses local
-checkpoints only and never downloads them. Cancellation stops the owned worker.
+The instrumental helpers come from a directory of the upstream YuE repository, not from a
+package index. The download checks each file against the pinned revision and writes the
+package, its license and its sources into `transcription_cache_dir`.
+
+`[yue2]` in `studio.toml` takes `model_dir`, `vae_dir` and `transcription_cache_dir`. The
+studio starts the worker with the same uv that runs it. An old `python_path` or
+`engine = "torch"` setting is rejected. Startup and stub mode load no weights; generation
+uses local checkpoints only and never downloads them. Cancellation stops the owned worker.
 
 Token counts indicate activity during planning and semantic generation, then
 acoustic synthesis reports solver steps. Neither is a whole-song percentage or ETA.
@@ -124,20 +123,19 @@ new performance from that score. It does not clone the original singer, preserve
 source waveform regions, or automatically transcribe lyrics. Transcription errors
 can affect the result; inspect and edit the returned score when needed.
 
-Audio transcription and covers need FFmpeg and separately cached SheetSage2/MERT2
-weights. The setup helper installs the verified instrumental helpers and Torch-free
-transcription dependencies into the pinned runtime, then downloads both pinned
-checkpoints:
+Audio transcription and covers need FFmpeg and separately cached SheetSage2 and MERT-v2
+checkpoints. Fetch them once with the worker's own download flag:
 
 ```sh
-uv run python scripts/setup_yue2_workflows.py
+uv run --script studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py \
+  --download-transcription \
+  --model-dir "$HOME/Library/Caches/models/yue2-mlx" \
+  --vae-dir "$HOME/Library/Caches/models/yue2-mlx-vae"
 ```
 
-Use `--python <pinned-venv/bin/python>` to select the runtime and `--cache-dir <path>`
-to select the transcription cache. `--skip-download` installs the helpers and
-optional dependencies without downloading weights. Their absence does not prevent
-ordinary song or score creation. The cache is configured with
-`[yue2].transcription_cache_dir` (default `~/Library/Caches/models/yue2-transcription`).
+The command writes both checkpoints to `[yue2].transcription_cache_dir` (default
+`~/Library/Caches/models/yue2-transcription`). Their absence does not prevent ordinary
+song or score creation.
 
 ## Model capabilities and limits
 

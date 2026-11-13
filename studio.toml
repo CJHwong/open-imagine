@@ -192,7 +192,6 @@ child_script = "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.
 engine = "mlx-q8"
 model_dir = "~/Library/Caches/models/yue2-mlx"
 vae_dir = "~/Library/Caches/models/yue2-mlx-vae"
-python_path = "~/Library/Caches/yue2-mlx-runtime/c5b5a8190f78c74aa671a4caa19dae8b8e04b3d8/venv/bin/python"
 
 # Separate pinned transcription weights for Reference audio / Cover song.
 transcription_cache_dir = "~/Library/Caches/models/yue2-transcription"

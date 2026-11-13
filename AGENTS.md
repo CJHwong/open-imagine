@@ -119,6 +119,10 @@ One gateway interface serves every engine. Two transports sit behind it.
    loaded per call keeps loading per call. Never make a warm path cold.
 5. Cancellation and progress use the existing contract. The host stops the child, and the child
    reports its step events.
+6. An asset the engine needs that is neither a pip package nor a weight, such as a source
+   directory, arrives through the child's own `--download` step. Check each file against the
+   pinned revision, write the set into a cache directory, and put that directory on the child's
+   `sys.path`. Do not install it into the engine's environment.
 
 ## Where to fetch a model
 

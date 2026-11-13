@@ -118,15 +118,14 @@ def test_bad_music_requests_fail_before_reserving(server):
 def test_music_config_and_worker_environment(tmp_path):
     config = Config("qwen21", ("qwen21",), "v", (), {})
     backend = music_yue2_backend(config)
-    assert backend._child._command[:3] == ["uv", "run", "--script"]
-    config = replace(
-        config,
-        sections={"yue2": {"python_path": "/venv/bin/python", "model_dir": "/model", "vae_dir": "/vae"}},
-    )
+    assert backend._child._command[1:3] == ["run", "--script"]
+    config = replace(config, sections={"yue2": {"model_dir": "/model", "vae_dir": "/vae"}})
     gateway = build_music_backends(config)["yue2"]
-    assert gateway._child._command[0] == "/venv/bin/python"
+    assert gateway._child._command[1:3] == ["run", "--script"]
     assert gateway._child._command[-4:] == ["--model-dir", "/model", "--vae-dir", "/vae"]
     assert isinstance(build_music_backends(config, stub=True)["yue2"], StubMusicBackendGateway)
+    with pytest.raises(ConfigError, match="python_path"):
+        music_yue2_backend(replace(config, sections={"yue2": {"python_path": "/venv/bin/python"}}))
     with pytest.raises(ConfigError, match="mlx-q8"):
         music_yue2_backend(replace(config, sections={"yue2": {"engine": "torch"}}))
     with pytest.raises(ConfigError, match="missing"):
@@ -135,6 +134,17 @@ def test_music_config_and_worker_environment(tmp_path):
     path.write_text('default_backend="qwen21"\ndefault_music_backend="custom"\nvisible_music_backends=["yue2"]\n')
     settings = load_config(path)
     assert settings.default_music_backend == "custom" and settings.visible_music_backends == ("custom", "yue2")
+
+
+def test_music_worker_uses_the_uv_that_runs_the_studio(monkeypatch):
+    from studio.l3_interface_adapters.gateways.music.yue2.construction import uv_launcher
+
+    monkeypatch.setenv("UV", "/opt/uv/bin/uv")
+    assert uv_launcher() == "/opt/uv/bin/uv"
+    monkeypatch.delenv("UV")
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    with pytest.raises(ConfigError, match="uv on PATH"):
+        uv_launcher()
 
 
 def test_unconfigured_music_uses_expected_error():
@@ -162,7 +172,7 @@ def test_mlx_q8_config_selects_an_isolated_native_worker(tmp_path):
     config = Config("qwen21", ("qwen21",), "v", (), {"yue2": {"engine": "mlx-q8", "model_dir": "/mlx"}})
     gateway = music_yue2_backend(config)
     command = gateway._child._command
-    assert command[:3] == ["uv", "run", "--script"]
+    assert command[1:3] == ["run", "--script"]
     assert command[3].endswith("/yue2_mlx_child.py")
     assert command[-4:] == ["--model-dir", "/mlx", "--vae-dir", "/mlx-vae"]
     assert "--device" not in command
@@ -170,11 +180,9 @@ def test_mlx_q8_config_selects_an_isolated_native_worker(tmp_path):
     stub = build_music_backends(config, stub=True)["yue2"]
     assert stub.capabilities() == gateway.capabilities()
     path = tmp_path / "studio.toml"
-    interpreter = tmp_path / "python"
-    interpreter.symlink_to("/usr/bin/python3")
-    path.write_text('default_backend="qwen21"\n[yue2]\nengine="mlx-q8"\npython_path="python"\nmodel_dir="weights"\n')
+    path.write_text('default_backend="qwen21"\n[yue2]\nengine="mlx-q8"\nmodel_dir="weights"\n')
     gateway = music_yue2_backend(load_config(path))
-    assert gateway._child._command[0] == str(interpreter)
+    assert gateway._child._command[1:3] == ["run", "--script"]
     assert gateway._model_dir == str(tmp_path / "weights")
     with pytest.raises(ConfigError, match="engine"):
         music_yue2_backend(replace(config, sections={"yue2": {"engine": "q4"}}))

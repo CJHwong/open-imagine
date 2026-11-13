@@ -1,5 +1,7 @@
 """Composition factory for music/yue2."""
 
+import os
+import shutil
 from pathlib import Path
 
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
@@ -11,13 +13,25 @@ from studio.l3_interface_adapters.gateways.music.yue2.yue2_backend_gateway impor
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 
+def uv_launcher() -> str:
+    """The uv that runs the studio, so the worker's environment matches the parent's version."""
+    found = os.environ.get("UV") or shutil.which("uv")
+    if not found:
+        raise ModelConfigurationError("YuE2 needs uv on PATH. Follow the Music setup in docs/how-to/music.md.")
+    return found
+
+
 def music_yue2_backend(config: ModelConfigurationGateway, **_):
     settings = config.backend("yue2")
     if settings.get("engine", "mlx-q8") != "mlx-q8":
         raise ModelConfigurationError("YuE2 only supports the mlx-q8 engine. Remove the old PyTorch settings.")
+    if "python_path" in settings:
+        raise ModelConfigurationError(
+            "YuE2 no longer takes [yue2].python_path. The worker runs as a uv script with its own pinned "
+            "dependencies. Remove the setting."
+        )
     script = Path(__file__).with_name("yue2_mlx_child.py")
-    python = settings.get("python_path")
-    command = [str(python), str(script)] if python else ["uv", "run", "--script", str(script)]
+    command = [uv_launcher(), "run", "--script", str(script)]
     model_dir = str(settings.get("model_dir", Path.home() / "Library/Caches/models/yue2-mlx"))
     vae_dir = str(settings.get("vae_dir", model_dir + "-vae"))
     if Path(vae_dir).resolve().is_relative_to(Path(model_dir).resolve()):
@@ -43,6 +57,5 @@ PROVIDER = ModelProvider(
     estimator=memory_estimator,
     storage_assets=storage_assets,
     storage_name="YuE2",
-    storage_roots=("~/Library/Caches/yue2-mlx-runtime",),
     resident_gib=YUE2_WEIGHT_FLOOR_GIB,
 )
