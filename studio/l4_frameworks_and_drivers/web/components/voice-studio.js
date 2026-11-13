@@ -16,6 +16,7 @@ import './gallery-tile.js';
 import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {openRunSheet} from '../lib/run-sheet.js';
 import {t, plural, label} from '../lib/i18n.js';
+import {spell} from '../lib/time-format.js';
 import {navigate} from '../lib/navigation.js';
 
 const DEFAULT_CAPABILITIES = {name: 'Drama-3', modes: []};
@@ -1229,12 +1230,21 @@ class VoiceStudio extends LitElement {
     </dialog>`;
   }
 
+  // The figure beside the run button, from the mode's measured cost. Only a mode that takes
+  // a target length can say a time: an engine that follows the script has no length yet.
+  estimateText() {
+    const estimate = this.currentMode?.estimate;
+    const seconds = Number(this.seconds) || 0;
+    if (!estimate || !seconds) return '';
+    return t('form.estimate.about', {time: spell(estimate.overhead + estimate.rtf * seconds)});
+  }
+
   footerTemplate() {
     const own = this.busy && this.ownOperationId;
     const stopping = own && (this.stopping || this.activeOperation?.status === 'stopping');
     const starting = this.busy && !this.ownOperationId;
     const state = stopping ? 'stopping' : starting ? 'starting' : own ? 'busy' : 'idle';
-    const caption = this.mode === 'edit' ? t('voice.footer.editCaption') : t('voice.footer.caption');
+    const caption = this.mode === 'edit' ? t('voice.footer.editCaption') : this.estimateText() || t('voice.footer.caption');
     // The shared status bar owns Cancel, so this button keeps its verb and waits.
     return html`<button id="voice-generate" class="run-button" type="button" data-state=${state} ?disabled=${starting || stopping || Boolean(own) || Boolean(this.reason)}
       @click=${() => this.generate()}>

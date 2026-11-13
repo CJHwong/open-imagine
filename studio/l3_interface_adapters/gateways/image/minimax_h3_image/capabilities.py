@@ -1,6 +1,52 @@
-"""MiniMax H3-Image: six fixed steps, no guidance, and no prompt aids until they are tested here."""
+"""MiniMax H3-Image: six fixed steps, no guidance, and the prompt aids it passed here."""
 
 from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import (
+    EDIT_LOOKS as EDIT_LOOK_CATALOG,
+)
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import (
+    pick_looks,
+    pick_templates,
+)
+from studio.l3_interface_adapters.gateways.prompt_aids import pick_looks as pick_from_catalog
+
+# The options that passed the sample recorded in PROMPT_EVALUATION.md, one sheet per row.
+# Top-down bent the still life, "Right" wrote the word Subject in the gap, and the neon
+# signs came out as invented lettering, so only two of the Camera row and one of Room for
+# text are offered here.
+LOOKS = pick_looks(
+    {
+        "Medium": ("Watercolor", "3D render", "Skeleton"),
+        "Film": ("Portra 400", "Ektachrome", "Black and white"),
+        "Color": ("Warm", "Cool", "Muted"),
+        "Light": ("Golden hour", "Studio", "Night with neon"),
+        "Camera": ("Close-up 85mm", "Wide 24mm"),
+        "Room for text": ("Left",),
+        "Realism": ("Real person",),
+        "Portrait": ("Over the shoulder", "Candid glance"),
+    }
+)
+# Retouch reads at 2048 and the two grade rows move the whole frame, so they stay.
+EDIT_LOOKS = pick_from_catalog(
+    EDIT_LOOK_CATALOG,
+    {
+        "Exposure": ("Brighter", "Darker"),
+        "White balance": ("Cooler", "Warmer"),
+        "Grade": ("Teal and orange", "Muted filmic"),
+        "Lens": ("Shallow depth", "Wider view", "Telephoto"),
+        "Finish": ("Film grain", "Vignette", "Halation"),
+        "Retouch": ("Smooth the skin", "Brighten the eyes"),
+    },
+)
+# This model draws lettering, so the three templates that carry words are offered.
+# "Change a color or material" turned the sweater into a pot, "Alternate reality" only
+# pasted the subject into a street, and "Mark a region" needs a mask this model lacks.
+TEMPLATES = pick_templates(
+    ("Portrait photo", "Product shot", "Landscape", "Poster with text", "Illustration", "Deadpan absurdity", "Banner")
+)
+EDIT_TEMPLATES = pick_templates(
+    ("Replace the background", "Add text", "Add an object", "Turn into a skeleton", "Turn into a pose figure")
+)
 
 # The engine takes sides that are multiples of 32, from 256 to 4096.
 GRID = 32
@@ -102,6 +148,8 @@ def minimax_h3_image_capabilities() -> Capabilities:
                 (SIZE, STEPS),
                 prompt_hint="Describe the complete scene. Put the words of a sign or label in quotes.",
                 estimate=GENERATE_ESTIMATE,
+                looks=LOOKS,
+                templates=TEMPLATES,
             ),
             ModeSpec(
                 "edit",
@@ -111,6 +159,8 @@ def minimax_h3_image_capabilities() -> Capabilities:
                 max_references=MAX_REFERENCES,
                 estimate=EDIT_ESTIMATE,
                 prompt_hint="Say what to change. Name a reference as <Picture 1>, <Picture 2>, in the order you added them.",
+                looks=EDIT_LOOKS,
+                templates=EDIT_TEMPLATES,
             ),
         ),
     )
