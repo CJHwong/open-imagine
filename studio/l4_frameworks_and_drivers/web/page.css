@@ -1457,9 +1457,13 @@
   .music-transport .music-play .icon { width: 28px; height: 28px; }
   .music-transport .music-play:hover { opacity: .85; }
   .music-player-error { text-align: center; }
-  .music-output-details { position: relative; flex-wrap: nowrap; padding-top: 12px; background: transparent; border: 0; }
+  .music-output-details { position: relative; flex-wrap: wrap; padding-top: 12px; background: transparent; border: 0; }
   .music-output-details .about { min-width: 0; }
   .music-output-details .actions { flex-wrap: wrap; justify-content: flex-end; max-width: 60%; margin-left: auto; }
+  /* The line a run adds is in the bar only while it runs. On the bar's line it took the
+     width the about block needed, which collapsed to nothing and stacked each label.
+     It takes a line of its own instead, and the bar stays as tall as its content. */
+  .music-output-details .music-action-help { flex-basis: 100%; margin: 6px 0 0; }
   .music-details-body dd { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .music-details-body details { margin-top: 16px; font-size: 12px; }
   .music-details-body summary { cursor: pointer; color: var(--text-2); }
