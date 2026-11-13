@@ -2022,12 +2022,16 @@
 .connect-dialog::backdrop { background: rgb(0 0 0 / 55%); }
 .connect-head {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  height: auto;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
 }
 .connect-head h2 { margin: 0; font-size: 1.05rem; }
+.connect-head .icon-btn { flex: none; width: 44px; height: 44px; }
 .connect-body { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 18px; text-align: center; }
 .connect-body img { width: 256px; height: 256px; padding: 10px; border-radius: 8px; background: #fff; }
 .connect-body p { margin: 0; color: var(--text-2); font-size: .9rem; }
@@ -2048,3 +2052,10 @@
 .connect-devices ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .connect-devices li { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); font-size: .8rem; }
 .connect-devices li b { color: var(--text); font-weight: 500; }
+clipboard-paste { display: block; }
+.reference-heading, .video-source-panel-head > div.reference-heading {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0;
+}
+.reference-heading clipboard-paste { max-width: 100%; }
+.clipboard-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.clipboard-actions button { min-width: 44px; min-height: 44px; }

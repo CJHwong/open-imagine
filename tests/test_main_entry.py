@@ -491,11 +491,16 @@ def test_the_connect_flag_starts_the_phone_listener_without_editing_the_file(tmp
     assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
 
 
-def test_the_connect_flag_is_off_unless_it_is_given(monkeypatch):
+def test_the_connect_flag_keeps_the_default_and_accepts_on_or_off(tmp_path, monkeypatch):
     argv(monkeypatch)
-    assert entry.parse_args().connect is False
+    assert entry.parse_args().connect is None
+    assert load_config(settings_file(tmp_path), connect_enabled=entry.parse_args().connect).connect_enabled is True
     argv(monkeypatch, "--connect")
     assert entry.parse_args().connect is True
+    argv(monkeypatch, "--connect=on")
+    assert entry.parse_args().connect is True
+    argv(monkeypatch, "--connect=off")
+    assert entry.parse_args().connect is False
 
 
 def test_startup_exits_when_the_phone_listener_cannot_start(tmp_path, monkeypatch):
@@ -535,3 +540,23 @@ def test_startup_exits_when_the_pipe_preflight_fails(tmp_path, monkeypatch):
         entry.main()
 
     assert "cannot start: the transport is missing" in exit_message(exits)
+
+
+def test_the_connect_flag_rejects_an_unknown_switch(monkeypatch, capsys):
+    argv(monkeypatch, "--connect=maybe")
+    with pytest.raises(SystemExit):
+        entry.parse_args()
+    assert "on or off" in capsys.readouterr().err
+
+
+def test_the_connect_off_flag_overrides_an_enabled_file(tmp_path, monkeypatch):
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=None))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    created = Mock(return_value=studio)
+    monkeypatch.setattr(entry, "create_studio", created)
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    path = settings_file(tmp_path, SETTINGS + "\n[connect]\nenabled = true\n")
+    argv(monkeypatch, "--connect=off", "--config", str(path))
+    entry.main()
+    assert created.call_args.args[0].connect_enabled is False

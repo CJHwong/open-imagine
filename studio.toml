@@ -40,7 +40,7 @@ max_size = 8
 # anyone who scans it reaches this studio. The identity file makes the ticket stable
 # across restarts. Keep it owner-only; the server creates it with mode 0600.
 [connect]
-enabled = false
+enabled = true
 transport = "dumbpipe"
 # The port the phone must reach. Keep it equal to the studio's --port.
 studio_port = 8765
