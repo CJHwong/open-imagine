@@ -137,6 +137,12 @@ def parse_args():
         help="quantize the weights of the backend the page opens with; 0 loads them at full precision, and omitting the flag takes the studio.toml setting",
     )
     parser.add_argument(
+        "--connect",
+        action="store_true",
+        help="start the phone connection and print its QR code, as [connect] enabled = true does, "
+        "without editing studio.toml",
+    )
+    parser.add_argument(
         "--stub",
         action="store_true",
         help="fake every engine: timed steps and placeholder images, no weights, no GPU. For work on the page",
@@ -166,6 +172,7 @@ def main():
             memory_policy=args.memory_policy,
             memory_boundary_percent=args.memory_boundary_percent,
             queue_max_size=args.queue_max_size,
+            connect_enabled=True if args.connect else None,
         )
         studio = create_studio(
             config,
@@ -197,11 +204,11 @@ def main():
     except StudioError as error:
         server.server_close()
         studio.shutdown()
-        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {error}")
+        sys.exit(f"The phone connection is enabled, but it cannot start: {error}")
     if connection is not None and not connection.running:
         server.server_close()
         studio.shutdown()
-        sys.exit(f"The phone connection is enabled in studio.toml, but it cannot start: {connection.error}")
+        sys.exit(f"The phone connection is enabled, but it cannot start: {connection.error}")
     if connection is not None:
         print("\nScan this code with the Open Imagine phone app:\n", flush=True)
         print(qr_terminal(pair_url(connection)), flush=True)

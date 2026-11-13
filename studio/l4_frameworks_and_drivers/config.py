@@ -53,11 +53,13 @@ def load_config(
     memory_policy: str | None = None,
     memory_boundary_percent: int | None = None,
     queue_max_size: int | None = None,
+    connect_enabled: bool | None = None,
 ) -> Config:
     """`backend` opens the page on that backend and makes sure the page offers it.
     `quantize` applies to the backend the page opens with. `visible` offers exactly the
     backends it names. The video and voice overrides follow the same rule. The memory and
-    queue overrides are the command-line flags: a flag wins over the file."""
+    queue overrides are the command-line flags: a flag wins over the file. `connect_enabled`
+    turns the phone connection on for this start, and never turns a file that enables it off."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
     visible = visible if visible else tuple(raw.get("visible_backends", [default]))
@@ -92,9 +94,13 @@ def load_config(
     connect = raw.get("connect", {})
     if not isinstance(connect, dict):
         raise ConfigError("[connect] in studio.toml must be a table")
-    connect_enabled = connect.get("enabled", False)
-    if not isinstance(connect_enabled, bool):
+    enabled_in_file = connect.get("enabled", False)
+    if not isinstance(enabled_in_file, bool):
         raise ConfigError("connect.enabled in studio.toml must be true or false")
+    # The flag turns the connection on for one start, and never off: a settings file
+    # that enables it keeps it enabled.
+    if connect_enabled is not None:
+        enabled_in_file = enabled_in_file or connect_enabled
     transport = connect.get("transport", "dumbpipe")
     if transport != "dumbpipe":
         raise ConfigError('connect.transport in studio.toml must be "dumbpipe"; the tailcat adapter is not built yet')
@@ -122,7 +128,7 @@ def load_config(
         memory_policy=policy,
         memory_boundary_percent=percent,
         queue_max_size=max_queue,
-        connect_enabled=connect_enabled,
+        connect_enabled=enabled_in_file,
         connect_transport=transport,
         connect_studio_port=connect_port,
         connect_dumbpipe_path=dumbpipe_path,

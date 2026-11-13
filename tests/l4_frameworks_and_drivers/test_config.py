@@ -233,6 +233,13 @@ def test_the_phone_connection_is_off_unless_the_file_enables_it(tmp_path):
     assert config.connect_identity_path == (Path.home() / ".config/open-imagine/dumbpipe-identity").expanduser()
 
 
+def test_the_connect_flag_turns_the_connection_on_without_editing_the_file(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS), connect_enabled=True)
+
+    assert config.connect_enabled is True
+    assert config.connect_studio_port == 8765
+
+
 def test_a_phone_connection_loads_its_fields_and_resolves_its_identity(tmp_path):
     text = SETTINGS + (
         '\n[connect]\nenabled = true\ntransport = "dumbpipe"\nstudio_port = 9000\n'

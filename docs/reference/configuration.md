@@ -15,6 +15,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `--config` | `studio.toml` | Configuration file. |
 | `--allow-origin` | None | Let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin. See [Open from another device](../how-to/open-from-another-device.md). |
 | `--stub` | Off | Simulated engines: placeholder images, a Voice test tone, and Video metadata. No model loading. |
+| `--connect` | Off | Start the phone connection and print its QR code, as `[connect] enabled = true` does, without editing the file. |
 
 ## Settings
 
@@ -161,7 +162,8 @@ the preferences file to return to the configured default.
 ## Phone connection
 
 `[connect] enabled = true` starts a dumbpipe listener on `127.0.0.1:studio_port` and
-prints a QR code after the server binds. The QR carries the ticket and the loopback
+prints a QR code after the server binds. `--connect` does the same for one start, so a
+settings file nobody edited still pairs a phone. The QR carries the ticket and the loopback
 port. The phone runs `dumbpipe connect-tcp` and opens `http://127.0.0.1:<port>` in
 its embedded browser.
 

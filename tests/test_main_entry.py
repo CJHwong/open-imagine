@@ -304,6 +304,7 @@ def test_the_full_precision_flag_reaches_the_settings_file(tmp_path, monkeypatch
         memory_policy=None,
         memory_boundary_percent=None,
         queue_max_size=None,
+        connect_enabled=None,
     ):
         seen["quantize"] = quantize
         raise SystemExit(0)
@@ -333,6 +334,7 @@ def test_the_all_backends_flag_offers_every_model_the_studio_can_build(tmp_path,
         memory_policy=None,
         memory_boundary_percent=None,
         queue_max_size=None,
+        connect_enabled=None,
     ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
@@ -370,6 +372,7 @@ def test_the_all_backends_flag_includes_installed_plugins(tmp_path, monkeypatch)
         memory_policy=None,
         memory_boundary_percent=None,
         queue_max_size=None,
+        connect_enabled=None,
     ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
@@ -401,6 +404,7 @@ def test_without_the_flag_the_settings_file_decides_what_is_offered(tmp_path, mo
         memory_policy=None,
         memory_boundary_percent=None,
         queue_max_size=None,
+        connect_enabled=None,
     ):
         seen["visible"] = visible
         seen["visible_video"] = visible_video
@@ -458,6 +462,40 @@ def test_startup_prints_the_phone_qr_when_the_listener_runs(tmp_path, monkeypatc
     entry.main()
 
     assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
+
+
+def test_the_connect_flag_starts_the_phone_listener_without_editing_the_file(tmp_path, monkeypatch, capsys):
+    """The flag turns the connection on for one start, so a settings file nobody
+    edited still prints a ticket."""
+    from studio.l4_frameworks_and_drivers.connect import ConnectStatus
+
+    status = ConnectStatus(True, True, "dumbpipe", "endpoint" + "a" * 60, 8765)
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=status))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    arguments = {}
+    real_load = entry.load_config
+
+    def record(path, **options):
+        arguments.update(options)
+        return real_load(path, **options)
+
+    monkeypatch.setattr(entry, "load_config", record)
+    argv(monkeypatch, "--connect", "--config", str(settings_file(tmp_path)))
+
+    entry.main()
+
+    assert arguments["connect_enabled"] is True
+    assert "Scan this code with the Open Imagine phone app" in capsys.readouterr().out
+
+
+def test_the_connect_flag_is_off_unless_it_is_given(monkeypatch):
+    argv(monkeypatch)
+    assert entry.parse_args().connect is False
+    argv(monkeypatch, "--connect")
+    assert entry.parse_args().connect is True
 
 
 def test_startup_exits_when_the_phone_listener_cannot_start(tmp_path, monkeypatch):
