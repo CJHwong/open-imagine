@@ -115,7 +115,10 @@ with sync_playwright() as tool:
                 and menu["x"] + menu["width"] <= width + 1
                 and menu["y"] + menu["height"] <= height + 1,
             )
-            page.locator("#voice-track-toggle").click()
+            # The open menu sits over the toggle on a phone, so Escape is how a person
+            # closes it, and a click there never lands.
+            page.keyboard.press("Escape")
+            check("the phone track menu closes", page.locator("#voice-track-menu").is_hidden())
     page.set_viewport_size({"width": 1440, "height": 1000})
     page.locator("#voice-gallery").get_by_role("button", name="Clear all", exact=True).click()
     page.locator("#voice-text").fill("First layout sentence. Second layout sentence.")
