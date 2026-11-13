@@ -245,7 +245,8 @@ def toggle_look(page, row, label):
     because no chip label begins with the name of a row.
     """
     page.locator("#look-rows").get_by_role("button", name=re.compile(rf"^{re.escape(row)}")).click()
-    page.locator("#look-rows").get_by_role("button", name=label, exact=True).click()
+    # An option is a menuitemradio, not a button: the row's own toggle is the button.
+    page.locator("#look-rows").get_by_role("menuitemradio", name=label, exact=True).click()
 
 
 def region_rows(page):
@@ -260,7 +261,7 @@ def picked_looks(page):
     the search keeps the hidden ones. A class query saw them whether or not the
     row was open, and this is the same claim.
     """
-    return page.locator("#look-rows").get_by_role("button", pressed=True, include_hidden=True)
+    return page.locator("#look-rows").get_by_role("menuitemradio", checked=True, include_hidden=True)
 
 
 def selection(page):
