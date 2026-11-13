@@ -233,6 +233,33 @@ Edit takes one to four references at about 4 MP. A smaller edit came out posteri
 does not offer one. On an M5 Pro, a picture takes about 20 seconds at 1 MP and about a minute at 4 MP.
 An edit takes about two and a half minutes with one large reference and about nine with four. Name a reference in the prompt as `<Picture 1>`, in the order you added it.
 
+### Optional: the model's own prompt enhancer
+
+MiniMax also publishes `MiniMaxAI/MiniMax-H3-Image-PE`, a 27B prompt enhancer for this model. It
+ships as nvfp4 for sglang, and no MLX build exists, so this project converts it. The converter
+dequantizes one tensor at a time and needs about 51 GB for the intermediate. Run it from the
+repository, then let `mlx_vlm` quantize the result:
+
+```sh
+uv run --script scripts/convert_h3_image_pe.py \
+  --out ~/Library/Caches/models/minimax-h3-image-pe/bf16
+uv run --no-project --python 3.12 --with "mlx-vlm==0.7.3" mlx_vlm.convert \
+  --hf-path ~/Library/Caches/models/minimax-h3-image-pe/bf16 \
+  --mlx-path ~/Library/Caches/models/minimax-h3-image-pe/mlx-q4 \
+  -q --q-bits 4 --q-group-size 64
+```
+
+Name the pack to show the page's Rewrite toggle:
+
+```toml
+[minimax_h3_image]
+rewrite_model_dir = "~/Library/Caches/models/minimax-h3-image-pe/mlx-q4"
+```
+
+The enhancer runs as a script child and holds about 15 GB, so the studio releases it before an
+image run. Its prompt templates ship with the release and are read from the pack. Leave the key
+out and the page offers no toggle. The pack keeps the model's [license terms](../reference/model-licenses.md).
+
 ## Offer the installed models
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
