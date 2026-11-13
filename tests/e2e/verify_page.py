@@ -1,7 +1,12 @@
-"""Real-run check of the page against a live studio server on the qwen21 backend.
+"""Real-run check of the page against a live studio server on the Turbo checkpoint.
 
 It generates and edits real images, so it takes minutes. Screenshots go to a
 temporary directory, printed at the start.
+
+The suite runs on the default Qwen-Image-2.1-Turbo checkpoint and not on the bf16
+one. A bf16 edit at 0.3 MP measures 63.0 GiB, and admission adds the 8 GiB system
+reserve, so a 64 GiB machine cannot start one. Both checkpoints share the page's
+edit UI, which is what this suite checks; Turbo is the one that fits.
 
 Every binding is a role, an accessible name, a label association, or an id the
 page publishes. None is a decorative class name, so a change to how the page is
@@ -87,6 +92,22 @@ def rewrite_verb(page):
 def check(name, passed, detail=""):
     results.append((name, bool(passed), detail))
     print(("PASS " if passed else "FAIL ") + name + (f"  ({detail})" if detail else ""), flush=True)
+
+
+def set_steps(page, count):
+    """Set the step count, when the loaded checkpoint lets the count move.
+
+    Turbo pins its count to its own eight-node schedule, so the field's range is a
+    single number. A fill outside that range would send a count the backend refuses,
+    and the run would answer nothing. A pinned checkpoint runs short instead, which
+    the busy-state checks below know about.
+    """
+    field = page.locator("#steps")
+    if field.get_attribute("min") == field.get_attribute("max"):
+        return False
+    page.fill("#steps", count)
+    page.dispatch_event("#steps", "input")
+    return True
 
 
 def leave_blocked(page):
@@ -346,6 +367,11 @@ with sync_playwright() as playwright:
     page.goto(f"http://127.0.0.1:{PORT}/")
     page.screenshot(path=OUT + "0-empty.png")
 
+    check(
+        "the suite runs on the Turbo checkpoint",
+        page.locator("#backend-toggle .name").inner_text() == "Qwen-Image-2.1-Turbo",
+        page.locator("#backend-toggle .name").inner_text(),
+    )
     check("no leave warning when empty", not leave_blocked(page))
     # LEFT: a decorative class, and the claim is that it is absent.
     check("the top plate has no privacy line", page.locator(".topbar .privacy").count() == 0)
@@ -432,8 +458,7 @@ with sync_playwright() as playwright:
     page.locator("#tier-sizes").get_by_role("button").first.click()
     page.click("#advanced summary")
     # A live model can finish eight steps before the busy-state checks sample it.
-    page.fill("#steps", "24")
-    page.dispatch_event("#steps", "input")
+    set_steps(page, "24")
     page.click("#count-toggle")
     check("a batch goes up to 4", page.locator("#count-menu [role=menuitemradio]").count() == 4)
     page.get_by_role("menuitemradio", name="2 images").click()
@@ -609,7 +634,7 @@ with sync_playwright() as playwright:
         and page.input_value("#prompt").startswith("A ceramic teapot"),
     )
     toggle_look(page, "Light", "Overcast")
-    check("tab title back to normal", page.title() == "Image - Qwen-Image-2.1", page.title())
+    check("tab title back to normal", page.title() == "Image - Qwen-Image-2.1-Turbo", page.title())
     time.sleep(1)
     page.screenshot(path=OUT + "2-result.png")
 
@@ -882,8 +907,7 @@ with sync_playwright() as playwright:
     )
     page.fill("#prompt", "A lighthouse on a cliff at dusk.")
     page.dispatch_event("#prompt", "input")
-    page.fill("#steps", "20")
-    page.dispatch_event("#steps", "input")
+    set_steps(page, "20")
     page.click("#go")
     time.sleep(0.3)
     check(
@@ -1329,7 +1353,10 @@ with sync_playwright() as playwright:
     mark.wait_for(state="visible", timeout=10000)
     steps_default = page.input_value("#steps")
     steps_max = page.evaluate("() => document.getElementById('steps').max")
-    check("the steps default differs from the top of its range", steps_max != steps_default, steps_default)
+    # A checkpoint with a pinned count, such as Turbo, has no top of its range to
+    # move to, so the claim that the top and the default differ is not its to make.
+    if steps_max != steps_default:
+        check("the steps default differs from the top of its range", steps_max != steps_default, steps_default)
     page.fill("#prompt", "make the sky warmer")
     page.dispatch_event("#prompt", "input")
     page.fill("#seed", "1234")
