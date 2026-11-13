@@ -172,7 +172,11 @@ with sync_playwright() as tool:
     )
     check("Clear all creates no gallery draft tiles", page.locator(".voice-clip-pending").count() == 0)
     check("Clear all hides the empty transport", page.locator("#voice-track-menu").is_hidden())
+    # The script lives in the controls pane, so a person clears it there and then
+    # looks at the preview, which the pane switch shows over the form.
+    page.locator('.pane-switch [data-pane="controls"]').click()
     page.locator("#voice-text").fill("")
+    page.locator('.pane-switch [data-pane="preview"]').click()
     check("an empty script restores the shared preview", empty.is_visible())
     check("an empty script removes the compact header", page.locator("#voice-gallery").is_hidden())
     check(
