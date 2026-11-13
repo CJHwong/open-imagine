@@ -134,8 +134,9 @@ Replace the independent estimator registry with a generic catalog-backed
 `MemoryEstimateGateway`. Each provider binds its estimator to its own resolved
 settings, including precision and quantization. Calibration conditions remain
 explicit; an unmeasured setup still returns unavailable rather than an invented
-peak. Preserve strict-by-default app settings, relaxed-mode enforcement of known
-limits, and batch result-memory accounting.
+peak. The app setting defaults to off and skips all memory admission checks.
+When enabled, admission requires measured estimates and enough available memory.
+Preserve batch result-memory accounting.
 
 ### LoRA configuration
 

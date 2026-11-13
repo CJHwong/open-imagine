@@ -65,8 +65,8 @@ to one Studio instance, including LTX's enhancer and its rewrite cache.
 host memory probe. `CatalogMemoryEstimateGateway` handles calibrated host limits,
 estimator lookup and retained batch outputs. Each model owns its measured formula
 and binds its own settings to it; there is no second concrete estimator registry or
-model-specific argument in application assembly. Missing estimates retain the
-strict-by-default app policy and relaxed-mode checks of known limits.
+model-specific argument in application assembly. The app policy defaults to off. When enabled, admission requires measured estimates
+and checks available memory. When disabled, admission skips all memory probes and estimates.
 
 ## Model gateway ownership
 
@@ -419,8 +419,8 @@ The worker and model lifecycle keep their existing behavior.
 it on each request; `JsonApi` reads and updates the same instance. The production
 JSON driver persists only preferences through an atomic replacement; embedded
 and stub instances use an isolated in-memory gateway. The page has no independent
-policy in local storage. `require_memory_estimate` defaults to true. Disabling it
-permits missing measurements while keeping all known memory checks.
+policy in local storage. `require_memory_estimate` defaults to false. Disabling it
+skips all memory admission checks, including checks against known estimates.
 
 The `[memory]` table selects the model release policy. `immediate`, the default, frees
 the previous model when another one runs or when the page leaves its workspace.

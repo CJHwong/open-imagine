@@ -13,8 +13,8 @@ GUIDANCE = {
     ),
     "updateSettings": (
         "Change the app-wide memory policy only when the user asks. Send exactly one boolean: "
-        "require_memory_estimate. True blocks unmeasured workflows; false permits them while known memory "
-        "limits remain enforced. The choice persists across restarts; stub servers keep it only for their "
+        "require_memory_estimate. True requires measured estimates and enough available memory. "
+        "False skips all memory admission checks, including checks against known estimates. The choice persists across restarts; stub servers keep it only for their "
         "session. This endpoint refuses private-key headers and does not stop already admitted work."
     ),
     "readOpenApi": (
@@ -53,7 +53,7 @@ GUIDANCE = {
         "the top level. Save the returned id/status_url, poll until terminal status, then fetch result_url. "
         "202 means accepted, not successful: validation, model loading, and inference may fail in the worker. "
         "Only one operation owns model memory; 409 means busy and nothing was queued. "
-        "503 means a measured memory requirement exceeds current headroom, so no operation started. Workflows without a calibrated estimate are allowed; acceptance does not guarantee enough memory. "
+        "When memory checks are enabled, an unmeasured setup returns 503 before acceptance. Measured requests check available memory before execution. When checks are disabled, Studio skips all memory admission checks. "
         "Model loading/download policy "
         "matches the page. Public results expire after 10 minutes, 32 operations, or 256 MiB, and on restart. Private results stay encrypted on disk for one hour and support repeated downloads. "
         "API batches need no browser continuation; legacy page image batches reserve their next item for 30 seconds."

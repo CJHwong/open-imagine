@@ -2,7 +2,6 @@
 
 import pytest
 
-from studio.l1_entities.errors import InsufficientMemory
 from studio.l3_interface_adapters.api.resource_admission import GIB
 from studio.l3_interface_adapters.gateways.memory import catalog_memory_estimate_gateway as memory_catalog
 from tests.support.memory_estimates import admission_for as admission_for
@@ -52,7 +51,7 @@ def test_batch_estimate_uses_the_largest_item_and_output_reserve():
     assert result == pytest.approx(31.125, abs=0.01)
 
 
-def test_unmeasured_batch_items_do_not_bypass_known_memory_limits():
+def test_disabled_policy_allows_a_batch_that_exceeds_known_memory_limits():
     payload = {
         "kind": "image",
         "backend": "qwen21_turbo",
@@ -63,9 +62,7 @@ def test_unmeasured_batch_items_do_not_bypass_known_memory_limits():
     }
 
     assert estimate_peak_gib(payload, 64) == pytest.approx(52.125)
-    with pytest.raises(InsufficientMemory):
-        admission_for(lambda: (64 * GIB, 59 * GIB))(payload)
-    assert admission_for(lambda: (64 * GIB, 64 * GIB))(payload) is None
+    assert admission_for(lambda: (64 * GIB, GIB), enabled=False)(payload) is None
 
 
 @pytest.mark.parametrize("items", ([], ["bad"], [{"size": "not-a-size"}]))

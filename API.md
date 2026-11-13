@@ -1152,14 +1152,15 @@ The same object is included as `settings` in `GET /api/v1/studio`.
 ```
 
 This changes the policy for all workspaces and callers and persists it across
-restarts. The UI exposes it in Settings → Memory. Stub servers keep the setting
+restarts. The UI exposes it in Settings → Generation. Stub servers keep the setting
 only for their session. Unknown keys and non-boolean values return 400; these
 routes refuse `X-Studio-Private-Key`. The file holds no operation data.
 
-With `true`, any unmeasured media run or batch item returns 503 before work starts,
-with instructions to change the setting. With `false`, those workflows may run
-without a memory check. Measured limits remain enforced in both modes. A policy
-change does not cancel operations already admitted.
+With `true`, Studio requires measured estimates and enough available memory.
+An unmeasured media run or batch item returns 503 before work starts,
+with instructions to change the setting. With `false`, Studio skips all memory
+admission checks, including checks against known estimates. A policy change
+does not cancel operations already admitted.
 
 ### Model release policy
 
@@ -1176,8 +1177,8 @@ boundary_percent = 84
 when the page leaves its workspace. `boundary` keeps loaded models and frees the
 oldest first, and only when the next model's resident footprint would take the total
 past `boundary_percent` of physical memory. A model with no measured footprint is
-never kept. The boundary controls retention; a run's own peak is still checked
-against free memory with the 8 GiB system reserve.
+never kept. The boundary controls retention. When memory checks are enabled,
+Studio checks a run's peak against free memory with the 8 GiB system reserve.
 
 `POST /api/v1/memory/release` frees every model under either policy. The page's
 workspace switch follows the policy.
