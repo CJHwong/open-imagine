@@ -1,6 +1,7 @@
 """Song labels, processing duration, score preview and editing on a stub."""
 
 import io
+import re
 import sys
 import wave
 
@@ -37,7 +38,9 @@ def main():
         }""")
         expect(page.locator(".music-count")).to_have_text("1 song in this tab. Download the ones you want to keep.")
         bar = page.locator(".music-output-details:not([hidden])")
-        expect(bar.get_by_role("button", name="Artwork", exact=True)).to_be_visible()
+        # The control reads "Artwork" and its aria-label names the whole action, which is
+        # the accessible name. Bound by the label it carries, not by the word on the face.
+        expect(bar.get_by_role("button", name=re.compile("cover", re.I))).to_be_visible()
         expect(bar.locator(".facts")).to_contain_text("Generated in 12.5 s")
         bar.locator(".prompt-line").click()
         details = page.get_by_role("dialog", name="Music details", exact=True)
