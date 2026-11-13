@@ -843,6 +843,12 @@
   let videoRunState = 'idle';
   let videoRunRequestId = null;
   let formApi = null;
+  // The figure beside the video button, from the plan route. The button's own redraw reads it,
+  // and that redraw runs before the planner's code is reached, so the state lives here.
+  let videoPlanText = '';
+  let videoPlanTimer = null;
+  let videoPlanToken = 0;
+  let videoPlanKey = '';
 
   // The references are the page's array, not the form's, because a run posts it
   // and `verify_capabilities.py` reads it by name out of the page's global
@@ -909,10 +915,13 @@
     // The run's only Cancel is the status bar's, as in the other three workspaces, so this
     // button keeps its verb and waits, disabled, until the run ends.
     button.disabled = sharedBusy() || running || rewriting || !ready;
+    // The plan is asked before the line is drawn, so a changed form drops the old figure
+    // instead of showing the last shape's time beside the new one.
+    if (ready && !running && !rewriting && !sharedBusy()) scheduleVideoPlan();
     document.getElementById('video-go-sub').textContent =
       videoRunState !== 'idle' ? ''
         : rewriting ? t('page.video.waitRewrite')
-          : videoRunReason();
+          : videoRunReason() || videoPlanText;
   }
 
   function setVideoRunState(state) {
@@ -1777,6 +1786,9 @@
           .replace('{frame}', String(frameCount)));
       }
     }
+    // The shape and the length change what a clip costs, and every control that sets them
+    // comes through here, so this is where the button's figure is asked for again.
+    document.dispatchEvent(new CustomEvent('draft-change', {detail: 'video'}));
   }
 
   function selectedVideoSeed() {
@@ -1979,79 +1991,141 @@
     return chosen ? chosen.strength : undefined;
   }
 
+  // What a run would send, read from the form as it stands. The run and the plan beside the
+  // button both read this, so the figure describes the run the press makes. It throws what
+  // the run would refuse, and the caller says it.
+  function videoRunSettings() {
+    const capabilities = videoCapabilities();
+    const editing = videoModeInForce().needs_clip;
+    const typedPrompt = document.getElementById('video-prompt').value;
+    const lookText = formApi && formApi.videoLookText ? formApi.videoLookText() : '';
+    const prompt = lookText ? typedPrompt.replace(/\s+$/, '') + ' ' + lookText : typedPrompt;
+    const clipGeometry = editing ? editGeometry() : null;
+    const numFrames = clipGeometry ? clipGeometry.numFrames : Number(document.getElementById('video-duration').value);
+    const duration = numFrames / capabilities.frame_rate;
+    const [width, height] = clipGeometry ? [clipGeometry.width, clipGeometry.height] : selectedVideoShape();
+    const seed = selectedVideoSeed();
+    const settings = {
+      nativeMetadata: true,
+      fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
+      backend: STUDIO.video.backend.id,
+      modelName: STUDIO.video.backend.name,
+      prompt: prompt,
+      // The picks themselves, so a saved clip says which Look made it.
+      look: formApi && formApi.videoLookLabels ? formApi.videoLookLabels().join(', ') : '',
+      enhance: true,
+      includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
+      width: width,
+      height: height,
+      numFrames: numFrames,
+      frameRate: capabilities.frame_rate,
+      duration: duration,
+      seed: seed,
+      // The run's own facts, saved with the clip: which mode made it, which effect, how hard,
+      // whether the second stage saw the clip, and the weights' precision.
+      mode: videoModeInForce().id,
+      adapter: videoAdapter,
+      effectStrength: videoAdapterStrength(),
+      effectFile: videoAdapterInForce() ? videoAdapterInForce().file : '',
+      stage2: videoAdapterInForce() ? videoAdapterInForce().stage_2_conditioning : null,
+      precision: capabilities.precision || 'bf16',
+      // The pipeline this run enters, and the track it followed, if any: a saved clip that
+      // does not name them cannot be compared with another one later.
+      pipeline: editing ? 'ic_lora' : (videoStudio.audio ? 'a2vid_two_stage' : 'distilled'),
+      audioName: videoStudio.audio ? videoStudio.audio.name : '',
+      loras: videoLoraPicks(),
+      loraLabel: videoLoraPicks().length && videoLoraDoor ? videoLoraDoor.summary('video') : '',
+      references: videoStudio.imageReferences.map(function (reference) {
+        return {
+          name: reference.name,
+          frameIndex: reference.frameIndex,
+          strength: reference.strength,
+        };
+      }),
+    };
+    const invalidReference = videoStudio.imageReferences.find(function (reference) {
+      return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
+    });
+    if (invalidReference) {
+      throw new Error(t('page.error.referenceFrames', {max: numFrames - 1}));
+    }
+    return settings;
+  }
+
+  // A clip's cost is a two-stage token fit that the backend owns, so the page asks the plan
+  // route instead of recomputing it. A plan switches no model and records no operation, and
+  // it answers while a run holds the GPU.
+  function videoPlanBody(settings) {
+    return {
+      backend: settings.backend,
+      mode: settings.mode,
+      adapter: settings.adapter,
+      width: settings.width,
+      height: settings.height,
+      num_frames: settings.numFrames,
+      frame_rate: settings.frameRate,
+      seed: settings.seed,
+      // The media stays on the page: the plan reads the count, not the pictures.
+      reference_count: (videoStudio.imageReferences || []).length,
+      has_audio: Boolean(videoStudio.audio),
+      include_audio: settings.includeAudio,
+      enhance: settings.enhance,
+      fast_mode: settings.fastMode,
+      loras: settings.loras,
+    };
+  }
+
+  function scheduleVideoPlan() {
+    let body;
+    try {
+      body = videoPlanBody(videoRunSettings());
+    } catch (error) {
+      // The form is not a run yet. The button says why, and no figure is owed.
+      return;
+    }
+    // A seed changes the run, not its cost, so it stays out of the key.
+    const key = JSON.stringify(Object.assign({}, body, {seed: undefined}));
+    if (key === videoPlanKey) return;
+    videoPlanKey = key;
+    videoPlanText = '';
+    clearTimeout(videoPlanTimer);
+    const token = ++videoPlanToken;
+    videoPlanTimer = window.setTimeout(async function () {
+      try {
+        const response = await fetch('/api/v1/videos/plan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const answer = await response.json().catch(function () { return null; });
+        if (token !== videoPlanToken) return;
+        const seconds = answer && answer.estimate ? answer.estimate.total_seconds : 0;
+        videoPlanText = response.ok && seconds && formApi && formApi.spell
+          ? t('form.estimate.about', {time: formApi.spell(seconds)}) : '';
+      } catch (error) {
+        if (token !== videoPlanToken) return;
+        // The key stays, so a failure is not asked again on every redraw. The next change
+        // makes a new key and asks once more.
+        videoPlanText = '';
+      }
+      syncVideoGenerateButton();
+    }, 400);
+  }
+
   document.getElementById('video-generate').addEventListener('click', async function () {
     if (videoRunState !== 'idle') return;
     const status = document.getElementById('video-request-status');
-    const capabilities = videoCapabilities();
     // An edit runs at the clip's own geometry, since the shape and duration controls belong
     // to Generate; a generate run reads them off the form as it always has.
     const editing = videoModeInForce().needs_clip;
-    let numFrames;
-    let duration;
-    let width;
-    let height;
     let settings;
-    let seed;
     // The run is made from the words in the box, which the rewrite button may have
     // lengthened first. The backend uses LTX's native enhancer and recognizes its
     // unchanged Rewrite outputs, avoiding duplicate work.
     // A Look pick is appended after those words, the way the image form adds its own. The
     // rewrite sees the box alone, because the Look is added here and not written into it.
-    const typedPrompt = document.getElementById('video-prompt').value;
-    const lookText = formApi && formApi.videoLookText ? formApi.videoLookText() : '';
-    const prompt = lookText ? typedPrompt.replace(/\s+$/, '') + ' ' + lookText : typedPrompt;
     try {
-      const clipGeometry = editing ? editGeometry() : null;
-      numFrames = clipGeometry ? clipGeometry.numFrames : Number(document.getElementById('video-duration').value);
-      duration = numFrames / capabilities.frame_rate;
-      [width, height] = clipGeometry
-        ? [clipGeometry.width, clipGeometry.height]
-        : selectedVideoShape();
-      seed = selectedVideoSeed();
-      settings = {
-        nativeMetadata: true,
-        fastMode: document.getElementById('video-fast-mode').getAttribute('aria-pressed') === 'true',
-        backend: STUDIO.video.backend.id,
-        modelName: STUDIO.video.backend.name,
-        prompt: prompt,
-        // The picks themselves, so a saved clip says which Look made it.
-        look: formApi && formApi.videoLookLabels ? formApi.videoLookLabels().join(', ') : '',
-        enhance: true,
-        includeAudio: document.getElementById('video-audio-track').getAttribute('aria-pressed') === 'true',
-        width: width,
-        height: height,
-        numFrames: numFrames,
-        frameRate: capabilities.frame_rate,
-        duration: duration,
-        seed: seed,
-        // The run's own facts, saved with the clip: which mode made it, which effect, how hard,
-        // whether the second stage saw the clip, and the weights' precision.
-        mode: videoModeInForce().id,
-        adapter: videoAdapter,
-        effectStrength: videoAdapterStrength(),
-        effectFile: videoAdapterInForce() ? videoAdapterInForce().file : '',
-        stage2: videoAdapterInForce() ? videoAdapterInForce().stage_2_conditioning : null,
-        precision: capabilities.precision || 'bf16',
-        // The pipeline this run enters, and the track it followed, if any: a saved clip that
-        // does not name them cannot be compared with another one later.
-        pipeline: editing ? 'ic_lora' : (videoStudio.audio ? 'a2vid_two_stage' : 'distilled'),
-        audioName: videoStudio.audio ? videoStudio.audio.name : '',
-        loras: videoLoraPicks(),
-        loraLabel: videoLoraPicks().length && videoLoraDoor ? videoLoraDoor.summary('video') : '',
-        references: videoStudio.imageReferences.map(function (reference) {
-          return {
-            name: reference.name,
-            frameIndex: reference.frameIndex,
-            strength: reference.strength,
-          };
-        }),
-      };
-      const invalidReference = videoStudio.imageReferences.find(function (reference) {
-        return reference.frameIndex < 0 || reference.frameIndex >= numFrames;
-      });
-      if (invalidReference) {
-        throw new Error(t('page.error.referenceFrames', {max: numFrames - 1}));
-      }
+      settings = videoRunSettings();
     } catch (error) {
       videoStudio.setError(error.message);
       status.textContent = t('page.error.videoFailed');
@@ -2120,12 +2194,12 @@
         maxReferences: videoModeInForce().max_references,
         // The track goes only from the mode that takes one. An edit carries the clip, and
         // the controller refuses audio there anyway.
-        prompt: prompt,
-        width: width,
-        height: height,
-        numFrames: numFrames,
-        frameRate: capabilities.frame_rate,
-        seed: seed,
+        prompt: settings.prompt,
+        width: settings.width,
+        height: settings.height,
+        numFrames: settings.numFrames,
+        frameRate: settings.frameRate,
+        seed: settings.seed,
         backend: settings.backend,
         enhance: true,
         fastMode: settings.fastMode,
