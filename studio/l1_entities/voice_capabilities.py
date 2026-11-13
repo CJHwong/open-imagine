@@ -95,10 +95,15 @@ class Template:
 @dataclass(frozen=True)
 class Estimate:
     """The constants behind a time estimate: seconds of work per second of audio
-    (the real-time factor), and the fixed cost of a run, such as a model load."""
+    (the real-time factor), and the fixed cost of a run, such as a model load.
+
+    `seconds_per_character` lets a mode that follows its script say a time before it
+    runs. Its audio length is not known then, and this is the measured length of speech
+    one character of the script produces."""
 
     rtf: float
     overhead: float
+    seconds_per_character: float | None = None
 
 
 @dataclass(frozen=True)

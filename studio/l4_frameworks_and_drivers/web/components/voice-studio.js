@@ -1230,11 +1230,16 @@ class VoiceStudio extends LitElement {
     </dialog>`;
   }
 
-  // The figure beside the run button, from the mode's measured cost. Only a mode that takes
-  // a target length can say a time: an engine that follows the script has no length yet.
+  // The figure beside the run button, from the mode's measured cost. A mode that takes a
+  // target length reads it; an engine that follows the script reads the audio length that
+  // script produces, from the backend's measured seconds per character.
   estimateText() {
     const estimate = this.currentMode?.estimate;
-    const seconds = Number(this.seconds) || 0;
+    let seconds = Number(this.seconds) || 0;
+    if (!seconds && estimate?.seconds_per_character && !this.hasParam('seconds')) {
+      const text = this.mode === 'edit' ? this.editText : this.script;
+      seconds = (text || '').trim().length * estimate.seconds_per_character;
+    }
     if (!estimate || !seconds) return '';
     return t('form.estimate.about', {time: spell(estimate.overhead + estimate.rtf * seconds)});
   }

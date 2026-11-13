@@ -28,3 +28,13 @@ def test_both_drama_modes_use_2048_tokens_by_default_and_accept_lower_caps():
         inputs = {"ref_text": "Recorded words."} if mode.id == "clone" else {}
         assert mode.parse_options(inputs)["max_tokens"] == 2048
         assert mode.parse_options({**inputs, "max_tokens": "1024"})["max_tokens"] == 1024
+
+
+def test_an_engine_that_follows_its_script_carries_the_audio_length_it_makes():
+    """A script mode has no target length to read, so the page needs the measured audio
+    one character of the script produces."""
+    caps = drama_capabilities()
+    for mode in ("generate", "clone"):
+        estimate = caps.mode(mode).estimate
+        assert estimate is not None
+        assert estimate.seconds_per_character == 0.092
