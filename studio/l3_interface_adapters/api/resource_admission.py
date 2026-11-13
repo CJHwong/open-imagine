@@ -27,12 +27,12 @@ class ResourceAdmission:
         self.check(payload)
 
     def check(self, payload: Mapping[str, object]) -> None:
+        if not self._settings.require_memory_estimate():
+            return
         total_bytes, available_bytes = self._memory_headroom()
         estimate_gib = self._estimate(payload, total_bytes)
         if estimate_gib is None:
-            if self._settings.require_memory_estimate():
-                raise self._unavailable()
-            return
+            raise self._unavailable()
         available_gib = available_bytes / GIB
         needed_gib = self._needed(estimate_gib, payload)
         required_gib = needed_gib + OS_RESERVE_GIB
@@ -50,8 +50,10 @@ class ResourceAdmission:
         The headroom comparison waits for the run, because free memory changes while a
         request waits. Whether a measurement exists at all does not change.
         """
+        if not self._settings.require_memory_estimate():
+            return
         total_bytes, _ = self._memory_headroom()
-        if self._estimate(payload, total_bytes) is None and self._settings.require_memory_estimate():
+        if self._estimate(payload, total_bytes) is None:
             raise self._unavailable()
 
     def _needed(self, estimate_gib: float, payload: Mapping[str, object]) -> float:
@@ -69,7 +71,7 @@ class ResourceAdmission:
     def _estimate(self, payload: Mapping[str, object], total_bytes: int) -> float | None:
         estimate_gib = self._estimates.estimate(payload, total_bytes / GIB)
         items = payload.get("items")
-        if self._settings.require_memory_estimate() and isinstance(items, list):
+        if isinstance(items, list):
             shared = {key: value for key, value in payload.items() if key != "items"}
             if any(self._estimates.estimate({**shared, **item}, total_bytes / GIB) is None for item in items):
                 estimate_gib = None
@@ -79,6 +81,6 @@ class ResourceAdmission:
     def _unavailable() -> ResourceEstimateUnavailable:
         return ResourceEstimateUnavailable(
             "Memory use has not been measured for this model and setup, so Studio cannot check whether it fits. "
-            "To run it anyway, open Settings > Generation and turn off 'Require a measured memory estimate', "
-            "then retry. This applies to all workspaces and API callers; known memory limits still apply."
+            "To run it anyway, open Settings > Generation and turn off 'Check memory before generation', "
+            "then retry. Turning this off skips all memory admission checks for all workspaces and API callers."
         )

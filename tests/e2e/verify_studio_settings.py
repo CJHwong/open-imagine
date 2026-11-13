@@ -5,12 +5,14 @@ Run: uv run --with playwright python tests/e2e/verify_studio_settings.py
 
 import tempfile
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 from settings_controls import open_settings
 
+from studio.l2_use_cases.boundaries.memory_estimate_gateway import MemoryEstimateGateway
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.stub.image_backend_gateway import StubBackendGateway
@@ -18,7 +20,12 @@ from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonSt
 from studio.l4_frameworks_and_drivers.main import assemble_studio
 
 
-def serve(path, storage=None):
+class OversizedEstimate(MemoryEstimateGateway):
+    def estimate(self, payload, total_memory_gib):
+        return 512.0
+
+
+def serve(path, storage=None, estimates=None):
     settings = JsonStudioSettingsGateway(path, True)
     studio = assemble_studio(
         {"qwen21": StubBackendGateway(qwen21_capabilities("CPU"))},
@@ -27,11 +34,48 @@ def serve(path, storage=None):
         ("qwen21",),
         settings=settings,
         model_storage=storage,
+        memory_estimates=estimates,
         resource_memory_headroom=lambda: (64 * 1024**3, 64 * 1024**3),
     )
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return studio, server
+
+
+def verify_known_estimate(context, path):
+    studio, server = serve(path, estimates=OversizedEstimate())
+    page = context.new_page()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}"
+        page.goto(url)
+        open_settings(page, "generation")
+        toggle = page.locator("#require-memory-estimate-toggle")
+        expect(toggle).to_have_attribute("aria-checked", "true")
+        payload = {"kind": "image", "backend": "qwen21", "prompt": "a pear", "steps": 1, "seed": 7}
+        denied = context.request.post(url + "/api/v1/images/generate", data=payload)
+        assert denied.status == 503 and "Not enough memory" in denied.json()["error"], denied.text()
+        toggle.click()
+        expect(toggle).to_have_attribute("aria-checked", "false")
+        allowed = context.request.post(url + "/api/v1/operations", data=payload)
+        assert allowed.status == 202, allowed.text()
+        status_url = url + allowed.json()["status_url"]
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            operation = context.request.get(status_url).json()
+            if operation["status"] in {"succeeded", "failed", "cancelled"}:
+                break
+            time.sleep(0.1)
+        assert operation["status"] == "succeeded", operation
+        toggle.click()
+        expect(toggle).to_have_attribute("aria-checked", "true")
+        denied = context.request.post(url + "/api/v1/images/generate", data=payload)
+        assert denied.status == 503 and "Not enough memory" in denied.json()["error"], denied.text()
+        print("PASS turning checks off runs an oversized measured request; turning checks on blocks it again")
+    finally:
+        page.close()
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()
 
 
 def main():
@@ -119,10 +163,13 @@ def main():
             print("PASS the memory control fits a phone-sized viewport")
             assert not errors, errors
         finally:
-            browser.close()
             server.shutdown()
             server.server_close()
             studio.shutdown()
+        try:
+            verify_known_estimate(context, path)
+        finally:
+            browser.close()
 
 
 if __name__ == "__main__":

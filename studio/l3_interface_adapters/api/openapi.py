@@ -548,7 +548,7 @@ def openapi_document() -> dict[str, Any]:
                         "settings": {
                             "type": "object",
                             "required": ["require_memory_estimate"],
-                            "properties": {"require_memory_estimate": {"type": "boolean", "default": True}},
+                            "properties": {"require_memory_estimate": {"type": "boolean", "default": False}},
                         },
                         "private_operations": {
                             "type": "boolean",

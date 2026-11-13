@@ -17,10 +17,10 @@ def test_custom_estimator_is_selected_without_importing_a_model(monkeypatch):
     estimator = Mock(return_value=12.0)
     catalog = CatalogMemoryEstimateGateway({("image", "new_model"): estimator})
     request = {"kind": "image", "backend": "new_model", "mode": "edit"}
-    ResourceAdmission(lambda: (64 * GIB, 32 * GIB), catalog, InMemoryStudioSettingsGateway())(request)
+    ResourceAdmission(lambda: (64 * GIB, 32 * GIB), catalog, InMemoryStudioSettingsGateway(True))(request)
     estimator.assert_called_once_with(request)
     with pytest.raises(InsufficientMemory, match=r"12\.0 GiB"):
-        ResourceAdmission(lambda: (64 * GIB, 16 * GIB), catalog, InMemoryStudioSettingsGateway())(request)
+        ResourceAdmission(lambda: (64 * GIB, 16 * GIB), catalog, InMemoryStudioSettingsGateway(True))(request)
 
 
 def test_unmeasured_models_do_not_call_an_unrelated_estimator(monkeypatch):

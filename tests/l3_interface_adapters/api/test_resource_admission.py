@@ -1,5 +1,7 @@
 """Memory estimation and admission regression coverage, without engines."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from studio.l1_entities.errors import InsufficientMemory
@@ -13,7 +15,7 @@ from tests.support.memory_estimates import json_list_reference as json_list_refe
 
 
 def test_admission_allows_qwen_when_quantization_is_not_calibrated():
-    admission = admission_for(lambda: (64 * GIB, 64 * GIB), qwen_turbo_quantize=8)
+    admission = admission_for(lambda: (64 * GIB, 64 * GIB), qwen_turbo_quantize=8, enabled=False)
 
     assert admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"}) is None
 
@@ -53,8 +55,17 @@ def test_admission_accepts_a_request_that_fits_with_the_reserve():
     assert admission({"kind": "image", "backend": "qwen21_turbo", "size": "512x512"}) is None
 
 
+def test_queue_admission_defers_the_memory_comparison_until_execution():
+    admission = admission_for(lambda: (64 * GIB, GIB))
+    payload = {"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"}
+
+    assert admission.require(payload) is None
+    with pytest.raises(InsufficientMemory):
+        admission.check(payload)
+
+
 def test_admission_allows_a_request_without_a_measured_model_estimate():
-    admission = admission_for(lambda: (64 * GIB, 64 * GIB))
+    admission = admission_for(lambda: (64 * GIB, 64 * GIB), enabled=False)
 
     assert admission({"kind": "image", "backend": "optional-model"}) is None
 
@@ -135,8 +146,28 @@ def test_app_policy_blocks_unmeasured_requests_until_disabled():
         admission(payload)
     settings.set_require_memory_estimate(False)
     admission(payload)
+    admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
+    settings.set_require_memory_estimate(True)
     with pytest.raises(InsufficientMemory):
         admission({"kind": "image", "backend": "qwen21_turbo", "size": "1024x1024"})
+
+
+@pytest.mark.parametrize("method", ("check", "require"))
+@pytest.mark.parametrize("payload", ({"kind": "image", "size": "1024x1024"}, {"items": [{"size": "1024x1024"}]}))
+def test_disabled_policy_skips_memory_probe_and_estimates(method, payload):
+    from studio.l3_interface_adapters.api.resource_admission import ResourceAdmission
+    from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
+
+    headroom = Mock(side_effect=AssertionError("Memory probe must not run"))
+    estimates = Mock()
+    estimates.estimate.side_effect = AssertionError("Memory estimates must not run")
+    resident = Mock(side_effect=AssertionError("Resident memory must not be read"))
+    admission = ResourceAdmission(headroom, estimates, InMemoryStudioSettingsGateway(False), resident)
+
+    assert getattr(admission, method)(payload) is None
+    headroom.assert_not_called()
+    estimates.estimate.assert_not_called()
+    resident.assert_not_called()
 
 
 def test_app_policy_requires_every_batch_item_to_be_measured():
