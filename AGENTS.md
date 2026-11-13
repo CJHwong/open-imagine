@@ -133,7 +133,10 @@ One gateway interface serves every engine. Two transports sit behind it.
    size and the AdaLN setting. A matching `quant_config.json` and key set is the evidence.
 3. Record the repository, the revision, the license and the size in the setup guide.
 4. Download a conversion source only when no native pack exists. Build the pack with the engine's
-   own converter, and state whether the source can be deleted.
+   own converter, and state whether the source can be deleted. A release packed as nvfp4 for
+   sglang converts in two steps: dequantize each linear to bf16, then let `mlx_vlm.convert`
+   quantize. `scripts/convert_h3_image_pe.py` is the working example, and it reads a weight and
+   its scales through the index, because they do not always share a shard.
 5. Put the files under the configured `model_dir`, in the folder names the runtime checks.
 6. Prove a pack with one live run on the studio path at port 8765, then record the memory and time
    in `docs/reference/measured-memory-and-time.md`.

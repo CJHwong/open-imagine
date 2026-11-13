@@ -156,6 +156,11 @@ model_dir = "~/Library/Caches/models/krea-2-turbo-mflux-q8"
 # MiniMax-H3-Image Community License limits where and how you may use the weights; see
 # docs/reference/model-licenses.md.
 model_dir = "~/Library/Caches/models/minimax-h3-image"
+# Optional: the model's own prompt enhancer, a 27B fine-tune converted to MLX. Name the
+# pack to show the Rewrite toggle; leave it out and the page offers no toggle. The setup
+# recipe is in docs/how-to/set-up-models.md.
+# rewrite_model_dir = "~/Library/Caches/models/minimax-h3-image-pe/mlx-q4"
+# rewrite_prompt_dir = "~/Library/Caches/models/minimax-h3-image-pe/mlx-q4/prompt"
 
 [viggle_turbo]
 quantize = 0                              # bf16, for the reason above; the LoRA is passed unmerged
