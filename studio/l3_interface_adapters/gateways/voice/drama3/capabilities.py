@@ -60,7 +60,18 @@ TEMPLATES = translate_templates(TEMPLATES, TRANSLATIONS, locale="zh-TW")
 # M5 Pro 64 GiB, eight-bit weights, seed 7, native 44.1 kHz, 0.5s codec chunks:
 # warm whisper 3.07s audio / 2.72s wall; excited 4.09 / 4.66;
 # cached Clone 3.39 / 3.87. Primitive load 20.61s; first generation 16.00s.
-ESTIMATE = Estimate(rtf=1.2, overhead=34)
+#
+# The script's length, measured 2026-11-13 on the same machine, through the studio's
+# own route, one fresh start for each run. Characters of the script, then the seconds
+# of audio it produced:
+#
+#   25  1.90    111  10.50    275  25.08
+#
+# A straight line through them gives 0.092 s of audio per character. The 25-character
+# run sits 20% under the line and the other two within 3%, so the figure is an "about"
+# for a script of any length. A 592-character script hit the engine's token cap before
+# it finished, so scripts longer than about 275 characters cannot be measured this way.
+ESTIMATE = Estimate(rtf=1.2, overhead=34, seconds_per_character=0.092)
 
 
 def drama_capabilities():
