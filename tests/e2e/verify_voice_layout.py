@@ -43,21 +43,19 @@ with sync_playwright() as tool:
     check("the empty preview uses the Preview label", empty.locator("strong").inner_text() == "Preview audio")
     check("empty audio has no transport", page.locator("#voice-track-menu").is_hidden())
     empty.get_by_role("button").click()
-    check(
-        "the preview action focuses the script",
-        page.locator("#voice-text").evaluate("field => field === document.activeElement"),
-    )
+    # The focus lands after the click's own render, so the suite waits for it instead
+    # of reading the document in the same tick.
+    page.wait_for_function("document.activeElement && document.activeElement.id === 'voice-text'", timeout=5000)
+    check("the preview action focuses the script", True)
     page.locator('label[for="voice-mode-edit"]').click()
     check(
         "empty Edit does not ask for a script",
         empty.get_by_role("button", name="Write the text to read", exact=True).count() == 0,
     )
-    check("empty Edit explains the reference", "reference" in empty.inner_text().lower())
+    check("empty Edit explains the recording it edits", "recording" in empty.inner_text().lower())
     empty.get_by_role("button", name="Describe the edit", exact=True).click()
-    check(
-        "the Edit preview action focuses the instruction",
-        page.locator("#voice-text").evaluate("field => field === document.activeElement"),
-    )
+    page.wait_for_function("document.activeElement && document.activeElement.id === 'voice-text'", timeout=5000)
+    check("the Edit preview action focuses the instruction", True)
     page.locator('label[for="voice-mode-design"]').click()
     page.locator("#voice-description").fill(
         "A warm and clear narrator speaks with a calm natural rhythm, gentle expression, "
@@ -86,12 +84,13 @@ with sync_playwright() as tool:
           const bounds = bar.getBoundingClientRect();
           const about = bar.querySelector('.about').getBoundingClientRect();
           const actions = bar.querySelector('.actions').getBoundingClientRect();
-          const buttons = [...bar.querySelectorAll('.actions > button')].filter(button => button.getClientRects().length);
+          const items = [...bar.querySelectorAll('.actions > *')].filter(item => item.getClientRects().length);
+          const buttons = items.filter(item => item.tagName === 'BUTTON');
           const description = bar.querySelector('.voice-output-description');
           return {
             transparent: style.backgroundColor === 'rgba(0, 0, 0, 0)' && parseFloat(style.borderTopWidth) === 0,
             sameRow: about.right <= actions.left + 1 && about.top < actions.bottom && actions.top < about.bottom,
-            rightAligned: Math.abs(Math.max(...buttons.map(button => button.getBoundingClientRect().right)) - (bounds.right - parseFloat(style.paddingRight))) <= 2,
+            rightAligned: Math.abs(Math.max(...items.map(item => item.getBoundingClientRect().right)) - (bounds.right - parseFloat(style.paddingRight))) <= 2,
             wraps: description.getBoundingClientRect().height > parseFloat(getComputedStyle(description).lineHeight) * 1.5,
             icons: buttons.every(button => button.querySelector('svg.icon')),
             oneActionRow: Math.max(...buttons.map(button => button.getBoundingClientRect().top)) - Math.min(...buttons.map(button => button.getBoundingClientRect().top)) <= 2,
