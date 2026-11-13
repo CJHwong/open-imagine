@@ -161,7 +161,9 @@
   .voice-preview-area.stage { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
   #voice-preview-pane { display: grid; align-items: center; justify-items: center; padding: 28px; min-height: 0; min-width: 0; overflow: auto; }
   #voice-audio-preview { width: min(900px, 100%); }
-  .voice-output-details { position: relative; flex-wrap: nowrap; padding-top: 12px; background: transparent; border: 0; }
+  /* Wraps like the shared bar. A bar that refuses to wrap gives the width one line
+     needs to the others, which is how the music details bar lost its facts. */
+  .voice-output-details { position: relative; flex-wrap: wrap; padding-top: 12px; background: transparent; border: 0; }
   .voice-output-details .prompt-line { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .voice-output-details .about { min-width: 0; }
   .voice-preview-area .sheet dd { min-width: 0; overflow-wrap: anywhere; }
