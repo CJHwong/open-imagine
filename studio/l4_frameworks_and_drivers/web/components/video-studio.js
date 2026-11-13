@@ -1586,7 +1586,8 @@ class VideoStudio extends LitElement {
       // raises no change event while the input still holds it.
       const files = Array.from(control.files || []);
       control.value = '';
-      this.addMediaFiles(files);
+      const importing = this.addMediaFiles(files);
+      event.detail?.waitUntil?.(importing);
     }
   }
 

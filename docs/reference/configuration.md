@@ -15,7 +15,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `--config` | `studio.toml` | Configuration file. |
 | `--allow-origin` | None | Let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin. See [Open from another device](../how-to/open-from-another-device.md). |
 | `--stub` | Off | Simulated engines: placeholder images, a Voice test tone, and Video metadata. No model loading. |
-| `--connect` | Off | Start the phone connection and print its QR code, as `[connect] enabled = true` does, without editing the file. |
+| `--connect[=on|off]` | On | Start the phone connection and print its QR code. `--connect=off` disables it for this start. |
 
 ## Settings
 
@@ -31,7 +31,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
 | `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
 | `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
-| `[connect].enabled` | `false`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
+| `[connect].enabled` | `true`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
 | `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
 | `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |
 | `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
@@ -163,9 +163,10 @@ the preferences file to return to the configured default.
 
 ## Phone connection
 
-`[connect] enabled = true` starts a dumbpipe listener on `127.0.0.1:studio_port` and
-prints a QR code after the server binds. `--connect` does the same for one start, so a
-settings file nobody edited still pairs a phone. The QR carries the ticket and the loopback
+Phone connections start by default. The dumbpipe listener binds `127.0.0.1:studio_port`
+and prints a QR code after the server binds. `--connect=off` disables it for one start.
+Set `[connect] enabled = false` to keep it off. `--connect` or `--connect=on` overrides that setting.
+The QR carries the ticket and the loopback
 port. The phone runs `dumbpipe connect-tcp` and opens `http://127.0.0.1:<port>` in
 its embedded browser.
 

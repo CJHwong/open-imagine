@@ -224,10 +224,10 @@ def test_a_startup_flag_wins_over_the_memory_and_queue_values(tmp_path):
     assert config.queue_max_size == 9
 
 
-def test_the_phone_connection_is_off_unless_the_file_enables_it(tmp_path):
+def test_the_phone_connection_is_on_by_default(tmp_path):
     config = load_config(write(tmp_path, SETTINGS))
 
-    assert config.connect_enabled is False
+    assert config.connect_enabled is True
     assert config.connect_transport == "dumbpipe"
     assert config.connect_studio_port == 8765
     assert config.connect_identity_path == (Path.home() / ".config/open-imagine/dumbpipe-identity").expanduser()
@@ -283,3 +283,11 @@ def test_the_phone_connection_table_must_be_a_table(tmp_path):
 def test_a_non_string_dumbpipe_path_is_refused(tmp_path):
     with pytest.raises(ConfigError, match=r"connect\.dumbpipe_path"):
         load_config(write(tmp_path, SETTINGS + "\n[connect]\ndumbpipe_path = 3\n"))
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("override", [None, True, False])
+def test_the_connect_override_wins_over_an_explicit_file_value(tmp_path, enabled, override):
+    text = SETTINGS + f"\n[connect]\nenabled = {str(enabled).lower()}\n"
+    config = load_config(write(tmp_path, text), connect_enabled=override)
+    assert config.connect_enabled is (enabled if override is None else override)

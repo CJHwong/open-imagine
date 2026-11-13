@@ -25,6 +25,7 @@ class Config:
     memory_policy: str = "immediate"
     memory_boundary_percent: int = 84
     queue_max_size: int = 0
+    # load_config supplies the connection default and its identity path together.
     connect_enabled: bool = False
     connect_transport: str = "dumbpipe"
     connect_studio_port: int = 8765
@@ -59,7 +60,7 @@ def load_config(
     `quantize` applies to the backend the page opens with. `visible` offers exactly the
     backends it names. The video and voice overrides follow the same rule. The memory and
     queue overrides are the command-line flags: a flag wins over the file. `connect_enabled`
-    turns the phone connection on for this start, and never turns a file that enables it off."""
+    overrides the phone connection setting for this start."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
     visible = visible if visible else tuple(raw.get("visible_backends", [default]))
@@ -94,13 +95,11 @@ def load_config(
     connect = raw.get("connect", {})
     if not isinstance(connect, dict):
         raise ConfigError("[connect] in studio.toml must be a table")
-    enabled_in_file = connect.get("enabled", False)
+    enabled_in_file = connect.get("enabled", True)
     if not isinstance(enabled_in_file, bool):
         raise ConfigError("connect.enabled in studio.toml must be true or false")
-    # The flag turns the connection on for one start, and never off: a settings file
-    # that enables it keeps it enabled.
     if connect_enabled is not None:
-        enabled_in_file = enabled_in_file or connect_enabled
+        enabled_in_file = connect_enabled
     transport = connect.get("transport", "dumbpipe")
     if transport != "dumbpipe":
         raise ConfigError('connect.transport in studio.toml must be "dumbpipe"; the tailcat adapter is not built yet')

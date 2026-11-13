@@ -36,6 +36,7 @@
 <script type="module" src="/page/components/look-rows.js"></script>
 <script type="module" src="/page/components/lora-picks.js"></script>
 <script type="module" src="/page/components/reference-list.js"></script>
+<script type="module" src="/page/components/clipboard-paste.js"></script>
 <script type="module" src="/page/components/region-mark.js"></script>
 <script type="module" src="/page/components/image-strip.js"></script>
 <script type="module" src="/page/components/toast-host.js"></script>
@@ -243,7 +244,10 @@
 
         <div class="field">
           <div class="field-head">
-            <span class="label"><span class="generate-only" data-i18n="page.reference.starting">Starting image</span><span class="edit-only" data-i18n="page.reference.editing">Images to edit</span></span>
+            <div class="reference-heading">
+              <span class="label"><span class="generate-only" data-i18n="page.reference.starting">Starting image</span><span class="edit-only" data-i18n="page.reference.editing">Images to edit</span></span>
+              <clipboard-paste for="reference" context="image:generate"></clipboard-paste>
+            </div>
             <button type="button" class="text-btn" id="clear-reference" hidden data-i18n="page.reference.removeAll">Remove all</button>
           </div>
           <!-- The zone is the page's: it opens the chooser for a click, a key and
@@ -393,7 +397,10 @@
           <section id="video-source-panel" class="video-source-panel" aria-label="Video media"
             data-i18n-attr='{"aria-label":"page.video.mediaPanel"}'>
             <div class="video-source-panel-head">
-              <strong data-i18n="page.video.media">Media</strong>
+              <div class="reference-heading">
+                <strong data-i18n="page.video.media">Media</strong>
+                <clipboard-paste for="video-media-upload" context="video:generate"></clipboard-paste>
+              </div>
               <div class="video-source-actions">
                 <button class="pill" type="button" data-action="add-media"
                   aria-label="Add media" data-i18n-attr='{"aria-label":"page.video.addMedia"}'><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="page.video.addMedia">Add media</span></button>
@@ -409,7 +416,7 @@
               <svg class="icon" aria-hidden="true"><use href="#i-image"/></svg>
               <div>
                 <strong data-i18n="page.video.addMediaTitle">Add an image reference or a source clip</strong>
-                <span data-i18n="page.video.addMediaHint">Optional. Drop, paste or choose one.</span>
+                <span data-i18n="page.video.addMediaHint">Choose an image or audio file.</span>
               </div>
             </div>
             <section class="video-source-group" id="video-source-group" aria-label="Source clips"
@@ -1323,6 +1330,7 @@
     // reads each file's own type and refuses the wrong one.
     mediaUpload.accept = mode.needs_clip ? EDIT_MEDIA + (mode.max_references ? ',.png,.jpg,.jpeg,.webp,.heic,.heif' : '') : GENERATE_MEDIA;
     mediaUpload.multiple = !mode.needs_clip || mode.max_references > 0;
+    document.querySelector('clipboard-paste[for="video-media-upload"]').setAttribute('context', 'video:' + mode.id);
     // Edit's block is the image form's block, word for word: one labelled slot, a zone that
     // takes the click, and no "Optional" on the one input the mode cannot run without. The
     // panel's own Add button goes, because the zone is the door.

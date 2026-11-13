@@ -1014,7 +1014,7 @@ with sync_playwright() as playwright:
         "the empty zone names what the mode wants",
         empty.is_visible()
         and page.locator("#refs-title").inner_text() == "Start from an image"
-        and page.locator("#refs-sub").inner_text() == "Optional. Drop, paste or choose one.",
+        and page.locator("#refs-sub").inner_text() == "Choose an image.",
         page.locator("#refs-title").inner_text(),
     )
 
@@ -1035,7 +1035,7 @@ with sync_playwright() as playwright:
         "an empty zone stands down, and the edit words name what to add",
         empty.is_hidden()
         and page.locator("#refs-title").inner_text() == "Add the image to edit"
-        and page.locator("#refs-sub").inner_text().startswith("Drop, paste or choose up to "),
+        and page.locator("#refs-sub").inner_text().startswith("Choose up to "),
         f"{page.locator('#refs-title').inner_text()} / {page.locator('#refs-sub').inner_text()}",
     )
     # The thumbnail carries the name of the image it holds, which is how a
@@ -1169,7 +1169,7 @@ with sync_playwright() as playwright:
     check(
         "a generate holds one image and offers no tile",
         other.locator("#thumbs .add-tile").count() == 0
-        and other.locator("#refs-note").inner_text() == "Drop or paste another image to replace it.",
+        and other.locator("#refs-note").inner_text() == "Choose another image to replace it.",
         other.locator("#refs-note").inner_text(),
     )
     other_context.close()

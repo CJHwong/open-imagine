@@ -91,6 +91,14 @@ def queue_size(value: str) -> int:
     return size
 
 
+def connection_switch(value: str) -> bool:
+    if value == "on":
+        return True
+    if value == "off":
+        return False
+    raise argparse.ArgumentTypeError("the phone connection must be on or off")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Serve a local multimedia generation studio with temporary public and encrypted private results."
@@ -138,9 +146,12 @@ def parse_args():
     )
     parser.add_argument(
         "--connect",
-        action="store_true",
-        help="start the phone connection and print its QR code, as [connect] enabled = true does, "
-        "without editing studio.toml",
+        nargs="?",
+        const=True,
+        default=None,
+        type=connection_switch,
+        metavar="on|off",
+        help="phone connection (on by default); --connect=off disables it for this start",
     )
     parser.add_argument(
         "--stub",
@@ -172,7 +183,7 @@ def main():
             memory_policy=args.memory_policy,
             memory_boundary_percent=args.memory_boundary_percent,
             queue_max_size=args.queue_max_size,
-            connect_enabled=True if args.connect else None,
+            connect_enabled=args.connect,
         )
         studio = create_studio(
             config,

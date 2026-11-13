@@ -764,6 +764,7 @@ function renderNegativeLook() {
 }
 
 function refreshForm() {
+  document.querySelector('clipboard-paste[for="reference"]')?.setAttribute('context', 'image:' + (editing() ? 'edit' : 'generate'));
   page.region().preview();
   renderNegativeLook();
   // The negative raises the scale, so it runs before the fields are mirrored
@@ -1624,8 +1625,9 @@ function wire() {
   fillSelect(el.resolutionSelect, 'resolution');
   readSizes();
 
-  el.referenceInput.addEventListener('change', function () {
-    addFiles(el.referenceInput.files);
+  el.referenceInput.addEventListener('change', function (event) {
+    const importing = addFiles(el.referenceInput.files);
+    event.detail?.waitUntil?.(importing);
     el.referenceInput.value = '';
   });
   el.refsZone.addEventListener('click', function () { el.referenceInput.click(); });
