@@ -1,0 +1,23 @@
+{
+  "@@locale": "zh",
+  "appTitle": "Open Imagine",
+  "connectAStudio": "連接工作室",
+  "yourStudio": "你的工作室",
+  "scanHint": "掃描工作室「設定 > 手機」頁面的 QR code。",
+  "scanTheCode": "掃描 QR code",
+  "scanNewCode": "掃描新的 QR code",
+  "connected": "已連接",
+  "connecting": "連接中",
+  "notConnected": "未連接",
+  "disconnect": "中斷連接",
+  "couldNotReach": "無法連接工作室。",
+  "connectionEnded": "工作室連線已中斷。",
+  "scanStudioCode": "掃描工作室 QR code",
+  "torch": "手電筒",
+  "scanCameraHint": "將鏡頭對準工作室的 QR code。",
+  "notPairingCode": "這不是 Open Imagine 的配對碼。",
+  "saved": "已儲存 {name}",
+  "couldNotSave": "無法儲存：{error}",
+  "inputUnavailable": "無法開啟此輸入。請再試一次。",
+  "microphoneDenied": "無法使用麥克風。請在 Android 設定中允許存取，再試一次。"
+}

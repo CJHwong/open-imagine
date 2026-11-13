@@ -1,0 +1,98 @@
+name: Phone
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - apps/phone/**
+      - .github/workflows/phone.yml
+  push:
+    branches: [main]
+    paths:
+      - apps/phone/**
+      - .github/workflows/phone.yml
+  workflow_dispatch:
+
+concurrency:
+  group: phone-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: format, analyze, test and build Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+    defaults:
+      run:
+        working-directory: apps/phone
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: '3.44.8'
+          cache: true
+
+      - name: Install locked Flutter packages and generate translations
+        run: |
+          flutter pub get --enforce-lockfile
+          flutter gen-l10n
+
+      - name: Check Dart format
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Analyze Flutter
+        run: flutter analyze --no-pub
+
+      - name: Test Flutter
+        run: flutter test --no-pub
+
+      # rust-toolchain.toml pins Rust, Clippy, rustfmt and the Android target.
+      - name: Install the Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Check Rust format
+        run: cargo fmt --manifest-path rust/openimagine_pipe/Cargo.toml -- --check
+
+      - name: Check Rust with Clippy
+        run: cargo clippy --manifest-path rust/openimagine_pipe/Cargo.toml --locked --all-targets -- -D warnings
+
+      - name: Install the Android native toolchain
+        run: |
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;28.2.13676358'
+          cargo install cargo-ndk --version 4.1.2 --locked
+
+      - name: Build the native library
+        env:
+          ANDROID_NDK_VERSION: '28.2.13676358'
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION"
+          ./tool/build_pipe.sh
+
+      - name: Build the arm64 APK
+        run: flutter build apk --release --target-platform android-arm64 --no-pub
+
+      - name: Check Android lint
+        working-directory: apps/phone/android
+        run: ./gradlew --no-daemon --max-workers=2 -Ptarget-platform=android-arm64 :app:lintRelease
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: phone-android-arm64
+          path: apps/phone/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 7
