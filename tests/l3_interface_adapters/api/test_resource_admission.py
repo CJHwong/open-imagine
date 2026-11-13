@@ -76,6 +76,42 @@ def test_admission_charges_qwen_edits_for_their_measured_peak(resolution, count)
     assert admission_for(lambda: (64 * GIB, 64 * GIB))(payload) is None
 
 
+def test_a_loaded_model_is_subtracted_from_the_peak_of_the_run_that_uses_it():
+    payload = {"kind": "image", "backend": "qwen21_turbo", "mode": "generate", "size": "1024x1024"}
+    loaded = {"qwen21_turbo": 28.0}
+
+    cold = admission_for(lambda: (64 * GIB, 59 * GIB))
+    warm = admission_for(lambda: (64 * GIB, 33 * GIB), resident_gib=loaded.get)
+
+    with pytest.raises(InsufficientMemory, match=r"about 52\.0 GiB"):
+        cold(payload)
+    assert warm(payload) is None
+
+
+def test_a_loaded_model_of_another_backend_is_charged_in_full():
+    payload = {"kind": "image", "backend": "qwen21_turbo", "mode": "generate", "size": "1024x1024"}
+    admission = admission_for(
+        lambda: (64 * GIB, 33 * GIB), resident_gib=lambda backend_id: 40.0 if backend_id == "krea2" else 0.0
+    )
+
+    with pytest.raises(InsufficientMemory, match=r"about 52\.0 GiB"):
+        admission(payload)
+
+
+def test_a_peak_below_the_loaded_model_still_reserves_the_system_memory():
+    admission = admission_for(lambda: (64 * GIB, 7 * GIB), resident_gib=lambda backend_id: 99.0)
+
+    with pytest.raises(InsufficientMemory, match=r"about 0\.0 GiB"):
+        admission({"kind": "image", "backend": "qwen21_turbo", "mode": "generate", "size": "512x512"})
+
+
+def test_a_drama_second_run_charges_only_what_the_loaded_weights_do_not_hold():
+    payload = {"kind": "voice", "backend": "drama3", "mode": "generate", "text": "Hello there."}
+    admission = admission_for(lambda: (64 * GIB, 17 * GIB), resident_gib={"drama3": 39.1}.get)
+
+    assert admission(payload) is None
+
+
 def test_krea2_needs_its_peak_and_the_reserve_free():
     fits = admission_for(lambda: (64 * GIB, 55 * GIB))
     short = admission_for(lambda: (64 * GIB, 54 * GIB))

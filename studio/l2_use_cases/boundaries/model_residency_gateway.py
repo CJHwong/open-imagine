@@ -11,6 +11,15 @@ class ModelResidencyGateway(ABC):
     """
 
     @abstractmethod
+    def resident_gib(self, backend_id: str) -> float:
+        """The memory this model holds right now, or 0 when it is not loaded.
+
+        Admission subtracts this from a run's peak, because free memory already
+        excludes the loaded model and the peak counts it again. A gateway that
+        keeps no model loaded reports 0.
+        """
+
+    @abstractmethod
     def select(self, backend_id: str) -> None:
         """Record the model that the next run will use. Load nothing; free the old model
         only when the policy is immediate."""

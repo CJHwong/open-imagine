@@ -20,11 +20,12 @@ def estimate_peak_gib(payload, total_memory_gib, *, qwen_turbo_quantize=None):
     )
 
 
-def admission_for(headroom, qwen_turbo_quantize=None):
+def admission_for(headroom, qwen_turbo_quantize=None, resident_gib=None):
     return ResourceAdmission(
         headroom,
         build_memory_estimates(Config("", (), "", (), {"qwen21_turbo": {"quantize": qwen_turbo_quantize}})),
         InMemoryStudioSettingsGateway(False),
+        resident_gib,
     )
 
 

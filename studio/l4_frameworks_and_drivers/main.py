@@ -354,6 +354,7 @@ def assemble_studio(
             resource_memory_headroom,
             memory_estimates if memory_estimates is not None else CatalogMemoryEstimateGateway({}),
             settings,
+            residency.resident_gib,
         )
         if resource_memory_headroom
         else None

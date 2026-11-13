@@ -101,6 +101,27 @@ def test_a_boundary_policy_keeps_models_that_fit_together():
     assert residency.resident_ids() == ("small", "other")
 
 
+def test_a_loaded_model_reports_the_footprint_it_holds_and_frees_it_on_release():
+    events = []
+    residency = boundary(events, {"small": 10.0, "other": 20.0})
+    residency.claim("small")
+
+    assert residency.resident_gib("small") == 10.0
+    assert residency.resident_gib("other") == 0.0
+
+    residency.release()
+
+    assert residency.resident_gib("small") == 0.0
+
+
+def test_a_model_loaded_without_a_declared_footprint_reports_none():
+    events = []
+    residency = gateway(events, ("image",))
+    residency.claim("image")
+
+    assert residency.resident_gib("image") == 0.0
+
+
 def test_a_boundary_policy_frees_the_oldest_model_first_until_the_new_one_fits():
     events = []
     residency = boundary(events, {"small": 10.0, "other": 20.0, "large": 45.0})

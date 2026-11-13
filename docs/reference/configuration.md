@@ -151,6 +151,8 @@ The Settings menu's Memory section applies to every workspace and API caller.
 peak may run. Turn it on to refuse an unmeasured setup with 503 and instructions
 for changing the setting; that is not a claim that a workflow is unsupported.
 Known estimates continue to enforce the model peak plus the macOS reserve in either mode.
+When the model is loaded already, the check subtracts its declared `resident_gib` from
+the peak, so a second run does not pay for the weights twice.
 The current measurements apply to a 64 GiB Mac; other hosts have no calibrated
 estimate. Smaller output alone
 does not create an estimate for an unmeasured workflow.

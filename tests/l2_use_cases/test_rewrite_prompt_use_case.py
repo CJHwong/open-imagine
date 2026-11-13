@@ -323,6 +323,9 @@ def test_a_rewrite_releases_its_lock_if_it_cannot_release_the_previous_model():
         def claim(self, backend_id):
             raise AssertionError("a rewrite does not claim a generator")
 
+        def resident_gib(self, backend_id):
+            raise AssertionError("a rewrite does not release a generator")
+
         def release_active(self):
             raise AssertionError("a rewrite does not release a generator")
 

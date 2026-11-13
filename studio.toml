@@ -23,7 +23,8 @@ require_memory_estimate = false
 # page leaves its workspace. `boundary` keeps loaded models and frees the oldest first,
 # and only when the next model would take the total past boundary_percent of physical
 # memory. A model with no measured footprint is never kept. Admission still checks the
-# run's own peak against free memory, with the 8 GiB OS reserve.
+# run's own peak against free memory, with the 8 GiB OS reserve, and subtracts a model
+# that is loaded already, so a second run does not pay for its weights twice.
 [memory]
 policy = "immediate"
 boundary_percent = 84
