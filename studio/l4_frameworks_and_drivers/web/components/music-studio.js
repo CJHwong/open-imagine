@@ -21,6 +21,7 @@ import './gallery-tile.js';
 import './run-button.js';
 import {configureLookRows} from './look-rows.js';
 import {t, plural} from '../lib/i18n.js';
+import {spell} from '../lib/time-format.js';
 
 // What a run emptied, kept for this tab so a reload can still put it back. The reference
 // travels as its stored source id, never as bytes.
@@ -1297,6 +1298,23 @@ class MusicStudio extends HTMLElement {
     if (!this.songs.some(song => song.id === this.selectedId)) this.selectedId = preferredGalleryId('music', this.songs, this.keeping) || this.songs.at(-1)?.id;
     this.renderSongs();
   }
+  // The figure beside the run button, from the constants the backend measured. The
+  // engine chooses the song length, so only the lyrics sent move it, and an instrumental
+  // also pays for the melody plan it transfers. `MusicEstimate.seconds` holds the same line.
+  estimateText(draft) {
+    const estimate = this.capabilities?.estimate;
+    if (!estimate) return '';
+    const lyrics = (draft.lyrics || '').length;
+    let figure = null;
+    if (draft.mode === 'plan') figure = estimate.plan_seconds;
+    else if (draft.mode === 'cover') figure = estimate.cover_seconds;
+    else if (draft.mode === 'transcribe') figure = estimate.transcribe_seconds;
+    else if (draft.mode === 'generate') {
+      figure = estimate.generate_base_seconds + estimate.generate_seconds_per_lyric_character * lyrics;
+      if (draft.instrumental) figure += estimate.instrumental_extra_seconds;
+    }
+    return figure ? t('form.estimate.about', {time: spell(figure)}) : '';
+  }
   sync() {
     const draft = this.draft();
     this.controls.querySelectorAll('[data-form=music]').forEach(element => element.requestUpdate?.());
@@ -1450,7 +1468,8 @@ class MusicStudio extends HTMLElement {
     if (labels) { labels.dataset.state = state; labels.dataset.mode = 'generate'; }
     this.generateButton.disabled = state !== 'idle' || !this.capabilities || !ready || this.busy;
     if (sub) sub.textContent = starting ? t('music.run.preparing')
-      : this.recording ? t('music.run.stop_recording_first') : t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
+      : this.recording ? t('music.run.stop_recording_first')
+        : this.estimateText(draft) || t(MODE_CAPTIONS[draft.mode] || 'music.mode_caption.generate');
   }
   setOperation(operation) {
     if (operation?.kind === 'music' && this.operation?.id !== operation.id) this.showGeneration = true;

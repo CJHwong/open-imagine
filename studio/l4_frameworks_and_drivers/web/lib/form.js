@@ -16,6 +16,7 @@ import './focus-editor.js';
 import {t, plural} from './i18n.js';
 import {navigate} from './navigation.js';
 import {isImageFile, readImageFile} from './image-import.js';
+import {spell} from './time-format.js';
 
 const page = {};
 
@@ -113,14 +114,6 @@ function applyParams(preserveValues = false) {
     const select = document.getElementById(param.id);
     if (select) select.value = param.default;
   });
-}
-
-function spell(seconds) {
-  if (seconds < 90) return t('form.time.seconds', {seconds: Math.max(5, Math.round(seconds / 5) * 5)});
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round((seconds % 60) / 15) * 15;
-  if (rest && rest < 60) return t('form.time.minutesSeconds', {minutes: minutes, seconds: rest});
-  return t('form.time.minutes', {minutes: minutes + (rest ? 1 : 0)});
 }
 
 // ---- References -----------------------------------------------------------
