@@ -12,6 +12,16 @@ from studio.l1_entities.music_job import MusicResult
 from studio.l2_use_cases.boundaries.music_backend_gateway import MusicBackendGateway
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import yue2_cuda_capabilities
 
+MAX_LYRICS_CHARACTERS = 600
+"""How much lyric this engine finishes in one song.
+
+Measured on the DGX Spark on 2026-11-14 with one style and one repeated line: 463
+characters sang 84.9 s of audio, 615 characters sang 118.7 s and finished, and 760
+characters reached the semantic stage's token budget and produced nothing. The limit is
+the measured pass minus a margin. It is calibrated on English lyrics; Chinese is denser,
+so a long Chinese lyric can still reach the engine's own error after the run.
+"""
+
 
 class Yue2CudaBackendGateway(MusicBackendGateway):
     def __init__(self, child):
@@ -29,6 +39,11 @@ class Yue2CudaBackendGateway(MusicBackendGateway):
     def run(self, job, on_step, should_stop):
         if should_stop():
             raise Cancelled("Music generation was cancelled.")
+        if job.mode != "plan" and len(job.lyrics) > MAX_LYRICS_CHARACTERS:
+            raise InvalidJob(
+                f"YuE2 on CUDA sings up to {MAX_LYRICS_CHARACTERS} characters of lyrics, and this request has "
+                f"{len(job.lyrics)}. Shorten the lyrics or split the song."
+            )
         payload = asdict(job)
         payload["reference_audio"] = base64.b64encode(payload.get("reference_audio", b"")).decode("ascii")
         reply = self._child.request(payload, on_step, should_stop)

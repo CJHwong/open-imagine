@@ -93,6 +93,26 @@ def test_the_payload_the_child_receives_survives_json():
     assert payload["reference_audio"] == base64.b64encode(b"\x00\x01").decode("ascii")
 
 
+def test_lyrics_over_the_limit_are_refused_before_the_child_runs():
+    child = Mock()
+    gateway = Yue2CudaBackendGateway(child)
+
+    with pytest.raises(InvalidJob, match="600 characters"):
+        gateway.run(MusicJob(style="piano", lyrics="a" * 601, seed=7), Mock(), lambda: False)
+
+    child.request.assert_not_called()
+
+
+def test_lyrics_at_the_limit_reach_the_child():
+    child = Mock()
+    child.request.return_value = {"wav": wav(), "score": ""}
+    gateway = Yue2CudaBackendGateway(child)
+
+    gateway.run(MusicJob(style="piano", lyrics="a" * 600, seed=7), Mock(), lambda: False)
+
+    child.request.assert_called_once()
+
+
 def test_load_waits_for_the_child_and_release_stops_it():
     child = Mock()
     gateway = Yue2CudaBackendGateway(child)
