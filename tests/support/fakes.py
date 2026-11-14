@@ -144,6 +144,9 @@ class FakeVideoBackendGateway(VideoBackendGateway):
     def capabilities(self) -> VideoCapabilities:
         return self._capabilities
 
+    def load(self) -> None:
+        self.loads = getattr(self, "loads", 0) + 1
+
     def run(self, job: VideoJob, progress=None, cancelled=None) -> VideoResult:
         self.jobs.append(job)
         if self.failure:

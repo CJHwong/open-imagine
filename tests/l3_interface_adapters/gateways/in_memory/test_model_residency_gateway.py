@@ -12,6 +12,9 @@ class Runtime(ModelLifecycleGateway):
         self.name = name
         self.events = events
 
+    def load(self) -> None:
+        pass
+
     def release(self) -> None:
         self.events.append("release " + self.name)
 

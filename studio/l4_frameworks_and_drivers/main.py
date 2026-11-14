@@ -16,6 +16,7 @@ from studio.l2_use_cases.model_services import ModelServices
 from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
 from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
+from studio.l2_use_cases.prepare_models_use_case import PrepareModelsUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
@@ -106,6 +107,26 @@ GIB = 1024**3
 # The stub has no GPU and no memory probe. A boundary policy still needs a number, and
 # 64 GiB is the machine every estimator was calibrated on.
 STUB_MEMORY_GIB = 64.0
+
+
+def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, float]]:
+    """Build and prepare every configured built-in model, freeing each before the next.
+
+    Plugins are not prepared: their provider owns its own runtime, and the page discovers
+    them at start.
+    """
+    configured = {
+        *config.visible_backends,
+        *config.visible_video_backends,
+        *config.visible_voice_backends,
+        *config.visible_music_backends,
+    }
+    targets = [
+        (provider.backend_id, provider.create(config))
+        for provider in BUILTIN_PROVIDERS
+        if provider.backend_id in configured
+    ]
+    return PrepareModelsUseCase().execute(targets, on_start)
 
 
 def resident_memory() -> dict[str, float]:

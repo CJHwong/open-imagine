@@ -893,3 +893,32 @@ def test_every_cuda_provider_declares_a_footprint():
     ]
 
     assert missing == []
+
+
+def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
+    from types import SimpleNamespace
+
+    from studio.l4_frameworks_and_drivers import main
+
+    calls = []
+
+    class Model:
+        def load(self):
+            calls.append("load")
+
+        def release(self):
+            calls.append("release")
+
+    providers = [SimpleNamespace(backend_id=name, create=lambda config: Model()) for name in ("a", "b", "c")]
+    monkeypatch.setattr(main, "BUILTIN_PROVIDERS", providers)
+    config = SimpleNamespace(
+        visible_backends=("a",),
+        visible_video_backends=("b",),
+        visible_voice_backends=(),
+        visible_music_backends=(),
+    )
+
+    report = main.prepare_models(config)
+
+    assert [name for name, _ in report] == ["a", "b"]
+    assert calls == ["load", "release", "load", "release"]

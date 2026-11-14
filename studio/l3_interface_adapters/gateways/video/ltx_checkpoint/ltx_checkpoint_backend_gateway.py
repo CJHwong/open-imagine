@@ -45,6 +45,9 @@ class LtxCheckpointBackendGateway(VideoBackendGateway):
         with self._pack():
             return self._runner.run_batch(jobs, completed, started, progress, cancelled)
 
+    def load(self) -> None:
+        """Nothing to prepare: the runner spawns a pipeline per clip."""
+
     def release(self) -> None:
         # The pipeline process owns the weights and exits after each clip.
         pass

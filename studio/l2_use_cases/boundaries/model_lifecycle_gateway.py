@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 
 
 class ModelLifecycleGateway(ABC):
-    """The one operation the studio needs to return a model's memory."""
+    """The two operations the studio needs to hold a model and give it back."""
+
+    @abstractmethod
+    def load(self) -> None:
+        """Make this model ready to run. Calling it again does nothing."""
 
     @abstractmethod
     def release(self) -> None:

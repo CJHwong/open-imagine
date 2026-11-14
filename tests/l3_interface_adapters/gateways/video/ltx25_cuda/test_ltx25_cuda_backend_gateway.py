@@ -97,3 +97,12 @@ def test_a_step_without_a_progress_callback_is_harmless():
 
     child.request.side_effect = request
     Ltx25CudaBackendGateway(child).run(job(), None, lambda: False)
+
+
+def test_load_waits_for_the_child_to_say_ready():
+    child = Mock()
+    gateway = Ltx25CudaBackendGateway(child)
+
+    gateway.load()
+
+    child.wait_ready.assert_called_once_with()

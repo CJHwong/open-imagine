@@ -16,7 +16,6 @@ USAGE:
 
 import argparse
 import sys
-import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -29,12 +28,12 @@ from studio.l4_frameworks_and_drivers.connect import pair_url, qr_terminal
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable
 from studio.l4_frameworks_and_drivers.http_server import StudioHTTPServer
 from studio.l4_frameworks_and_drivers.main import (
-    BUILTIN_PROVIDERS,
     IMAGE_BACKEND_FACTORIES,
     VIDEO_BACKEND_FACTORIES,
     VOICE_BACKEND_FACTORIES,
     create_studio,
     discover_plugins,
+    prepare_models,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
@@ -176,39 +175,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def prepare(config) -> int:
-    """Load each configured model once, so its pack and engine caches exist, then exit.
-
-    The first run of a CUDA model can build a pack of quantized weights, which takes
-    minutes. Doing it here keeps that out of the first generation.
-    """
-    configured = {
-        *config.visible_backends,
-        *config.visible_video_backends,
-        *config.visible_voice_backends,
-        *config.visible_music_backends,
-    }
-    prepared = 0
-    for provider in BUILTIN_PROVIDERS:
-        if provider.backend_id not in configured:
-            continue
-        backend = provider.create(config)
-        load = getattr(backend, "load", None)
-        if load is None:
-            continue
-        print(f"preparing {provider.backend_id}", flush=True)
-        started = time.time()
-        try:
-            load()
-        finally:
-            backend.release()
-        print(f"prepared {provider.backend_id} in {time.time() - started:.1f}s", flush=True)
-        prepared += 1
-    if not prepared:
-        print("nothing to prepare: none of the configured models loads on this machine", flush=True)
-    return 0
-
-
 def main():
     args = parse_args()
     try:
@@ -225,6 +191,18 @@ def main():
             queue_max_size=args.queue_max_size,
             connect_enabled=args.connect,
         )
+        if args.prepare:
+            if args.stub:
+                sys.exit("--prepare loads the real engines, so it cannot run with --stub")
+            report = prepare_models(
+                config,
+                on_start=lambda backend_id: print(f"preparing {backend_id}", flush=True),
+            )
+            for backend_id, seconds in report:
+                print(f"prepared {backend_id} in {seconds:.1f}s", flush=True)
+            if not report:
+                print("nothing to prepare: none of the configured models loads on this machine", flush=True)
+            return 0
         studio = create_studio(
             config,
             stub=args.stub,
@@ -239,8 +217,6 @@ def main():
         sys.exit(f"Cannot run here: {error}")
     except StudioError as error:
         sys.exit(f"Cannot start the studio: {error}")
-    if args.prepare:
-        return prepare(config)
     # Bind before loading. The weights take a minute, and a busy port found
     # after that minute is a waste. Anything that connects during the load
     # waits in the listen backlog.

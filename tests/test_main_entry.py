@@ -503,6 +503,26 @@ def test_the_connect_flag_keeps_the_default_and_accepts_on_or_off(tmp_path, monk
     assert entry.parse_args().connect is False
 
 
+def test_the_connect_flag_rejects_an_unknown_switch(monkeypatch, capsys):
+    argv(monkeypatch, "--connect=maybe")
+    with pytest.raises(SystemExit):
+        entry.parse_args()
+    assert "on or off" in capsys.readouterr().err
+
+
+def test_the_connect_off_flag_overrides_an_enabled_file(tmp_path, monkeypatch):
+    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=None))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    created = Mock(return_value=studio)
+    monkeypatch.setattr(entry, "create_studio", created)
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    path = settings_file(tmp_path, SETTINGS + "\n[connect]\nenabled = true\n")
+    argv(monkeypatch, "--connect=off", "--config", str(path))
+    entry.main()
+    assert created.call_args.args[0].connect_enabled is False
+
+
 def test_startup_exits_when_the_phone_listener_cannot_start(tmp_path, monkeypatch):
     from studio.l4_frameworks_and_drivers.connect import ConnectStatus
 
@@ -542,89 +562,46 @@ def test_startup_exits_when_the_pipe_preflight_fails(tmp_path, monkeypatch):
     assert "cannot start: the transport is missing" in exit_message(exits)
 
 
-def test_the_connect_flag_rejects_an_unknown_switch(monkeypatch, capsys):
-    argv(monkeypatch, "--connect=maybe")
-    with pytest.raises(SystemExit):
-        entry.parse_args()
-    assert "on or off" in capsys.readouterr().err
+def test_prepare_reports_each_model_and_returns(tmp_path, monkeypatch, capsys):
+    def fake_prepare(config, on_start):
+        on_start("a")
+        return [("a", 1.5), ("b", 2.4)]
+
+    monkeypatch.setattr(entry, "prepare_models", fake_prepare)
+    argv(monkeypatch, "--prepare", "--config", str(settings_file(tmp_path)))
+
+    assert entry.main() == 0
+
+    printed = capsys.readouterr().out
+    assert "preparing a" in printed
+    assert "prepared a in 1.5s" in printed and "prepared b in 2.4s" in printed
 
 
-def test_the_connect_off_flag_overrides_an_enabled_file(tmp_path, monkeypatch):
-    studio = SimpleNamespace(handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(return_value=None))
-    server = Mock()
-    server.serve_forever.side_effect = KeyboardInterrupt
-    created = Mock(return_value=studio)
-    monkeypatch.setattr(entry, "create_studio", created)
-    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
-    path = settings_file(tmp_path, SETTINGS + "\n[connect]\nenabled = true\n")
-    argv(monkeypatch, "--connect=off", "--config", str(path))
-    entry.main()
-    assert created.call_args.args[0].connect_enabled is False
+def test_prepare_says_so_when_nothing_loads(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(entry, "prepare_models", lambda config, on_start: [])
+    argv(monkeypatch, "--prepare", "--config", str(settings_file(tmp_path)))
 
-def test_prepare_loads_and_releases_each_configured_model(monkeypatch, capsys):
-    calls = []
-
-    class Backend:
-        def load(self):
-            calls.append("load")
-
-        def release(self):
-            calls.append("release")
-
-    providers = [SimpleNamespace(backend_id=name, create=lambda config: Backend()) for name in ("a", "b", "c")]
-    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
-    config = SimpleNamespace(
-        visible_backends=("a",),
-        visible_video_backends=("b",),
-        visible_voice_backends=(),
-        visible_music_backends=(),
-    )
-
-    assert entry.prepare(config) == 0
-
-    assert calls == ["load", "release", "load", "release"]
-    out = capsys.readouterr().out
-    assert "prepared a" in out and "prepared b" in out
-    assert "prepared c" not in out
-
-
-def test_prepare_says_so_when_nothing_loads(monkeypatch, capsys):
-    providers = [SimpleNamespace(backend_id="c", create=lambda config: SimpleNamespace())]
-    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
-    config = SimpleNamespace(
-        visible_backends=("c",),
-        visible_video_backends=(),
-        visible_voice_backends=(),
-        visible_music_backends=(),
-    )
-
-    assert entry.prepare(config) == 0
+    assert entry.main() == 0
 
     assert "nothing to prepare" in capsys.readouterr().out
 
 
-def test_a_load_that_fails_still_releases_the_model(monkeypatch, capsys):
-    calls = []
+def test_prepare_refuses_the_stub(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(entry, "prepare_models", lambda config, on_start: [])
+    argv(monkeypatch, "--stub", "--prepare", "--config", str(settings_file(tmp_path)))
 
-    class Backend:
-        def load(self):
-            calls.append("load")
-            raise RuntimeError("no weights")
+    with pytest.raises(SystemExit, match="cannot run with --stub"):
+        entry.main()
 
-        def release(self):
-            calls.append("release")
-
-    providers = [SimpleNamespace(backend_id="a", create=lambda config: Backend())]
-    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
-    config = SimpleNamespace(
-        visible_backends=("a",),
-        visible_video_backends=(),
-        visible_voice_backends=(),
-        visible_music_backends=(),
-    )
-
-    with pytest.raises(RuntimeError, match="no weights"):
-        entry.prepare(config)
-
-    assert calls == ["load", "release"]
     capsys.readouterr()
+
+
+def test_prepare_does_not_serve(tmp_path, monkeypatch):
+    monkeypatch.setattr(entry, "prepare_models", lambda config, on_start: [("a", 1.0)])
+    server_class = Mock()
+    monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
+    argv(monkeypatch, "--prepare", "--config", str(settings_file(tmp_path)))
+
+    assert entry.main() == 0
+
+    server_class.assert_not_called()

@@ -30,5 +30,8 @@ class StubVideoBackendGateway(VideoBackendGateway):
             stub=True,
         )
 
+    def load(self) -> None:
+        """Nothing to load: the stub holds no model."""
+
     def release(self) -> None:
         pass
