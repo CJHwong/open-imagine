@@ -39,4 +39,6 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="Drama-3",
+    # About 40 GB of FP8 weights, measured on the DGX Spark, 2026-11-15.
+    resident_gib=40.0,
 )

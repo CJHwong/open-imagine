@@ -880,3 +880,16 @@ def test_start_connect_preflights_before_it_starts():
     with pytest.raises(StudioError, match="missing"):
         studio.start_connect()
     connect.start.assert_called_once_with()
+
+
+def test_every_cuda_provider_declares_a_footprint():
+    """A model with no footprint is never kept under the boundary policy."""
+    from studio.l4_frameworks_and_drivers.main import BUILTIN_PROVIDERS
+
+    missing = [
+        provider.backend_id
+        for provider in BUILTIN_PROVIDERS
+        if provider.engine == "cuda" and provider.resident_gib is None
+    ]
+
+    assert missing == []

@@ -61,4 +61,6 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="MiniMax-H3-Image",
+    # 51 GB of packed weights plus the vae and the run's own buffers, DGX Spark, 2026-11-15.
+    resident_gib=55.0,
 )

@@ -317,6 +317,11 @@ It does cut the transformer's weights by 72%. Qwen-Image tolerates the 4-bit pat
 H3-Image cannot hold a host copy of its 62 GiB transformer beside the device copy: that order died with `CUDA_ERROR_OUT_OF_MEMORY` at 110 GiB resident, because the host copy and the device copy come out of one pool. It now clones one group of aliased weights at a time and drops the clone as the group lands, so the temporary is one tensor rather than the model. Measured on 2026-11-14, the transformer move fell from 511.7 s to 48.5 s and the whole load from 722.0 s to 203.1 s. What remained was quantization: 95.9 s for the encoder and 58.7 s for the transformer.
 A pack of the quantized weights removes that and halves the bytes. Measured on 2026-11-15, fp8: the pack is 51 GB, the build is a one-off 647.6 s (208.5 s to build the model, 439.1 s to write the pack, because the copy from the device to the host runs at about 116 MB/s), and a load from it takes 33.4 s. The picture is byte-identical to the one the build produced.
 
+A resident model costs nothing to come back to. Measured on 2026-11-15 with
+`[memory] policy = "boundary"`: a cold Qwen Turbo run took 31.1 s, an H3 run took 107.5 s
+beside it, and Qwen again took 12.2 s without a reload. Under `immediate`, which is the
+default, the third run pays Qwen's load again.
+
 The same per-tensor order applies to LTX-2.5. Its load fell from 189.2 s to 32.3 s, and its clip is byte-identical. Qwen-Image-2.1 uses it too: 87.7 s for its whole components against 14.4 s one group at a time, with the picture byte-identical.
 
 ### Against the M5 Pro

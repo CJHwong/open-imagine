@@ -151,6 +151,14 @@ See [Music setup](../how-to/music.md) for the default download recipe and input 
 
 ## Memory policy
 
+`[memory] policy` decides what happens when another model runs. `immediate`, the default,
+frees the loaded model. `boundary` keeps loaded models and frees the oldest first, and only
+when the next one would take the total past `boundary_percent` of physical memory. It needs
+a declared `resident_gib` per backend, and a model without one is never kept. The NVIDIA
+backends declare theirs, measured on the DGX Spark on 2026-11-15: Qwen Turbo 36,
+MiniMax H3-Image 55, LTX-2.5 80, Drama-3 40, YuE2 10. H3's figure is for its fp8 default;
+its nvfp4 path peaks near 105 GiB and should not share the pool.
+
 The Settings menu's Generation section applies to every workspace and API caller.
 “Check memory before generation” is off by default. When off, Studio skips all
 memory admission checks, including checks against known estimates.

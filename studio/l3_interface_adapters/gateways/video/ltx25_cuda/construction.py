@@ -37,4 +37,6 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="LTX-2.5",
+    # 80.3 GB of module weights, measured on the DGX Spark, 2026-11-15.
+    resident_gib=80.0,
 )

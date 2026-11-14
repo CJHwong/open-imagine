@@ -61,4 +61,6 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="YuE2",
+    # The 1.8 GB pack plus the acoustic decoder and vocoder, DGX Spark, 2026-11-15.
+    resident_gib=10.0,
 )

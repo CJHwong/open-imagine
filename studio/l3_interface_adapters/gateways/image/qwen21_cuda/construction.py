@@ -56,4 +56,6 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="Qwen-Image-2.1-Turbo",
+    # The free-memory drop of a cold 1024 run on the DGX Spark, 2026-11-15.
+    resident_gib=36.0,
 )
