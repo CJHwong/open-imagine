@@ -8,13 +8,21 @@ from studio.l3_interface_adapters.gateways.image.krea2.construction import PROVI
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction import (
     PROVIDER as minimax_h3_image_provider,
 )
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
+    PROVIDER as minimax_h3_image_cuda_provider,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.construction import PROVIDER as qwen21_provider
+from studio.l3_interface_adapters.gateways.image.qwen21_cuda.construction import (
+    PROVIDER as qwen21_turbo_cuda_provider,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.construction import PROVIDER as qwen21_turbo_provider
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.construction import PROVIDER as viggle_turbo_provider
 from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gateway import CatalogMemoryEstimateGateway
 from studio.l3_interface_adapters.gateways.music.yue2.construction import PROVIDER as yue2_provider
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import PROVIDER as yue2_cuda_provider
 from studio.l3_interface_adapters.gateways.video.ltx23.construction import PROVIDER as ltx23_provider
 from studio.l3_interface_adapters.gateways.video.ltx25.construction import PROVIDER as ltx25_provider
+from studio.l3_interface_adapters.gateways.video.ltx25_cuda.construction import PROVIDER as ltx25_cuda_provider
 from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import (
     FLASH_PROVIDER as minimax_h3_flash_provider,
 )
@@ -22,23 +30,29 @@ from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import 
 from studio.l3_interface_adapters.gateways.voice.auk.construction import PROVIDER as auk_provider
 from studio.l3_interface_adapters.gateways.voice.auk_flash.construction import PROVIDER as auk_flash_provider
 from studio.l3_interface_adapters.gateways.voice.drama3.construction import PROVIDER as drama3_provider
+from studio.l3_interface_adapters.gateways.voice.drama3_cuda.construction import PROVIDER as drama3_cuda_provider
 
 BUILTIN_PROVIDERS = (
     qwen21_provider,
+    qwen21_turbo_cuda_provider,
     qwen21_turbo_provider,
     flux2_provider,
     flux3_provider,
     krea2_provider,
     minimax_h3_image_provider,
+    minimax_h3_image_cuda_provider,
     viggle_turbo_provider,
     ltx25_provider,
+    ltx25_cuda_provider,
     ltx23_provider,
     minimax_h3_provider,
     minimax_h3_flash_provider,
     auk_flash_provider,
     auk_provider,
     drama3_provider,
+    drama3_cuda_provider,
     yue2_provider,
+    yue2_cuda_provider,
 )
 
 

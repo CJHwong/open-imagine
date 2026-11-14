@@ -336,7 +336,7 @@ def test_composition_builds_all_three_external_models_without_platform_or_engine
 
     registry, _ = installed(monkeypatch)
     monkeypatch.setattr(
-        main, "require_mlx", Mock(side_effect=AssertionError("plugin-only composition must not impose MLX"))
+        main, "require_engines", Mock(side_effect=AssertionError("plugin-only composition must not impose MLX"))
     )
     studio = main.create_studio(configuration(), plugins=registry, private_results_dir=tmp_path / "private")
     try:

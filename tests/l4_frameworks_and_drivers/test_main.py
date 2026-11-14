@@ -395,7 +395,7 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
             models.append(type(gateway))
-    assert len(models) == len(set(models)) == 14
+    assert len(models) == len(set(models)) == 18
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
@@ -563,8 +563,8 @@ def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeyp
     )
     from studio.l4_frameworks_and_drivers import main
 
-    platform = Mock()
-    monkeypatch.setattr(main, "require_mlx", platform)
+    platform = Mock(return_value=frozenset({"mlx"}))
+    monkeypatch.setattr(main, "available_engines", platform)
     studio = main.create_studio(
         pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries()), private_results_dir=tmp_path / "private"
     )
@@ -748,8 +748,8 @@ def test_a_real_checkpoint_needs_the_host_platform_and_gets_the_qwen_rewriter_it
         if named
         else ""
     )
-    platform = Mock()
-    monkeypatch.setattr(main, "require_mlx", platform)
+    platform = Mock(return_value=frozenset({"mlx"}))
+    monkeypatch.setattr(main, "available_engines", platform)
     rewriters = main.build_rewriters(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
     assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriterGateway)
 
@@ -830,7 +830,7 @@ def test_startup_wires_app_memory_settings_and_isolates_the_stub(tmp_path, monke
     config = replace(pack_settings(tmp_path), settings_path=path, require_memory_estimate=required)
     assembly = Mock()
     monkeypatch.setattr(main, "assemble_studio", assembly)
-    monkeypatch.setattr(main, "require_mlx", lambda: None)
+    monkeypatch.setattr(main, "available_engines", lambda: frozenset({"mlx"}))
     main.create_studio(config, stub=stub, plugins=install(monkeypatch, pack_entries()))
     preferences = assembly.call_args.kwargs["settings"]
     assert preferences.require_memory_estimate() is (required if stub else not required)

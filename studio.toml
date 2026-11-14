@@ -130,6 +130,27 @@ rewrite_quantize = 8                      # as [qwen21]
 # path = "~/loras/warm-film.safetensors"
 # trigger = "warm film"
 
+[qwen21_turbo_cuda]
+# The NVIDIA backend, for the DGX Spark. It runs a diffusers child, so this section does
+# nothing on the Mac: the studio offers only the models whose engine the host has.
+model = "Qwen/Qwen-Image-2.1-Turbo"
+# nvfp4 loads the bf16 checkpoint and quantizes the transformer as it loads. Measured on
+# the Spark on 2026-11-13: 2.9x bf16 at 512 tokens, 1.4x at 4096, weights 72% smaller.
+# Weight-only NVFP4 is slower than bf16 and is not offered.
+quantize = "nvfp4"
+
+[minimax_h3_image_cuda]
+# MiniMax H3-Image on the NVIDIA backend. The checkpoint is 135 GB in bfloat16, so the
+# encoder always loads in FP8 and the transformer is quantized after it lands.
+# fp8 rather than the nvfp4 W4A4 path: at one prompt and seed, nvfp4 measured 3.94
+# speckle against 2.04, and left no smooth patch under 5.99 standard deviation where fp8
+# reached 2.17. It also peaked lower, 72.1 GiB against 105.3 GiB. The cost is speed: a
+# warm 1024x1024 six-step picture took 54.5 s against 33.3 s, and the load is the same.
+# Measured on the DGX Spark on 2026-11-14. Qwen-Image tolerates W4A4, so this is this
+# model's choice. Set nvfp4 back if the speed matters more than the grain.
+model = "MiniMaxAI/MiniMax-H3-Image"
+quantize = "fp8"
+
 [flux2]
 quantize = 0
 model_dir = "~/Library/Caches/models/mflux-klein-base-9b-uncensored"   # docs/how-to/set-up-models.md has the download
@@ -184,6 +205,11 @@ child_script = "studio/l3_interface_adapters/gateways/voice/auk_runtime/auk_chil
 [auk_base]
 # AuK uses the same pinned child and shared encoder, with its 32-step Base weights.
 
+[drama3_cuda]
+# Drama-3 on the NVIDIA backend. The engine keeps a pinned fish-speech checkout and the
+# official FP8 checkpoint; the child spends minutes compiling kernels on first start.
+checkpoint = "fishaudio/drama-3"
+
 [drama3]
 # The child bounds active wired memory by MLX’s recommendation and 75% of RAM,
 # then restores the prior limit while idle. Sampling and precision are unchanged.
@@ -191,6 +217,11 @@ child_script = "studio/l3_interface_adapters/gateways/voice/auk_runtime/auk_chil
 child_script = "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.py"
 # Optional: an existing environment with the exact versions declared by the child.
 # python_path = "~/ltx-experiments/drama3-env/bin/python"
+
+[yue2_cuda]
+# YuE2 on the NVIDIA backend. The upstream yue2-infer package is the engine; it wants a
+# BF16 card and 24 GB, and it brings its own torch pin in the child environment.
+model = "m-a-p/YuE2-3B"
 
 [yue2]
 # Native MLX Q8 only. Q8 score/token generation, BF16 acoustic synthesis, FP32 decoder.

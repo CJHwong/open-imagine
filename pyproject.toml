@@ -3,14 +3,14 @@ name = "studio"
 version = "0.1.0"
 license = "MIT"
 description = "Open Imagine: a local Image, Video, Voice, and Music studio for Apple Silicon with a shared UI and API."
-requires-python = ">=3.11"
+requires-python = ">=3.12,<3.13"
 dependencies = [
     "certifi>=2026.10.23",
     # The mflux 0.21.0 release, tag v.0.21.0. It carries the qwen21 text-to-image
     # port, the instruction-edit variant with the vision tower, the viggle_turbo
     # scheduler, and LoRA loading. The edit variant is why there is no diffusers
     # child any more: see gateways/image/qwen21/PORTABILITY.md.
-    "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc",
+    "mflux @ git+https://github.com/mflux-community/mflux@f63b4f0f00c8dba5de94f478c9e4be62dbc70ddc ; sys_platform == 'darwin'",
     "huggingface-hub",
     "pillow",
     "numpy",
@@ -19,7 +19,7 @@ dependencies = [
     # The prompt rewriters, a second model per mode. MLX like mflux, so it shares
     # this process and needs no child; the import is deferred to the first
     # rewrite, so a studio that never rewrites never pays for it.
-    "mlx-vlm>=0.7.3",
+    "mlx-vlm>=0.7.3 ; sys_platform == 'darwin'",
     "cryptography>=46",
     "pillow-heif>=1.8.1",
     "qrcode>=8.0",
@@ -53,9 +53,14 @@ ignore = ["E501"]
 [tool.ty.src]
 exclude = [
     "tests/e2e/verify_*.py",
+    "studio/l3_interface_adapters/gateways/image/qwen_cuda_runtime/qwen21_cuda_child.py",
+    "studio/l3_interface_adapters/gateways/image/minimax_h3_image_cuda/minimax_h3_image_cuda_child.py",
+    "studio/l3_interface_adapters/gateways/video/ltx25_cuda/ltx25_cuda_child.py",
     "studio/l3_interface_adapters/gateways/voice/auk_runtime/auk_child.py",
     "studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py",
+    "studio/l3_interface_adapters/gateways/music/yue2_cuda/yue2_cuda_child.py",
     "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.py",
+    "studio/l3_interface_adapters/gateways/voice/drama3_cuda/drama3_cuda_child.py",
     "studio/l3_interface_adapters/gateways/image/flux3/flux3_child.py",
     "studio/l3_interface_adapters/gateways/image/minimax_h3_image/minimax_h3_image_child.py",
     "studio/l3_interface_adapters/gateways/image/minimax_h3_image/h3_image_pe_child.py",
