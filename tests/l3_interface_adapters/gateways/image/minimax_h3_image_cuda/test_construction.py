@@ -1,9 +1,12 @@
+import os
+
 import pytest
 
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import construction
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
     DEFAULT_MODEL,
+    DEFAULT_PACK_DIR,
     PROVIDER,
     minimax_h3_image_cuda_backend,
 )
@@ -31,7 +34,17 @@ def test_the_command_runs_the_child_through_uv_with_nvfp4(monkeypatch):
     gateway = minimax_h3_image_cuda_backend(Config({}))
 
     assert gateway._child._command[:5] == ["/bin/uv", "run", "--python", "3.12", "--script"]
-    assert gateway._child._command[-4:] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
+    assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
+    assert gateway._child._command[-2] == "--pack-dir"
+    assert gateway._child._command[-1] == os.path.expanduser(DEFAULT_PACK_DIR)
+
+
+def test_the_section_can_keep_its_pack_elsewhere(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = minimax_h3_image_cuda_backend(Config({"pack_dir": "~/elsewhere"}))
+
+    assert gateway._child._command[-1] == os.path.expanduser("~/elsewhere")
 
 
 def test_an_unknown_quantize_is_refused_by_name(monkeypatch):

@@ -34,6 +34,7 @@ import io
 import json
 import sys
 import time
+from pathlib import Path
 
 
 def say(message: str) -> None:
@@ -96,12 +97,211 @@ def move_by_way_of_memory(module, device: str) -> None:
             tensor.data = landed
 
 
-def load(model: str, quantize: str):
+PACK_FORMAT = 1
+"""The pack holds the quantized weights of the transformer, the encoder and the vae.
+
+Each weight is stored by its plain parts: `qdata` and `scale` for an `Float8Tensor`,
+`qdata`, `scale` and `per_tensor_scale` for an `NVFP4Tensor`, and the tensor itself for
+everything else. Rebuilding from those parts was checked bit-identical on 2026-11-14.
+"""
+
+PACK_COMPONENTS = ("transformer", "text_encoder", "vae")
+
+
+def versions() -> dict:
+    """What the pack was built with. A pack from another set is rebuilt, not trusted."""
+    import diffusers
+    import torch
+    import torchao
+
+    return {
+        "torch": torch.__version__,
+        "torchao": torchao.__version__,
+        "diffusers": diffusers.__version__,
+    }
+
+
+def pack_directory(root: Path, model: str) -> Path:
+    return Path(root) / model.replace("/", "--")
+
+
+def expected_manifest(model: str, quantize: str) -> dict:
+    return {"format": PACK_FORMAT, "model": model, "quantize": quantize, "versions": versions()}
+
+
+def read_manifest(directory: Path) -> dict | None:
+    path = directory / "pack.json"
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def manifest_matches(manifest: dict, expected: dict) -> bool:
+    return all(manifest.get(key) == value for key, value in expected.items())
+
+
+def weight_kind(tensor) -> str:
+    from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+    from torchao.quantization import Float8Tensor
+
+    if isinstance(tensor, NVFP4Tensor):
+        return "nvfp4"
+    if isinstance(tensor, Float8Tensor):
+        return "fp8"
+    return "plain"
+
+
+def quantize_kwargs(weight) -> dict | None:
+    """The act-quant settings an NVFP4Tensor carries, as plain values.
+
+    A weight-only pack keeps `None` here, and that is not the same as no settings: passing
+    an empty `QuantizeTensorToNVFP4Kwargs` turns the activation quantization on.
+    """
+    values = getattr(weight, "act_quant_kwargs", None)
+    return dict(vars(values)) if values is not None else None
+
+
+def write_pack(pipe, directory: Path, manifest: dict) -> None:
+    """One safetensors file per component, written from the CPU copies of the parts."""
+    from safetensors.torch import save_file
+
+    directory.mkdir(parents=True, exist_ok=True)
+    entries = {}
+    for component_name in PACK_COMPONENTS:
+        module = component(pipe, component_name)
+        tensors = {}
+        for name, value in [*module.named_parameters(), *module.named_buffers()]:
+            key = f"{component_name}.{name}"
+            weight = value.data
+            kind = weight_kind(weight)
+            entry = {"kind": kind}
+            if kind == "nvfp4":
+                tensors[f"{key}.qdata"] = weight.qdata.cpu()
+                tensors[f"{key}.scale"] = weight.scale.cpu()
+                if weight.per_tensor_scale is not None:
+                    tensors[f"{key}.per_tensor_scale"] = weight.per_tensor_scale.cpu()
+                entry.update(
+                    {
+                        "block_size": weight.block_size,
+                        "dtype": str(weight.dtype),
+                        "is_swizzled_scales": weight.is_swizzled_scales,
+                        "use_triton_kernel": weight.use_triton_kernel,
+                        "act_quant": quantize_kwargs(weight),
+                        "per_tensor_scale": weight.per_tensor_scale is not None,
+                    }
+                )
+            elif kind == "fp8":
+                tensors[f"{key}.qdata"] = weight.qdata.cpu()
+                tensors[f"{key}.scale"] = weight.scale.cpu()
+                entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype)})
+            else:
+                tensors[key] = weight.cpu()
+            entries[key] = entry
+        save_file(tensors, str(directory / f"{component_name}.safetensors"))
+        del tensors
+    manifest["tensors"] = entries
+    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+
+def rebuild(entry: dict, key: str, handle, device: str):
+    """One weight, back from the parts the pack stored."""
+    import torch
+
+    def part(suffix: str):
+        return handle.get_tensor(f"{key}.{suffix}").clone().to(device)
+
+    if entry["kind"] == "plain":
+        return handle.get_tensor(key).clone().to(device)
+    if entry["kind"] == "fp8":
+        from torchao.quantization import Float8Tensor
+
+        return Float8Tensor(
+            qdata=part("qdata"),
+            scale=part("scale"),
+            block_size=entry["block_size"],
+            dtype=getattr(torch, entry["dtype"].removeprefix("torch.")),
+        )
+    if entry["kind"] == "nvfp4":
+        from torchao.prototype.mx_formats.inference_workflow import QuantizeTensorToNVFP4Kwargs
+        from torchao.prototype.mx_formats.nvfp4_tensor import NVFP4Tensor
+
+        dtype = getattr(torch, entry["dtype"].removeprefix("torch."))
+        scale = part("per_tensor_scale") if entry["per_tensor_scale"] else None
+        return NVFP4Tensor(
+            part("qdata"),
+            part("scale"),
+            entry["block_size"],
+            dtype,
+            scale,
+            None,
+            entry["is_swizzled_scales"],
+            entry["use_triton_kernel"],
+            None if entry["act_quant"] is None else QuantizeTensorToNVFP4Kwargs(**entry["act_quant"]),
+        )
+    raise SystemExit(f"the pack holds a weight of kind {entry['kind']!r}, which this child cannot rebuild")
+
+
+def load_packed(model: str, directory: Path, manifest: dict):
+    """Build the components empty and give them the weights the pack holds."""
+    import torch
+    from diffusers import ModularPipeline
+    from safetensors import safe_open
+
+    started = time.time()
+    pipe = ModularPipeline.from_pretrained(model)
+    pipe.load_components(names=list(PACK_COMPONENTS), device_map="meta")
+    pipe.load_components(names=["processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu")
+    say(f"built empty in {time.time() - started:.1f}s")
+    for component_name in PACK_COMPONENTS:
+        module = component(pipe, component_name)
+        state = {}
+        with safe_open(str(directory / f"{component_name}.safetensors"), framework="pt") as handle:
+            for name, _ in [*module.named_parameters(), *module.named_buffers()]:
+                key = f"{component_name}.{name}"
+                state[name] = rebuild(manifest["tensors"][key], key, handle, "cuda")
+        module.load_state_dict(state, strict=False, assign=True)
+        # `load_state_dict` leaves a non-persistent buffer alone, and a rotary module's
+        # `inv_freq` is one: it is built at construction, and a meta construction has no
+        # values to build it from. The pack carries them, so give them back by hand.
+        for name, buffer in module.named_buffers():
+            if buffer.device.type != "meta":
+                continue
+            owner_name, _, leaf = name.rpartition(".")
+            owner = module.get_submodule(owner_name) if owner_name else module
+            owner._buffers[leaf] = state[name]
+        del state
+        torch.cuda.synchronize()
+        say(f"{component_name} on the device in {time.time() - started:.1f}s")
+    say(f"loaded {model} from the pack in {time.time() - started:.1f}s")
+    return pipe
+
+
+def load(model: str, quantize: str, root: Path | None = None):
+    if quantize not in ("nvfp4", "fp8", "bf16"):
+        raise SystemExit(f"quantize must be nvfp4, fp8 or bf16, not {quantize}")
+    if quantize == "bf16" or root is None:
+        return build(model, quantize)
+    directory = pack_directory(root, model)
+    manifest = read_manifest(directory)
+    expected = expected_manifest(model, quantize)
+    files = [directory / f"{name}.safetensors" for name in PACK_COMPONENTS]
+    if manifest is None or not manifest_matches(manifest, expected) or not all(path.is_file() for path in files):
+        pipe = build(model, quantize)
+        started = time.time()
+        try:
+            write_pack(pipe, directory, expected)
+            say(f"wrote the pack in {time.time() - started:.1f}s")
+        except OSError as error:
+            # A full or read-only disk costs the next start a rebuild, not this run.
+            say(f"could not write the pack: {error}")
+        return pipe
+    return load_packed(model, directory, manifest)
+
+
+def build(model: str, quantize: str):
     import torch
     from diffusers import ModularPipeline
 
-    if quantize not in ("nvfp4", "fp8", "bf16"):
-        raise SystemExit(f"quantize must be nvfp4, fp8 or bf16, not {quantize}")
     started = time.time()
     pipe = ModularPipeline.from_pretrained(model)
     say("loaded the pipeline shell")
@@ -183,13 +383,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="MiniMaxAI/MiniMax-H3-Image")
     parser.add_argument("--quantize", default="nvfp4", choices=["nvfp4", "fp8", "bf16"])
+    parser.add_argument("--pack-dir", default="")
     arguments = parser.parse_args()
     import torch
 
     if not torch.cuda.is_available():
         say("CUDA is not available in this environment")
         return 2
-    pipe = load(arguments.model, arguments.quantize)
+    pack_dir = Path(arguments.pack_dir) if arguments.pack_dir else None
+    pipe = load(arguments.model, arguments.quantize, pack_dir)
     say("ready")
     for line in sys.stdin:
         line = line.strip()

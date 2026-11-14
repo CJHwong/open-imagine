@@ -150,6 +150,11 @@ quantize = "nvfp4"
 # model's choice. Set nvfp4 back if the speed matters more than the grain.
 model = "MiniMaxAI/MiniMax-H3-Image"
 quantize = "fp8"
+# The quantized weights are kept here, built on the first run of each quantizer and reused
+# after that. The build is a one-off 11 minutes; every later start loads in about 30 s
+# instead of 203. A pack built by another torch, torchao or diffusers is rebuilt rather
+# than trusted. Measured on the DGX Spark on 2026-11-15, fp8, 51 GB on disk.
+pack_dir = "~/.cache/open-imagine/h3-pack"
 
 [flux2]
 quantize = 0

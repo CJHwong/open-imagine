@@ -14,6 +14,8 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.storage_a
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 DEFAULT_MODEL = "MiniMaxAI/MiniMax-H3-Image"
+DEFAULT_PACK_DIR = "~/.cache/open-imagine/h3-pack"
+"""Where the quantized weights are kept, built on the first run of each quantizer."""
 QUANTIZERS = {"nvfp4", "fp8", "bf16"}
 
 
@@ -34,6 +36,7 @@ def minimax_h3_image_cuda_backend(config: ModelConfigurationGateway, **_):
             f"[minimax_h3_image_cuda].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
         )
     script = Path(__file__).with_name("minimax_h3_image_cuda_child.py")
+    pack_dir = str(settings.get("pack_dir", DEFAULT_PACK_DIR))
     command = [
         uv_launcher(),
         "run",
@@ -45,6 +48,8 @@ def minimax_h3_image_cuda_backend(config: ModelConfigurationGateway, **_):
         model,
         "--quantize",
         quantize,
+        "--pack-dir",
+        str(Path(pack_dir).expanduser()),
     ]
     return MinimaxH3ImageCudaBackendGateway(StdioChild(command), badge=quantize)
 
