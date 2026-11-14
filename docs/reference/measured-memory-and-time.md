@@ -137,6 +137,19 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `yue2/transcribe/speech10s` | yue2, transcribe, 10 s speech reference | 1.92 | 4.23 | 7.1 | Succeeded | 1 |
 | `yue2/transcribe/speech15s` | yue2, transcribe, 15 s speech reference | 1.92 | 4.24 | 5.1 | Succeeded | 1 |
 
+### Mandarin, 2026-11-14
+
+| Case | Settings | Time (s) | Audio | Result |
+|---|---|---|---|---|
+| `mandarin/voice/traditional` | drama3, generate, Traditional Chinese | 34.3 | 5.1 s of 44.1 kHz mono | Succeeded |
+| `mandarin/voice/simplified` | drama3, generate, Simplified Chinese | 4.3 | 4.4 s of 44.1 kHz mono | Succeeded |
+| `mandarin/voice/paragraph` | drama3, generate, Traditional Chinese | 75.7 | none | Failed: the audio reached max_tokens |
+| `mandarin/music/verse` | yue2, generate, Mandarin lyric | 57.4 | 42.2 s of 48 kHz stereo | Succeeded |
+
+These ran on this Mac through the same studio on the case file `cases.mandarin.json`, outside the campaign above, so they carry no free-memory or footprint sample.
+The paragraph fails here at the MLX backend's token cap, where the CUDA backend completed the same paragraph in 27.1 s.
+The music row pays its own first load.
+
 ### Not tested
 
 The table lists the models that produced no measurement because a weight or runtime was missing.
@@ -243,14 +256,20 @@ A synthetic reference clones a synthetic voice. The human reference rows are the
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
 | `yue2_cuda/generate/short` | generate, style and one lyric line, 114.5 s of 48 kHz stereo | 7.44 | 9.6 | 174.4 | Succeeded | 2 |
-| `yue2_cuda/generate/long` | generate, style and 20 repeated lyric lines | 8.07 | 10.1 | 454.1 | Failed: the semantic stage reached its token limit | 1 |
+| `yue2_cuda/generate/lyrics-4-lines` | generate, one repeated line, 159 characters, 42.6 s of audio | 18.35 | 9.5 | 181.4 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-8-lines` | generate, one repeated line, 311 characters, 61.3 s of audio | 7.68 | 9.6 | 112.2 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-12-lines` | generate, one repeated line, 463 characters, 84.9 s of audio | 7.95 | 9.5 | 145.3 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-16-lines` | generate, one repeated line, 615 characters, 118.7 s of audio | 8.04 | 9.6 | 179.4 | Succeeded | 1 |
+| `yue2_cuda/generate/long` | generate, style and 20 repeated lyric lines, 760 characters | 8.07 | 10.1 | 454.1 | Failed: the semantic stage reached its token limit | 1 |
 | `yue2_cuda/generate/instrumental` | generate, style and no lyrics, 127.6 s of audio | 0.00 | 9.6 | 259.6 | Succeeded | 1 |
 | `mandarin/music/verse` | generate, Mandarin style and lyric, 40.0 s of audio | 0.00 | 9.6 | 176.4 | Succeeded | 1 |
 
 The first short run took 221.5 s and includes the load.
 Warm YuE2 runs at 0.66x realtime and never truncated.
-The long case fails on this engine where the MLX pack finishes the same lyrics in 237.9 s on the Mac, so the token budget is this engine's limit, not the model's.
+The four `lyrics-N-lines` rows are the sweep behind the gateway's lyric limit: 615 characters finished and 760 did not, so the CUDA gateway refuses more than 600 characters before it starts, instead of failing after seven minutes.
+The MLX pack finishes the 760 characters in 237.9 s, so the budget is this engine's limit, not the model's.
 `mandarin/music/verse` is the same backend with Traditional Chinese lyrics.
+Chinese is slower per second of audio here: 40.0 s of audio in 176.4 s, against 114.5 s in 174.4 s for English.
 
 ### Kernels
 
@@ -282,11 +301,14 @@ H3-Image is the exception: materializing its 62 GiB transformer first died with 
 | YuE2 generate, instrumental | 283.2 | 259.6 | 1.1x faster |
 | Drama-3 clone, one reference | 4.4 | 7.0 | 1.6x slower |
 | YuE2 generate, short | 160.2 | 174.4 | 1.1x slower |
+| YuE2 generate, Mandarin lyric | 57.4 | 176.4 | 3.1x slower |
 | Drama-3 generate, 83 words | 29.2 | 51.1 | 1.8x slower |
 | MiniMax H3-Image generate, 1024x1024, 6 steps, NVFP4 | 23.2 | 33.3 | 1.4x slower |
 | MiniMax H3-Image generate, 1024x1024, 6 steps, fp8 | 23.2 | 54.5 | 2.3x slower |
 
 Every row is the same case on both machines and the warm run on each, so the ratio means something.
 YuE2's long case is absent because the Spark reaches its token limit; the Mac finishes it in 237.9 s.
+A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 174.4 s on the Spark, so treat those two as level and the 1.1x as run-to-run noise.
+Mandarin is the exception: the Spark sings 40 s of Chinese audio in 176.4 s where the Mac takes 57.4 s, while the two are level on English lyrics.
 The clone row used the same reference and text on both, measured on 2026-11-14 outside the two campaigns.
 Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation, and loses on long-form speech, cloning and music, where the M5 Pro is faster per audio second.
