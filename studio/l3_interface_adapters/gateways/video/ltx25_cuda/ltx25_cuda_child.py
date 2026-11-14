@@ -71,15 +71,22 @@ def answer(document: dict) -> None:
 def local_snapshot(model: str) -> str:
     """The cached directory of a model id, so the pipeline does not ask the Hub.
 
-    Asking the Hub costs about 3 s per start on this machine even when every file is
-    cached. An id with no complete cache stays as it is, and the loader fetches it.
+    Asking the Hub costs about 13 s per start on this machine even when every file is
+    cached: the empty pipeline took 14.1 s to build from the id. The directory is found
+    in the cache rather than through `snapshot_download(local_files_only=True)`, which
+    refuses a partial cache, and diffusers only fetches the files it needs.
     """
-    try:
-        from huggingface_hub import snapshot_download
+    from pathlib import Path
 
-        return snapshot_download(model, local_files_only=True)
-    except Exception:  # any failure means the loader should fetch it
-        return model
+    from huggingface_hub import constants
+
+    root = Path(constants.HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
+    reference = root / "refs" / "main"
+    if reference.is_file():
+        candidate = root / "snapshots" / reference.read_text().strip()
+        if candidate.is_dir():
+            return str(candidate)
+    return model
 
 
 def move_by_way_of_memory(module, device: str = "cuda") -> None:

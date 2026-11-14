@@ -228,20 +228,32 @@ def test_the_script_enters_through_its_main_guard(monkeypatch):
     assert exited.value.code == 0
 
 
-def test_local_snapshot_prefers_the_cached_directory(monkeypatch):
+def test_local_snapshot_prefers_the_cached_directory(monkeypatch, tmp_path):
     hub = types.ModuleType("huggingface_hub")
-    monkeypatch.setattr(hub, "snapshot_download", lambda model, local_files_only: "/cached", raising=False)
+    monkeypatch.setattr(hub, "constants", SimpleNamespace(HF_HUB_CACHE=str(tmp_path)), raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    root = tmp_path / "models--me--pack"
+    (root / "refs").mkdir(parents=True)
+    (root / "refs" / "main").write_text("abc123")
+    (root / "snapshots" / "abc123").mkdir(parents=True)
+
+    assert child.local_snapshot("me/pack") == str(root / "snapshots" / "abc123")
+
+
+def test_local_snapshot_keeps_an_id_that_is_not_cached(monkeypatch, tmp_path):
+    hub = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(hub, "constants", SimpleNamespace(HF_HUB_CACHE=str(tmp_path)), raising=False)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
 
-    assert child.local_snapshot("me/pack") == "/cached"
+    assert child.local_snapshot("me/pack") == "me/pack"
 
 
-def test_local_snapshot_keeps_an_id_that_is_not_cached(monkeypatch):
-    def refuse(model, local_files_only):
-        raise OSError("no cache")
-
+def test_local_snapshot_keeps_an_id_whose_snapshot_is_gone(monkeypatch, tmp_path):
     hub = types.ModuleType("huggingface_hub")
-    monkeypatch.setattr(hub, "snapshot_download", refuse, raising=False)
+    monkeypatch.setattr(hub, "constants", SimpleNamespace(HF_HUB_CACHE=str(tmp_path)), raising=False)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    root = tmp_path / "models--me--pack"
+    (root / "refs").mkdir(parents=True)
+    (root / "refs" / "main").write_text("abc123")
 
     assert child.local_snapshot("me/pack") == "me/pack"
