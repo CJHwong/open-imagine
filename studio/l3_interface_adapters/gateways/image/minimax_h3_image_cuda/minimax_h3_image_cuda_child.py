@@ -59,6 +59,21 @@ def materialize(module) -> None:
         tensor.data = clones[key]
 
 
+def local_snapshot(model: str) -> str:
+    """The cached directory of a model id, so the pipeline does not ask the Hub.
+
+    Asking the Hub costs about 18 s per start on this machine even when every file is
+    cached: the empty pipeline took 19.3 s to build from the id and 0.6 s from the
+    directory. An id with no complete cache stays as it is, and the loader fetches it.
+    """
+    try:
+        from huggingface_hub import snapshot_download
+
+        return snapshot_download(model, local_files_only=True)
+    except Exception:  # any failure means the loader should fetch it
+        return model
+
+
 def component(pipe, name: str):
     """A modular pipeline exposes its loaded parts as attributes and as a mapping."""
     found = getattr(pipe, name, None)
@@ -248,7 +263,7 @@ def load_packed(model: str, directory: Path, manifest: dict):
     from safetensors import safe_open
 
     started = time.time()
-    pipe = ModularPipeline.from_pretrained(model)
+    pipe = ModularPipeline.from_pretrained(local_snapshot(model))
     pipe.load_components(names=list(PACK_COMPONENTS), device_map="meta")
     pipe.load_components(names=["processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu")
     say(f"built empty in {time.time() - started:.1f}s")
@@ -303,8 +318,8 @@ def build(model: str, quantize: str):
     from diffusers import ModularPipeline
 
     started = time.time()
-    pipe = ModularPipeline.from_pretrained(model)
-    say("loaded the pipeline shell")
+    pipe = ModularPipeline.from_pretrained(local_snapshot(model))
+    say(f"loaded the pipeline shell in {time.time() - started:.1f}s")
     if quantize == "bf16":
         pipe.load_components(dtype=torch.bfloat16, device_map="cuda")
         return pipe

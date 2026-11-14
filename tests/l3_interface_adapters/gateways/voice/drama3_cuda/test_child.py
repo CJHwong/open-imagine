@@ -304,3 +304,20 @@ def test_patch_checkpoint_copies_says_so_when_the_iterator_is_gone(monkeypatch, 
     child.patch_checkpoint_copies()
 
     assert "no checkpoint iterator" in capsys.readouterr().err
+
+
+def test_snapshot_downloads_only_when_the_cache_is_cold(monkeypatch):
+    calls = []
+    hub = types.ModuleType("huggingface_hub")
+
+    def download(repo, local_files_only=False):
+        calls.append(local_files_only)
+        if local_files_only:
+            raise OSError("no cache")
+        return "/downloaded"
+
+    monkeypatch.setattr(hub, "snapshot_download", download, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert child.snapshot("fishaudio/drama-3") == "/downloaded"
+    assert calls == [True, False]

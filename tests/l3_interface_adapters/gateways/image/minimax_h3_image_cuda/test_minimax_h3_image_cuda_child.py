@@ -858,3 +858,22 @@ def test_load_packed_leaves_a_buffer_that_already_landed(monkeypatch, tmp_path):
 
     assert transformer._buffers["inv_freq"].name == "filled"
     assert transformer._buffers["landed"] is landed
+
+
+def test_local_snapshot_prefers_the_cached_directory(monkeypatch):
+    hub = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(hub, "snapshot_download", lambda model, local_files_only: "/cached", raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert child.local_snapshot("me/pack") == "/cached"
+
+
+def test_local_snapshot_keeps_an_id_that_is_not_cached(monkeypatch):
+    def refuse(model, local_files_only):
+        raise OSError("no cache")
+
+    hub = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(hub, "snapshot_download", refuse, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+
+    assert child.local_snapshot("me/pack") == "me/pack"

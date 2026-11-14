@@ -48,6 +48,20 @@ def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
 
 
+def local_snapshot(model: str) -> str:
+    """The cached directory of a model id, so the pipeline does not ask the Hub.
+
+    Asking the Hub costs about 3 s per start on this machine even when every file is
+    cached. An id with no complete cache stays as it is, and the loader fetches it.
+    """
+    try:
+        from huggingface_hub import snapshot_download
+
+        return snapshot_download(model, local_files_only=True)
+    except Exception:  # any failure means the loader should fetch it
+        return model
+
+
 def move_by_way_of_memory(module, device: str = "cuda") -> None:
     """Send each weight through ordinary memory before it lands on the device.
 
@@ -71,7 +85,7 @@ def load(model: str, quantize: str):
     from diffusers import QwenImage21Pipeline
 
     started = time.time()
-    pipe = QwenImage21Pipeline.from_pretrained(model, torch_dtype=torch.bfloat16)
+    pipe = QwenImage21Pipeline.from_pretrained(local_snapshot(model), torch_dtype=torch.bfloat16)
     if quantize not in ("nvfp4", "bf16"):
         raise SystemExit(f"quantize must be nvfp4 or bf16, not {quantize}")
     for component in (pipe.transformer, pipe.text_encoder, pipe.vae):

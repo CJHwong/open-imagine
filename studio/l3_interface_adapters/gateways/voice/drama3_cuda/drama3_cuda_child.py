@@ -144,9 +144,13 @@ def checkout(cache: Path) -> Path:
 
 
 def snapshot(repo: str) -> str:
+    """The cached copy of a repository, and a download only when there is none."""
     from huggingface_hub import snapshot_download
 
-    return snapshot_download(repo, local_files_only=False)
+    try:
+        return snapshot_download(repo, local_files_only=True)
+    except Exception:  # no complete cache; the download path below handles it
+        return snapshot_download(repo, local_files_only=False)
 
 
 def load(checkpoint: str, half: bool):
