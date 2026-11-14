@@ -26,7 +26,12 @@ class FakePipe:
         self.moved = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=self.moved.append)
         self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
-        self.components = {"transformer": self.transformer, "text_encoder": self.text_encoder}
+        self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
+        self.components = {
+            "transformer": self.transformer,
+            "text_encoder": self.text_encoder,
+            "vae": self.vae,
+        }
 
     def __call__(self, prompt, height, width, generator, output, callback_on_step_end=None):
         self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output})
@@ -50,7 +55,12 @@ class NoCallbackPipe:
         self.calls = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
         self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
-        self.components = {"transformer": self.transformer, "text_encoder": self.text_encoder}
+        self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
+        self.components = {
+            "transformer": self.transformer,
+            "text_encoder": self.text_encoder,
+            "vae": self.vae,
+        }
 
     def __call__(self, prompt, height, width, generator, output):
         self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output})
@@ -147,11 +157,12 @@ def test_load_packs_the_encoder_first_then_the_transformer(monkeypatch, capsys):
     assert "as nvfp4" in capsys.readouterr().err
 
 
-def test_the_transformer_moves_straight_to_the_device_without_a_host_copy(monkeypatch):
-    """62 GiB of host copy beside 62 GiB of device copy is more than this machine holds.
+def test_the_transformer_lands_on_the_host_first(monkeypatch):
+    """The straight mapping to the device measured 0.19 GB/s; through ordinary memory 59.57.
 
-    Measured 2026-11-14: the materialized order died with CUDA_ERROR_OUT_OF_MEMORY at
-    110 GiB resident. This pins the order that fits.
+    Loading the transformer with `device_map="cuda"` copies from the safetensors mapping
+    and measured 511.7 s for 68.7 GB. The host first, then a clone and a move per tensor,
+    is the order this pins.
     """
     fake_torch(monkeypatch)
     pipe = FakePipe()
@@ -162,8 +173,57 @@ def test_the_transformer_moves_straight_to_the_device_without_a_host_copy(monkey
     child.load("me/pack", "nvfp4")
 
     assert [item["names"] for item in pipe.loads][1] == ["transformer", "vae", "processor", "tokenizer", "scheduler"]
-    assert pipe.loads[1]["device_map"] == "cuda"
-    assert pipe.moved == []
+    assert pipe.loads[1]["device_map"] == "cpu"
+
+
+class FakeTensor:
+    """A weight's data, recording which route it took to the device."""
+
+    def __init__(self, name, log):
+        self.name = name
+        self.log = log
+
+    def data_ptr(self):
+        return hash(self.name)
+
+    def clone(self):
+        self.log.append(("clone", self.name))
+        return FakeTensor(self.name, self.log)
+
+    def to(self, device):
+        self.log.append(("to", self.name, device))
+        return FakeTensor(self.name, self.log)
+
+
+class FakeModule:
+    def __init__(self, tensors):
+        self.holders = [SimpleNamespace(data=tensor) for tensor in tensors]
+
+    def parameters(self):
+        return self.holders
+
+    def buffers(self):
+        return []
+
+
+def test_each_weight_is_cloned_before_it_reaches_the_device():
+    log = []
+    module = FakeModule([FakeTensor("w1", log)])
+
+    child.move_by_way_of_memory(module, "cuda")
+
+    assert log == [("clone", "w1"), ("to", "w1", "cuda")]
+
+
+def test_aliased_weights_move_once_and_stay_shared():
+    log = []
+    shared = FakeTensor("w", log)
+    module = FakeModule([shared, shared])
+
+    child.move_by_way_of_memory(module, "cuda")
+
+    assert log == [("clone", "w"), ("to", "w", "cuda")]
+    assert module.parameters()[0].data is module.parameters()[1].data
 
 
 def test_load_can_ask_for_fp8_or_bf16(monkeypatch):

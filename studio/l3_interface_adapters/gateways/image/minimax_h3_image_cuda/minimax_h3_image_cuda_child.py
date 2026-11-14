@@ -75,6 +75,27 @@ def supports(pipeline, keyword: str) -> bool:
         return False
 
 
+def move_by_way_of_memory(module, device: str) -> None:
+    """Send each weight through ordinary memory before it lands on the device.
+
+    A safetensors tensor is a file-backed mapping. On this machine, measured 2026-11-14 on
+    one 4.64 GB transformer shard: the mapping to the device ran at 0.19 GB/s, the mapping
+    into ordinary memory at 8.35 GB/s, and ordinary memory to the device at 59.57 GB/s.
+
+    One group of aliased weights is cloned, moved, then dropped, so the temporary is one
+    tensor rather than the whole model. Cloning the whole 62 GiB transformer is what died
+    with CUDA_ERROR_OUT_OF_MEMORY at 110 GiB resident; this order avoids that and keeps the
+    aliasing that a per-parameter copy would break.
+    """
+    groups: dict[int, list] = {}
+    for tensor in [*module.parameters(), *module.buffers()]:
+        groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
+    for tensors in groups.values():
+        landed = tensors[0].data.clone().to(device)
+        for tensor in tensors:
+            tensor.data = landed
+
+
 def load(model: str, quantize: str):
     import torch
     from diffusers import ModularPipeline
@@ -100,15 +121,15 @@ def load(model: str, quantize: str):
     quantize_(component(pipe, "text_encoder"), NVFP4WeightOnlyConfig())
     torch.cuda.empty_cache()
     say(f"encoder packed in {time.time() - started:.1f}s")
-    # Do not copy the transformer into ordinary memory first, the way the Qwen and LTX
-    # children do. It costs 62 GiB of anonymous memory beside the 62 GiB device copy, and
-    # on this machine those are the same pool: measured 2026-11-14, the run died with
-    # CUDA_ERROR_OUT_OF_MEMORY at 110 GiB resident. Moving straight from mmap is slower,
-    # at 128 MB/s, and it is the one that fits, because the file-backed source pages can
-    # be reclaimed as the device copy lands.
+    # The weights land on the host first and then travel one tensor at a time, because the
+    # straight mapping to the device moves at 0.19 GB/s. Loading both components to the
+    # device at bf16 needs 135 GB against this machine's 121.7, so the encoder above is
+    # already packed before the transformer arrives.
     pipe.load_components(
-        names=["transformer", "vae", "processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cuda"
+        names=["transformer", "vae", "processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu"
     )
+    move_by_way_of_memory(component(pipe, "transformer"), "cuda")
+    move_by_way_of_memory(component(pipe, "vae"), "cuda")
     torch.cuda.synchronize()
     say(f"transformer on the device in {time.time() - started:.1f}s")
     if quantize == "nvfp4":

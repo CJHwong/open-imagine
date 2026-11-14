@@ -221,7 +221,7 @@ These numbers apply to this machine. Another host has no calibrated estimate.
 The Qwen cold run, the first of the two 512 runs, took 18.6 s and dropped free memory by 38.68 GiB.
 The Turbo checkpoint ships its own eight-step schedule, so a 20-step request samples the same eight steps.
 The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
-The H3 cold runs were 710.6 s with NVFP4, dropping 88.73 GiB and peaking at 105.3 GiB, and 707.6 s with fp8, dropping 76.78 GiB and peaking at 108.0 GiB.
+The H3 cold runs were 710.6 s with NVFP4, dropping 88.73 GiB and peaking at 105.3 GiB, and 707.6 s with fp8, dropping 76.78 GiB and peaking at 108.0 GiB. Those rows predate the load change of 2026-11-14: the fp8 load alone measured 722.0 s before it and 203.1 s after, so a fresh cold row is shorter than the one above.
 
 ### Video
 
@@ -305,7 +305,7 @@ At these image sizes NVFP4 does not make the pipeline faster: attention, the tex
 It does cut the transformer's weights by 72%. Qwen-Image tolerates the 4-bit path; MiniMax H3-Image does not, which is why its default is fp8.
 
 **The first load cost 236 s until the weights were materialized.** Moving safetensors' mmap-backed tensors straight to the device ran at 128 MB/s on this machine; the same tensors moved from ordinary memory at 14 GiB/s. A 16 GiB shard went from 135 s to 1.3 s, and a cold studio run from 242 s to 20 s.
-H3-Image is the exception: materializing its 62 GiB transformer first died with `CUDA_ERROR_OUT_OF_MEMORY` at 110 GiB resident, because the host copy and the device copy come out of one pool, so it takes the slower mmap path.
+H3-Image cannot hold a host copy of its 62 GiB transformer beside the device copy: that order died with `CUDA_ERROR_OUT_OF_MEMORY` at 110 GiB resident, because the host copy and the device copy come out of one pool. It now clones one group of aliased weights at a time and drops the clone as the group lands, so the temporary is one tensor rather than the model. Measured on 2026-11-14, the transformer move fell from 511.7 s to 48.5 s and the whole load from 722.0 s to 203.1 s. What remains is quantization: 95.9 s for the encoder and 58.7 s for the transformer, which a pre-quantized pack would remove.
 
 ### Against the M5 Pro
 
