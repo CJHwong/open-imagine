@@ -250,7 +250,7 @@ The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eigh
 | `mandarin/voice/clone-4s6` | clone, 4.6 s human reference, 3.3 s of audio | 45.86 | 7.7 | 287.6 | Succeeded | 1 |
 | `mandarin/voice/clone-10s` | clone, 10 s human reference, 2.7 s of audio | 0.32 | 4.1 | 5.0 | Succeeded | 1 |
 
-The first Drama-3 run of a server pays a kernel compile for this GPU as well as the load: it took 350.7 s against 9.0 s warm.
+The first Drama-3 run of a server took 350.7 s against 9.0 s warm, and the cost was the load, not a kernel compile: the engine copies each weight straight from the safetensors mapping into a device tensor, which measured 0.19 GB/s. Cloning each one into ordinary memory first took the load to 27.0 s and a first run to 38.1 s, with the audio byte-identical.
 Warm Drama-3 runs at 0.66x realtime on the 7-word English case and 0.72x on the 83-word one, and at 0.56x on the Mandarin sentence.
 The three clone rows are one target sentence with three references; each first run paid the load.
 Unconditioned Chinese completes but mispronounces: transcribing the output, 帶傘 came back as 呆散 and 可能 as 河冷. The clone rows read the same sentence correctly. The MLX backend mispronounces the same way, so this is the model, not the engine.

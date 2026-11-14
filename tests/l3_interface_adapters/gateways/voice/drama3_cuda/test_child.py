@@ -254,3 +254,53 @@ def test_a_local_checkpoint_directory_skips_the_snapshot(monkeypatch, tmp_path):
 
     assert child.main() == 0
     assert seen["checkpoint"] == str(weights)
+
+
+def fake_omni(monkeypatch, tensors=None, with_iterator=True):
+    for name in (
+        "fish_speech.models",
+        "fish_speech.models.text2semantic",
+        "fish_speech.models.text2semantic.fish_omni",
+    ):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "fish_speech", types.ModuleType("fish_speech"))
+    module = types.ModuleType("fish_speech.models.text2semantic.fish_omni.model")
+    if with_iterator:
+        monkeypatch.setattr(module, "iter_checkpoint_tensors", lambda *a, **k: iter(tensors or []), raising=False)
+    monkeypatch.setitem(sys.modules, "fish_speech.models.text2semantic.fish_omni.model", module)
+    return module
+
+
+def test_patch_checkpoint_copies_clones_each_tensor(monkeypatch):
+    class Tensor:
+        def __init__(self):
+            self.clones = 0
+
+        def clone(self):
+            self.clones += 1
+            return self
+
+    weight = Tensor()
+    module = fake_omni(monkeypatch, [("a", weight)])
+
+    child.patch_checkpoint_copies()
+
+    assert [(name, tensor) for name, tensor in module.iter_checkpoint_tensors("dir")] == [("a", weight)]
+    assert weight.clones == 1
+
+
+def test_patch_checkpoint_copies_says_so_when_the_engine_moved(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "fish_speech", types.ModuleType("fish_speech"))
+    monkeypatch.delitem(sys.modules, "fish_speech.models", raising=False)
+
+    child.patch_checkpoint_copies()
+
+    assert "keeps the slow copy" in capsys.readouterr().err
+
+
+def test_patch_checkpoint_copies_says_so_when_the_iterator_is_gone(monkeypatch, capsys):
+    fake_omni(monkeypatch, with_iterator=False)
+
+    child.patch_checkpoint_copies()
+
+    assert "no checkpoint iterator" in capsys.readouterr().err
