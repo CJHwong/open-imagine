@@ -213,23 +213,26 @@ These numbers apply to this machine. Another host has no calibrated estimate.
 |---|---|---|---|---|---|---|
 | `qwen21_turbo_cuda/generate/text/512` | generate, 512x512, 8 steps, NVFP4 W4A4 | not sampled | not sampled | 4.0 | Succeeded | 2 |
 | `qwen21_turbo_cuda/generate/text/768` | generate, 768x768, 8 steps, NVFP4 W4A4 | 2.90 | not sampled | 5.6 | Succeeded | 1 |
-| `qwen21_turbo_cuda/generate/text/1024` | generate, 1024x1024, 8 steps, NVFP4 W4A4 | 2.27 | not sampled | 10.1 | Succeeded | 1 |
+| `qwen21_turbo_cuda/generate/text/1024` | generate, 1024x1024, 8 steps, NVFP4 W4A4 | 0.07 | 2.3 | 11.0 | Succeeded | 2 |
 | `qwen21_turbo_cuda/generate/text/1328` | generate, 1328x1328, 8 steps, NVFP4 W4A4 | 5.19 | not sampled | 17.6 | Succeeded | 1 |
 | `minimax_h3_image_cuda/generate/text/1024` | generate, 1024x1024, 6 steps, NVFP4 W4A4 | 0.00 | 1.4 | 33.3 | Succeeded | 2 |
-| `minimax_h3_image_cuda/generate/text/1024-fp8` | generate, 1024x1024, 6 steps, fp8 weights | 0.00 | 1.6 | 54.5 | Succeeded | 2 |
+| `minimax_h3_image_cuda/generate/text/1024-fp8` | generate, 1024x1024, 6 steps, fp8 weights | 0.00 | 2.3 | 55.2 | Succeeded | 2 |
 
-The Qwen cold run, the first of the two 512 runs, took 18.6 s and dropped free memory by 38.68 GiB.
+The Qwen cold run, the first of the two 512 runs, took 18.6 s and dropped free memory by 38.68 GiB. That row predates the load work: a cold 1024 run is now 38.1 s against 11.0 s warm, which includes the child start.
 The Turbo checkpoint ships its own eight-step schedule, so a 20-step request samples the same eight steps.
 The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
-The H3 cold runs were 710.6 s with NVFP4, dropping 88.73 GiB and peaking at 105.3 GiB, and 707.6 s with fp8, dropping 76.78 GiB and peaking at 108.0 GiB. Those rows predate the load change of 2026-11-14: the fp8 load alone measured 722.0 s before it and 203.1 s after, so a fresh cold row is shorter than the one above.
+The H3 cold rows predate the load work of 2026-11-14 and 2026-11-15. The fp8 load alone measured 722.0 s, then 203.1 s once each weight travelled through host memory, then 33.4 s from the pack. A cold studio run is now 100.3 s, and the warm run above is unchanged at 55.2 s.
 
 ### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
+| `ltx25_cuda/generate/text/768x448x97` | generate, 768x448, 97 frames, distilled eight-step schedule | 0.47 | 11.5 | 48.3 | Succeeded | 2 |
+| `ltx25_cuda/generate/text/1280x704x97` | generate, 1280x704, 97 frames, distilled eight-step schedule | 12.55 | 12.4 | 115.5 | Succeeded | 1 |
+| `ltx25_cuda/generate/text/768x768x97-fast` | generate, 768x768, 97 frames, Fast mode | 0.36 | 11.6 | 76.3 | Succeeded | 1 |
 | `ltx25_cuda/generate/text/768x768x97` | generate, 768x768, 97 frames, distilled eight-step schedule | 0.32 | 4.3 | 74.4 | Succeeded | 2 |
 
-The first run took 442.1 s, which includes a 368 s load, and dropped 92.59 GiB at a peak of 83.8 GiB resident.
+The first run of the 768x448 case took 96.4 s, which includes a 32.3 s load. The load was 189.2 s before each weight travelled through host memory.
 The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eight-value sigma list, which is what the MLX backend runs when it takes its distilled path; `LTX2Pipeline` would run a linear thirty-step schedule at 3.75 times the cost.
 
 ### Voice
@@ -237,6 +240,7 @@ The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eigh
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
 | `drama3_cuda/generate/sentence50` | generate, 7 words, 3.3 s of 44.1 kHz mono | 0.19 | 4.0 | 5.0 | Succeeded | 2 |
+| `drama3_cuda/generate/short` | generate, 13 words, one delivery cue | 0.41 | 4.0 | 9.0 | Succeeded | 2 |
 | `drama3_cuda/generate/paragraph700` | generate, 83 words, 36.9 s of 44.1 kHz mono | 1.53 | 4.1 | 51.1 | Succeeded | 1 |
 | `mandarin/voice/traditional` | generate, Traditional Chinese, 3.6 s of audio | 44.47 | 7.3 | 351.6 | Succeeded | 1 |
 | `mandarin/voice/simplified` | generate, Simplified Chinese, 3.9 s of audio | 0.10 | 4.0 | 7.0 | Succeeded | 1 |
@@ -246,6 +250,7 @@ The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eigh
 | `mandarin/voice/clone-4s6` | clone, 4.6 s human reference, 3.3 s of audio | 45.86 | 7.7 | 287.6 | Succeeded | 1 |
 | `mandarin/voice/clone-10s` | clone, 10 s human reference, 2.7 s of audio | 0.32 | 4.1 | 5.0 | Succeeded | 1 |
 
+The first Drama-3 run of a server pays a kernel compile for this GPU as well as the load: it took 350.7 s against 9.0 s warm.
 Warm Drama-3 runs at 0.66x realtime on the 7-word English case and 0.72x on the 83-word one, and at 0.56x on the Mandarin sentence.
 The three clone rows are one target sentence with three references; each first run paid the load.
 Unconditioned Chinese completes but mispronounces: transcribing the output, 帶傘 came back as 呆散 and 可能 as 河冷. The clone rows read the same sentence correctly. The MLX backend mispronounces the same way, so this is the model, not the engine.
@@ -255,22 +260,26 @@ A synthetic reference clones a synthetic voice. The human reference rows are the
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
-| `yue2_cuda/generate/short` | nvfp4, generate, style and one lyric line, 104.4 s of 48 kHz stereo | 23.42 | 8.0 | 166.4 | Succeeded | 1 |
-| `mandarin/music/verse` | nvfp4, generate, Mandarin style and lyric, 34.6 s of audio | 3.42 | 6.1 | 41.1 | Succeeded | 1 |
-| `yue2_cuda/generate/short` | bf16, generate, style and one lyric line, 67.6 s of 48 kHz stereo | 17.58 | 9.6 | 194.4 | Succeeded | 1 |
-| `mandarin/music/verse` | bf16, generate, Mandarin style and lyric, 41.7 s of audio | 7.31 | 9.7 | 95.2 | Succeeded | 1 |
-| `yue2_cuda/generate/short` | fp8, generate, style and one lyric line, 65.0 s of 48 kHz stereo | 18.13 | 14.3 | 217.5 | Succeeded | 1 |
-| `mandarin/music/verse` | fp8, generate, Mandarin style and lyric, 56.9 s of audio | 7.17 | 11.2 | 148.3 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | nvfp4, generate, style and one lyric line, 104.4 s of 48 kHz stereo | 9.05 | 5.3 | 107.3 | Succeeded | 1 |
+| `mandarin/music/verse` | nvfp4, generate, Mandarin style and lyric, 34.6 s of audio | 3.08 | 5.4 | 33.1 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | bf16, generate, style and one lyric line, 67.6 s of 48 kHz stereo | 18.14 | 9.7 | 207.4 | Succeeded | 1 |
+| `mandarin/music/verse` | bf16, generate, Mandarin style and lyric, 41.7 s of audio | 6.63 | 9.5 | 101.2 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | fp8, generate, style and one lyric line, 65.0 s of 48 kHz stereo | 17.75 | 14.4 | 218.4 | Succeeded | 1 |
+| `mandarin/music/verse` | fp8, generate, Mandarin style and lyric, 56.9 s of audio | 7.11 | 11.2 | 150.3 | Succeeded | 1 |
 
-One build per pair, same payload and seed, all three in the same child environment on 2026-11-14:
-torch 2.15.0, torchao 0.18.0, mslk 1.4.0. The English case is the first run of each build, so it
-carries that build's start; the Mandarin case is warm. Per second of audio the Mandarin rows are
-the comparison: nvfp4 1.19 s, bf16 2.28 s, fp8 2.61 s.
+One build per pair, same payload and seed, all three in the same child environment, re-measured on
+2026-11-15: torch 2.15.0, torchao 0.18.0, mslk 1.4.0. The English case is the first run of each
+build, so it carries that build's start; the Mandarin case is warm. Per second of audio the Mandarin
+rows are the comparison: nvfp4 0.96 s, bf16 2.43 s, fp8 2.64 s. The run on 2026-11-14 measured
+1.19, 2.28 and 2.61 for the same three builds, so read the last digit as noise and the ratio as the
+result: nvfp4 is about 2.5 times faster per second of audio.
 The same seed wrote a different song in each build, so compare seconds per second of audio rather
 than total seconds.
 `fp8` is the engine's own `FP8Linear`, the arithmetic its authors mark experimental.
-The nvfp4 pack is 1.80 GB and takes the cold start from 111.4 s, cold Triton cache included, to
-19.1 s. It is rebuilt when the torch, torchao or mslk version changes.
+The same song came back in each build on both dates, which is the seed holding. The nvfp4 pack is
+1.80 GB and takes the cold start from 111.4 s, cold Triton cache included, to 19.1 s; the English row
+above now carries 19.1 s of pack load instead of the build. It is rebuilt when the torch, torchao or
+mslk version changes.
 
 The lyric-length rows below were measured on the bf16 build before the move to torch 2.15. They
 bound the lyrics, which is what they were for, and their times are not comparable with the rows
@@ -308,7 +317,7 @@ It does cut the transformer's weights by 72%. Qwen-Image tolerates the 4-bit pat
 H3-Image cannot hold a host copy of its 62 GiB transformer beside the device copy: that order died with `CUDA_ERROR_OUT_OF_MEMORY` at 110 GiB resident, because the host copy and the device copy come out of one pool. It now clones one group of aliased weights at a time and drops the clone as the group lands, so the temporary is one tensor rather than the model. Measured on 2026-11-14, the transformer move fell from 511.7 s to 48.5 s and the whole load from 722.0 s to 203.1 s. What remained was quantization: 95.9 s for the encoder and 58.7 s for the transformer.
 A pack of the quantized weights removes that and halves the bytes. Measured on 2026-11-15, fp8: the pack is 51 GB, the build is a one-off 647.6 s (208.5 s to build the model, 439.1 s to write the pack, because the copy from the device to the host runs at about 116 MB/s), and a load from it takes 33.4 s. The picture is byte-identical to the one the build produced.
 
-The same per-tensor order applies to LTX-2.5. Its load fell from 189.2 s to 32.3 s, and its clip is byte-identical.
+The same per-tensor order applies to LTX-2.5. Its load fell from 189.2 s to 32.3 s, and its clip is byte-identical. Qwen-Image-2.1 uses it too: 87.7 s for its whole components against 14.4 s one group at a time, with the picture byte-identical.
 
 ### Against the M5 Pro
 
@@ -316,22 +325,22 @@ The same per-tensor order applies to LTX-2.5. Its load fell from 189.2 s to 32.3
 |---|---|---|---|
 | Qwen Turbo generate, 512x512, 8 steps | 9.1 | 4.0 | 2.3x faster |
 | Qwen Turbo generate, 768x768, 8 steps | 17.2 | 5.6 | 3.1x faster |
-| Qwen Turbo generate, 1024x1024, 8 steps | 32.3 | 10.1 | 3.2x faster |
+| Qwen Turbo generate, 1024x1024, 8 steps | 32.3 | 11.0 | 2.9x faster |
 | Qwen Turbo generate, 1328x1328, 8 steps | 69.6 | 17.6 | 4.0x faster |
 | LTX-2.5 generate, 768x768, 97 frames | 117.9 | 74.4 | 1.6x faster |
 | Drama-3 generate, 7 words | 25.2 | 5.0 | 5.0x faster |
 | YuE2 generate, instrumental (bf16) | 283.2 | 259.6 | 1.1x faster |
 | Drama-3 clone, one reference | 4.4 | 7.0 | 1.6x slower |
-| YuE2 generate, short (nvfp4) | 160.2 | 166.4 | 1.0x slower |
-| YuE2 generate, Mandarin lyric (nvfp4) | 57.4 | 70.1 | 1.2x slower |
+| YuE2 generate, short (nvfp4) | 160.2 | 107.3 | 1.5x faster |
+| YuE2 generate, Mandarin lyric (nvfp4), Spark warm | 57.4 | 33.1 | 1.7x faster |
 | Drama-3 generate, 83 words | 29.2 | 51.1 | 1.8x slower |
 | MiniMax H3-Image generate, 1024x1024, 6 steps, NVFP4 | 23.2 | 33.3 | 1.4x slower |
-| MiniMax H3-Image generate, 1024x1024, 6 steps, fp8 | 23.2 | 54.5 | 2.3x slower |
+| MiniMax H3-Image generate, 1024x1024, 6 steps, fp8 | 23.2 | 55.2 | 2.4x slower |
 
 Every row is the same case on both machines.
-The three YuE2 rows include each side's first load, because music loads on first use; the Spark short row also builds the 1.80 GB nvfp4 pack, which happens once.
+The three YuE2 rows include each side's first load, because music loads on first use. The Spark short row now carries the 1.80 GB nvfp4 pack's 19.1 s load instead of the build that the earlier run paid.
 YuE2's long case is absent because the Spark reaches its token limit; the Mac finishes it in 237.9 s.
-A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 166.4 s on the Spark, so treat those three as level and the 1.0x as run-to-run noise.
-Chinese music is still slower on the Spark: 70.1 s for 34.6 s of audio, against the Mac's 57.4 s for 42.2 s, which is 1.2x in wall time and 1.5x per second of audio.
+A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 107.3 s on the Spark on 2026-11-15 after the pack.
+Chinese music is now faster on the Spark. A warm run on 2026-11-15 took 33.1 s for 34.6 s of audio, 0.96 s per audio second, against the Mac's 57.4 s for 42.2 s, 1.36 s per audio second. The Mac figure includes its first load and the Spark figure does not, so the gap is wider than those two ratios show.
 The clone row used the same reference and text on both, measured on 2026-11-14 outside the two campaigns.
-Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation, is level on English music, and loses on long-form speech, cloning and Chinese music.
+Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation and on English and Chinese music, and loses on long-form speech and cloning.
