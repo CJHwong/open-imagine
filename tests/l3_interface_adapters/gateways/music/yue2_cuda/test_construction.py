@@ -1,9 +1,12 @@
+import os
+
 import pytest
 
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.music.yue2_cuda import construction
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import (
     DEFAULT_MODEL,
+    DEFAULT_PACK_DIR,
     PROVIDER,
     yue2_cuda_backend,
 )
@@ -31,8 +34,18 @@ def test_the_command_runs_the_child_through_uv_with_the_model(monkeypatch):
     gateway = yue2_cuda_backend(Config({}))
 
     assert gateway._child._command[:5] == ["/bin/uv", "run", "--python", "3.12", "--script"]
-    assert gateway._child._command[-2:] == ["--model", DEFAULT_MODEL]
+    assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "bf16"]
+    assert gateway._child._command[-2] == "--pack-dir"
+    assert gateway._child._command[-1] == os.path.expanduser(DEFAULT_PACK_DIR)
     assert gateway.capabilities().backend_id == "yue2_cuda"
+
+
+def test_the_section_can_keep_its_pack_elsewhere(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = yue2_cuda_backend(Config({"pack_dir": "~/packs/yue2"}))
+
+    assert gateway._child._command[-1] == os.path.expanduser("~/packs/yue2")
 
 
 def test_the_section_can_name_another_checkpoint(monkeypatch):
@@ -40,7 +53,22 @@ def test_the_section_can_name_another_checkpoint(monkeypatch):
 
     gateway = yue2_cuda_backend(Config({"model": "me/my-weights"}))
 
-    assert gateway._child._command[-2:] == ["--model", "me/my-weights"]
+    assert gateway._child._command[-6:-2] == ["--model", "me/my-weights", "--quantize", "bf16"]
+
+
+def test_the_section_can_ask_for_a_narrower_language_model(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = yue2_cuda_backend(Config({"quantize": "fp8"}))
+
+    assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "fp8"]
+
+
+def test_a_quantizer_the_child_does_not_offer_is_refused(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    with pytest.raises(ModelConfigurationError, match="quantize"):
+        yue2_cuda_backend(Config({"quantize": "q4"}))
 
 
 def test_a_host_without_uv_gets_a_named_refusal(monkeypatch):

@@ -190,7 +190,7 @@ Every backend runs in a PEP 723 child on Python 3.12, one operation at a time, w
 | MiniMax H3-Image | `minimax_h3_image_cuda` | `MiniMaxAI/MiniMax-H3-Image` | bf16 on disk, text encoder FP8, transformer fp8 weight-only | 127 |
 | LTX-2.5 | `ltx25_cuda` | `Lightricks/LTX-2.5-Diffusers` | bf16 | 107 |
 | Drama-3 | `drama3_cuda` | `fishaudio/drama-3` | FP8 | 39 |
-| YuE2 | `yue2_cuda` | `m-a-p/YuE2-3B` with `m-a-p/YuE2-Vae` | BF16 | 7.3 |
+| YuE2 | `yue2_cuda` | `m-a-p/YuE2-3B` with `m-a-p/YuE2-Vae` | bf16 on disk; the lyrics stages run NVFP4 weights and activations from a pack built on first use, the acoustic decoder and vocoder stay bf16 | 7.3 |
 
 `Checkpoint` counts the files the backend reads, measured with `du` on this machine.
 Two repositories ship more than that. H3-Image carries a second copy of its transformer, so the download is 190 GiB.
@@ -255,20 +255,39 @@ A synthetic reference clones a synthetic voice. The human reference rows are the
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
-| `yue2_cuda/generate/short` | generate, style and one lyric line, 114.5 s of 48 kHz stereo | 7.44 | 9.6 | 174.4 | Succeeded | 2 |
+| `yue2_cuda/generate/short` | nvfp4, generate, style and one lyric line, 104.4 s of 48 kHz stereo | 23.42 | 8.0 | 166.4 | Succeeded | 1 |
+| `mandarin/music/verse` | nvfp4, generate, Mandarin style and lyric, 34.6 s of audio | 3.42 | 6.1 | 41.1 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | bf16, generate, style and one lyric line, 67.6 s of 48 kHz stereo | 17.58 | 9.6 | 194.4 | Succeeded | 1 |
+| `mandarin/music/verse` | bf16, generate, Mandarin style and lyric, 41.7 s of audio | 7.31 | 9.7 | 95.2 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | fp8, generate, style and one lyric line, 65.0 s of 48 kHz stereo | 18.13 | 14.3 | 217.5 | Succeeded | 1 |
+| `mandarin/music/verse` | fp8, generate, Mandarin style and lyric, 56.9 s of audio | 7.17 | 11.2 | 148.3 | Succeeded | 1 |
+
+One build per pair, same payload and seed, all three in the same child environment on 2026-11-14:
+torch 2.15.0, torchao 0.18.0, mslk 1.4.0. The English case is the first run of each build, so it
+carries that build's start; the Mandarin case is warm. Per second of audio the Mandarin rows are
+the comparison: nvfp4 1.19 s, bf16 2.28 s, fp8 2.61 s.
+The same seed wrote a different song in each build, so compare seconds per second of audio rather
+than total seconds.
+`fp8` is the engine's own `FP8Linear`, the arithmetic its authors mark experimental.
+The nvfp4 pack is 1.80 GB and takes the cold start from 111.4 s, cold Triton cache included, to
+19.1 s. It is rebuilt when the torch, torchao or mslk version changes.
+
+The lyric-length rows below were measured on the bf16 build before the move to torch 2.15. They
+bound the lyrics, which is what they were for, and their times are not comparable with the rows
+above.
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
 | `yue2_cuda/generate/lyrics-4-lines` | generate, one repeated line, 159 characters, 42.6 s of audio | 18.35 | 9.5 | 181.4 | Succeeded | 1 |
 | `yue2_cuda/generate/lyrics-8-lines` | generate, one repeated line, 311 characters, 61.3 s of audio | 7.68 | 9.6 | 112.2 | Succeeded | 1 |
 | `yue2_cuda/generate/lyrics-12-lines` | generate, one repeated line, 463 characters, 84.9 s of audio | 7.95 | 9.5 | 145.3 | Succeeded | 1 |
 | `yue2_cuda/generate/lyrics-16-lines` | generate, one repeated line, 615 characters, 118.7 s of audio | 8.04 | 9.6 | 179.4 | Succeeded | 1 |
 | `yue2_cuda/generate/long` | generate, style and 20 repeated lyric lines, 760 characters | 8.07 | 10.1 | 454.1 | Failed: the semantic stage reached its token limit | 1 |
 | `yue2_cuda/generate/instrumental` | generate, style and no lyrics, 127.6 s of audio | 0.00 | 9.6 | 259.6 | Succeeded | 1 |
-| `mandarin/music/verse` | generate, Mandarin style and lyric, 40.0 s of audio | 0.00 | 9.6 | 176.4 | Succeeded | 1 |
 
-The first short run took 221.5 s and includes the load.
-Warm YuE2 runs at 0.66x realtime and never truncated.
 The four `lyrics-N-lines` rows are the sweep behind the gateway's lyric limit: 615 characters finished and 760 did not, so the CUDA gateway refuses more than 600 characters before it starts, instead of failing after seven minutes.
 The MLX pack finishes the 760 characters in 237.9 s, so the budget is this engine's limit, not the model's.
-`mandarin/music/verse` is the same backend with Traditional Chinese lyrics.
+No run truncated, and the nvfp4 build sings faster than realtime at 0.79 s of compute per second of audio.
 Chinese is slower per second of audio here: 40.0 s of audio in 176.4 s, against 114.5 s in 174.4 s for English.
 
 ### Kernels
@@ -298,17 +317,18 @@ H3-Image is the exception: materializing its 62 GiB transformer first died with 
 | Qwen Turbo generate, 1328x1328, 8 steps | 69.6 | 17.6 | 4.0x faster |
 | LTX-2.5 generate, 768x768, 97 frames | 117.9 | 74.4 | 1.6x faster |
 | Drama-3 generate, 7 words | 25.2 | 5.0 | 5.0x faster |
-| YuE2 generate, instrumental | 283.2 | 259.6 | 1.1x faster |
+| YuE2 generate, instrumental (bf16) | 283.2 | 259.6 | 1.1x faster |
 | Drama-3 clone, one reference | 4.4 | 7.0 | 1.6x slower |
-| YuE2 generate, short | 160.2 | 174.4 | 1.1x slower |
-| YuE2 generate, Mandarin lyric | 57.4 | 176.4 | 3.1x slower |
+| YuE2 generate, short (nvfp4) | 160.2 | 166.4 | 1.0x slower |
+| YuE2 generate, Mandarin lyric (nvfp4) | 57.4 | 70.1 | 1.2x slower |
 | Drama-3 generate, 83 words | 29.2 | 51.1 | 1.8x slower |
 | MiniMax H3-Image generate, 1024x1024, 6 steps, NVFP4 | 23.2 | 33.3 | 1.4x slower |
 | MiniMax H3-Image generate, 1024x1024, 6 steps, fp8 | 23.2 | 54.5 | 2.3x slower |
 
-Every row is the same case on both machines and the warm run on each, so the ratio means something.
+Every row is the same case on both machines.
+The three YuE2 rows include each side's first load, because music loads on first use; the Spark short row also builds the 1.80 GB nvfp4 pack, which happens once.
 YuE2's long case is absent because the Spark reaches its token limit; the Mac finishes it in 237.9 s.
-A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 174.4 s on the Spark, so treat those two as level and the 1.1x as run-to-run noise.
-Mandarin is the exception: the Spark sings 40 s of Chinese audio in 176.4 s where the Mac takes 57.4 s, while the two are level on English lyrics.
+A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 166.4 s on the Spark, so treat those three as level and the 1.0x as run-to-run noise.
+Chinese music is still slower on the Spark: 70.1 s for 34.6 s of audio, against the Mac's 57.4 s for 42.2 s, which is 1.2x in wall time and 1.5x per second of audio.
 The clone row used the same reference and text on both, measured on 2026-11-14 outside the two campaigns.
-Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation, and loses on long-form speech, cloning and music, where the M5 Pro is faster per audio second.
+Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation, is level on English music, and loses on long-form speech, cloning and Chinese music.

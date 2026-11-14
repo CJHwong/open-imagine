@@ -219,9 +219,21 @@ child_script = "studio/l3_interface_adapters/gateways/voice/drama3/drama3_child.
 # python_path = "~/ltx-experiments/drama3-env/bin/python"
 
 [yue2_cuda]
-# YuE2 on the NVIDIA backend. The upstream yue2-infer package is the engine; it wants a
-# BF16 card and 24 GB, and it brings its own torch pin in the child environment.
+# YuE2 on the NVIDIA backend. The upstream yue2-infer package is the engine; it brings its
+# own torch pin in the child environment, and the child moves that pin to torch 2.15 so
+# mslk will load. `nvfp4` is torchao's fp4 weights with fp4 activations, which needs the
+# mslk Triton kernels; it measured 3.2x faster than bf16 on the DGX Spark, 0.79 s of
+# compute per second of audio against 2.53. `fp8` is the engine's own FP8 arithmetic for
+# the lyric stages, and `bf16` is unquantized. Weight-only nvfp4 and fp8 were measured and
+# rejected: 19.5x and 2.9x slower than bf16, because they rebuild the weights in eager
+# float32 on every generated token.
 model = "m-a-p/YuE2-3B"
+quantize = "nvfp4"
+# The packed fp4 weights, built on the first nvfp4 run and reused after that. A pack built
+# by another torch, torchao or mslk is rebuilt rather than trusted. The pack takes the cold
+# start from 111 s to 19 s, because the model is built empty and the bf16 shards are read
+# only for the weights the pack does not carry.
+pack_dir = "~/.cache/open-imagine/yue2-nvfp4"
 
 [yue2]
 # Native MLX Q8 only. Q8 score/token generation, BF16 acoustic synthesis, FP32 decoder.

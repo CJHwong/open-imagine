@@ -12,6 +12,8 @@ from studio.l3_interface_adapters.gateways.music.yue2_cuda.yue2_cuda_backend_gat
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 DEFAULT_MODEL = "m-a-p/YuE2-3B"
+DEFAULT_PACK_DIR = "~/.cache/open-imagine/yue2-nvfp4"
+"""Where `quantize = "nvfp4"` keeps the packed weights it builds on first use."""
 
 
 def uv_launcher() -> str:
@@ -22,11 +24,33 @@ def uv_launcher() -> str:
     return found
 
 
+QUANTIZERS = {"bf16", "fp8", "nvfp4"}
+
+
 def yue2_cuda_backend(config: ModelConfigurationGateway, **_):
     settings = config.backend("yue2_cuda")
     model = str(settings.get("model", DEFAULT_MODEL))
+    quantize = str(settings.get("quantize", "bf16"))
+    if quantize not in QUANTIZERS:
+        raise ModelConfigurationError(
+            f"[yue2_cuda].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
+        )
     script = Path(__file__).with_name("yue2_cuda_child.py")
-    command = [uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model]
+    pack_dir = str(settings.get("pack_dir", DEFAULT_PACK_DIR))
+    command = [
+        uv_launcher(),
+        "run",
+        "--python",
+        "3.12",
+        "--script",
+        str(script),
+        "--model",
+        model,
+        "--quantize",
+        quantize,
+        "--pack-dir",
+        str(Path(pack_dir).expanduser()),
+    ]
     return Yue2CudaBackendGateway(StdioChild(command))
 
 

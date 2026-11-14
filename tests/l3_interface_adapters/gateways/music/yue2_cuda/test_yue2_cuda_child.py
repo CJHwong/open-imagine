@@ -1,7 +1,9 @@
+import contextlib
 import io
 import json
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,8 +12,60 @@ import pytest
 from studio.l3_interface_adapters.gateways.music.yue2_cuda import yue2_cuda_child as child
 
 
+class StubTensor:
+    """Enough of a tensor for the pack writer, which only moves and reshapes."""
+
+    def __init__(self, name="tensor"):
+        self.name = name
+
+    def detach(self):
+        return self
+
+    def clone(self):
+        return self
+
+    def contiguous(self):
+        return self
+
+    def float(self):
+        return self
+
+    def reshape(self, *shape):
+        return self
+
+    def to(self, device):
+        return self
+
+
+class FakeLinear:
+    def __init__(self, weight=None, bias=None):
+        self.weight = weight
+        self.bias = bias
+
+
+class FakeModel:
+    def __init__(self, modules=None):
+        self.modules = modules or {}
+        self.loaded = []
+        self.evaluated = False
+
+    def named_modules(self):
+        return list(self.modules.items())
+
+    def get_submodule(self, name):
+        return self.modules[name]
+
+    def load_state_dict(self, state, strict=False, assign=False):
+        self.loaded.append((state, strict, assign))
+
+    def eval(self):
+        self.evaluated = True
+
+
 class FakePipe:
-    def __init__(self):
+    def __init__(self, model=None, model_dir="/models/yue2"):
+        self.model_dir = Path(model_dir)
+        self._model = model
         self.requests = []
 
     def __enter__(self):
@@ -19,6 +73,9 @@ class FakePipe:
 
     def __exit__(self, *args):
         return False
+
+    def _load_model(self, for_nar=False):
+        return self._model
 
     def plan(self, **request):
         self.requests.append(("plan", request))
@@ -29,19 +86,140 @@ class FakePipe:
         return SimpleNamespace(audio=[[0.0, 0.0]], abc="X:1", truncated={"semantic": False})
 
 
-def fake_pipeline(monkeypatch, pipe, available=True):
+class FakeNVFP4Tensor:
+    def __init__(
+        self,
+        qdata,
+        scale,
+        block_size,
+        orig_dtype,
+        per_tensor_scale,
+        act_per_tensor_scale,
+        is_swizzled_scales,
+        use_triton_kernel,
+        act_quant_kwargs,
+    ):
+        self.qdata, self.scale = qdata, scale
+        self.block_size, self.orig_dtype = block_size, orig_dtype
+        self.per_tensor_scale, self.act_per_tensor_scale = per_tensor_scale, act_per_tensor_scale
+        self.is_swizzled_scales, self.use_triton_kernel = is_swizzled_scales, use_triton_kernel
+        self.act_quant_kwargs = act_quant_kwargs
+
+
+class FakeKwargs:
+    def __init__(self, **values):
+        self.__dict__.update(values)
+
+
+class FakeConfig:
+    use_triton_kernel = True
+    use_dynamic_per_tensor_scale = True
+
+
+def fake_modules(monkeypatch, *, pipe=None, model=None, recorded=None, shards=None):
+    """Every package the pack path touches, faked at the module boundary."""
+    recorded = recorded if recorded is not None else {}
+    recorded.setdefault("saved", {})
+    recorded.setdefault("quantized", [])
+    if shards is None:
+        shards = {}
+
     torch = types.ModuleType("torch")
-    monkeypatch.setattr(torch, "bfloat16", "bfloat16", raising=False)
+    monkeypatch.setattr(torch, "bfloat16", "torch.bfloat16", raising=False)
+    monkeypatch.setattr(torch, "float32", "torch.float32", raising=False)
     monkeypatch.setattr(
-        torch, "cuda", SimpleNamespace(is_available=lambda: available, synchronize=Mock()), raising=False
+        torch,
+        "nn",
+        types.SimpleNamespace(Linear=FakeLinear, Parameter=lambda value, requires_grad=True: value),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        torch,
+        "cuda",
+        SimpleNamespace(
+            is_available=lambda: recorded.get("cuda", True),
+            synchronize=Mock(),
+            empty_cache=Mock(),
+        ),
+        raising=False,
     )
     monkeypatch.setitem(sys.modules, "torch", torch)
 
-    module = types.ModuleType("yue2")
+    yue2 = types.ModuleType("yue2")
     monkeypatch.setattr(
-        module, "YuE2Pipeline", SimpleNamespace(from_pretrained=lambda model, **kwargs: pipe), raising=False
+        yue2, "YuE2Pipeline", SimpleNamespace(from_pretrained=lambda model, **kwargs: pipe), raising=False
     )
-    monkeypatch.setitem(sys.modules, "yue2", module)
+    monkeypatch.setitem(sys.modules, "yue2", yue2)
+
+    modeling = types.ModuleType("yue2.modeling_yue2")
+    monkeypatch.setattr(
+        modeling,
+        "YuE2Config",
+        SimpleNamespace(from_pretrained=lambda path: SimpleNamespace(path=path)),
+        raising=False,
+    )
+    monkeypatch.setattr(modeling, "YuE2ForCausalLM", lambda config: model, raising=False)
+    monkeypatch.setitem(sys.modules, "yue2.modeling_yue2", modeling)
+
+    mslk = types.ModuleType("mslk")
+    monkeypatch.setattr(mslk, "__version__", "1.4.0", raising=False)
+    monkeypatch.setitem(sys.modules, "mslk", mslk)
+
+    torchao = types.ModuleType("torchao")
+    monkeypatch.setattr(torchao, "__version__", "0.18.0", raising=False)
+    quantization = types.ModuleType("torchao.quantization")
+    monkeypatch.setattr(
+        quantization,
+        "quantize_",
+        lambda module, config: recorded["quantized"].append((module, config)),
+        raising=False,
+    )
+    mx = types.ModuleType("torchao.prototype.mx_formats")
+    monkeypatch.setattr(mx, "NVFP4DynamicActivationNVFP4WeightConfig", FakeConfig, raising=False)
+    monkeypatch.setattr(mx, "NVFP4Tensor", FakeNVFP4Tensor, raising=False)
+    monkeypatch.setattr(mx, "QuantizeTensorToNVFP4Kwargs", FakeKwargs, raising=False)
+    workflow = types.ModuleType("torchao.prototype.mx_formats.inference_workflow")
+    monkeypatch.setattr(workflow, "NVFP4DynamicActivationNVFP4WeightConfig", FakeConfig, raising=False)
+    tensor_module = types.ModuleType("torchao.prototype.mx_formats.nvfp4_tensor")
+    monkeypatch.setattr(tensor_module, "NVFP4Tensor", FakeNVFP4Tensor, raising=False)
+    monkeypatch.setattr(tensor_module, "QuantizeTensorToNVFP4Kwargs", FakeKwargs, raising=False)
+    monkeypatch.setitem(sys.modules, "torchao", torchao)
+    monkeypatch.setitem(sys.modules, "torchao.quantization", quantization)
+    monkeypatch.setitem(sys.modules, "torchao.prototype", types.ModuleType("torchao.prototype"))
+    monkeypatch.setitem(sys.modules, "torchao.prototype.mx_formats", mx)
+    monkeypatch.setitem(sys.modules, "torchao.prototype.mx_formats.inference_workflow", workflow)
+    monkeypatch.setitem(sys.modules, "torchao.prototype.mx_formats.nvfp4_tensor", tensor_module)
+
+    safetensors = types.ModuleType("safetensors")
+    torch_safe = types.ModuleType("safetensors.torch")
+
+    def save_file(tensors, path):
+        recorded["saved"].update(tensors)
+        Path(path).write_bytes(b"packed")
+
+    monkeypatch.setattr(torch_safe, "save_file", save_file, raising=False)
+    monkeypatch.setattr(torch_safe, "load_file", lambda path: recorded.get("pack_tensors", {}), raising=False)
+
+    @contextlib.contextmanager
+    def safe_open(path, framework="pt"):
+        yield SimpleNamespace(
+            keys=lambda: list(shards[path].keys()),
+            get_tensor=lambda key: shards[path][key],
+        )
+
+    monkeypatch.setattr(safetensors, "torch", torch_safe, raising=False)
+    monkeypatch.setattr(safetensors, "safe_open", safe_open, raising=False)
+    monkeypatch.setitem(sys.modules, "safetensors", safetensors)
+    monkeypatch.setitem(sys.modules, "safetensors.torch", torch_safe)
+
+    accelerate = types.ModuleType("accelerate")
+
+    @contextlib.contextmanager
+    def init_empty_weights():
+        yield
+
+    monkeypatch.setattr(accelerate, "init_empty_weights", init_empty_weights, raising=False)
+    monkeypatch.setitem(sys.modules, "accelerate", accelerate)
 
     soundfile = types.ModuleType("soundfile")
     monkeypatch.setattr(
@@ -51,6 +229,347 @@ def fake_pipeline(monkeypatch, pipe, available=True):
         raising=False,
     )
     monkeypatch.setitem(sys.modules, "soundfile", soundfile)
+    return recorded
+
+
+def quantized_linears():
+    return {
+        "model.layers.0.mlp.gate_proj": FakeLinear(
+            FakeNVFP4Tensor(
+                StubTensor("qdata"),
+                StubTensor("scale"),
+                16,
+                "torch.bfloat16",
+                StubTensor("scale0"),
+                None,
+                True,
+                True,
+                FakeKwargs(),
+            )
+        ),
+        "model.layers.0.mlp.down_proj": FakeLinear(
+            FakeNVFP4Tensor(
+                StubTensor("qdata"),
+                StubTensor("scale"),
+                16,
+                "torch.bfloat16",
+                StubTensor("scale0"),
+                None,
+                True,
+                True,
+                FakeKwargs(),
+            )
+        ),
+        "model.embed_tokens": FakeLinear(StubTensor("bf16")),
+    }
+
+
+def test_versions_names_each_package(monkeypatch):
+    recorded = fake_modules(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+
+    assert child.versions() == {"torch": "2.15.0", "torchao": "0.18.0", "mslk": "1.4.0"}
+    assert recorded["quantized"] == []
+
+
+def test_quantize_ar_puts_both_operands_in_fp4(monkeypatch):
+    recorded = fake_modules(monkeypatch)
+    module = FakeLinear()
+
+    child.quantize_ar(module)
+
+    assert len(recorded["quantized"]) == 1
+    assert recorded["quantized"][0][0] is module
+    assert isinstance(recorded["quantized"][0][1], FakeConfig)
+
+
+def test_packed_layers_finds_only_the_fp4_linears(monkeypatch):
+    fake_modules(monkeypatch)
+
+    assert child.packed_layers(FakeModel(quantized_linears())) == [
+        "model.layers.0.mlp.gate_proj",
+        "model.layers.0.mlp.down_proj",
+    ]
+
+
+def test_the_expected_manifest_carries_the_configuration(monkeypatch):
+    fake_modules(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+
+    manifest = child.expected_manifest("m-a-p/YuE2-3B")
+
+    assert manifest["model"] == "m-a-p/YuE2-3B"
+    assert manifest["versions"]["mslk"] == "1.4.0"
+    assert manifest["act_quant"]["use_triton_kernel"] is True
+    assert manifest["orig_dtype"] == "torch.bfloat16"
+
+
+def test_a_manifest_matches_only_when_every_field_agrees(monkeypatch):
+    fake_modules(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    expected = child.expected_manifest("m-a-p/YuE2-3B")
+
+    assert child.manifest_matches({**expected, "layers": ["a"]}, expected) is True
+    assert child.manifest_matches({**expected, "format": 0}, expected) is False
+    assert child.manifest_matches({}, expected) is False
+
+
+def test_the_pack_path_names_the_checkpoint(tmp_path):
+    assert child.pack_path(tmp_path, "m-a-p/YuE2-3B") == tmp_path / "m-a-p--YuE2-3B"
+
+
+def test_a_missing_pack_reads_as_no_manifest(tmp_path):
+    assert child.read_manifest(tmp_path) is None
+
+
+def test_a_written_manifest_is_read_back(tmp_path):
+    (tmp_path / "pack.json").write_text(json.dumps({"format": 1}), encoding="utf-8")
+
+    assert child.read_manifest(tmp_path) == {"format": 1}
+
+
+def test_write_pack_saves_every_packed_tensor(monkeypatch, tmp_path):
+    recorded = fake_modules(monkeypatch)
+    model = FakeModel(quantized_linears())
+    manifest = {"layers": ["model.layers.0.mlp.gate_proj"], "block_size": 16}
+
+    child.write_pack(model, tmp_path, manifest)
+
+    assert sorted(recorded["saved"]) == [
+        "model.layers.0.mlp.gate_proj.per_tensor_scale",
+        "model.layers.0.mlp.gate_proj.qdata",
+        "model.layers.0.mlp.gate_proj.scale",
+    ]
+    written = json.loads((tmp_path / "pack.json").read_text(encoding="utf-8"))
+    assert written["has_per_tensor_scale"] is True
+
+
+def test_write_pack_records_a_layer_without_a_per_tensor_scale(monkeypatch, tmp_path):
+    recorded = fake_modules(monkeypatch)
+    model = FakeModel(
+        {
+            "layer": FakeLinear(
+                FakeNVFP4Tensor(StubTensor(), StubTensor(), 16, "torch.bfloat16", None, None, True, True, FakeKwargs())
+            )
+        }
+    )
+
+    child.write_pack(model, tmp_path, {"layers": ["layer"], "block_size": 16})
+
+    assert sorted(recorded["saved"]) == ["layer.qdata", "layer.scale"]
+    assert json.loads((tmp_path / "pack.json").read_text())["has_per_tensor_scale"] is False
+
+
+def test_empty_model_is_built_without_weights(monkeypatch):
+    model = FakeModel()
+    fake_modules(monkeypatch, model=model)
+    seen = {}
+    accelerate = sys.modules["accelerate"]
+    monkeypatch.setattr(accelerate, "init_empty_weights", lambda: _record_context(seen))
+
+    assert child.empty_model(Path("/models/yue2")) is model
+    assert seen["entered"] is True
+
+
+def _record_context(seen):
+    @contextlib.contextmanager
+    def context():
+        seen["entered"] = True
+        yield
+
+    return context()
+
+
+def test_load_unpacked_reads_only_what_the_pack_does_not_carry(monkeypatch, tmp_path):
+    shards = {}
+    model = FakeModel()
+    fake_modules(monkeypatch, model=model, shards=shards)
+    shard = tmp_path / "model.safetensors"
+    shard.write_bytes(b"")
+    shards[str(shard)] = {
+        "model.layers.0.mlp.gate_proj.weight": "packed",
+        "model.layers.0.mlp.gate_proj.bias": "bias",
+        "model.embed_tokens.weight": "embed",
+    }
+
+    loaded = child.load_unpacked(model, tmp_path, {"model.layers.0.mlp.gate_proj"})
+
+    assert loaded == 2
+    assert model.loaded[0][0] == {
+        "model.layers.0.mlp.gate_proj.bias": "bias",
+        "model.embed_tokens.weight": "embed",
+    }
+    assert model.loaded[0][1:] == (False, True)
+
+
+def test_load_unpacked_skips_a_shard_with_nothing_wanted(monkeypatch, tmp_path):
+    shards = {}
+    model = FakeModel()
+    fake_modules(monkeypatch, model=model, shards=shards)
+    shard = tmp_path / "model.safetensors"
+    shard.write_bytes(b"")
+    shards[str(shard)] = {"model.layers.0.mlp.gate_proj.weight": "packed"}
+
+    assert child.load_unpacked(model, tmp_path, {"model.layers.0.mlp.gate_proj"}) == 0
+    assert model.loaded == []
+
+
+def test_attach_pack_rebuilds_each_tensor_from_the_manifest(monkeypatch):
+    fake_modules(monkeypatch)
+    module = FakeLinear(StubTensor("bf16"))
+    model = FakeModel({"layer": module})
+    manifest = {
+        "layers": ["layer"],
+        "block_size": 16,
+        "orig_dtype": "torch.bfloat16",
+        "is_swizzled_scales": True,
+        "use_triton_kernel": True,
+        "act_quant": {
+            "block_size": 16,
+            "is_swizzled_scales": True,
+            "use_triton_kernel": True,
+            "use_dynamic_per_tensor_scale": True,
+        },
+    }
+
+    child.attach_pack(model, {"layer.qdata": StubTensor("q"), "layer.scale": StubTensor("s")}, manifest)
+
+    assert isinstance(module.weight, FakeNVFP4Tensor)
+    assert module.weight.per_tensor_scale is None
+    assert module.weight.act_quant_kwargs.use_dynamic_per_tensor_scale is True
+
+
+def test_attach_pack_carries_the_scalar_scale(monkeypatch):
+    fake_modules(monkeypatch)
+    module = FakeLinear(StubTensor("bf16"))
+    model = FakeModel({"layer": module})
+    manifest = {
+        "layers": ["layer"],
+        "block_size": 16,
+        "orig_dtype": "torch.bfloat16",
+        "is_swizzled_scales": True,
+        "use_triton_kernel": True,
+        "act_quant": {
+            "block_size": 16,
+            "is_swizzled_scales": True,
+            "use_triton_kernel": True,
+            "use_dynamic_per_tensor_scale": True,
+        },
+    }
+
+    child.attach_pack(
+        model,
+        {
+            "layer.qdata": StubTensor("q"),
+            "layer.scale": StubTensor("s"),
+            "layer.per_tensor_scale": StubTensor("scale0"),
+        },
+        manifest,
+    )
+
+    assert getattr(module.weight, "per_tensor_scale", None) is not None
+
+
+def test_the_first_fp4_run_builds_the_pack(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+
+    result = child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert result is pipe
+    assert len(recorded["quantized"]) == 1
+    assert (tmp_path / "m-a-p--YuE2-3B" / "pack.json").is_file()
+    written = json.loads((tmp_path / "m-a-p--YuE2-3B" / "pack.json").read_text())
+    assert written["layers"] == ["model.layers.0.mlp.gate_proj", "model.layers.0.mlp.down_proj"]
+
+
+def test_a_matching_pack_is_served_without_touching_the_checkpoint_weights(monkeypatch, tmp_path):
+    model = FakeModel({"layer": FakeLinear()})
+    pipe = FakePipe(model=None, model_dir=tmp_path / "checkpoint")
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    manifest = {
+        **child.expected_manifest("m-a-p/YuE2-3B"),
+        "layers": ["layer"],
+        "has_per_tensor_scale": False,
+    }
+    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+    shard = tmp_path / "checkpoint" / "model.safetensors"
+    shard.parent.mkdir()
+    shard.write_bytes(b"")
+    monkeypatch.setattr(child, "empty_model", lambda model_dir: model)
+    monkeypatch.setattr(child, "load_unpacked", lambda model, model_dir, packed: 3)
+    recorded["pack_tensors"] = {"layer.qdata": StubTensor("q"), "layer.scale": StubTensor("s")}
+
+    result = child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert result is pipe and pipe._model is model
+    assert model.evaluated is True
+    assert recorded["quantized"] == []
+
+
+def test_a_pack_from_another_version_is_rebuilt(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "pack.json").write_text(
+        json.dumps({**child.expected_manifest("m-a-p/YuE2-3B"), "versions": {"torch": "2.10.0"}}),
+        encoding="utf-8",
+    )
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1
+
+
+def test_load_refuses_a_quantizer_it_does_not_offer(monkeypatch):
+    fake_modules(monkeypatch)
+
+    with pytest.raises(SystemExit, match="quantize must be one of"):
+        child.load("me/model", "q4")
+
+
+def test_fp4_refuses_to_run_without_a_pack_directory(monkeypatch):
+    fake_modules(monkeypatch)
+
+    with pytest.raises(SystemExit, match="needs --pack-dir"):
+        child.load("me/model", "nvfp4")
+
+
+def test_fp4_hands_the_work_to_the_pack_loader(monkeypatch, tmp_path):
+    fake_modules(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(
+        child,
+        "load_packed",
+        lambda model, root: seen.update(model=model, root=root) or FakePipe(),
+    )
+
+    assert isinstance(child.load("me/model", "nvfp4", tmp_path), FakePipe)
+    assert seen == {"model": "me/model", "root": tmp_path}
+
+
+@pytest.mark.parametrize("name,expected", [("bf16", "none"), ("fp8", "fp8")])
+def test_load_asks_the_engine_for_its_own_arithmetic(monkeypatch, name, expected):
+    calls = []
+    pipe = FakePipe()
+    fake_modules(monkeypatch, pipe=pipe)
+    monkeypatch.setattr(
+        sys.modules["yue2"],
+        "YuE2Pipeline",
+        SimpleNamespace(from_pretrained=lambda model, **kwargs: calls.append((model, kwargs)) or pipe),
+        raising=False,
+    )
+
+    assert child.load("me/model", name) is pipe
+    assert calls == [("me/model", {"device": "cuda", "quantization": expected})]
 
 
 def job(**overrides):
@@ -72,9 +591,9 @@ def test_a_supplied_score_travels_and_a_blank_one_does_not():
     assert "abc" not in child.request_for(job(abc="   "))
 
 
-def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch, capsys):
+def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch):
     pipe = FakePipe()
-    fake_pipeline(monkeypatch, pipe)
+    fake_modules(monkeypatch, pipe=pipe)
 
     reply = child.run(pipe, job())
 
@@ -85,7 +604,7 @@ def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch, capsys):
 
 def test_sampling_overrides_reach_both_stages_and_an_empty_map_stays_out(monkeypatch):
     pipe = FakePipe()
-    fake_pipeline(monkeypatch, pipe)
+    fake_modules(monkeypatch, pipe=pipe)
 
     child.run(pipe, {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7, "sampling": {"max_tokens": 2048}})
     child.run(pipe, {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7})
@@ -98,7 +617,7 @@ def test_sampling_overrides_reach_both_stages_and_an_empty_map_stays_out(monkeyp
 
 def test_a_plan_job_returns_the_score_only(monkeypatch):
     pipe = FakePipe()
-    fake_pipeline(monkeypatch, pipe)
+    fake_modules(monkeypatch, pipe=pipe)
 
     reply = child.run(pipe, job(mode="plan"))
 
@@ -106,17 +625,9 @@ def test_a_plan_job_returns_the_score_only(monkeypatch):
     assert pipe.requests[0][0] == "plan"
 
 
-def test_load_enters_the_pipeline(monkeypatch, capsys):
-    fake_pipeline(monkeypatch, FakePipe())
-
-    pipe = child.load("m-a-p/YuE2-3B")
-
-    assert isinstance(pipe, FakePipe)
-    assert "loaded m-a-p/YuE2-3B" in capsys.readouterr().err
-
-
 def test_main_refuses_a_host_without_cuda(monkeypatch, capsys):
-    fake_pipeline(monkeypatch, FakePipe(), available=False)
+    recorded = fake_modules(monkeypatch)
+    recorded["cuda"] = False
     monkeypatch.setattr(sys, "argv", ["child"])
 
     assert child.main() == 2
@@ -124,7 +635,8 @@ def test_main_refuses_a_host_without_cuda(monkeypatch, capsys):
 
 
 def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
-    fake_pipeline(monkeypatch, FakePipe())
+    pipe = FakePipe()
+    fake_modules(monkeypatch, pipe=pipe)
     monkeypatch.setattr(sys, "argv", ["child"])
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join([json.dumps(job()), "", json.dumps({"seed": 1})])))
 
@@ -133,6 +645,30 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "wav" in lines[0]
     assert lines[1]["error"].startswith("KeyError")
+
+
+def test_main_passes_the_pack_directory_to_the_loader(monkeypatch):
+    fake_modules(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "nvfp4", "--pack-dir", "/cache/pack"])
+    monkeypatch.setattr(
+        child, "load", lambda model, name, root: seen.update(model=model, name=name, root=root) or FakePipe()
+    )
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    assert child.main() == 0
+    assert seen["name"] == "nvfp4" and seen["root"] == Path("/cache/pack")
+
+
+def test_main_asks_for_no_pack_directory_when_none_is_given(monkeypatch):
+    fake_modules(monkeypatch)
+    seen = {}
+    monkeypatch.setattr(sys, "argv", ["child"])
+    monkeypatch.setattr(child, "load", lambda model, name, root: seen.update(root=root) or FakePipe())
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    assert child.main() == 0
+    assert seen["root"] is None
 
 
 def test_the_script_enters_through_its_main_guard(monkeypatch):
