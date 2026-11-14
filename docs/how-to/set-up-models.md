@@ -262,45 +262,39 @@ out and the page offers no toggle. The pack keeps the model's [license terms](..
 
 ## Run on an NVIDIA machine
 
-The same studio and the same API run on an NVIDIA GPU through four `*_cuda` backends. They need a
-machine where the model fits in one GPU's memory: about 120 GB of unified memory for MiniMax
-H3-Image, less for the rest. `uv` must be on the server's PATH, because each engine runs as a
-PEP 723 script child with its own pinned environment; YuE2 moves that environment's torch to 2.15
-so `mslk` will load.
+The same studio and the same API run on an NVIDIA GPU, and the repository carries the setup
+in `studio.cuda.toml`. A new machine needs three commands:
 
-Set the defaults and keep the sections you want in `studio.toml`:
-
-```toml
-default_backend = "qwen21_turbo_cuda"
-visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
-default_video_backend = "ltx25_cuda"
-default_voice_backend = "drama3_cuda"
-default_music_backend = "yue2_cuda"
-
-[qwen21_turbo_cuda]
-quantize = "nvfp4"
-
-[minimax_h3_image_cuda]
-quantize = "fp8"
+```sh
+git clone https://github.com/CJHwong/open-imagine.git
+cd open-imagine
+uv run studio --config studio.cuda.toml --prepare
+uv run studio --config studio.cuda.toml
 ```
 
-Weights download on first use, as on the Mac. Two backends keep a pack of quantized weights rather
-than quantizing on every start, and the first run of each builds it. Run `uv run studio --prepare`
-once to build them, and the engine environments and Triton cache, before the first generation. With
-the packs built it loads and releases all five models in about three and a half minutes:
+`--prepare` is the one long step. It builds the packs of quantized weights and the engine
+environments, then exits, so no generation pays for them. Skip it and the first generation
+of each model pays instead.
+
+`uv` must be on the server's PATH, because each engine runs as a PEP 723 script child with
+its own pinned environment; YuE2 moves that environment's torch to 2.15 so `mslk` will load.
+
+Weights download on first use, as on the Mac. Two backends keep a pack of quantized weights
+rather than quantizing on every start:
 
 | Pack | Size | First run | Later starts |
 |---|---|---|---|
 | MiniMax H3-Image, fp8 | 51 GB | about 11 minutes | 33.4 s |
 | YuE2, nvfp4 | 1.8 GB | about 2 minutes | 19.1 s |
 
-Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are rebuilt when
-the torch, torchao or mslk versions change. Deleting one costs only its rebuild. Asking for another
-`quantize` builds that quantizer's own pack on the next run.
+Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are
+rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
+Asking for another `quantize` builds that quantizer's own pack on the next run.
 
-MiniMax H3-Image needs about 55 GiB resident in fp8; its nvfp4 path peaks near 105 GiB, so do not
-offer both quantizers on the same card. If you offer more than one model, `[memory] policy =
-"boundary"` keeps a loaded model while the next one fits, so coming back to it costs nothing.
+MiniMax H3-Image needs about 55 GiB resident in fp8; its nvfp4 path peaks near 105 GiB, so do
+not offer both quantizers on the same card. `studio.cuda.toml` sets `[memory] policy =
+"boundary"`, which keeps a loaded model while the next one fits, so coming back to it costs
+nothing.
 
 The measured time and memory of every case is in
 [measured memory and time](../reference/measured-memory-and-time.md).

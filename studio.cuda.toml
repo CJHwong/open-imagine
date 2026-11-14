@@ -1,0 +1,39 @@
+# The NVIDIA setup. Nothing here downloads until a model runs.
+#
+#   uv run studio --config studio.cuda.toml --prepare
+#   uv run studio --config studio.cuda.toml
+#
+# Every engine below runs as a PEP 723 script child with its own pinned environment, so
+# `uv` must be on the server's PATH. [Run on an NVIDIA machine](docs/how-to/set-up-models.md#run-on-an-nvidia-machine)
+# covers the memory each model needs and the packs the first run builds.
+
+default_backend = "qwen21_turbo_cuda"
+visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
+default_video_backend = "ltx25_cuda"
+visible_video_backends = ["ltx25_cuda"]
+default_voice_backend = "drama3_cuda"
+visible_voice_backends = ["drama3_cuda"]
+default_music_backend = "yue2_cuda"
+visible_music_backends = ["yue2_cuda"]
+
+[qwen21_turbo_cuda]
+quantize = "nvfp4"
+
+# fp8 removes the grain NVFP4 leaves on this model; see the configuration reference.
+[minimax_h3_image_cuda]
+quantize = "fp8"
+
+[drama3_cuda]
+checkpoint = "fishaudio/drama-3"
+
+[yue2_cuda]
+quantize = "nvfp4"
+
+# Keep a model loaded while the next one fits, so coming back to it costs nothing.
+[memory]
+policy = "boundary"
+boundary_percent = 84
+
+# A server prints a QR code nobody scans.
+[connect]
+enabled = false
