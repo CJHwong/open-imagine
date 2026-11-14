@@ -260,6 +260,49 @@ The enhancer runs as a script child and holds about 15 GB, so the studio release
 image run. Its prompt templates ship with the release and are read from the pack. Leave the key
 out and the page offers no toggle. The pack keeps the model's [license terms](../reference/model-licenses.md).
 
+## Run on an NVIDIA machine
+
+The same studio and the same API run on an NVIDIA GPU through four `*_cuda` backends. They need a
+machine where the model fits in one GPU's memory: about 120 GB of unified memory for MiniMax
+H3-Image, less for the rest. `uv` must be on the server's PATH, because each engine runs as a
+PEP 723 script child with its own pinned environment; YuE2 moves that environment's torch to 2.15
+so `mslk` will load.
+
+Set the defaults and keep the sections you want in `studio.toml`:
+
+```toml
+default_backend = "qwen21_turbo_cuda"
+visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
+default_video_backend = "ltx25_cuda"
+default_voice_backend = "drama3_cuda"
+default_music_backend = "yue2_cuda"
+
+[qwen21_turbo_cuda]
+quantize = "nvfp4"
+
+[minimax_h3_image_cuda]
+quantize = "fp8"
+```
+
+Weights download on first use, as on the Mac. Two backends keep a pack of quantized weights rather
+than quantizing on every start, and the first run of each builds it:
+
+| Pack | Size | First run | Later starts |
+|---|---|---|---|
+| MiniMax H3-Image, fp8 | 51 GB | about 11 minutes | 33.4 s |
+| YuE2, nvfp4 | 1.8 GB | about 2 minutes | 19.1 s |
+
+Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are rebuilt when
+the torch, torchao or mslk versions change. Deleting one costs only its rebuild. Asking for another
+`quantize` builds that quantizer's own pack on the next run.
+
+MiniMax H3-Image needs about 55 GiB resident in fp8; its nvfp4 path peaks near 105 GiB, so do not
+offer both quantizers on the same card. If you offer more than one model, `[memory] policy =
+"boundary"` keeps a loaded model while the next one fits, so coming back to it costs nothing.
+
+The measured time and memory of every case is in
+[measured memory and time](../reference/measured-memory-and-time.md).
+
 ## Offer the installed models
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
