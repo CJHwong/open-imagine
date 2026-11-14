@@ -22,12 +22,19 @@ class EmptyModule:
 
 class FakePipe:
     def __init__(self):
-        self.transformer = EmptyModule()
+        self.transformer: object = EmptyModule()
         self.text_encoder = EmptyModule()
         self.connectors = EmptyModule()
         self.vae = EmptyModule()
         self.device = None
         self.calls = []
+        self.components = {
+            "transformer": self.transformer,
+            "text_encoder": self.text_encoder,
+            "connectors": self.connectors,
+            "vae": self.vae,
+            "scheduler": SimpleNamespace(),
+        }
 
     def to(self, device):
         self.device = device
@@ -104,22 +111,33 @@ def test_prepare_environment_sets_ptxas_only_when_present(monkeypatch, tmp_path)
     assert "TRITON_PTXAS_PATH" not in child.os.environ
 
 
-def test_materialize_keeps_shared_storage_shared():
+def test_move_by_way_of_memory_clones_a_group_once_and_lands_it():
+    """One round trip per group of aliased weights, and the aliases keep sharing it."""
+
     class Tensor:
         def __init__(self):
             self.clones = 0
+            self.device = None
 
         def clone(self):
             self.clones += 1
             return Tensor()
+
+        def to(self, device):
+            self.device = device
+            return self
 
         def data_ptr(self):
             return id(self)
 
     shared = Tensor()
     a, b = SimpleNamespace(data=shared), SimpleNamespace(data=shared)
-    child.materialize(SimpleNamespace(parameters=lambda: [a, b], buffers=lambda: []))
-    assert shared.clones == 1 and a.data is b.data
+
+    child.move_by_way_of_memory(SimpleNamespace(parameters=lambda: [a, b], buffers=lambda: []))
+
+    assert shared.clones == 1
+    assert a.data is b.data
+    assert a.data.device == "cuda"
 
 
 def test_load_materializes_and_moves_to_the_device(monkeypatch, capsys):
@@ -128,6 +146,32 @@ def test_load_materializes_and_moves_to_the_device(monkeypatch, capsys):
     assert child.load("me/pack") is pipe
     assert pipe.device == "cuda"
     assert "loaded me/pack" in capsys.readouterr().err
+
+
+def test_load_sends_each_weight_through_memory_first(monkeypatch):
+    log = []
+
+    class Tensor:
+        def clone(self):
+            log.append("clone")
+            return self
+
+        def to(self, device):
+            log.append(f"to {device}")
+            return self
+
+        def data_ptr(self):
+            return 1
+
+    pipe = FakePipe()
+    moved = SimpleNamespace(parameters=lambda: [SimpleNamespace(data=Tensor())], buffers=lambda: [])
+    pipe.transformer = moved
+    pipe.components["transformer"] = moved
+    fake_world(monkeypatch, pipe)
+
+    child.load("me/pack")
+
+    assert log == ["clone", "to cuda"]
 
 
 def test_a_run_reports_steps_and_returns_an_mp4(monkeypatch, capsys):

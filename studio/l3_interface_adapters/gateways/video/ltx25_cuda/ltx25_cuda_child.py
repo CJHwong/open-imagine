@@ -68,18 +68,22 @@ def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
 
 
-def materialize(module) -> None:
-    """Copy mmap-backed weights into ordinary memory before they move to the device.
+def move_by_way_of_memory(module, device: str = "cuda") -> None:
+    """Send each weight through ordinary memory before it lands on the device.
 
-    Measured on this machine: safetensors' mmap-backed tensors move at 128 MB/s and the
-    same tensors from ordinary memory at 14 GiB/s.
+    Measured on this machine: safetensors' mmap-backed tensors reach the device at
+    128 MB/s; the same tensors from ordinary memory at 14 GiB/s. One group of aliased
+    weights is cloned and moved at a time and the clone is dropped as the group lands, so
+    the host high-water mark is one tensor. Cloning a whole 38 GB component first holds it
+    beside the device copy out of the same pool, and the move then crawls.
     """
-    clones: dict[int, object] = {}
+    groups: dict[int, list] = {}
     for tensor in [*module.parameters(), *module.buffers()]:
-        key = tensor.data.data_ptr()
-        if key not in clones:
-            clones[key] = tensor.data.clone()
-        tensor.data = clones[key]
+        groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
+    for tensors in groups.values():
+        landed = tensors[0].data.clone().to(device)
+        for tensor in tensors:
+            tensor.data = landed
 
 
 def load(model: str):
@@ -88,10 +92,10 @@ def load(model: str):
 
     started = time.time()
     pipe = LTX2DFRPipeline.from_pretrained(model, torch_dtype=torch.bfloat16)
-    for name in ("transformer", "text_encoder", "connectors", "vae"):
-        component = getattr(pipe, name, None)
-        if component is not None:
-            materialize(component)
+    for component in pipe.components.values():
+        if hasattr(component, "parameters"):
+            move_by_way_of_memory(component, "cuda")
+    # Every weight is on the device already; this call sets the pipeline's own bookkeeping.
     pipe.to("cuda")
     torch.cuda.synchronize()
     say(f"loaded {model} in {time.time() - started:.1f}s")
