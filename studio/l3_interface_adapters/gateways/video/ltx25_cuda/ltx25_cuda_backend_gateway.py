@@ -31,6 +31,9 @@ class Ltx25CudaBackendGateway(VideoBackendGateway):
     def capabilities(self) -> VideoCapabilities:
         return ltx25_cuda_capabilities()
 
+    def load(self) -> None:
+        self._child.wait_ready()
+
     def run(
         self,
         job: VideoJob,

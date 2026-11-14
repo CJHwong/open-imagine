@@ -560,3 +560,71 @@ def test_the_connect_off_flag_overrides_an_enabled_file(tmp_path, monkeypatch):
     argv(monkeypatch, "--connect=off", "--config", str(path))
     entry.main()
     assert created.call_args.args[0].connect_enabled is False
+
+def test_prepare_loads_and_releases_each_configured_model(monkeypatch, capsys):
+    calls = []
+
+    class Backend:
+        def load(self):
+            calls.append("load")
+
+        def release(self):
+            calls.append("release")
+
+    providers = [SimpleNamespace(backend_id=name, create=lambda config: Backend()) for name in ("a", "b", "c")]
+    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
+    config = SimpleNamespace(
+        visible_backends=("a",),
+        visible_video_backends=("b",),
+        visible_voice_backends=(),
+        visible_music_backends=(),
+    )
+
+    assert entry.prepare(config) == 0
+
+    assert calls == ["load", "release", "load", "release"]
+    out = capsys.readouterr().out
+    assert "prepared a" in out and "prepared b" in out
+    assert "prepared c" not in out
+
+
+def test_prepare_says_so_when_nothing_loads(monkeypatch, capsys):
+    providers = [SimpleNamespace(backend_id="c", create=lambda config: SimpleNamespace())]
+    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
+    config = SimpleNamespace(
+        visible_backends=("c",),
+        visible_video_backends=(),
+        visible_voice_backends=(),
+        visible_music_backends=(),
+    )
+
+    assert entry.prepare(config) == 0
+
+    assert "nothing to prepare" in capsys.readouterr().out
+
+
+def test_a_load_that_fails_still_releases_the_model(monkeypatch, capsys):
+    calls = []
+
+    class Backend:
+        def load(self):
+            calls.append("load")
+            raise RuntimeError("no weights")
+
+        def release(self):
+            calls.append("release")
+
+    providers = [SimpleNamespace(backend_id="a", create=lambda config: Backend())]
+    monkeypatch.setattr(entry, "BUILTIN_PROVIDERS", providers)
+    config = SimpleNamespace(
+        visible_backends=("a",),
+        visible_video_backends=(),
+        visible_voice_backends=(),
+        visible_music_backends=(),
+    )
+
+    with pytest.raises(RuntimeError, match="no weights"):
+        entry.prepare(config)
+
+    assert calls == ["load", "release"]
+    capsys.readouterr()

@@ -285,7 +285,9 @@ quantize = "fp8"
 ```
 
 Weights download on first use, as on the Mac. Two backends keep a pack of quantized weights rather
-than quantizing on every start, and the first run of each builds it:
+than quantizing on every start, and the first run of each builds it. Run `uv run studio --prepare`
+once to build them, and the engine environments and Triton cache, before the first generation. With
+the packs built it loads and releases all five models in about three and a half minutes:
 
 | Pack | Size | First run | Later starts |
 |---|---|---|---|
