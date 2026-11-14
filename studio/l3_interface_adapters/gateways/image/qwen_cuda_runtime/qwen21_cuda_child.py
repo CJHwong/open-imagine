@@ -48,20 +48,22 @@ def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
 
 
-def materialize(module) -> None:
-    """Copy mmap-backed weights into ordinary memory, keeping shared tensors shared.
+def move_by_way_of_memory(module, device: str = "cuda") -> None:
+    """Send each weight through ordinary memory before it lands on the device.
 
     Measured on the DGX Spark on 2026-11-13: moving safetensors' mmap-backed tensors
     straight to the device ran at 128 MB/s, and the same tensors moved from ordinary
-    memory at 14 GiB/s. A 16 GiB shard went from 135s to 1.3s. Every parameter and
-    buffer is cloned once; tensors that shared storage still share the clone.
+    memory at 14 GiB/s. A 16 GiB shard went from 135 s to 1.3 s. One group of aliased
+    weights is cloned and moved at a time and the clone is dropped as the group lands,
+    so the host high-water mark is one tensor rather than the component.
     """
-    clones: dict[int, object] = {}
+    groups: dict[int, list] = {}
     for tensor in [*module.parameters(), *module.buffers()]:
-        key = tensor.data.data_ptr()
-        if key not in clones:
-            clones[key] = tensor.data.clone()
-        tensor.data = clones[key]
+        groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
+    for tensors in groups.values():
+        landed = tensors[0].data.clone().to(device)
+        for tensor in tensors:
+            tensor.data = landed
 
 
 def load(model: str, quantize: str):
@@ -73,7 +75,7 @@ def load(model: str, quantize: str):
     if quantize not in ("nvfp4", "bf16"):
         raise SystemExit(f"quantize must be nvfp4 or bf16, not {quantize}")
     for component in (pipe.transformer, pipe.text_encoder, pipe.vae):
-        materialize(component)
+        move_by_way_of_memory(component, "cuda")
     # Quantize where the run computes. torchao's NVFP4 tensor is a CUDA kernel, so the
     # weights go to the GPU first and the packing happens there.
     pipe.to("cuda")

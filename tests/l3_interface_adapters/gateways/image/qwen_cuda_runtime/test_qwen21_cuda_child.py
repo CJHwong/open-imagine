@@ -169,10 +169,15 @@ class FakeTensor:
     def __init__(self, name):
         self.name = name
         self.clones = 0
+        self.device = "cpu"
 
     def clone(self):
         self.clones += 1
         return FakeTensor(self.name + "-clone")
+
+    def to(self, device):
+        self.device = device
+        return self
 
     def data_ptr(self):
         return id(self)
@@ -195,19 +200,20 @@ class Module:
         return self._buffers
 
 
-def test_materialize_clones_once_and_keeps_shared_storage_shared():
+def test_move_by_way_of_memory_clones_once_and_keeps_shared_storage_shared():
     shared = FakeTensor("tied")
     alone = FakeTensor("alone")
     buffer = FakeTensor("rotary")
     module = Module([Holder(shared), Holder(shared), Holder(alone)], [Holder(buffer)])
 
-    child.materialize(module)
+    child.move_by_way_of_memory(module, "cuda")
 
     assert shared.clones == 1 and alone.clones == 1 and buffer.clones == 1
     first, second, third = module.parameters()
     assert first.data is second.data
     assert first.data is not third.data
     assert module.buffers()[0].data.name == "rotary-clone"
+    assert first.data.device == "cuda"
 
 
 def test_the_script_enters_through_its_main_guard(monkeypatch):
