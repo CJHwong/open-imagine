@@ -90,7 +90,7 @@ def drama_cuda_capabilities():
             "download_on_first_use",
             "fishaudio/drama-3",
             "78e5ab79e49aa9a25abe8799eff2c4d73a1c3216",
-            "The first run downloads about 40 GB of FP8 weights. Duration follows the script. Delivery cues go inside square brackets. The engine spends several minutes compiling kernels for this GPU on its first start.",
+            "The first run downloads about 40 GB of FP8 weights and loads them in about 30 s. Duration follows the script. Delivery cues go inside square brackets.",
         ),
         modes=(
             ModeSpec(
