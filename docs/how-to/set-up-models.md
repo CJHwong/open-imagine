@@ -264,5 +264,10 @@ out and the page offers no toggle. The pack keeps the model's [license terms](..
 
 Start with `uv run studio --all-backends` to show all model selectors, or configure a subset with
 `visible_backends`, `visible_video_backends`, and `visible_voice_backends` in `studio.toml`.
+A list set to `[]` offers that workspace nothing, which is how a machine names the workspaces it can run.
 Selecting a model does not load its weights. The next operation loads it.
 See [model licenses](../reference/model-licenses.md) before choosing a model for your use.
+
+If a download stalls at a few KiB/s, set `HF_HUB_DISABLE_XET=1` for that run. Xet delivery
+stalled after about 17 GB on the DGX Spark on 2026-11-13, and plain HTTP delivered 58 MB/s
+on the same network.
