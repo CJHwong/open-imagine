@@ -11,11 +11,14 @@ from studio.l3_interface_adapters.gateways.image.qwen21_cuda.qwen21_cuda_backend
     Qwen21CudaBackendGateway,
 )
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda.rewriter import build_rewriter, rewriter_cache
-from studio.l3_interface_adapters.gateways.image.qwen21_cuda.storage_assets import storage_assets
+from studio.l3_interface_adapters.gateways.image.qwen21_cuda.storage_assets import storage_assets_for
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 DEFAULT_MODEL = "Qwen/Qwen-Image-2.1-Turbo"
 QUANTIZERS = {"nvfp4", "bf16"}
+
+# The free-memory drop of a cold 1024 run at bf16, DGX Spark, 2026-11-15.
+RESIDENT_GIB = 41.0
 
 
 def rewriter_command(models: dict) -> list[str]:
@@ -46,7 +49,7 @@ def uv_launcher() -> str:
 def qwen21_cuda_backend(config: ModelConfigurationGateway, **_):
     settings = config.backend("qwen21_turbo_cuda")
     model = str(settings.get("model", DEFAULT_MODEL))
-    quantize = str(settings.get("quantize", "nvfp4"))
+    quantize = str(settings.get("quantize", "bf16"))
     if quantize not in QUANTIZERS:
         raise ModelConfigurationError(
             f"[qwen21_turbo_cuda].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
@@ -72,11 +75,9 @@ PROVIDER = ModelProvider(
     "image",
     qwen21_cuda_backend,
     engine="cuda",
-    storage_assets=storage_assets,
+    storage_assets=storage_assets_for("qwen21_turbo_cuda"),
     storage_name="Qwen-Image-2.1-Turbo",
     rewriter=build_rewriter,
     rewriter_cache=rewriter_cache,
-    # The free-memory drop of a cold 1024 run at bf16, the shipped default, DGX Spark,
-    # 2026-11-15. The nvfp4 build needs 36.0.
-    resident_gib=41.0,
+    resident_gib=RESIDENT_GIB,
 )

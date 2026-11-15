@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
-    minimax_h3_image_cuda_backend,
+    backend_factory,
 )
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.config import load_config
@@ -25,7 +25,7 @@ from studio.l4_frameworks_and_drivers.main import assemble_studio
 @pytest.mark.live
 def test_live_minimax_h3_image_cuda_generates_a_picture():
     config = load_config(Path(__file__).resolve().parents[5] / "studio.toml")
-    gateway = minimax_h3_image_cuda_backend(config)
+    gateway = backend_factory("minimax_h3_image_cuda")(config)
     studio = assemble_studio(
         {"minimax_h3_image_cuda": gateway},
         {"minimax_h3_image_cuda": NoPromptRewriterGateway()},

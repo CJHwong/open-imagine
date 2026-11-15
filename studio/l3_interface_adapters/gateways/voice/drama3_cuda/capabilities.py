@@ -1,6 +1,13 @@
 """The Drama-3 controls, on the CUDA engine. The form is the MLX one; the numbers are not."""
 
-from studio.l1_entities.voice_capabilities import Capabilities, LoadingPolicy, ModeSpec, ParamSpec, Template
+from studio.l1_entities.voice_capabilities import (
+    Capabilities,
+    Estimate,
+    LoadingPolicy,
+    ModeSpec,
+    ParamSpec,
+    Template,
+)
 from studio.l3_interface_adapters.gateways.template_translations import translate_templates
 from studio.l3_interface_adapters.gateways.voice.drama3_cuda.template_translations import TRANSLATIONS
 
@@ -71,9 +78,30 @@ TEMPLATES = translate_templates(TEMPLATES, TRANSLATIONS, locale="zh-TW")
 # run sits 20% under the line and the other two within 3%, so the figure is an "about"
 # for a script of any length. A 592-character script hit the engine's token cap before
 # it finished, so scripts longer than about 275 characters cannot be measured this way.
-# No fit yet. The M5 Pro figures above are that engine's; this one measured 5.85s of
-# audio for a 76-character script on its first run, which is one point, not a curve.
-ESTIMATE = None
+#
+# The measured cost on this machine, DGX Spark GB10, FP8 weights, seed 7, native 44.1 kHz,
+# one operation at a time through the studio API on 2026-11-15. Warm runs, after the
+# resident child holds the model. Characters of the script, the audio it produced, and the
+# wall time:
+#
+#   28  3.53 s  5.0      66  6.18 s  9.0      451  34.60 s  48.1
+#
+# A line through those three gives 1.383 s of work per second of audio and 0.28 s fixed.
+# It reads 5.2, 8.8 and 48.1 s, so the worst error is 0.2 s.
+#
+# The page turns a script into audio seconds with `seconds_per_character`. The three runs
+# above produced 0.126, 0.094 and 0.077 s of audio per character, and 0.077 is the value
+# that fits the wall time best: it reads 3.3, 8.3 and 48.3 s. The script of a few words
+# then reads about 2 s short, which is the price of one line through three lengths.
+#
+# A fresh server pays one load of about 58 s before its first run: the first case here took
+# 63.1 s and ran 5.0 s of work. The figures below are the run, not the load.
+#
+# Clone measured 5.39 s of audio for a 52-character script in 9.1 s. Its reference costs
+# 1.6 s, so it carries its own fixed cost and the audio per character that this voice
+# produced, 0.104. One run, not a curve.
+ESTIMATE = Estimate(rtf=1.383, overhead=0.28, seconds_per_character=0.077)
+CLONE_ESTIMATE = Estimate(rtf=1.383, overhead=1.64, seconds_per_character=0.104)
 
 
 def drama_cuda_capabilities():
@@ -109,7 +137,7 @@ def drama_cuda_capabilities():
                 max_references=1,
                 text_hint="Write the new words. Inline delivery cues are optional.",
                 templates=TEMPLATES,
-                estimate=ESTIMATE,
+                estimate=CLONE_ESTIMATE,
             ),
         ),
     )

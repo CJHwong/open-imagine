@@ -15,7 +15,7 @@ import soundfile
 from studio.l3_interface_adapters.gateways.music.yue2_cuda import yue2_cuda_child as child
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import (
     DEFAULT_PACK_DIR,
-    yue2_cuda_backend,
+    backend_factory,
 )
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l4_frameworks_and_drivers.config import load_config
@@ -39,7 +39,7 @@ class Config:
 @pytest.mark.live
 def test_live_yue2_cuda_returns_a_song():
     config = load_config(Path(__file__).resolve().parents[5] / "studio.toml")
-    gateway = yue2_cuda_backend(config)
+    gateway = backend_factory("yue2_cuda")(config)
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
         {"fake": NoPromptRewriterGateway()},
@@ -88,7 +88,7 @@ def test_live_yue2_cuda_nvfp4_serves_the_pack():
     """
     pack_dir = Path(os.path.expanduser(DEFAULT_PACK_DIR))
     model = "m-a-p/YuE2-3B"
-    gateway = yue2_cuda_backend(Config({"model": model, "quantize": "nvfp4", "pack_dir": str(pack_dir)}))
+    gateway = backend_factory("yue2_cuda")(Config({"model": model, "quantize": "nvfp4", "pack_dir": str(pack_dir)}))
     studio = assemble_studio(
         {"fake": FakeBackendGateway()},
         {"fake": NoPromptRewriterGateway()},

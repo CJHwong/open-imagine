@@ -384,7 +384,8 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
     )
 
     config = load_config(Path(__file__).parents[2] / "studio.toml")
-    models = []
+    packages = {}
+    entries = 0
     for family, builders in (
         ("image", IMAGE_BACKEND_FACTORIES),
         ("video", VIDEO_BACKEND_FACTORIES),
@@ -394,8 +395,14 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             gateway = builder(config)
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
-            models.append(type(gateway))
-    assert len(models) == len(set(models)) == 18
+            packages.setdefault(type(gateway), set()).add(type(gateway).__module__.rsplit(".", 1)[0])
+            entries += 1
+    # One gateway class serves one model package. A model that ships two builds, such as the
+    # bf16 and NVFP4 entries of a CUDA backend, shares its class with its own other entry.
+    assert all(len(owners) == 1 for owners in packages.values())
+    # Nineteen entries over eighteen classes: H3-Image ships a second build.
+    assert entries == 19
+    assert len(packages) == 18
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'

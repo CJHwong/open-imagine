@@ -10,25 +10,21 @@ import soundfile
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.music_job import MusicResult
 from studio.l2_use_cases.boundaries.music_backend_gateway import MusicBackendGateway
-from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import yue2_cuda_capabilities
-
-MAX_LYRICS_CHARACTERS = 600
-"""How much lyric this engine finishes in one song.
-
-Measured on the DGX Spark on 2026-11-14 with one style and one repeated line: 463
-characters sang 84.9 s of audio, 615 characters sang 118.7 s and finished, and 760
-characters reached the semantic stage's token budget and produced nothing. The limit is
-the measured pass minus a margin. It is calibrated on English lyrics; Chinese is denser,
-so a long Chinese lyric can still reach the engine's own error after the run.
-"""
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import (
+    MAX_LYRICS_CHARACTERS,
+    yue2_cuda_capabilities,
+)
 
 
 class Yue2CudaBackendGateway(MusicBackendGateway):
-    def __init__(self, child):
+    def __init__(self, child, *, backend_id="yue2_cuda", name="YuE2 (CUDA)", badge="bf16"):
         self._child = child
+        self._backend_id = backend_id
+        self._name = name
+        self._badge = badge
 
     def capabilities(self):
-        return yue2_cuda_capabilities()
+        return yue2_cuda_capabilities(self._backend_id, self._name, self._badge)
 
     def load(self):
         self._child.wait_ready()

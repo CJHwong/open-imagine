@@ -1,3 +1,5 @@
+import pytest
+
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda.capabilities import qwen21_cuda_capabilities
 
 
@@ -7,8 +9,25 @@ def test_the_cuda_backend_offers_generate_and_edit_and_no_borrowed_time():
     assert capabilities.backend_id == "qwen21_turbo_cuda"
     assert capabilities.badge == "nvfp4"
     assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
-    assert all(mode.estimate is None for mode in capabilities.modes)
+    assert all(mode.estimate is not None for mode in capabilities.modes)
     assert capabilities.private_operations is True
+
+
+def test_the_estimate_reads_this_machine_s_measurement():
+    generate = qwen21_cuda_capabilities("bf16").mode("generate").estimate
+    edit = qwen21_cuda_capabilities("bf16").mode("edit").estimate
+    assert generate is not None and edit is not None
+
+    # Eight steps at one megapixel, against the measured 3.0 s at a quarter of one.
+    assert 8 * generate.step_cost * 0.25**generate.exponent + generate.overhead == pytest.approx(3.0, abs=0.4)
+    # 28.2 s at 1.8 MP, which the edit fit reads as its fixed cost plus eight steps.
+    assert 8 * edit.step_cost * 1.8**edit.exponent + edit.overhead == pytest.approx(28.2, abs=0.5)
+
+
+def test_one_estimate_serves_every_badge():
+    bf16 = qwen21_cuda_capabilities("bf16").mode("generate").estimate
+
+    assert qwen21_cuda_capabilities("nvfp4").mode("generate").estimate == bf16
 
 
 def test_the_size_choice_has_no_match_option_without_a_reference():

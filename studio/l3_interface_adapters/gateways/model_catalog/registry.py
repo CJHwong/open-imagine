@@ -9,6 +9,9 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction i
     PROVIDER as minimax_h3_image_provider,
 )
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
+    NVFP4_PROVIDER as minimax_h3_image_cuda_nvfp4_provider,
+)
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
     PROVIDER as minimax_h3_image_cuda_provider,
 )
 from studio.l3_interface_adapters.gateways.image.qwen21.construction import PROVIDER as qwen21_provider
@@ -19,6 +22,9 @@ from studio.l3_interface_adapters.gateways.image.qwen21_turbo.construction impor
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.construction import PROVIDER as viggle_turbo_provider
 from studio.l3_interface_adapters.gateways.memory.catalog_memory_estimate_gateway import CatalogMemoryEstimateGateway
 from studio.l3_interface_adapters.gateways.music.yue2.construction import PROVIDER as yue2_provider
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import (
+    NVFP4_PROVIDER as yue2_cuda_nvfp4_provider,
+)
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import PROVIDER as yue2_cuda_provider
 from studio.l3_interface_adapters.gateways.video.ltx23.construction import PROVIDER as ltx23_provider
 from studio.l3_interface_adapters.gateways.video.ltx25.construction import PROVIDER as ltx25_provider
@@ -41,6 +47,7 @@ BUILTIN_PROVIDERS = (
     krea2_provider,
     minimax_h3_image_provider,
     minimax_h3_image_cuda_provider,
+    minimax_h3_image_cuda_nvfp4_provider,
     viggle_turbo_provider,
     ltx25_provider,
     ltx25_cuda_provider,
@@ -53,6 +60,7 @@ BUILTIN_PROVIDERS = (
     drama3_cuda_provider,
     yue2_provider,
     yue2_cuda_provider,
+    yue2_cuda_nvfp4_provider,
 )
 
 

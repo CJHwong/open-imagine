@@ -69,12 +69,21 @@ def edit_payload(job: ImageJob) -> dict:
 class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
     """The CUDA child, kept warm between jobs: loading this checkpoint takes minutes."""
 
-    def __init__(self, child: StdioChild, *, badge: str):
+    def __init__(
+        self,
+        child: StdioChild,
+        *,
+        backend_id: str = "minimax_h3_image_cuda",
+        name: str = "MiniMax H3-Image (CUDA)",
+        badge: str = "fp8",
+    ):
         self._child = child
+        self._backend_id = backend_id
+        self._name = name
         self._badge = badge
 
     def capabilities(self):
-        return minimax_h3_image_cuda_capabilities(self._badge)
+        return minimax_h3_image_cuda_capabilities(self._backend_id, self._name, self._badge)
 
     def load(self):
         self._child.wait_ready()

@@ -25,14 +25,16 @@ def test_the_provider_names_the_cuda_engine():
     assert PROVIDER.backend_id == "qwen21_turbo_cuda"
 
 
-def test_the_command_runs_the_child_through_uv_with_nvfp4(monkeypatch):
+def test_the_entry_runs_bf16(monkeypatch):
     monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
 
     gateway = qwen21_cuda_backend(Config({}))
 
     assert gateway._child._command[:5] == ["/bin/uv", "run", "--python", "3.12", "--script"]
-    assert gateway._child._command[-4:] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
-    assert gateway.capabilities().badge == "nvfp4"
+    assert gateway._child._command[-4:] == ["--model", DEFAULT_MODEL, "--quantize", "bf16"]
+    assert gateway.capabilities().badge == "bf16"
+    assert gateway.capabilities().name == "Qwen-Image-2.1-Turbo (CUDA)"
+    assert PROVIDER.resident_gib == 41.0
 
 
 def test_the_section_can_name_another_checkpoint_and_bf16(monkeypatch):

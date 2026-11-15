@@ -8,16 +8,16 @@
 # covers the memory each model needs and the packs the first run builds.
 
 default_backend = "qwen21_turbo_cuda"
-visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
+visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda", "minimax_h3_image_cuda_nvfp4"]
 default_video_backend = "ltx25_cuda"
 visible_video_backends = ["ltx25_cuda"]
 default_voice_backend = "drama3_cuda"
 visible_voice_backends = ["drama3_cuda"]
 default_music_backend = "yue2_cuda"
-visible_music_backends = ["yue2_cuda"]
+visible_music_backends = ["yue2_cuda", "yue2_cuda_nvfp4"]
 
-# bf16 leaves no grain and costs 9% of the time: 12.0 s warm against 11.0 s at nvfp4. It needs
-# 40.7 GiB resident against 36.0. Set nvfp4 when memory is the tighter constraint.
+# bf16, because the pack leaves grain. NVFP4 was measured on this machine and its entry was
+# dropped: 11.0 s at 1024 against 12.0, 18.1 at 1328 against 19.1, for 4.7 GiB less memory.
 #
 # An edit runs this same checkpoint: the pipeline takes reference images through its text
 # encoder and vae, so there is no second model to download or load.
@@ -36,10 +36,26 @@ quantize = "fp8"
 # press and is released before an image run.
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
 
+# The same checkpoint packed to NVFP4. fp8 stays the default: the pack is 40% faster and
+# leaves grain that fp8 does not. Its first run on a machine without the pack takes about
+# nine minutes and 104 GiB, because the child writes the 38 GB pack and then loads it; after
+# that a run is 34.3 s against fp8's 57.4.
+[minimax_h3_image_cuda_nvfp4]
+quantize = "nvfp4"
+rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
+
 [drama3_cuda]
 checkpoint = "fishaudio/drama-3"
 
+# Two entries, because the build changes the song and the picker is the backend list. bf16
+# is the default: the song is the product, and the quantized builds rewrite it. NVFP4 is
+# about 2.5 times faster per second of audio and holds 9.1 GiB instead of 18.1, so it is
+# the entry for a machine that is short of time or memory. Measured in
+# docs/reference/platform-comparison.md#music.
 [yue2_cuda]
+quantize = "bf16"
+
+[yue2_cuda_nvfp4]
 quantize = "nvfp4"
 
 # Keep a model loaded while the next one fits, so coming back to it costs nothing.

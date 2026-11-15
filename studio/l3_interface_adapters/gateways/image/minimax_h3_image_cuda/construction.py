@@ -10,7 +10,7 @@ from studio.l2_use_cases.model_provider import ModelProvider
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h3_image_cuda_backend_gateway import (
     MinimaxH3ImageCudaBackendGateway,
 )
-from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.storage_assets import storage_assets
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.storage_assets import storage_assets_for
 from studio.l3_interface_adapters.gateways.image.shared.h3_image_pe_rewriter import H3ImagePeRewriter
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
@@ -46,41 +46,69 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
     return H3ImagePeRewriter([uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model])
 
 
-def minimax_h3_image_cuda_backend(config: ModelConfigurationGateway, **_):
-    settings = config.backend("minimax_h3_image_cuda")
-    model = str(settings.get("model", DEFAULT_MODEL))
-    quantize = str(settings.get("quantize", "nvfp4"))
-    if quantize not in QUANTIZERS:
-        raise ModelConfigurationError(
-            f"[minimax_h3_image_cuda].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
-        )
-    script = Path(__file__).with_name("minimax_h3_image_cuda_child.py")
-    pack_dir = str(settings.get("pack_dir", DEFAULT_PACK_DIR))
-    command = [
-        uv_launcher(),
-        "run",
-        "--python",
-        "3.12",
-        "--script",
-        str(script),
-        "--model",
-        model,
-        "--quantize",
-        quantize,
-        "--pack-dir",
-        str(Path(pack_dir).expanduser()),
-    ]
-    return MinimaxH3ImageCudaBackendGateway(StdioChild(command), badge=quantize)
+# backend id -> (name in the picker, the build this entry runs, its resident memory in GiB).
+# fp8 is 51 GB of packed weights plus the vae and the run's own buffers. The NVFP4 pack is
+# 38 GB on disk, so it holds less. Both read on the same basis. The NVFP4 load peaks well
+# above its resident figure: the run that loaded it from the pack dropped free memory by
+# 104.21 GiB on 2026-11-15, because the weights travel through host memory.
+BUILDS = {
+    "minimax_h3_image_cuda": ("MiniMax H3-Image (CUDA)", "fp8", 55.0),
+    "minimax_h3_image_cuda_nvfp4": ("MiniMax H3-Image (CUDA, NVFP4)", "nvfp4", 40.0),
+}
+
+
+def backend_factory(backend_id: str):
+    """The factory for one entry. The entry names the build it runs, and its own section
+    keeps the model, the packing and the enhancer."""
+    name, default_quantize, _ = BUILDS[backend_id]
+
+    def build(config: ModelConfigurationGateway, **_):
+        settings = config.backend(backend_id)
+        model = str(settings.get("model", DEFAULT_MODEL))
+        quantize = str(settings.get("quantize", default_quantize))
+        if quantize not in QUANTIZERS:
+            raise ModelConfigurationError(
+                f"[{backend_id}].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
+            )
+        script = Path(__file__).with_name("minimax_h3_image_cuda_child.py")
+        pack_dir = str(settings.get("pack_dir", DEFAULT_PACK_DIR))
+        command = [
+            uv_launcher(),
+            "run",
+            "--python",
+            "3.12",
+            "--script",
+            str(script),
+            "--model",
+            model,
+            "--quantize",
+            quantize,
+            "--pack-dir",
+            str(Path(pack_dir).expanduser()),
+        ]
+        return MinimaxH3ImageCudaBackendGateway(StdioChild(command), backend_id=backend_id, name=name, badge=quantize)
+
+    return build
 
 
 PROVIDER = ModelProvider(
     "minimax_h3_image_cuda",
     "image",
-    minimax_h3_image_cuda_backend,
+    backend_factory("minimax_h3_image_cuda"),
     engine="cuda",
-    storage_assets=storage_assets,
+    storage_assets=storage_assets_for("minimax_h3_image_cuda"),
     storage_name="MiniMax-H3-Image",
     rewriter=build_rewriter,
-    # 51 GB of packed weights plus the vae and the run's own buffers, DGX Spark, 2026-11-15.
-    resident_gib=55.0,
+    resident_gib=BUILDS["minimax_h3_image_cuda"][2],
+)
+
+NVFP4_PROVIDER = ModelProvider(
+    "minimax_h3_image_cuda_nvfp4",
+    "image",
+    backend_factory("minimax_h3_image_cuda_nvfp4"),
+    engine="cuda",
+    storage_assets=storage_assets_for("minimax_h3_image_cuda_nvfp4"),
+    storage_name="MiniMax-H3-Image",
+    rewriter=build_rewriter,
+    resident_gib=BUILDS["minimax_h3_image_cuda_nvfp4"][2],
 )

@@ -4,12 +4,16 @@ import pytest
 
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.music.yue2_cuda import construction
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import yue2_cuda_capabilities
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.construction import (
     DEFAULT_MODEL,
     DEFAULT_PACK_DIR,
+    NVFP4_PROVIDER,
     PROVIDER,
-    yue2_cuda_backend,
+    backend_factory,
 )
+
+yue2_cuda_backend = backend_factory("yue2_cuda")
 
 
 class Config:
@@ -26,6 +30,28 @@ class Config:
 def test_the_provider_names_the_cuda_engine_and_the_music_kind():
     assert PROVIDER.engine == "cuda" and PROVIDER.kind == "music"
     assert PROVIDER.backend_id == "yue2_cuda"
+    assert PROVIDER.resident_gib == 18.1
+
+
+def test_the_second_entry_runs_the_packed_build(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = backend_factory("yue2_cuda_nvfp4")(Config({}))
+
+    assert NVFP4_PROVIDER.backend_id == "yue2_cuda_nvfp4"
+    assert NVFP4_PROVIDER.engine == "cuda" and NVFP4_PROVIDER.resident_gib == 9.1
+    assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
+    assert gateway.capabilities().backend_id == "yue2_cuda_nvfp4"
+    assert gateway.capabilities().name == "YuE2 (CUDA, NVFP4)"
+    assert gateway.capabilities().badge == "nvfp4"
+
+
+def test_the_two_entries_carry_different_estimates():
+    bf16 = yue2_cuda_capabilities("yue2_cuda", "YuE2 (CUDA)", "bf16").estimate
+    nvfp4 = yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 (CUDA, NVFP4)", "nvfp4").estimate
+
+    assert bf16 is not None and nvfp4 is not None
+    assert bf16.generate_base_seconds != nvfp4.generate_base_seconds
 
 
 def test_the_command_runs_the_child_through_uv_with_the_model(monkeypatch):
@@ -38,6 +64,15 @@ def test_the_command_runs_the_child_through_uv_with_the_model(monkeypatch):
     assert gateway._child._command[-2] == "--pack-dir"
     assert gateway._child._command[-1] == os.path.expanduser(DEFAULT_PACK_DIR)
     assert gateway.capabilities().backend_id == "yue2_cuda"
+    assert gateway.capabilities().badge == "bf16"
+
+
+def test_the_badge_follows_the_quantize_setting(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = yue2_cuda_backend(Config({"quantize": "nvfp4"}))
+
+    assert gateway.capabilities().badge == "nvfp4"
 
 
 def test_the_section_can_keep_its_pack_elsewhere(monkeypatch):
