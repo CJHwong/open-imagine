@@ -264,6 +264,26 @@ megapixel this machine is ahead: 7.6 s at 4.2 MP, and 20.6 s at 1.0 MP against t
 asked for one step still takes the checkpoint's six. That is why one step and six steps measured
 the same. The 32.1 s is six denoise steps at about 5 s each, plus 2.5 s of VAE decode.
 
+#### Qwen-Image-2.1 edits on the same checkpoint
+
+The 2.1 pipeline conditions on images itself: its Qwen3-VL text encoder reads them as vision
+context and the vae prepends their latents to the noise. An edit therefore needs no second
+checkpoint, no second pipeline and no second load. Measured on 2026-11-15 at 512x512 on the
+Turbo eight-step schedule, warm, one GPU job at a time:
+
+| Case | Time (s) |
+|---|---|
+| Generate, 512x512, 8 steps | 4.0 |
+| Edit, one reference, match | 6.1 |
+| Edit, two references, match | 6.2 |
+
+The first run of that studio took 18.0 s and carries the load. A warm two-reference edit moved
+free memory by 0.00 GiB over its baseline, because the model was already resident: the peak is
+the model's own 41 GiB, and a reference adds no second copy of anything.
+
+Match follows the last reference: the square root of its pixel count, on the 32-pixel grid, held
+to 1344, which is the same cap the MLX edit path uses.
+
 ### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |

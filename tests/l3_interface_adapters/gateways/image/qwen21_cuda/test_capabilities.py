@@ -1,13 +1,13 @@
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda.capabilities import qwen21_cuda_capabilities
 
 
-def test_the_cuda_backend_offers_generate_only_and_no_borrowed_time():
+def test_the_cuda_backend_offers_generate_and_edit_and_no_borrowed_time():
     capabilities = qwen21_cuda_capabilities("nvfp4")
 
     assert capabilities.backend_id == "qwen21_turbo_cuda"
     assert capabilities.badge == "nvfp4"
-    assert [mode.id for mode in capabilities.modes] == ["generate"]
-    assert capabilities.modes[0].estimate is None
+    assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
+    assert all(mode.estimate is None for mode in capabilities.modes)
     assert capabilities.private_operations is True
 
 
@@ -24,3 +24,21 @@ def test_the_step_control_opens_on_the_turbo_schedule():
     steps = next(param for param in mode.params if param.id == "steps")
 
     assert (steps.default, steps.minimum, steps.maximum) == (8, 1, 50)
+
+
+def test_edit_takes_references_on_the_turbo_schedule():
+    mode = qwen21_cuda_capabilities("bf16").mode("edit")
+
+    assert (mode.min_references, mode.max_references) == (1, 10)
+    steps = next(param for param in mode.params if param.id == "steps")
+    guidance = next(param for param in mode.params if param.id == "guidance")
+    resolution = next(param for param in mode.params if param.id == "resolution")
+    assert (steps.default, guidance.default) == (8, 1.0)
+    assert resolution.default == "match"
+
+
+def test_edit_offers_no_looks_until_they_are_sampled_on_this_engine():
+    mode = qwen21_cuda_capabilities("nvfp4").mode("edit")
+
+    assert mode.looks == ()
+    assert mode.templates == ()

@@ -111,26 +111,23 @@ def load(model: str, quantize: str):
     return pipe
 
 
-def run(pipe, job: dict) -> dict:
-    import torch
+def reference_image(encoded: str):
+    """A reference the parent sent as a base64 PNG, as the pipeline wants it."""
+    from PIL import Image
 
-    steps = int(job["steps"])
-    total = steps
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as found:
+        return found.convert("RGB")
 
+
+def report_steps(total: int):
     def on_step(_pipe, index, _timestep, callback_kwargs):
         say(f"step {index + 1}/{total}")
         return callback_kwargs
 
-    image = pipe(
-        prompt=job["prompt"],
-        negative_prompt=job.get("negative") or None,
-        height=int(job["height"]),
-        width=int(job["width"]),
-        num_inference_steps=steps,
-        true_cfg_scale=float(job.get("guidance", 1.0)),
-        generator=torch.Generator("cuda").manual_seed(int(job["seed"])),
-        callback_on_step_end=on_step,
-    ).images[0]
+    return on_step
+
+
+def reply(image, steps: int) -> dict:
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return {
@@ -139,6 +136,35 @@ def run(pipe, job: dict) -> dict:
         "height": image.height,
         "steps": steps,
     }
+
+
+def run(pipe, job: dict) -> dict:
+    """One job through the pipeline: Generate, or Edit with reference images.
+
+    The 2.1 pipeline conditions on images itself. The text encoder reads them as vision
+    context and the VAE prepends their latents to the noise, so an edit needs no second
+    pipeline and no second checkpoint.
+    """
+    import torch
+
+    steps = int(job["steps"])
+    settings = {
+        "prompt": job["prompt"],
+        "negative_prompt": job.get("negative") or None,
+        "num_inference_steps": steps,
+        "true_cfg_scale": float(job.get("guidance", 1.0)),
+        "generator": torch.Generator("cuda").manual_seed(int(job["seed"])),
+        "callback_on_step_end": report_steps(steps),
+    }
+    if job.get("mode") == "edit":
+        settings["image"] = [reference_image(encoded) for encoded in job["references"]]
+        # The pipeline derives height and width from the last condition image at this
+        # area, on its own 32-pixel grid.
+        settings["output_resolution"] = int(job["output_resolution"])
+    else:
+        settings["height"] = int(job["height"])
+        settings["width"] = int(job["width"])
+    return reply(pipe(**settings).images[0], steps)
 
 
 def main() -> int:

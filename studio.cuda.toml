@@ -18,6 +18,9 @@ visible_music_backends = ["yue2_cuda"]
 
 # bf16 leaves no grain and costs 9% of the time: 12.0 s warm against 11.0 s at nvfp4. It needs
 # 40.7 GiB resident against 36.0. Set nvfp4 when memory is the tighter constraint.
+#
+# An edit runs this same checkpoint: the pipeline takes reference images through its text
+# encoder and vae, so there is no second model to download or load.
 [qwen21_turbo_cuda]
 quantize = "bf16"
 
