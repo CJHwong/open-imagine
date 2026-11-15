@@ -264,25 +264,31 @@ megapixel this machine is ahead: 7.6 s at 4.2 MP, and 20.6 s at 1.0 MP against t
 asked for one step still takes the checkpoint's six. That is why one step and six steps measured
 the same. The 32.1 s is six denoise steps at about 5 s each, plus 2.5 s of VAE decode.
 
-#### Qwen-Image-2.1 edits on the same checkpoint
+#### Edits run the same checkpoint on both image backends
 
-The 2.1 pipeline conditions on images itself: its Qwen3-VL text encoder reads them as vision
-context and the vae prepends their latents to the noise. An edit therefore needs no second
-checkpoint, no second pipeline and no second load. Measured on 2026-11-15 at 512x512 on the
-Turbo eight-step schedule, warm, one GPU job at a time:
+Neither engine needs a second model for an edit. The diffusers Qwen-Image-2.1 pipeline
+conditions on reference images through its Qwen3-VL text encoder and its vae. The H3 pipeline
+switches to its image-conditioned blocks when `image` is set, which resize the references for the
+vae and for the text encoder. Measured on 2026-11-15 through the studio API, one GPU job at a
+time:
 
 | Case | Time (s) |
 |---|---|
-| Generate, 512x512, 8 steps | 4.0 |
-| Edit, one reference, match | 6.1 |
-| Edit, two references, match | 6.2 |
+| Qwen generate, 512x512, 8 steps, warm | 4.0 |
+| Qwen edit, one reference, match | 6.1 |
+| Qwen edit, two references, match | 6.2 |
+| H3 generate, 1024x1024, 6 steps, cold | 96.1 |
+| H3 edit, one reference, match at 4 MP | 68.5 |
 
-The first run of that studio took 18.0 s and carries the load. A warm two-reference edit moved
-free memory by 0.00 GiB over its baseline, because the model was already resident: the peak is
-the model's own 41 GiB, and a reference adds no second copy of anything.
+The first Qwen run of that studio took 18.0 s and carries the load. The H3 run carries its 33.4 s
+pack load and generated on the engine's 4.2 MP canvas, so its 4 MP edit is the comparable row.
+A warm edit moved free memory by 0.00 GiB on Qwen and 0.27 GiB on H3, because the model was
+already resident in both cases: the peak is the model's own.
 
-Match follows the last reference: the square root of its pixel count, on the 32-pixel grid, held
-to 1344, which is the same cap the MLX edit path uses.
+H3's edit offers only sizes of about 4 MP, because an edit at 1024 came out posterized on the MLX
+engine and this backend inherits the model's behaviour. Its Match follows the first reference's
+aspect at that size, on the 32-pixel grid. Qwen's Match follows the last reference at its own
+area, also on the 32-pixel grid and under the 1344 cap the MLX edit path uses.
 
 ### Video
 

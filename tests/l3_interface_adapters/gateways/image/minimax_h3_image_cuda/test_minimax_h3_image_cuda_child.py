@@ -33,8 +33,8 @@ class FakePipe:
             "vae": self.vae,
         }
 
-    def __call__(self, prompt, height, width, generator, output, callback_on_step_end=None):
-        self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output})
+    def __call__(self, prompt, height, width, generator, output, callback_on_step_end=None, image=None):
+        self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output, "image": image})
         if callback_on_step_end is not None:
             callback_on_step_end(self, 0, None, {})
         return [FakeImage()]
@@ -889,3 +889,43 @@ def test_local_snapshot_keeps_an_id_whose_snapshot_is_gone(monkeypatch, tmp_path
     (root / "refs" / "main").write_text("abc123")
 
     assert child.local_snapshot("me/pack") == "me/pack"
+
+
+def png():
+    import base64
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 3), "red").save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def test_an_edit_run_sends_every_reference_as_an_image(monkeypatch, capsys):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    encoded = png()
+
+    reply = child.run(
+        pipe,
+        {
+            "mode": "edit",
+            "prompt": "Make it <Picture 1> at night.",
+            "height": 2048,
+            "width": 2048,
+            "steps": 6,
+            "seed": 3,
+            "references": [encoded, encoded],
+        },
+    )
+
+    assert reply["png_base64"] == "cG5nLWJ5dGVz"
+    call = pipe.calls[0]
+    assert [image.size for image in call["image"]] == [(4, 3), (4, 3)]
+    assert (call["height"], call["width"]) == (2048, 2048)
+
+
+def test_a_generate_run_sends_no_image(monkeypatch):
+    fake_torch(monkeypatch)
+
+    child.run(FakePipe(), {"prompt": "a fox", "height": 512, "width": 512, "steps": 6, "seed": 1})

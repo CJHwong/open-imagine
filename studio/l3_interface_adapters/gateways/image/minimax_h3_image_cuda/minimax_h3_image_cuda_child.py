@@ -367,6 +367,14 @@ def build(model: str, quantize: str):
     return pipe
 
 
+def reference_image(encoded: str):
+    """A reference the parent sent as a base64 PNG, as the pipeline wants it."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as found:
+        return found.convert("RGB")
+
+
 def run(pipe, job: dict) -> dict:
     import torch
 
@@ -386,6 +394,10 @@ def run(pipe, job: dict) -> dict:
         "generator": torch.Generator().manual_seed(int(job["seed"])),
         "output": "images",
     }
+    if job.get("mode") == "edit":
+        # The pipeline's own condition input: with `image` set, the resize, text-encoder
+        # and vae blocks switch to their image-conditioned paths.
+        arguments["image"] = [reference_image(encoded) for encoded in job["references"]]
     if supports(pipe, "callback_on_step_end"):
         arguments["callback_on_step_end"] = on_step
     output = pipe(**arguments)
