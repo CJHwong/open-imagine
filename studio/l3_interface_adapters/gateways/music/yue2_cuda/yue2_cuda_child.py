@@ -31,11 +31,15 @@ in the same environment, where weight-only nvfp4 without those kernels ran 19.5x
 
 import argparse
 import base64
+import hashlib
 import io
 import json
+import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 
 def say(message: str) -> None:
@@ -44,6 +48,81 @@ def say(message: str) -> None:
 
 def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
+
+
+def blob_sha1(data: bytes) -> str:
+    """The git object hash of a file's bytes, which the upstream pins quote."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def fetch_pinned(name: str) -> bytes:
+    with urllib.request.urlopen(f"{TRANSCRIBER_ROOT}/skills/yue2-music/scripts/{name}", timeout=120) as answer:
+        data = answer.read()
+    if blob_sha1(data) != TRANSCRIBER_FILES[name]:
+        raise ValueError(f"Upstream transcriber file {name} does not match its pin.")
+    return data
+
+
+def install_transcriber(extras_dir: Path) -> Path:
+    """The pinned transcriber scripts, written once and reused afterwards."""
+    directory = Path(extras_dir).expanduser() / TRANSCRIBER_DIRECTORY
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in TRANSCRIBER_FILES:
+        target = directory / name
+        if target.is_file() and blob_sha1(target.read_bytes()) == TRANSCRIBER_FILES[name]:
+            continue
+        target.write_bytes(fetch_pinned(name))
+    return directory
+
+
+def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
+    """The reference audio as native ABC, through the pinned SheetSage2 script."""
+    raw = base64.b64decode(job.get("reference_audio") or "")
+    if not raw:
+        raise ValueError("Upload reference audio before transcribing or covering a song.")
+    from huggingface_hub import snapshot_download
+
+    directory = install_transcriber(extras_dir)
+    snapshot_download(
+        SHEETSAGE,
+        revision=SHEETSAGE_REVISION,
+        allow_patterns=["config.json", "*.safetensors", "*.py", "LICENSE"],
+    )
+    with TemporaryDirectory(prefix="yue2-transcribe-") as scratch:
+        audio = Path(scratch) / "reference.audio"
+        audio.write_bytes(raw)
+        output = Path(scratch) / "transcription"
+        command = [
+            sys.executable,
+            str(directory / "transcribe.py"),
+            str(audio),
+            "--output",
+            str(output),
+            "--device",
+            "cuda",
+            "--offline",
+            "--revision",
+            SHEETSAGE_REVISION,
+            "--task",
+            job.get("transcription_task", "melody-full"),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
+        if completed.returncode != 0 or not (output / "score.abc").is_file():
+            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
+            raise ValueError(f"Transcription failed: {detail[-1] if detail else 'no output'}")
+        score = (output / "score.abc").read_text(encoding="utf-8")
+        manifest = json.loads((output / "transcription_manifest.json").read_text(encoding="utf-8"))
+    artifacts = [
+        {
+            "name": "score.abc",
+            "content_type": "text/plain",
+            "base64": base64.b64encode(score.encode("utf-8")).decode("ascii"),
+        }
+    ]
+    return score, {
+        "transcription": {"status": manifest.get("status"), "warnings": manifest.get("warnings", [])},
+        "artifacts": artifacts,
+    }
 
 
 def request_for(job: dict) -> dict:
@@ -62,6 +141,21 @@ def request_for(job: dict) -> dict:
         request["abc"] = score
     return request
 
+
+# The upstream transcriber is a PyTorch script, not part of `yue2-infer`: SheetSage2 through
+# its Transformers interface. It runs as its own process so the 27 GB of YuE weights stay
+# resident, and it exits with the model freed.
+TRANSCRIBER_REVISION = "1647252d68b70cbead046ffd3f7caf036dde47ee"
+TRANSCRIBER_ROOT = f"https://raw.githubusercontent.com/multimodal-art-projection/YuE/{TRANSCRIBER_REVISION}"
+TRANSCRIBER_DIRECTORY = "yue2-transcriber"
+# The same two helpers the MLX child installs, with the script that drives them.
+TRANSCRIBER_FILES = {
+    "transcribe.py": "0a637296dc72278d81c41204f2b7c23c0ff29272",
+    "abc_tools.py": "88b66e5bb73a4ba3633ae4c7a417118806e0e606",
+    "common.py": "4b6c2d502f131539b26069753b6e4482eb2db280",
+}
+SHEETSAGE = "m-a-p/SheetSage2"
+SHEETSAGE_REVISION = "eab522a8168e8b8b8c4856bf8609cd86198f01fe"
 
 QUANTIZERS = {"bf16", "fp8", "nvfp4"}
 """`bf16` is unquantized, `fp8` is the engine's own FP8 arithmetic for the lyric stages,
@@ -270,12 +364,21 @@ def load(model: str, name: str = "bf16", root: Path | None = None):
     return pipe
 
 
-def run(pipe, job: dict) -> dict:
+def run(pipe, job: dict, extras_dir: Path) -> dict:
     """The engine's sampling overrides reach both stages, as they do on the MLX backend.
 
     An empty map keeps each stage's own recipe. Without this the studio's sampling
     controls are accepted and silently ignored on this engine.
     """
+    mode = job.get("mode", "generate")
+    transcribed = {}
+    if mode in {"transcribe", "cover"}:
+        score, transcribed = transcribe(job, extras_dir)
+        if mode == "transcribe":
+            return {"wav": "", "score": score, "metadata": {**transcribed, "mode": "transcribe"}}
+        # A cover sings the transcribed score with the request's own style and lyrics.
+        task = job.get("transcription_task", "melody-full")
+        job = {**job, "abc": score, "cot": "full" if task == "full" else "melody"}
     sampling = job.get("sampling") or {}
     plan_sampling = {"abc_sampling": sampling} if sampling else {}
     if job.get("mode", "generate") == "plan":
@@ -291,7 +394,7 @@ def run(pipe, job: dict) -> dict:
         "wav": base64.b64encode(buffer.getvalue()).decode("ascii"),
         "score": getattr(song, "abc", "") or "",
         "truncated": dict(getattr(song, "truncated", {}) or {}),
-        "metadata": {"mode": "generate", "cot": job.get("cot", "full")},
+        "metadata": {"mode": mode, "cot": job.get("cot", "full"), **transcribed},
     }
 
 
@@ -300,6 +403,7 @@ def main() -> int:
     parser.add_argument("--model", default="m-a-p/YuE2-3B")
     parser.add_argument("--quantize", default="bf16", choices=sorted(QUANTIZERS))
     parser.add_argument("--pack-dir", default="")
+    parser.add_argument("--extras-dir", default="~/.cache/open-imagine/yue2")
     arguments = parser.parse_args()
     import torch
 
@@ -313,7 +417,7 @@ def main() -> int:
         if not line:
             continue
         try:
-            answer(run(pipe, json.loads(line)))
+            answer(run(pipe, json.loads(line), Path(arguments.extras_dir)))
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}"})
     return 0

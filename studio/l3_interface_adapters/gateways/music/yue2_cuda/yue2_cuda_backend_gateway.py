@@ -49,7 +49,7 @@ class Yue2CudaBackendGateway(MusicBackendGateway):
         reply = self._child.request(payload, on_step, should_stop)
         if any(reply.get("truncated", {}).values()):
             raise InvalidJob("YuE2 reached a generation limit. Shorten the lyrics or try another seed.")
-        if getattr(job, "mode", "generate") == "plan":
+        if getattr(job, "mode", "generate") in {"plan", "transcribe"}:
             if not reply.get("score", "").strip():
                 raise InvalidJob("YuE2 did not return a composition score.")
             return MusicResult(b"", 0, 48000, job.seed, reply["score"], reply.get("metadata", {}))

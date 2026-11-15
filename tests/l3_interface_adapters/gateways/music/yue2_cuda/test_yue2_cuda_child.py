@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import io
 import json
@@ -595,7 +596,7 @@ def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch):
     pipe = FakePipe()
     fake_modules(monkeypatch, pipe=pipe)
 
-    reply = child.run(pipe, job())
+    reply = child.run(pipe, job(), Path("/tmp/yue2-extras"))
 
     assert reply["wav"] == "d2F2LWJ5dGVz"
     assert reply["score"] == "X:1" and reply["truncated"] == {"semantic": False}
@@ -606,8 +607,12 @@ def test_sampling_overrides_reach_both_stages_and_an_empty_map_stays_out(monkeyp
     pipe = FakePipe()
     fake_modules(monkeypatch, pipe=pipe)
 
-    child.run(pipe, {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7, "sampling": {"max_tokens": 2048}})
-    child.run(pipe, {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7})
+    child.run(
+        pipe,
+        {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7, "sampling": {"max_tokens": 2048}},
+        Path("/tmp/yue2-extras"),
+    )
+    child.run(pipe, {"style": "piano", "lyrics": "[Verse]\nhi", "seed": 7}, Path("/tmp/yue2-extras"))
 
     with_sampling = pipe.requests[-2][1]
     assert with_sampling["abc_sampling"] == {"max_tokens": 2048}
@@ -619,7 +624,7 @@ def test_a_plan_job_returns_the_score_only(monkeypatch):
     pipe = FakePipe()
     fake_modules(monkeypatch, pipe=pipe)
 
-    reply = child.run(pipe, job(mode="plan"))
+    reply = child.run(pipe, job(mode="plan"), Path("/tmp/yue2-extras"))
 
     assert reply == {"score": "X:1", "metadata": {"mode": "plan"}}
     assert pipe.requests[0][0] == "plan"
@@ -678,3 +683,137 @@ def test_the_script_enters_through_its_main_guard(monkeypatch):
     with pytest.raises(SystemExit) as exited:
         runpy.run_path(child.__file__, run_name="__main__")
     assert exited.value.code == 0
+
+
+def test_the_pin_is_a_git_blob_hash():
+    assert child.blob_sha1(b"hi") == "32f95c0d1244a78b2be1bab8de17906fabb2c4a8"
+
+
+def test_a_pinned_file_is_fetched_and_checked(monkeypatch):
+    body = b"# script\n"
+
+    class Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *rest):
+            return False
+
+        def read(self):
+            return body
+
+    monkeypatch.setitem(child.TRANSCRIBER_FILES, "transcribe.py", child.blob_sha1(body))
+    monkeypatch.setattr(child.urllib.request, "urlopen", lambda url, timeout: Answer())
+
+    assert child.fetch_pinned("transcribe.py") == body
+
+
+def test_a_file_that_does_not_match_its_pin_is_refused(monkeypatch):
+    class Answer:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *rest):
+            return False
+
+        def read(self):
+            return b"# tampered\n"
+
+    monkeypatch.setattr(child.urllib.request, "urlopen", lambda url, timeout: Answer())
+
+    with pytest.raises(ValueError, match="does not match its pin"):
+        child.fetch_pinned("transcribe.py")
+
+
+def test_the_transcriber_is_written_once_and_reused(monkeypatch, tmp_path):
+    body = b"# script\n"
+    for name in child.TRANSCRIBER_FILES:
+        monkeypatch.setitem(child.TRANSCRIBER_FILES, name, child.blob_sha1(body))
+    fetched = []
+    monkeypatch.setattr(child, "fetch_pinned", lambda name: fetched.append(name) or body)
+
+    first = child.install_transcriber(tmp_path)
+    second = child.install_transcriber(tmp_path)
+
+    assert first == second and (first / "transcribe.py").read_bytes() == body
+    assert fetched == ["transcribe.py", "abc_tools.py", "common.py"]
+
+
+def test_transcription_refuses_a_job_without_audio(tmp_path):
+    with pytest.raises(ValueError, match="Upload reference audio"):
+        child.transcribe({"reference_audio": ""}, tmp_path)
+
+
+def test_transcription_runs_the_pinned_script_and_reads_the_score(monkeypatch, tmp_path):
+    hub = types.ModuleType("huggingface_hub")
+    downloads = []
+    monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: downloads.append(a), raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "transcribe.py").write_text("# script\n")
+    monkeypatch.setattr(child, "install_transcriber", lambda extras: scripts)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        output = Path(command[command.index("--output") + 1])
+        output.mkdir(parents=True)
+        (output / "score.abc").write_text("X:1\n")
+        (output / "transcription_manifest.json").write_text('{"status": "complete", "warnings": []}')
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(child.subprocess, "run", run)
+
+    score, extra = child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+
+    assert score == "X:1\n"
+    assert extra["artifacts"][0]["name"] == "score.abc"
+    assert calls[0][:2] == [sys.executable, str(scripts / "transcribe.py")]
+    assert "--device" in calls[0] and downloads
+
+
+def test_a_failed_transcription_reports_the_last_line(monkeypatch, tmp_path):
+    hub = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: [], raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    (scripts / "transcribe.py").write_text("# script\n")
+    monkeypatch.setattr(child, "install_transcriber", lambda extras: scripts)
+    monkeypatch.setattr(
+        child.subprocess, "run", lambda command, **kwargs: SimpleNamespace(returncode=2, stderr="boom\n", stdout="")
+    )
+
+    with pytest.raises(ValueError, match="Transcription failed: boom"):
+        child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+
+
+def test_a_transcribe_job_returns_the_score_only(monkeypatch, tmp_path):
+    monkeypatch.setattr(child, "transcribe", lambda job, extras: ("X:1\n", {"transcription": {}}))
+
+    reply = child.run(Mock(), {"mode": "transcribe", "reference_audio": "YQ=="}, tmp_path)
+
+    assert reply == {"wav": "", "score": "X:1\n", "metadata": {"transcription": {}, "mode": "transcribe"}}
+
+
+def test_a_cover_job_sings_the_transcribed_score(monkeypatch, tmp_path):
+    monkeypatch.setattr(child, "transcribe", lambda job, extras: ("X:1\n", {"transcription": {"status": "complete"}}))
+    pipe = Mock()
+    pipe.return_value = SimpleNamespace(audio=[[0.0, 0.0]], abc="X:1\n", truncated={})
+
+    child.run(
+        pipe,
+        {
+            "mode": "cover",
+            "style": "pop",
+            "lyrics": "la",
+            "seed": 7,
+            "reference_audio": "YQ==",
+            "transcription_task": "full",
+        },
+        tmp_path,
+    )
+
+    request = pipe.call_args.kwargs
+    assert request["abc"] == "X:1" and request["cot"] == "full"
