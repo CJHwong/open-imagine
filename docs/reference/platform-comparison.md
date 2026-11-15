@@ -282,12 +282,17 @@ they are not on this list.
 
 ## How to repeat it
 
-The case files and the driver live outside the repository, on the machine that runs them.
-The driver reads `REPO`, `CONFIG`, `PORT` and `OUT` from the environment, starts one
-studio, runs the cases in order, and writes one JSON line per run. A case that fails stops
-the run, so the next invocation starts from the first unmeasured case.
+The harness is in [`scripts/measure`](../../scripts/measure/README.md). It holds the case list,
+generates the references both engines must share, runs one studio per machine, and prints both
+columns with every case that is missing.
 
 ```sh
-env REPO=$HOME/Workspace/image-gen CONFIG=studio.spark.toml PORT=8899 \
-    OUT=/tmp/spark-matrix python3 drive2.py matrix-rest.json
+uv run python scripts/measure/build_assets.py --base http://127.0.0.1:8899 \
+    --image-backend qwen21_turbo_cuda --voice-backend drama3_cuda --work /tmp/parity
+uv run python scripts/measure/parity_matrix.py --work /tmp/parity
+uv run python scripts/measure/run_matrix.py --machine cuda --base http://127.0.0.1:8899 --work /tmp/parity
+uv run python scripts/measure/report.py --work /tmp/parity
 ```
+
+A case that fails is retried by the next run of the same command, because only a success is
+skipped. `report.py` names what is left, which is the check that a campaign otherwise lacks.
