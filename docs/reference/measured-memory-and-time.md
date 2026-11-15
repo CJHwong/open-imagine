@@ -186,11 +186,11 @@ Every backend runs in a PEP 723 child on Python 3.12, one operation at a time, w
 
 | Model | Backend | Source | Quantization | Checkpoint (GiB) |
 |---|---|---|---|---|
-| Qwen-Image-2.1 Turbo | `qwen21_turbo_cuda` | `Qwen/Qwen-Image-2.1-Turbo` | bf16, the shipped default; NVFP4 W4A4 is the other build | 32 |
-| MiniMax H3-Image | `minimax_h3_image_cuda` | `MiniMaxAI/MiniMax-H3-Image` | bf16 on disk, text encoder FP8, transformer fp8 weight-only | 127 |
-| LTX-2.5 | `ltx25_cuda` | `Lightricks/LTX-2.5-Diffusers` | bf16 | 107 |
-| Drama-3 | `drama3_cuda` | `fishaudio/drama-3` | FP8 | 39 |
-| YuE2 | `yue2_cuda` | `m-a-p/YuE2-3B` with `m-a-p/YuE2-Vae` | bf16 on disk; the lyrics stages run NVFP4 weights and activations from a pack built on first use, the acoustic decoder and vocoder stay bf16 | 7.3 |
+| Qwen-Image-2.1 Turbo | `qwen21_turbo_cuda` | `Qwen/Qwen-Image-2.1-Turbo` | bf16 on disk and in the run; an NVFP4 W4A4 build was measured on 2026-11-15 and dropped | 32 |
+| MiniMax H3-Image | `minimax_h3_image_cuda` | `MiniMaxAI/MiniMax-H3-Image` | bf16 on disk, text encoder NVFP4 weight-only; transformer fp8 weight-only in the default entry and NVFP4 W4A4 in the second | 127 |
+| LTX-2.5 | `ltx25_cuda` | `Lightricks/LTX-2.5-Diffusers` | bf16, the only build | 107 |
+| Drama-3 | `drama3_cuda` | `fishaudio/drama-3` | FP8 W8A8, the build the release ships | 39 |
+| YuE2 | `yue2_cuda` | `m-a-p/YuE2-3B` with `m-a-p/YuE2-Vae` | bf16 on disk and by default; the NVFP4 entry runs the lyrics stages with NVFP4 weights and activations from a pack built on first use, and the acoustic decoder and vocoder stay bf16 | 7.3 |
 
 `Checkpoint` counts the files the backend reads, measured with `du` on this machine.
 Two repositories ship more than that. H3-Image carries a second copy of its transformer, so the download is 190 GiB.
@@ -202,6 +202,7 @@ LTX-2.5 carries a second transformer, a distilled LoRA and the 9.6 GiB prompt en
 A warm row counts only the run, because the weights were resident before submit. A cold row includes the model load.
 **Process footprint (GiB)** is the peak sum of the resident memory of the child process tree.
 On unified memory a resident figure under-reports the GPU allocation, so read it beside the free-memory drop. `not sampled` means no sample exists.
+The campaign of 2026-11-15 sampled free memory only, because its harness reads `MemAvailable` once a second and does not walk the child process tree. Its rows say `not sampled` for the footprint, and the rows that carry one were measured by the harness before it.
 **Time (s)** is the operation's wall time. The queue wait is excluded.
 Each case has one row and `Runs` gives the recorded runs, and the row shows the last run, so a case with two runs shows the warm one.
 A cold run also pays a submit wait before the child starts, and that wait is inside its time.
@@ -219,7 +220,7 @@ picker offers, fp8 by default and NVFP4 second.
 | `qwen21_turbo_cuda/generate/text/768` | generate, 768x768, 8 steps, NVFP4 W4A4 | 2.90 | not sampled | 5.6 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/1024` | generate, 1024x1024, 8 steps, NVFP4 W4A4 | 0.07 | 2.3 | 11.0 | Succeeded | 2 |
 | `qwen21_turbo_cuda/generate/text/1328` | generate, 1328x1328, 8 steps, NVFP4 W4A4 | 5.19 | not sampled | 17.6 | Succeeded | 1 |
-| `qwen21_turbo_cuda/generate/text/512`, bf16, first run | generate, 512x512, 8 steps, bf16 | not sampled | not sampled | 25.1 | Succeeded | 1 |
+| `qwen21_turbo_cuda/generate/text/512`, bf16, first run | generate, 512x512, 8 steps, bf16 | -52.75 | not sampled | 25.1 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/512`, bf16 | generate, 512x512, 8 steps, bf16 | 0.00 | not sampled | 3.0 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/768`, bf16 | generate, 768x768, 8 steps, bf16 | 2.75 | not sampled | 7.0 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/1024`, bf16 | generate, 1024x1024, 8 steps, bf16 | 3.28 | not sampled | 12.0 | Succeeded | 1 |
