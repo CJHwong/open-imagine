@@ -21,8 +21,13 @@ visible_music_backends = ["yue2_cuda"]
 #
 # An edit runs this same checkpoint: the pipeline takes reference images through its text
 # encoder and vae, so there is no second model to download or load.
+#
+# Rewrite runs the two prompt cards by name. Remove both lines to hide the toggle. The child
+# keeps one card resident and frees it before the other one loads.
 [qwen21_turbo_cuda]
 quantize = "bf16"
+rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
+rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 
 # fp8 removes the grain NVFP4 leaves on this model; see the configuration reference.
 [minimax_h3_image_cuda]
