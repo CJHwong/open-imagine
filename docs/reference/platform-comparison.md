@@ -43,154 +43,115 @@ and 4.7 GiB of memory. The rows stay in
 record of the decision. The measurement that picks between the H3 builds is in the same page,
 under [the precision sweep on H3-Image](measured-memory-and-time.md#the-precision-sweep-on-h3-image).
 
+## The same run on both machines
+
+One manifest, run on both engines on 2026-11-15: the same prompts, the same seed, and the same
+reference bytes. The references are one picture made by Qwen bf16 on the Spark, its resizes,
+two Drama speeches with their scripts written down, and slices of one recording. The method and
+the case list are in [`scripts/measure`](../../scripts/measure/README.md).
+
+`load` marks a row whose time includes a model load, which the free-memory sample proves: the
+run moved ten gigabytes or more of free memory. Every other row is warm.
+
 ## Image
 
-Warm runs, one operation at a time. The Mac figures are the case rows in the reference
-page, and the Spark figures are the campaign of 2026-11-15.
-
-| Case | Mac (s) | Spark (s) | Spark build |
+| Case | M5 Pro (s) | DGX Spark (s) | Ratio |
 |---|---|---|---|
-| Qwen Turbo generate, 512x512 | 9.1 | 3.0 | bf16 |
-| Qwen Turbo generate, 768x768 | 17.2 | 7.0 | bf16 |
-| Qwen Turbo generate, 1024x1024 | 32.3 | 12.0 | bf16 |
-| Qwen Turbo generate, 1328x1328 | 69.6 | 19.1 | bf16 |
-| Qwen Turbo edit, 512 out, 1 ref | 15.1 | 4.1 | bf16 |
-| Qwen Turbo edit, 768 out, 1 ref | 28.2 | not measured | bf16 |
-| Qwen Turbo edit, 1024 out, 1 ref | 49.5 | not measured | bf16 |
-| Qwen Turbo edit, 1344 out, 1 ref | failed, engine out of memory | 28.2 | bf16 |
-| Qwen Turbo edit, 512 out, 2 refs | not measured | 4.2 | bf16 |
-| Qwen Turbo edit, 512 out, 4 refs | not measured | 6.4 | bf16 |
-| H3-Image generate, 1024x1024 | 23.2 | 57.4 | fp8 |
-| H3-Image generate, 1024x1024 | 23.2 | 34.3 | NVFP4 |
-| H3-Image generate, 2048x2048 | 51.4 | 57.3 | fp8 |
-| H3-Image edit, 1 ref at 4 MP | 153.2 | 70.5 | fp8 |
-| H3-Image edit, 1 ref at 4 MP | 153.2 | 63.7 | NVFP4 |
+| Qwen Turbo generate, 512x512 | 7.1 | 3.0 | 2.4x |
+| Qwen Turbo generate, 768x768 | 12.2 | 7.0 | 1.7x |
+| Qwen Turbo generate, 1024x1024 | 24.2 | 12.0 | 2.0x |
+| Qwen Turbo generate, 1328x1328 | 45.5 | 24.1 | 1.9x |
+| Qwen Turbo edit, 512 out, 1 ref | 13.2 | 5.6 | 2.4x |
+| Qwen Turbo edit, 768 out, 1 ref | 18.2 | 9.1 | 2.0x |
+| Qwen Turbo edit, 1024 out, 1 ref | 36.3 | 15.1 | 2.4x |
+| Qwen Turbo edit, 1344 out, 1 ref | 84.6 | 27.2 | 3.1x |
+| Qwen Turbo edit, 1024 out, 2 refs | 48.4 | 18.2 | 2.7x |
+| Qwen Turbo edit, 1024 out, 4 refs | 79.7 | 25.4 | 3.1x |
+| Qwen Turbo edit, 1024 out, 8 refs | 382.0 | 41.7 | 9.2x |
+| Qwen Turbo edit, 1024 out, 10 refs | 515.0 | 49.8 | 10.3x |
+| Qwen Turbo edit, 1024 out, input 512x512 | 37.3 | 15.2 | 2.5x |
+| Qwen Turbo edit, 1024 out, input 1600x900 | 40.4 | 15.4 | 2.6x |
+| Qwen Turbo edit, 1024 out, input 2048x2048 | 43.5 | 16.8 | 2.6x |
+| Qwen Turbo edit, 1024 out, input 4032x3024 | 53.0 | 19.2 | 2.8x |
+| H3-Image generate, 1024x1024 | 18.2 | 56.2 | 0.3x |
+| H3-Image generate, 2048x2048 | 57.4 | 56.6 | 1.0x |
+| H3-Image edit, 1 ref at 4 MP | 184.5 | 92.5 | 2.0x |
 
-The H3-Image pack earns its place: 40% off a generate and 10% off an edit. Its first run on
-a machine without the pack costs 527.8 s and a 104.21 GiB free-memory drop, because the child
-writes the pack and then loads it; after that a run is 34.3 s. The fp8 default stays, because
-the pack leaves grain that fp8 does not.
+Qwen is 1.7 to 3.1 times faster on the Spark across every single-reference case, and the
+reference count is where the two engines separate. Each extra reference costs the Mac about
+100 s once past four: 8 references take 382.0 s and 10 take 515.0 s, while the Spark takes 41.7
+and 49.8. The MLX backend encodes every reference in a stage of its own; the CUDA child does it
+in the process that already holds the model.
 
-The edit runs the same checkpoint on both machines, so there is no second model to download
-or load on either.
-
-Three figures need a reason.
-
-1. The Mac ran an edit at 1344 out of memory, and the Spark completed the same shape in
-   28.2 s. This page does not say why the Mac run failed; the row is what the campaign
-   recorded, and the Spark row was measured the next day.
-2. H3-Image is faster on the Mac below 2048 and faster on the Spark at 2048 and on an edit.
-   The CUDA engine raises every request below 4,194,304 pixels to that canvas, so a
-   1024x1024 request costs a 2048x2048 run. The Mac engine works at the size it is asked
-   for. That is why 1024 is 2.5 times slower on the Spark and 2048 is a tie. Per megapixel
-   the Spark is ahead: 8.2 s on NVFP4 and 13.7 on fp8, against the Mac's 12.3. On a native
-   1024 canvas the same engine took 20.6 s in the sweep, against the Mac's 23.2.
-3. The Spark runs an edit of the same 4 MP canvas in 70.5 s against the Mac's 153.2 s, 2.2
-   times faster. The edit is the case where the CUDA engine leads most.
+H3-Image is the one model where the Mac wins at a small size, and the reason is the canvas: the
+CUDA engine raises every request below 4,194,304 pixels to that canvas, so a 1024 request does a
+2048 request's work. At 2048 the two are level, 57.4 against 56.6. The edit is 2 times faster on
+the Spark.
 
 ## Video
 
-LTX-2.5 at 97 frames and 24 fps, the distilled eight-step schedule, warm.
-
-| Case | Mac (s) | Spark (s) | Spark build |
+| Case | M5 Pro (s) | DGX Spark (s) | Ratio |
 |---|---|---|---|
-| 768x768x97 | 117.9 | 76.3 | bf16 |
-| 1280x704x97 | 269.2 | 121.5 | bf16 |
-| 768x448x97 | not measured | 48.3 | bf16 |
-| 768x512x97, one keyframe at frame 0 | not measured | 55.3 | bf16 |
-| 768x768x97, Fast mode | 149.1 at 121 frames, against 200.6 | 77.3, against 76.3 | bf16 |
+| LTX 768x768x97 | 156.1 | 77.4 | 2.0x |
+| LTX 1280x704x97 | 252.8 | 119.5 | 2.1x |
+| LTX 1920x1088x97 | 758.2 | 369.9 load | 2.0x |
+| LTX 384x384x25 | 34.3 | 17.2 | 2.0x |
+| LTX 768x768x25 | 58.4 | 29.1 | 2.0x |
+| LTX 768x768x49 | 88.6 | 48.2 | 1.8x |
+| LTX 768x768x121 | 197.3 | 118.2 | 1.7x |
+| LTX 768x768x121, Fast mode | 145.2 | 119.1 | 1.2x |
+| LTX 768x768x97, 1 keyframe | 158.1 | 149.2 load | 1.1x |
+| LTX 768x768x97, 2 keyframes | 167.3 | 72.7 | 2.3x |
+| LTX 768x768x97, 4 keyframes | 193.6 | 72.6 | 2.7x |
+| LTX 768x768x97, 8 keyframes | 243.9 | 73.1 | 3.3x |
+| LTX 768x768x97, no prompt pass | 163.2 | 83.4 | 2.0x |
 
-Fast mode is a no-op on the Spark. The Mac saves 26% of a 121-frame clip, and the Spark
-saves nothing, because `clip_payload` does not send the flag to the child. The backend
-declares `fast_mode` true and the form offers the control. That is a fault, named under
-"What is not built" below.
+The Spark holds 1.7 to 2.1 times across every shape and length. Two rows break the pattern.
 
-The Mac has cases this table cannot hold, such as a keyframe count sweep and an audio track.
-The Spark has no matching row for any of them, because those inputs are not wired there.
+Keyframes are nearly free on the Spark and almost linear on the Mac. A keyframe costs the
+Spark nothing after the first, 72.7, 72.6 and 73.1 s for two, four and eight, where the Mac goes
+167.3, 193.6 and 243.9, about 25 s each.
+
+Fast mode saves the Mac a quarter of a 121-frame clip and the Spark nothing, 119.1 s against
+118.2 s without it, because `clip_payload` does not send the flag
+to the child. That is a fault, named under "What is not built".
 
 ## Voice
 
-| Case | Mac (s) | Spark (s) | Spark build |
+| Case | M5 Pro (s) | DGX Spark (s) | Ratio |
 |---|---|---|---|
-| Drama generate, 28 characters | 25.2 | 5.0 | FP8 |
-| Drama generate, 66 characters | 30.2 at 10 words | 9.0 | FP8 |
-| Drama generate, 451 characters | 29.2 | 48.1 | FP8 |
-| Drama clone, 7 s reference | 4.1 at 5 s, 5.1 at 15 s | 9.1 | FP8 |
-| Drama generate, Mandarin paragraph | failed, the audio reached max_tokens | 27.1 | FP8 |
+| Drama generate, 28 characters | 2.0 | 5.1 | 0.4x |
+| Drama generate, 451 characters | 23.2 | 46.1 | 0.5x |
+| Drama generate, 10 words, seed 11 | 3.0 | 7.1 | 0.4x |
+| Drama generate, 200 words | 51.3 | 172.5 | 0.3x |
+| Drama generate, 800 words | failed at the token cap | 477.4 | |
+| Drama clone, 5.9 s reference | 5.1 | 8.2 | 0.6x |
+| Drama clone, 11.7 s reference | 5.1 | 7.1 | 0.7x |
 
-The Mac's times sit between 25 and 30 s whatever the script length, and the Spark's follow
-the script: 5.0 s for one line and 48.1 s for a paragraph of 451 characters. The Mac's
-child pays a fixed cost per run that the Spark's resident child does not.
+Drama is the Mac's model: two to three times faster on every case it finishes. The decode is a
+chain of one forward pass per codec frame at about 19 frames per second, so a GPU has nothing to
+overlap, and the engine refuses `compile=True`, which leaves no graph capture to cut the
+per-token launch. The Spark finishes the 800-word script the Mac's token cap refuses, in 477.4 s.
 
-The Mandarin paragraph is the larger difference. The MLX engine stops at its token cap and
-produces no audio. The CUDA engine finishes the same paragraph in 27.1 s.
-
-Per second of audio, which is the comparison the script lengths hide, the Spark takes 1.39 to
-1.46 s and the Mac about 0.98 s on its one warm row (4.3 s of wall time for 4.4 s of audio,
-Mandarin simplified). The engine writes one codec frame per forward pass at about 19 frames
-per second, so the run is a serial chain, and the GPU has nothing to overlap. It refuses
-`compile=True`, so there is no graph capture to cut the per-token launch, and bf16 against
-fp16 decodes at 18.91 against 18.81 frames per second, so the datatype is not a lever either.
-That 40% is the engine's shape, not a setting.
+The clone is much closer than the older rows suggested, 5.1 against 7.1 s, once both are warm.
+The earlier 9.1 s row carried a load.
 
 ## Music
 
-A music case carries each side's first load on the Mac, because that backend loads per
-run, and none on the Spark, because its child stays resident. The campaign chose the four
-lyric lengths on the Spark. The Mac's short, long and Mandarin cases used the text in its
-own case file, so a row compares a case, not a string.
-
-Every Spark row below ran the NVFP4 build. The picker offers the bf16 build as a second
-entry, `yue2_cuda`, and its times are in the table after this one.
-
-| Case | Mac (s) | Spark (s) | Spark build |
+| Case | M5 Pro (s) | DGX Spark (s) | Ratio |
 |---|---|---|---|
-| YuE2 generate, short lyric | 160.2 | 67.2 | NVFP4 |
-| YuE2 generate, Mandarin lyric | 57.4 | 31.1 | NVFP4 |
-| YuE2 generate, 272 lyric characters | not measured | 89.2 | NVFP4 |
-| YuE2 generate, 413 lyric characters | not measured | 98.2 | NVFP4 |
-| YuE2 generate, long lyric | 237.9 | 164.5 | NVFP4 |
-| YuE2 generate, instrumental | 283.2 | 126.8 | NVFP4 |
-| YuE2 plan | 10.1 | 9.0 | NVFP4 |
-| YuE2 transcribe, 20 s reference | 5.1 at 15 s | 25.7 | NVFP4 |
-| YuE2 cover, 20 s reference | 18.2 at 10 s speech | 45.5 | NVFP4 |
+| YuE2 generate, short lyric | 145.0 | 115.3 | 1.3x |
+| YuE2 generate, long lyric | 171.2 | 187.6 | 0.9x |
+| YuE2 generate, instrumental | 169.2 | 193.6 | 0.9x |
+| YuE2 plan | 15.1 | 16.0 | 0.9x |
+| YuE2 transcribe, 10 s reference | 7.1 | 42.2 | 0.2x |
+| YuE2 transcribe, 15 s reference | 5.1 | 24.1 | 0.2x |
+| YuE2 cover, 10 s reference | 77.6 | 277.7 | 0.3x |
 
-The two machines disagree about which stage costs the time. YuE2 on the Mac pays per song
-and lands between 160 and 283 s whatever the lyric length. On the Spark a 31-character
-lyric finishes in 67.2 s and a 483-character one in 164.5 s, so the gap over the Mac
-narrows as the song grows. Transcribe and cover go the other way: 25.7 s against 5.1 s,
-and 45.5 s against 18.2 s.
-
-A time on this engine does not follow the lyric length closely. The 33-character line sang
-209 s of audio in 67.2 s and the 60-character Mandarin line sang 69 s in 31.1 s, so the
-figure the studio shows is a rough guide rather than a schedule.
-
-The bf16 entry, which is the default, ran the same sweep. Warm runs on both builds, so this
-table compares the build and not a first load:
-
-| Case | bf16 (s) | NVFP4 (s) |
-|---|---|---|
-| generate, 33-character lyric | 117.2 | 67.2 |
-| generate, 272 characters | 137.3 | 89.2 |
-| generate, 413 characters | 318.8 | 98.2 |
-| generate, long lyric | 202.6 at 535 characters | 164.5 at 483 characters |
-| generate, instrumental | 250.8 | 126.8 |
-| plan | 17.0 | 9.0 |
-| cover, 20 s reference | 126.3 | 45.5 |
-| transcribe, 20 s reference | 21.1 | 25.7 |
-
-bf16 costs about 1.7 times the pack on a short song and 3.2 times at 413 characters, and it
-is 2 to 2.8 times the pack on plan and cover. Per second of audio it takes 0.67 to 0.86 s
-against the pack's 0.32 to 0.48.
-
-The bf16 column scatters more than the pack's. The 413-character run sang 444 s of audio in
-318.8 s, and the 535-character run sang 272 s in 202.6 s, so the engine writes songs of
-different lengths from similar scripts. A line through the four bf16 runs reads 108.8 s plus
-0.272 s per character, and its worst error is 98 s.
-
-Transcribe runs the pinned SheetSage2 script on its own model, and the two builds measured
-21.1 s and 25.7 s on the same reference. The script is the same; the difference is inside the
-noise of a 20 s run.
+Music is close on the song itself: the Spark wins the short lyric and the Mac wins the long one
+and the instrumental by about 10%. Transcribe and cover are the Mac's by a wide margin, because
+the CUDA child runs the pinned SheetSage2 script as its own process with its own model, and that
+model is what costs the time.
 
 ## The estimate each backend declares
 
@@ -269,16 +230,19 @@ they are not on this list.
 
 ## What is not measured
 
+The manifest covers every case both engines can express. What it leaves out, and why:
+
 | Case | Why it is missing |
 |---|---|
-| Qwen Turbo edit at 768 and 1024 out | The campaign used a 512 reference, so Match stayed at 512 |
-| Qwen Turbo edit with 2 to 10 references at 1024 out | The Spark edit path was measured at 512 out only |
-| Qwen Turbo at NVFP4 across every size | One pair of runs at 1024 |
-| H3-Image at NVFP4 and int8 through the studio | The precision sweep ran a script, not the studio |
-| LTX at 25, 49 and 121 frames | The campaign ran 97 frames |
-| LTX audio, Edit and Fast mode | Not built, so nothing to measure |
-| Drama at 200 words and above | The Mac stops at the engine's token cap on those, so there is no time to compare |
+| Qwen Turbo edit with a mask, and Qwen edit of each reference separately | Both are MLX-only features; the CUDA backend has neither, so there is no second column |
+| LTX audio track | Not wired on the CUDA backend |
+| Qwen Turbo and H3-Image at other builds | The NVFP4 entries are measured in [Measured memory and time](measured-memory-and-time.md#the-nvfp4-builds-2026-11-15); the manifest runs the shipped default |
+| Drama at 800 words on the Mac | The engine's token cap refuses it, so there is no time to compare. The Spark finishes in 477.4 s |
 | flux2, krea2, viggle_turbo, Qwen-Image-2.1, MiniMax H3, LTX-2.3, Auk | No CUDA backend, and some Mac weights are not installed |
+
+Two rows in the tables above carry a load, marked `load`. Their warm figures exist for the
+same case elsewhere on this page only where the older campaigns measured it; the harness can
+repeat any row twice to separate the load from the run.
 
 ## How to repeat it
 
