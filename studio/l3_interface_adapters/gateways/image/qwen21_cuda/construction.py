@@ -56,6 +56,7 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="Qwen-Image-2.1-Turbo",
-    # The free-memory drop of a cold 1024 run on the DGX Spark, 2026-11-15.
-    resident_gib=36.0,
+    # The free-memory drop of a cold 1024 run at bf16, the shipped default, DGX Spark,
+    # 2026-11-15. The nvfp4 build needs 36.0.
+    resident_gib=41.0,
 )

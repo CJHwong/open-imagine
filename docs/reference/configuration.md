@@ -38,7 +38,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
 | `[connect].identity_path` | `~/.config/open-imagine/dumbpipe-identity`. The stable dumbpipe identity, created with mode 0600. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
-| `[qwen21_cuda].model`, `quantize` | The NVIDIA backends, `qwen21_cuda` and `qwen21_turbo_cuda`. `model` is a Hub repo id or a local folder; `quantize` is `nvfp4`, which quantizes the transformer as it loads, or `bf16`. They need an NVIDIA driver and `uv`, and they run in a child process with its own pinned packages. |
+| `[qwen21_cuda].model`, `quantize` | The NVIDIA backends, `qwen21_cuda` and `qwen21_turbo_cuda`. `model` is a Hub repo id or a local folder; `quantize` is `bf16`, which the NVIDIA config file sets, or `nvfp4`, which quantizes the transformer as it loads. They need an NVIDIA driver and `uv`, and they run in a child process with its own pinned packages. `nvfp4` saves 9% of the time and 4.7 GiB, and leaves a faint grain that `bf16` does not; the two builds measure 11.0 s and 12.0 s warm at 1024 and 8 steps. |
 | `[minimax_h3_image_cuda].model`, `quantize`, `pack_dir` | MiniMax H3-Image on the NVIDIA backend. `quantize` is `fp8` (default), `nvfp4`, or `bf16`. The text encoder always loads in FP8, because the full checkpoint is 135 GB. `nvfp4` leaves visible grain on this model: at one prompt and seed it measured 3.94 speckle against 2.04 for `fp8`, and peaked at 105.3 GiB instead of 72.1 GiB. `pack_dir` holds the quantized weights, built on the first run of each quantizer: 51 GB on disk for `fp8`, an 11 minute build, and 33.4 s for every load after. A pack built by another torch, torchao or diffusers is rebuilt rather than trusted. |
 | `[yue2_cuda].model`, `quantize`, `pack_dir` | YuE2 on the NVIDIA backend. `quantize` is `nvfp4` (default), `fp8` or `bf16`. `nvfp4` puts the weights and the activations in fp4, which needs the `mslk` Triton kernels, so the child environment moves torch to 2.15 over the engine's own 2.10 pin. `fp8` is the engine's own FP8 arithmetic for the lyric stages, and `bf16` is unquantized. `pack_dir` holds the packed fp4 weights: the first `nvfp4` run builds them there, and a later start loads them instead of quantizing again. A pack built by another torch, torchao or mslk is rebuilt rather than trusted. |
 | `[drama3_cuda].checkpoint` | Drama-3 on the NVIDIA backend. The checkpoint is the official FP8 release; the engine has no quantized loader, so this backend takes no `quantize`. |
@@ -156,9 +156,10 @@ See [Music setup](../how-to/music.md) for the default download recipe and input 
 frees the loaded model. `boundary` keeps loaded models and frees the oldest first, and only
 when the next one would take the total past `boundary_percent` of physical memory. It needs
 a declared `resident_gib` per backend, and a model without one is never kept. The NVIDIA
-backends declare theirs, measured on the DGX Spark on 2026-11-15: Qwen Turbo 36,
-MiniMax H3-Image 55, LTX-2.5 80, Drama-3 40, YuE2 10. H3's figure is for its fp8 default;
-its nvfp4 path peaks near 105 GiB and should not share the pool.
+backends declare theirs, measured on the DGX Spark on 2026-11-15: Qwen Turbo 41,
+MiniMax H3-Image 55, LTX-2.5 80, Drama-3 40, YuE2 10. Qwen Turbo is measured at its shipped
+bf16 build and needs 36 at nvfp4. H3's figure is for its fp8 default; its nvfp4 path peaks
+near 105 GiB and should not share the pool.
 
 The Settings menu's Generation section applies to every workspace and API caller.
 “Check memory before generation” is off by default. When off, Studio skips all
