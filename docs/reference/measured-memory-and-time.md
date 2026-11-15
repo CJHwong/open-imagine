@@ -223,6 +223,35 @@ The Turbo checkpoint ships its own eight-step schedule, so a 20-step request sam
 The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
 The H3 cold rows predate the load work of 2026-11-14 and 2026-11-15. The fp8 load alone measured 722.0 s, then 203.1 s once each weight travelled through host memory, then 33.4 s from the pack. A cold studio run is now 100.3 s, and the warm run above is unchanged at 55.2 s.
 
+#### The NVFP4 builds, 2026-11-15
+
+Both CUDA image models were packed to NVFP4 and measured through the studio API, one
+operation at a time. H3-Image ships its entry. Qwen's entry was dropped the same day, so
+its rows are the record of that decision and not a build a form offers.
+
+| Case | Settings | Free-memory drop (GiB) | Time (s) | Result |
+|---|---|---|---|---|
+| `qwen21_turbo_cuda_nvfp4/generate/512`, first run | NVFP4, 512x512, 8 steps | 25.35 | 20.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/512` | NVFP4, 512x512, 8 steps | 0.00 | 3.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/768` | NVFP4, 768x768, 8 steps | 2.91 | 6.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/1024` | NVFP4, 1024x1024, 8 steps | 3.37 | 11.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/1328` | NVFP4, 1328x1328, 8 steps | 5.62 | 18.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/edit/one-ref/match` | NVFP4, 512 out, 1 reference | 0.17 | 3.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/edit/big-ref/match` | NVFP4, 1344 out, 1 reference at 2048 | 5.89 | 25.2 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/generate/1024`, first attempt | NVFP4, 1024x1024, 6 steps | -1.98 | 200.4 | Failed: the child died while the pack was written |
+| `minimax_h3_image_cuda_nvfp4/generate/1024`, first run | NVFP4, 1024x1024, 6 steps | 104.21 | 527.8 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/generate/1024` | NVFP4, 1024x1024, 6 steps | -1.63 | 34.3 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/edit/one-ref/match` | NVFP4, 1 reference at 4 MP | -2.15 | 63.7 | Succeeded |
+
+The Qwen pack quantizes the weights at load, so it adds nothing to the disk and its first
+run is 20.1 s against the bf16 build's 25.1 s. Against the bf16 rows it is 5 to 14% faster
+and holds 36.0 GiB against 40.7. That did not pay for the grain.
+
+The H3-Image pack is written to disk first: 38 GB at `~/.cache/open-imagine/h3-pack-nvfp4`.
+The first run is that build and load, not a sample, and it took two attempts: the first child
+died while the pack was written and the parent reported "the engine stopped answering" after
+200.4 s. A warm run is 34.3 s against fp8's 57.4.
+
 #### The precision sweep on H3-Image
 
 Three builds ran one prompt and seed through a script that loads the child module and calls its
@@ -408,6 +437,30 @@ The MLX pack finishes the 760 characters in 237.9 s, so the budget is this engin
 No run truncated, and the nvfp4 build sings faster than realtime at 0.79 s of compute per second of audio.
 Chinese is slower per second of audio here: 40.0 s of audio in 176.4 s, against 114.5 s in 174.4 s for English.
 
+#### The bf16 sweep on this machine
+
+The shipped music build is bf16, because the song is the product. The same style and seed at
+four lyric lengths, one operation at a time through the studio API on 2026-11-15:
+
+| Case | Settings | Free-memory drop (GiB) | Time (s) | Result |
+|---|---|---|---|---|
+| `yue2_cuda/generate/short`, first run | bf16, 33 characters, 135.1 s of audio | 12.64 | 177.4 | Succeeded |
+| `yue2_cuda/generate/short`, warm | bf16, 33 characters, 135.1 s of audio | 0.50 | 117.2 | Succeeded |
+| `yue2_cuda/generate/mid272` | bf16, 272 characters, 159.0 s of audio | 0.36 | 137.3 | Succeeded |
+| `yue2_cuda/generate/mid413` | bf16, 413 characters, 444.2 s of audio | -1.09 | 318.8 | Succeeded |
+| `yue2_cuda/generate/long535` | bf16, 535 characters, 272.0 s of audio | 0.15 | 202.6 | Succeeded |
+| `yue2_cuda/generate/instrumental` | bf16, style and no lyric, 375.0 s of audio | -0.83 | 250.8 | Succeeded |
+| `yue2_cuda/plan/short` | bf16, style and one lyric line | 0.46 | 17.0 | Succeeded |
+| `yue2_cuda/cover/ref20s` | bf16, cover from a 20 s reference, 93.9 s of audio | -0.05 | 126.3 | Succeeded |
+| `yue2_cuda/transcribe/ref20s`, first run | bf16, transcribe a 20 s reference, `melody-full` | 1.02 | 39.1 | Succeeded |
+| `yue2_cuda/transcribe/ref20s`, warm | bf16, transcribe a 20 s reference, `melody-full` | 0.52 | 21.1 | Succeeded |
+
+A negative drop means free memory rose during the run, which happens when the run evicts
+more page cache than it allocates.
+The wall time follows the length of the song the engine writes, not the lyric it is given:
+413 characters produced 444 s of audio and 535 characters produced 272 s, so those two rows
+are 319 s and 203 s. The engine decides.
+
 #### The q8 path on this machine
 
 `Int8WeightOnlyConfig` on the Mandarin payload produced 32.7 s of audio in 84.6 s, then 91.7 s.
@@ -485,3 +538,8 @@ Two machines differ by more than speed: the Spark wins by 3 to 4x on image gener
 The second cross-machine pass of 2026-11-15 measured part of this list again, and it moved one row. H3-Image at nvfp4 was 32.1 s warm against the Mac's 17.1 s, a gap of 1.9x rather than the 1.4x above. That pass also ran Qwen Turbo at bf16 on both machines: 12.0 s against 25.9 s.
 
 On H3-Image the ratio depends on the canvas. The Mac generated at 1024x1024, and the Spark's engine generated at 2048x2048 because of the 4.2 MP floor. Per megapixel the Spark takes 7.6 s and the Mac 17.1 s, so the Spark is faster for the work it actually does.
+
+[Platform comparison](platform-comparison.md) holds the pass of 2026-11-15 in full: every
+mode of the shipped builds, the two edits, the music and drama rows, and the constants each
+backend declares for its time estimate. Its rows replace the ones above where the build
+differs, because this table mixes the NVFP4 rows of an earlier pass with later ones.
