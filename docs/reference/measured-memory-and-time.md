@@ -290,6 +290,20 @@ engine and this backend inherits the model's behaviour. Its Match follows the fi
 aspect at that size, on the 32-pixel grid. Qwen's Match follows the last reference at its own
 area, also on the 32-pixel grid and under the 1344 cap the MLX edit path uses.
 
+#### The Qwen prompt rewriters run on this machine too
+
+The same two 9B cards the Mac loads, through transformers instead of mlx-vlm, with the
+instructions, the language nudge and the sampling taken from `qwen_runtime/rewriter_text` so
+both machines ask the same question. Measured on 2026-11-15 through the rewrite operation:
+
+| Case | Time (s) | Output |
+|---|---|---|
+| Rewrite for generate, first press | 102.2 | a full caption from "a pear on a table" |
+| Rewrite for edit, with a picture | 120.3 | a night relighting instruction for the teapot frame |
+
+Both times include the card's own load. The edit press left its card resident and moved free
+memory by 19.61 GiB; the child keeps one card at a time and frees it before the other loads.
+
 ### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |

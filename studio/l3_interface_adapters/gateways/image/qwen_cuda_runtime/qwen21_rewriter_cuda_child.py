@@ -4,6 +4,7 @@
 # dependencies = [
 #   "transformers>=5.23.0",
 #   "accelerate>=1.0",
+#   "torchvision",
 #   "pillow",
 #   "huggingface-hub>=1.0",
 #   "safetensors",
