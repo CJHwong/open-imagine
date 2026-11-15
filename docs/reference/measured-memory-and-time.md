@@ -304,6 +304,17 @@ both machines ask the same question. Measured on 2026-11-15 through the rewrite 
 Both times include the card's own load. The edit press left its card resident and moved free
 memory by 19.61 GiB; the child keeps one card at a time and frees it before the other loads.
 
+H3-Image's own 27B enhancer runs there too, from the release as published, which is 17 GB on
+disk because the weights ship pre-quantized. Measured the same way:
+
+| Case | Time (s) | Output |
+|---|---|---|
+| Enhance for generate, first press | 84.1 | a full caption from "a pear on a table" |
+| Enhance for edit, with a picture | 166.2 | a night relighting instruction for the teapot frame |
+
+One model serves both modes, so nothing is swapped between presses. It moved free memory by
+21 GiB and stays resident between presses.
+
 ### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
