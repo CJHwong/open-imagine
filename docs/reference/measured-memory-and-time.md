@@ -186,7 +186,7 @@ Every backend runs in a PEP 723 child on Python 3.12, one operation at a time, w
 
 | Model | Backend | Source | Quantization | Checkpoint (GiB) |
 |---|---|---|---|---|
-| Qwen-Image-2.1 Turbo | `qwen21_turbo_cuda` | `Qwen/Qwen-Image-2.1-Turbo` | bf16 on disk, NVFP4 W4A4 at load | 32 |
+| Qwen-Image-2.1 Turbo | `qwen21_turbo_cuda` | `Qwen/Qwen-Image-2.1-Turbo` | bf16, the shipped default; NVFP4 W4A4 is the other build | 32 |
 | MiniMax H3-Image | `minimax_h3_image_cuda` | `MiniMaxAI/MiniMax-H3-Image` | bf16 on disk, text encoder FP8, transformer fp8 weight-only | 127 |
 | LTX-2.5 | `ltx25_cuda` | `Lightricks/LTX-2.5-Diffusers` | bf16 | 107 |
 | Drama-3 | `drama3_cuda` | `fishaudio/drama-3` | FP8 | 39 |
@@ -223,6 +223,47 @@ The Turbo checkpoint ships its own eight-step schedule, so a 20-step request sam
 The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
 The H3 cold rows predate the load work of 2026-11-14 and 2026-11-15. The fp8 load alone measured 722.0 s, then 203.1 s once each weight travelled through host memory, then 33.4 s from the pack. A cold studio run is now 100.3 s, and the warm run above is unchanged at 55.2 s.
 
+#### The precision sweep on H3-Image
+
+Three builds ran one prompt and seed through a script that loads the child module and calls its
+run, in the pattern the child uses. These times compare with each other, not with a studio row.
+
+| Build | Warm (s) | Grain, portrait |
+|---|---|---|
+| nvfp4 W4A4 | 32.1 | 1.58 |
+| fp8 weight only | 55.5 | 0.69 |
+| int8 W8A8 | 67.3 | 0.63 |
+
+int8 gives the cleanest picture and the slowest run. The store is not the cost: per-token
+activation quantization costs more than the int8 matmul saves. On this stack only the fused fp4
+kernel is fast, and that is why the nvfp4 build leads.
+Grain is the standard deviation of the flattest 32x32 block on a 0 to 255 luminance scale,
+measured on the portrait at the default canvas. It ranks the three builds at one prompt; the
+speckle figures above come from a different case.
+
+#### The canvas is larger than the request
+
+`get_image_canvas_size` at `before_denoise.py:94` scales the generation up when the request is
+below `min_generation_area`, whose default is 4194304 at `before_denoise.py:187`. A 1024x1024
+request becomes a 2048x2048 canvas, and every request from 576x1024 to 1536x864 lands on the same
+4.2 MP canvas. That is why the time was flat across sizes.
+
+| Request | Canvas | Warm (s) |
+|---|---|---|
+| 1024x1024 | 2048x2048, the default | 32.4 |
+| 1024x1024 | 1024x1024 | 20.6 |
+
+The 1.57x is not free on this backend. At a native 1024 canvas the portrait and the landscape
+show a smeared band in the sky, and the product shot is clean. The MLX engine is clean at 1024 on
+the same two prompts. So the floor hides a low-canvas defect instead of raising quality. Per
+megapixel this machine is ahead: 7.6 s at 4.2 MP, and 20.6 s at 1.0 MP against the Mac's 17.1 s.
+
+#### `num_inference_steps` does nothing
+
+`before_denoise.py:679` builds the timesteps from `components.config.sample_sigmas`, so a run
+asked for one step still takes the checkpoint's six. That is why one step and six steps measured
+the same. The 32.1 s is six denoise steps at about 5 s each, plus 2.5 s of VAE decode.
+
 ### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
@@ -255,6 +296,18 @@ Warm Drama-3 runs at 0.66x realtime on the 7-word English case and 0.72x on the 
 The three clone rows are one target sentence with three references; each first run paid the load.
 Unconditioned Chinese completes but mispronounces: transcribing the output, 帶傘 came back as 呆散 and 可能 as 河冷. The clone rows read the same sentence correctly. The MLX backend mispronounces the same way, so this is the model, not the engine.
 A synthetic reference clones a synthetic voice. The human reference rows are the ones to judge accent by.
+
+#### No compile path, and fp16 does not lift the decode
+
+`ModelManager(compile=True)` stops with `ValueError: --compile is not supported for Drama 3
+checkpoints`, raised at `fish_speech/models/text2semantic/inference.py:447`. The child already
+passes `compile=False` for that reason.
+
+`--half` does not lift the rate either. Through one probe, the bf16 run decoded 234 frames in
+12.37 s, 18.91 frames per second, and the fp16 run decoded 158 frames in 8.40 s, 18.81 frames per
+second. The fp16 run took 9.0 s instead of 14.7 s only because it stopped at the end of speech
+after 7.34 s of audio instead of 10.87 s. The decode rate is the same, so the datatype is not a
+lever. Time follows the audio length at about 19 frames per second.
 
 ### Music
 
@@ -298,6 +351,15 @@ The four `lyrics-N-lines` rows are the sweep behind the gateway's lyric limit: 6
 The MLX pack finishes the 760 characters in 237.9 s, so the budget is this engine's limit, not the model's.
 No run truncated, and the nvfp4 build sings faster than realtime at 0.79 s of compute per second of audio.
 Chinese is slower per second of audio here: 40.0 s of audio in 176.4 s, against 114.5 s in 174.4 s for English.
+
+#### The q8 path on this machine
+
+`Int8WeightOnlyConfig` on the Mandarin payload produced 32.7 s of audio in 84.6 s, then 91.7 s.
+Each run reloaded the audio decoder, 30.0 s and 39.6 s, so the lyric stages took 54.6 s and
+52.1 s. The warm nvfp4 run of that payload takes 33.1 s and pays no decoder load, so q8 is at
+least 1.6x slower on the lyric stages. The int8 store quarters the weight bytes, but every matmul
+still runs in bf16 and pays a dequantization step, where the fp4 kernel takes both operands
+natively.
 
 ### Kernels
 
@@ -349,3 +411,7 @@ A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160
 Chinese music is now faster on the Spark. A warm run on 2026-11-15 took 33.1 s for 34.6 s of audio, 0.96 s per audio second, against the Mac's 57.4 s for 42.2 s, 1.36 s per audio second. The Mac figure includes its first load and the Spark figure does not, so the gap is wider than those two ratios show.
 The clone row used the same reference and text on both, measured on 2026-11-14 outside the two campaigns.
 Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation and on English and Chinese music, and loses on long-form speech and cloning.
+
+The second cross-machine pass of 2026-11-15 measured part of this list again, and it moved one row. H3-Image at nvfp4 was 32.1 s warm against the Mac's 17.1 s, a gap of 1.9x rather than the 1.4x above. That pass also ran Qwen Turbo at bf16 on both machines: 12.0 s against 25.9 s.
+
+On H3-Image the ratio depends on the canvas. The Mac generated at 1024x1024, and the Spark's engine generated at 2048x2048 because of the 4.2 MP floor. Per megapixel the Spark takes 7.6 s and the Mac 17.1 s, so the Spark is faster for the work it actually does.
