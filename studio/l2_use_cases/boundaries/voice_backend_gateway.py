@@ -3,9 +3,10 @@ from collections.abc import Callable
 
 from studio.l1_entities.voice_capabilities import Capabilities
 from studio.l1_entities.voice_job import SpeechJob, SpeechResult
+from studio.l2_use_cases.boundaries.model_lifecycle_gateway import ModelLifecycleGateway
 
 
-class VoiceBackendGateway(ABC):
+class VoiceBackendGateway(ModelLifecycleGateway, ABC):
     """One model backend. The core runs it; the adapter knows the engine."""
 
     @abstractmethod

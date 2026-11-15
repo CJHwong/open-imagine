@@ -384,7 +384,8 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
     )
 
     config = load_config(Path(__file__).parents[2] / "studio.toml")
-    models = []
+    packages = {}
+    entries = 0
     for family, builders in (
         ("image", IMAGE_BACKEND_FACTORIES),
         ("video", VIDEO_BACKEND_FACTORIES),
@@ -394,8 +395,14 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
             gateway = builder(config)
             assert gateway.capabilities().backend_id == backend_id
             assert f".gateways.{family}." in type(gateway).__module__
-            models.append(type(gateway))
-    assert len(models) == len(set(models)) == 14
+            packages.setdefault(type(gateway), set()).add(type(gateway).__module__.rsplit(".", 1)[0])
+            entries += 1
+    # One gateway class serves one model package. A model that ships two builds, such as the
+    # bf16 and NVFP4 entries of a CUDA backend, shares its class with its own other entry.
+    assert all(len(owners) == 1 for owners in packages.values())
+    # Nineteen entries over eighteen classes: H3-Image ships a second build.
+    assert entries == 19
+    assert len(packages) == 18
 
 
 LORA_TABLE = '[[{id}.loras]]\nid = "example_warm"\nlabel = "Warm"\npath = "warm.safetensors"\n{modes}'
@@ -563,8 +570,8 @@ def test_a_real_pack_needs_the_host_platform_and_gets_the_gemma_rewriter(monkeyp
     )
     from studio.l4_frameworks_and_drivers import main
 
-    platform = Mock()
-    monkeypatch.setattr(main, "require_mlx", platform)
+    platform = Mock(return_value=frozenset({"mlx"}))
+    monkeypatch.setattr(main, "available_engines", platform)
     studio = main.create_studio(
         pack_settings(tmp_path), plugins=install(monkeypatch, pack_entries()), private_results_dir=tmp_path / "private"
     )
@@ -748,8 +755,8 @@ def test_a_real_checkpoint_needs_the_host_platform_and_gets_the_qwen_rewriter_it
         if named
         else ""
     )
-    platform = Mock()
-    monkeypatch.setattr(main, "require_mlx", platform)
+    platform = Mock(return_value=frozenset({"mlx"}))
+    monkeypatch.setattr(main, "available_engines", platform)
     rewriters = main.build_rewriters(checkpoint_settings(tmp_path, section), install(monkeypatch, checkpoint_entries()))
     assert isinstance(rewriters["example_qwen"], Qwen21Rewriter if named else NoPromptRewriterGateway)
 
@@ -830,7 +837,7 @@ def test_startup_wires_app_memory_settings_and_isolates_the_stub(tmp_path, monke
     config = replace(pack_settings(tmp_path), settings_path=path, require_memory_estimate=required)
     assembly = Mock()
     monkeypatch.setattr(main, "assemble_studio", assembly)
-    monkeypatch.setattr(main, "require_mlx", lambda: None)
+    monkeypatch.setattr(main, "available_engines", lambda: frozenset({"mlx"}))
     main.create_studio(config, stub=stub, plugins=install(monkeypatch, pack_entries()))
     preferences = assembly.call_args.kwargs["settings"]
     assert preferences.require_memory_estimate() is (required if stub else not required)
@@ -880,3 +887,45 @@ def test_start_connect_preflights_before_it_starts():
     with pytest.raises(StudioError, match="missing"):
         studio.start_connect()
     connect.start.assert_called_once_with()
+
+
+def test_every_cuda_provider_declares_a_footprint():
+    """A model with no footprint is never kept under the boundary policy."""
+    from studio.l4_frameworks_and_drivers.main import BUILTIN_PROVIDERS
+
+    missing = [
+        provider.backend_id
+        for provider in BUILTIN_PROVIDERS
+        if provider.engine == "cuda" and provider.resident_gib is None
+    ]
+
+    assert missing == []
+
+
+def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
+    from types import SimpleNamespace
+
+    from studio.l4_frameworks_and_drivers import main
+
+    calls = []
+
+    class Model:
+        def load(self):
+            calls.append("load")
+
+        def release(self):
+            calls.append("release")
+
+    providers = [SimpleNamespace(backend_id=name, create=lambda config: Model()) for name in ("a", "b", "c")]
+    monkeypatch.setattr(main, "BUILTIN_PROVIDERS", providers)
+    config = SimpleNamespace(
+        visible_backends=("a",),
+        visible_video_backends=("b",),
+        visible_voice_backends=(),
+        visible_music_backends=(),
+    )
+
+    report = main.prepare_models(config)
+
+    assert [name for name, _ in report] == ["a", "b"]
+    assert calls == ["load", "release", "load", "release"]

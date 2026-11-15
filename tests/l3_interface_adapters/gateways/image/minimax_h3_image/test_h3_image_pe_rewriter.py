@@ -5,7 +5,7 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.image_job import ReferenceImage
-from studio.l3_interface_adapters.gateways.image.minimax_h3_image.h3_image_pe_rewriter import (
+from studio.l3_interface_adapters.gateways.image.shared.h3_image_pe_rewriter import (
     H3ImagePeRewriter,
 )
 

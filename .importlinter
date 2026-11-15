@@ -65,20 +65,25 @@ type = independence
 modules =
     studio.l3_interface_adapters.gateways.image.qwen21
     studio.l3_interface_adapters.gateways.image.qwen21_turbo
+    studio.l3_interface_adapters.gateways.image.qwen21_cuda
     studio.l3_interface_adapters.gateways.image.flux2
     studio.l3_interface_adapters.gateways.image.flux3
     studio.l3_interface_adapters.gateways.image.krea2
     studio.l3_interface_adapters.gateways.image.minimax_h3_image
+    studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda
     studio.l3_interface_adapters.gateways.image.viggle_turbo
     studio.l3_interface_adapters.gateways.image.qwen_checkpoint
     studio.l3_interface_adapters.gateways.video.ltx25
+    studio.l3_interface_adapters.gateways.video.ltx25_cuda
     studio.l3_interface_adapters.gateways.video.minimax_h3
     studio.l3_interface_adapters.gateways.video.ltx23
     studio.l3_interface_adapters.gateways.video.ltx_checkpoint
     studio.l3_interface_adapters.gateways.voice.auk
     studio.l3_interface_adapters.gateways.voice.auk_flash
     studio.l3_interface_adapters.gateways.voice.drama3
+    studio.l3_interface_adapters.gateways.voice.drama3_cuda
     studio.l3_interface_adapters.gateways.music.yue2
+    studio.l3_interface_adapters.gateways.music.yue2_cuda
 
 [importlinter:contract:api-isolation]
 name = JSON adapters depend on ports rather than concrete storage or engines
@@ -165,13 +170,16 @@ source_modules =
 forbidden_modules =
     studio.l3_interface_adapters.gateways.image.qwen21
     studio.l3_interface_adapters.gateways.image.qwen21_turbo
+    studio.l3_interface_adapters.gateways.image.qwen21_cuda
     studio.l3_interface_adapters.gateways.image.viggle_turbo
     studio.l3_interface_adapters.gateways.image.flux2
     studio.l3_interface_adapters.gateways.image.flux3
     studio.l3_interface_adapters.gateways.image.krea2
     studio.l3_interface_adapters.gateways.image.minimax_h3_image
+    studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda
     studio.l3_interface_adapters.gateways.video.ltx23
     studio.l3_interface_adapters.gateways.video.ltx25
+    studio.l3_interface_adapters.gateways.video.ltx25_cuda
     studio.l3_interface_adapters.gateways.video.minimax_h3
     studio.l3_interface_adapters.gateways.voice
     studio.l3_interface_adapters.gateways.music

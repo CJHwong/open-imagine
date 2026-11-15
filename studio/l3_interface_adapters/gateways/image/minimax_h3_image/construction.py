@@ -6,13 +6,13 @@ from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.boundaries.process_gateway import ProcessGateway
 from studio.l2_use_cases.model_provider import ModelProvider
-from studio.l3_interface_adapters.gateways.image.minimax_h3_image.h3_image_pe_rewriter import H3ImagePeRewriter
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.memory_estimate import estimate_peak_gib
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.minimax_h3_image_backend_gateway import (
     MinimaxH3ImageBackendGateway,
     uv_launcher,
 )
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.storage_assets import storage_assets
+from studio.l3_interface_adapters.gateways.image.shared.h3_image_pe_rewriter import H3ImagePeRewriter
 from studio.l3_interface_adapters.gateways.model_configuration.lora_table import reject_lora_tables
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 

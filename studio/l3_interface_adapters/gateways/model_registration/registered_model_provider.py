@@ -32,5 +32,5 @@ def registered_model_provider(catalog, kind, name, execute_process):
         rewriter=(lambda config, backend_id, **kwargs: factory.rewriter(kind, name, config, **kwargs))
         if registration.rewriter
         else None,
-        requires_mlx=False,
+        engine="",
     )

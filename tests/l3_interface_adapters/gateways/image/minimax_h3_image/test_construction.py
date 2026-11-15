@@ -8,7 +8,7 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction i
     build_rewriter,
     minimax_h3_image_backend,
 )
-from studio.l3_interface_adapters.gateways.image.minimax_h3_image.h3_image_pe_rewriter import H3ImagePeRewriter
+from studio.l3_interface_adapters.gateways.image.shared.h3_image_pe_rewriter import H3ImagePeRewriter
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 
 

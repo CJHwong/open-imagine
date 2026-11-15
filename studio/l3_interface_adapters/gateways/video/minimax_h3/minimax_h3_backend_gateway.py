@@ -200,6 +200,9 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             loras.append({"path": path, "scale": pick.strength})
         return loras
 
+    def load(self) -> None:
+        """Nothing to prepare: the owned child starts and exits inside one run."""
+
     def release(self):
         # The owned child exits before run returns, including cancellation and failure.
         pass

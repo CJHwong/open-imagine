@@ -19,10 +19,10 @@ def test_catalog_lists_builtins_and_installed_without_loading_their_declarations
     installed = install(monkeypatch, [declaration])
     catalog = CompositeModelCatalogGateway(BUILTIN_PROVIDERS, installed, Mock())
     assert catalog.ids("image")[-1] == "example_image"
-    assert catalog.ids("music") == ("yue2",)
+    assert catalog.ids("music") == ("yue2", "yue2_cuda", "yue2_cuda_nvfp4")
     declaration.load.assert_not_called()
     provider = catalog.provider("image", "example_image")
-    assert isinstance(provider, ModelProvider) and not provider.requires_mlx
+    assert isinstance(provider, ModelProvider) and provider.engine == ""
     assert provider.backend_id == "example_image" and provider.rewriter is None
     declaration.load.assert_called_once()
 

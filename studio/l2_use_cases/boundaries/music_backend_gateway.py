@@ -3,9 +3,10 @@ from collections.abc import Callable
 
 from studio.l1_entities.music_capabilities import MusicCapabilities
 from studio.l1_entities.music_job import MusicJob, MusicResult
+from studio.l2_use_cases.boundaries.model_lifecycle_gateway import ModelLifecycleGateway
 
 
-class MusicBackendGateway(ABC):
+class MusicBackendGateway(ModelLifecycleGateway, ABC):
     @abstractmethod
     def capabilities(self) -> MusicCapabilities:
         """Static model controls; loads nothing."""

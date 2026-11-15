@@ -33,6 +33,7 @@ from studio.l4_frameworks_and_drivers.main import (
     VOICE_BACKEND_FACTORIES,
     create_studio,
     discover_plugins,
+    prepare_models,
 )
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent.parent / "studio.toml"
@@ -154,6 +155,11 @@ def parse_args():
         help="phone connection (on by default); --connect=off disables it for this start",
     )
     parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="load each configured model once, building anything it prepares, then exit",
+    )
+    parser.add_argument(
         "--stub",
         action="store_true",
         help="fake every engine: timed steps and placeholder images, no weights, no GPU. For work on the page",
@@ -185,6 +191,18 @@ def main():
             queue_max_size=args.queue_max_size,
             connect_enabled=args.connect,
         )
+        if args.prepare:
+            if args.stub:
+                sys.exit("--prepare loads the real engines, so it cannot run with --stub")
+            report = prepare_models(
+                config,
+                on_start=lambda backend_id: print(f"preparing {backend_id}", flush=True),
+            )
+            for backend_id, seconds in report:
+                print(f"prepared {backend_id} in {seconds:.1f}s", flush=True)
+            if not report:
+                print("nothing to prepare: none of the configured models loads on this machine", flush=True)
+            return 0
         studio = create_studio(
             config,
             stub=args.stub,

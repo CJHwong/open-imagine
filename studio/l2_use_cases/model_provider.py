@@ -16,7 +16,10 @@ class ModelProvider:
     estimator: Callable[..., Any] | None = None
     rewriter: Callable[..., Any] | None = None
     rewriter_cache: Callable[..., str] | None = None
-    requires_mlx: bool = True
+    engine: str = "mlx"
+    """The engine this backend needs: "mlx", "cuda", or "" for a plugin that owns its own
+    runtime. Layer 4 compares it with what the host can run, so one tree serves both
+    machines and no adapter branches on the platform."""
     storage_assets: Callable[[ModelConfigurationGateway], tuple[ModelAsset, ...]] | None = None
     storage_name: str = ""
     storage_roots: tuple[str, ...] = ()

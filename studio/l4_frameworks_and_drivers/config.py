@@ -63,17 +63,13 @@ def load_config(
     overrides the phone connection setting for this start."""
     raw = tomllib.loads(path.read_text(encoding="utf-8"))
     default = backend or raw["default_backend"]
-    visible = visible if visible else tuple(raw.get("visible_backends", [default]))
-    if default not in visible:
-        visible = (default, *visible)
+    visible = _offered(visible, raw, "visible_backends", default)
     default_video = raw.get("default_video_backend", "ltx25_mlx")
-    visible_video = visible_video if visible_video else tuple(raw.get("visible_video_backends", [default_video]))
-    if default_video not in visible_video:
-        visible_video = (default_video, *visible_video)
+    visible_video = _offered(visible_video, raw, "visible_video_backends", default_video)
     default_voice = raw.get("default_voice_backend", "drama3")
-    visible_voice = visible_voice if visible_voice else tuple(raw.get("visible_voice_backends", [default_voice]))
-    if default_voice not in visible_voice:
-        visible_voice = (default_voice, *visible_voice)
+    visible_voice = _offered(visible_voice, raw, "visible_voice_backends", default_voice)
+    default_music = raw.get("default_music_backend", "yue2")
+    visible_music = _offered(None, raw, "visible_music_backends", default_music)
     required = raw.get("require_memory_estimate", False)
     if not isinstance(required, bool):
         raise ConfigError("require_memory_estimate in studio.toml must be true or false")
@@ -135,11 +131,28 @@ def load_config(
         settings_path=settings_path,
         default_voice_backend=default_voice,
         visible_voice_backends=visible_voice,
-        default_music_backend=raw.get("default_music_backend", "yue2"),
-        visible_music_backends=tuple(
-            dict.fromkeys((raw.get("default_music_backend", "yue2"), *raw.get("visible_music_backends", ["yue2"])))
-        ),
+        default_music_backend=default_music,
+        visible_music_backends=visible_music,
     )
+
+
+def _offered(given, raw: dict, key: str, default: str) -> tuple[str, ...]:
+    """The backends one workspace offers.
+
+    A flag wins over the file. A list the file states is offered as it stands, and an
+    empty one offers nothing: that is how a machine names the workspaces it can run.
+    The default joins a list that does not name it, so a studio always opens on
+    something it offers.
+    """
+    if given is not None:
+        chosen = tuple(given)
+    elif key in raw:
+        chosen = tuple(raw[key])
+    else:
+        chosen = (default,)
+    if chosen and default not in chosen:
+        chosen = (default, *chosen)
+    return tuple(dict.fromkeys(chosen))
 
 
 def _settings(section: dict, base: Path) -> dict:

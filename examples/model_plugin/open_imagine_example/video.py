@@ -85,6 +85,9 @@ class ExampleVideoGateway(VideoBackendGateway):
             progress(1, 1, job.seed or 0)
         return VideoResult(data, job.width, job.height, job.num_frames, job.frame_rate, job.seed)
 
+    def load(self):
+        """Nothing to prepare: the example encodes one clip per run."""
+
     def release(self):
         pass
 

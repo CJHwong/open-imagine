@@ -2,6 +2,7 @@
 
 import threading
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -15,6 +16,7 @@ from studio.l2_use_cases.model_services import ModelServices
 from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
 from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
+from studio.l2_use_cases.prepare_models_use_case import PrepareModelsUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
 from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
@@ -78,7 +80,7 @@ from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.connect import DumbpipeTransport
-from studio.l4_frameworks_and_drivers.engines import require_mlx
+from studio.l4_frameworks_and_drivers.engines import EngineUnavailable, available_engines, require_engines
 from studio.l4_frameworks_and_drivers.http_server import make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
 from studio.l4_frameworks_and_drivers.model_asset_storage_gateway import ModelAssetStorageGateway
@@ -105,6 +107,26 @@ GIB = 1024**3
 # The stub has no GPU and no memory probe. A boundary policy still needs a number, and
 # 64 GiB is the machine every estimator was calibrated on.
 STUB_MEMORY_GIB = 64.0
+
+
+def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, float]]:
+    """Build and prepare every configured built-in model, freeing each before the next.
+
+    Plugins are not prepared: their provider owns its own runtime, and the page discovers
+    them at start.
+    """
+    configured = {
+        *config.visible_backends,
+        *config.visible_video_backends,
+        *config.visible_voice_backends,
+        *config.visible_music_backends,
+    }
+    targets = [
+        (provider.backend_id, provider.create(config))
+        for provider in BUILTIN_PROVIDERS
+        if provider.backend_id in configured
+    ]
+    return PrepareModelsUseCase().execute(targets, on_start)
 
 
 def resident_memory() -> dict[str, float]:
@@ -179,6 +201,54 @@ def discover_plugins() -> InstalledModelCatalog:
     )
 
 
+def _offered_on_this_host(config: Config, catalog, stub: bool) -> Config:
+    """Keep the models this host can run, so the page lists what will work here.
+
+    The stub keeps every backend, because the page is worked on machines with no engine.
+    A studio left with no Image backend is refused: the message names the engine the
+    offered models need, and the flag that works anyway.
+    """
+    if stub:
+        return config
+    available = available_engines()
+
+    def keep(kind: str, names: tuple[str, ...]) -> tuple[str, ...]:
+        chosen = []
+        for name in names:
+            provider = catalog.provider(kind, name)
+            if provider is None or provider.engine in {"", *available}:
+                chosen.append(name)
+        return tuple(chosen)
+
+    image = keep("image", config.visible_backends)
+    if not image:
+        required = {
+            provider.engine
+            for name in config.visible_backends
+            if (provider := catalog.provider("image", name)) is not None
+        } - {""}
+        require_engines(required)
+        raise EngineUnavailable("no Image backend is offered, and the studio needs one.")
+    video = keep("video", config.visible_video_backends)
+    voice = keep("voice", config.visible_voice_backends)
+    music = keep("music", config.visible_music_backends)
+    return replace(
+        config,
+        default_backend=_first_offered(config.default_backend, image),
+        visible_backends=image,
+        default_video_backend=_first_offered(config.default_video_backend, video),
+        visible_video_backends=video,
+        default_voice_backend=_first_offered(config.default_voice_backend, voice),
+        visible_voice_backends=voice,
+        default_music_backend=_first_offered(config.default_music_backend, music),
+        visible_music_backends=music,
+    )
+
+
+def _first_offered(default: str, offered: tuple[str, ...]) -> str:
+    return default if default in offered else (offered[0] if offered else "")
+
+
 def create_studio(
     config: Config,
     stub: bool = False,
@@ -190,9 +260,10 @@ def create_studio(
     """With `stub`, each backend keeps its form and fakes its engine: for work on the page.
     `allowed_origins` are the pages at another address that may post, such as a proxy."""
     plugins = plugins if plugins is not None else discover_plugins()
-    backends = build_image_backends(config, plugins, stub)
     services = ModelServices(SubprocessRunner().execute)
     catalog = CompositeModelCatalogGateway(BUILTIN_PROVIDERS, plugins, services.run_process)
+    config = _offered_on_this_host(config, catalog, stub)
+    backends = build_image_backends(config, plugins, stub)
     # Backend constructors and rewriters share only this instance's runtime resources.
     video_backends = build_video_backends(config, plugins=plugins, stub=stub, services=services)
     voice_backends = build_voice_backends(config, plugins, stub)
@@ -215,12 +286,6 @@ def create_studio(
         video_backends = {
             name: StubVideoBackendGateway(backend.capabilities()) for name, backend in video_backends.items()
         }
-    elif any(
-        catalog.provider(kind, name).requires_mlx
-        for kind, gateways in (("image", backends), ("video", video_backends), ("voice", voice_backends))
-        for name in gateways
-    ):
-        require_mlx()
     if private_results_dir is None and not stub:
         private_results_dir = Path.home() / ".local" / "share" / "open-imagine" / "private-results"
     total_memory_gib = None

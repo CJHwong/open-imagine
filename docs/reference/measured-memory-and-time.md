@@ -1,6 +1,10 @@
 # Measured memory and time
 
-Measured peak memory and elapsed time for each case, on one Mac with an Apple M5 Pro and 64 gibibytes (GiB) of memory.
+Measured peak memory and elapsed time for each case, on two machines: a Mac with an Apple M5 Pro and 64 gibibytes (GiB) of memory, and an NVIDIA DGX Spark with 121.7 GiB of unified memory.
+Each machine has its own section: the models it ran, how to read its numbers, and one table per modality.
+
+## Apple M5 Pro
+
 The measurements ran on 2026-11-12 and 2026-11-13 through the studio API.
 The measured tables hold 72 cases: 69 succeeded and 3 stopped at an engine limit.
 The H3 rows used a pre-quantized MLX q8 pack, not a local build.
@@ -15,7 +19,24 @@ The H3 rows used a pre-quantized MLX q8 pack, not a local build.
 | Baseline | The three samples before the submit |
 | Time | Submit to terminal status. The time excludes queue wait and weight download. |
 
-## How to read the numbers
+### Models
+
+| Model | Backend | Source | Quantization | Checkpoint (GiB) |
+|---|---|---|---|---|
+| FLUX.3 Klein | `flux3` | `black-forest-labs/flux-3-image-klein` | q8 (mflux) | 19 |
+| MiniMax H3-Image | `minimax_h3_image` | `MiniMaxAI/MiniMax-H3-Image`, fetched by h3-image-mlx | int8 | 46 |
+| Qwen-Image-2.1 | `qwen21` | `Qwen/Qwen-Image-2.1` | bf16 | 31 |
+| Qwen-Image-2.1 Turbo | `qwen21_turbo` | `Qwen/Qwen-Image-2.1-Turbo` | bf16 | 30 |
+| LTX-2.5 | `ltx25_mlx` | `dgrauet/ltx-2.5-mlx-q8` | q8 | 70 |
+| MiniMax H3 | `minimax_h3` | `pipenetwork/MiniMax-H3-MLX-8bit` at revision `e55f97c8` | q8 | 65 |
+| Drama-3 | `drama3` | `mlx-community/fish-audio-drama-3-8bit` at revision `fedc7cc9` | 8-bit | 39 |
+| YuE2 | `yue2` | `m-a-p/YuE2-3B`, converted to MLX at revision `5f7620e5` | Q8 generator, BF16 acoustic, FP32 decoder | 9.7 |
+
+`Checkpoint` counts the files the backend reads from disk, measured with `du` on this Mac.
+A pre-quantized pack is smaller than its source because the pack already holds the narrowed weights.
+The Qwen prompt rewriters, the LTX adapters and the Viggle LoRA are separate downloads and are not in these figures.
+
+### How to read the numbers
 
 **Free-memory drop (GiB)** is the fall from the baseline to the lowest free-memory sample, as a share of 64 GiB.
 **Process footprint (GiB)** is the peak sum of the memory footprint of every process in the server tree. It includes a model that an earlier case left warm.
@@ -24,7 +45,7 @@ Each case has one row. `Runs` gives the recorded runs for that case name, and th
 A row with one run is one measurement, not an average. Machine load moves a time, so compare rows with that limit in mind.
 These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 
-## Image
+### Image
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
@@ -71,7 +92,7 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `qwen21_turbo/generate/text/512` | qwen21_turbo, generate, size 512x512 | 28.80 | 29.02 | 9.1 | Succeeded | 1 |
 | `qwen21_turbo/generate/text/768` | qwen21_turbo, generate, size 768x768 | 33.92 | 30.02 | 17.2 | Succeeded | 1 |
 
-## Video
+### Video
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
@@ -92,7 +113,7 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `minimax_h3/generate/text/512x288x73` | minimax_h3, generate, 512x288, 73 frames, 24 fps | 26.24 | 33.07 | 120.0 | Succeeded | 2 |
 | `minimax_h3/generate/text/1024x576x175` | minimax_h3, generate, 1024x576, 175 frames, 24 fps | 36.48 | 33.07 | 1608.8 | Succeeded | 1 |
 
-## Voice
+### Voice
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
@@ -104,7 +125,7 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `drama3/generate/text4000` | drama3, generate, 800 words | 41.60 | 67.03 | 83.7 | Failed: the audio reached max_tokens | 2 |
 | `drama3/generate/text50-seed11` | drama3, generate, 10 words, seed 11 | 43.52 | 40.06 | 30.2 | Succeeded | 1 |
 
-## Music
+### Music
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
@@ -116,7 +137,20 @@ These numbers apply to a 64 GiB Mac. Another host has no calibrated estimate.
 | `yue2/transcribe/speech10s` | yue2, transcribe, 10 s speech reference | 1.92 | 4.23 | 7.1 | Succeeded | 1 |
 | `yue2/transcribe/speech15s` | yue2, transcribe, 15 s speech reference | 1.92 | 4.24 | 5.1 | Succeeded | 1 |
 
-## Not tested
+### Mandarin, 2026-11-14
+
+| Case | Settings | Time (s) | Audio | Result |
+|---|---|---|---|---|
+| `mandarin/voice/traditional` | drama3, generate, Traditional Chinese | 34.3 | 5.1 s of 44.1 kHz mono | Succeeded |
+| `mandarin/voice/simplified` | drama3, generate, Simplified Chinese | 4.3 | 4.4 s of 44.1 kHz mono | Succeeded |
+| `mandarin/voice/paragraph` | drama3, generate, Traditional Chinese | 75.7 | none | Failed: the audio reached max_tokens |
+| `mandarin/music/verse` | yue2, generate, Mandarin lyric | 57.4 | 42.2 s of 48 kHz stereo | Succeeded |
+
+These ran on this Mac through the same studio on the case file `cases.mandarin.json`, outside the campaign above, so they carry no free-memory or footprint sample.
+The paragraph fails here at the MLX backend's token cap, where the CUDA backend completed the same paragraph in 27.1 s.
+The music row pays its own first load.
+
+### Not tested
 
 The table lists the models that produced no measurement because a weight or runtime was missing.
 Complete the setup, then rerun the named case file.
@@ -132,3 +166,380 @@ Three groups stopped on the payload, not on a model gap.
 `flux3/edit/1-refs/out1024` and `flux3/edit/2-refs/out1024` did the same.
 `ltx23_mlx/generate/text/768x768x97` and `ltx23_mlx/generate/one-keyframe/768x768x97` omitted `frame_rate`.
 Each case needs a corrected payload and a rerun.
+
+## DGX Spark
+
+Measured on 2026-11-13 and 2026-11-14 on an NVIDIA DGX Spark, through the studio API.
+Every backend runs in a PEP 723 child on Python 3.12, one operation at a time, with `HF_HUB_DISABLE_XET=1` because Xet delivery stalls on this network.
+
+| Item | Value |
+|---|---|
+| Machine | NVIDIA DGX Spark: GB10, 121.7 GiB unified memory, CUDA 13.0, driver 580.178.04, Ubuntu 24.04 aarch64 |
+| Date | 2026-11-13 and 2026-11-14 |
+| Path | The studio API on port 8899, one operation at a time |
+| Seed | 7 unless the case name names one |
+| Sample | `MemAvailable` from `/proc/meminfo`, once a second |
+| Baseline | The three samples before the submit |
+| Time | Submit to terminal status. The time excludes queue wait and weight download. |
+
+### Models
+
+| Model | Backend | Source | Quantization | Checkpoint (GiB) |
+|---|---|---|---|---|
+| Qwen-Image-2.1 Turbo | `qwen21_turbo_cuda` | `Qwen/Qwen-Image-2.1-Turbo` | bf16, the shipped default; NVFP4 W4A4 is the other build | 32 |
+| MiniMax H3-Image | `minimax_h3_image_cuda` | `MiniMaxAI/MiniMax-H3-Image` | bf16 on disk, text encoder FP8, transformer fp8 weight-only | 127 |
+| LTX-2.5 | `ltx25_cuda` | `Lightricks/LTX-2.5-Diffusers` | bf16 | 107 |
+| Drama-3 | `drama3_cuda` | `fishaudio/drama-3` | FP8 | 39 |
+| YuE2 | `yue2_cuda` | `m-a-p/YuE2-3B` with `m-a-p/YuE2-Vae` | bf16 on disk; the lyrics stages run NVFP4 weights and activations from a pack built on first use, the acoustic decoder and vocoder stay bf16 | 7.3 |
+
+`Checkpoint` counts the files the backend reads, measured with `du` on this machine.
+Two repositories ship more than that. H3-Image carries a second copy of its transformer, so the download is 190 GiB.
+LTX-2.5 carries a second transformer, a distilled LoRA and the 9.6 GiB prompt enhancer, so the download is 163 GiB.
+
+### How to read the numbers
+
+**Free-memory drop (GiB)** is the fall from the baseline to the lowest `MemAvailable` sample, as a share of 121.7 GiB.
+A warm row counts only the run, because the weights were resident before submit. A cold row includes the model load.
+**Process footprint (GiB)** is the peak sum of the resident memory of the child process tree.
+On unified memory a resident figure under-reports the GPU allocation, so read it beside the free-memory drop. `not sampled` means no sample exists.
+**Time (s)** is the operation's wall time. The queue wait is excluded.
+Each case has one row and `Runs` gives the recorded runs, and the row shows the last run, so a case with two runs shows the warm one.
+A cold run also pays a submit wait before the child starts, and that wait is inside its time.
+These numbers apply to this machine. Another host has no calibrated estimate.
+
+### Image
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
+| `qwen21_turbo_cuda/generate/text/512` | generate, 512x512, 8 steps, NVFP4 W4A4 | not sampled | not sampled | 4.0 | Succeeded | 2 |
+| `qwen21_turbo_cuda/generate/text/768` | generate, 768x768, 8 steps, NVFP4 W4A4 | 2.90 | not sampled | 5.6 | Succeeded | 1 |
+| `qwen21_turbo_cuda/generate/text/1024` | generate, 1024x1024, 8 steps, NVFP4 W4A4 | 0.07 | 2.3 | 11.0 | Succeeded | 2 |
+| `qwen21_turbo_cuda/generate/text/1328` | generate, 1328x1328, 8 steps, NVFP4 W4A4 | 5.19 | not sampled | 17.6 | Succeeded | 1 |
+| `minimax_h3_image_cuda/generate/text/1024` | generate, 1024x1024, 6 steps, NVFP4 W4A4 | 0.00 | 1.4 | 33.3 | Succeeded | 2 |
+| `minimax_h3_image_cuda/generate/text/1024-fp8` | generate, 1024x1024, 6 steps, fp8 weights | 0.00 | 2.3 | 55.2 | Succeeded | 2 |
+
+The Qwen cold run, the first of the two 512 runs, took 18.6 s and dropped free memory by 38.68 GiB. That row predates the load work: a cold 1024 run is now 38.1 s against 11.0 s warm, which includes the child start.
+The Turbo checkpoint ships its own eight-step schedule, so a 20-step request samples the same eight steps.
+The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
+The H3 cold rows predate the load work of 2026-11-14 and 2026-11-15. The fp8 load alone measured 722.0 s, then 203.1 s once each weight travelled through host memory, then 33.4 s from the pack. A cold studio run is now 100.3 s, and the warm run above is unchanged at 55.2 s.
+
+#### The NVFP4 builds, 2026-11-15
+
+Both CUDA image models were packed to NVFP4 and measured through the studio API, one
+operation at a time. H3-Image ships its entry. Qwen's entry was dropped the same day, so
+its rows are the record of that decision and not a build a form offers.
+
+| Case | Settings | Free-memory drop (GiB) | Time (s) | Result |
+|---|---|---|---|---|
+| `qwen21_turbo_cuda_nvfp4/generate/512`, first run | NVFP4, 512x512, 8 steps | 25.35 | 20.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/512` | NVFP4, 512x512, 8 steps | 0.00 | 3.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/768` | NVFP4, 768x768, 8 steps | 2.91 | 6.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/1024` | NVFP4, 1024x1024, 8 steps | 3.37 | 11.0 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/generate/1328` | NVFP4, 1328x1328, 8 steps | 5.62 | 18.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/edit/one-ref/match` | NVFP4, 512 out, 1 reference | 0.17 | 3.1 | Succeeded |
+| `qwen21_turbo_cuda_nvfp4/edit/big-ref/match` | NVFP4, 1344 out, 1 reference at 2048 | 5.89 | 25.2 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/generate/1024`, first attempt | NVFP4, 1024x1024, 6 steps | -1.98 | 200.4 | Failed: the child died while the pack was written |
+| `minimax_h3_image_cuda_nvfp4/generate/1024`, first run | NVFP4, 1024x1024, 6 steps | 104.21 | 527.8 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/generate/1024` | NVFP4, 1024x1024, 6 steps | -1.63 | 34.3 | Succeeded |
+| `minimax_h3_image_cuda_nvfp4/edit/one-ref/match` | NVFP4, 1 reference at 4 MP | -2.15 | 63.7 | Succeeded |
+
+The Qwen pack quantizes the weights at load, so it adds nothing to the disk and its first
+run is 20.1 s against the bf16 build's 25.1 s. Against the bf16 rows it is 5 to 14% faster
+and holds 36.0 GiB against 40.7. That did not pay for the grain.
+
+The H3-Image pack is written to disk first: 38 GB at `~/.cache/open-imagine/h3-pack-nvfp4`.
+The first run is that build and load, not a sample, and it took two attempts: the first child
+died while the pack was written and the parent reported "the engine stopped answering" after
+200.4 s. A warm run is 34.3 s against fp8's 57.4.
+
+#### The precision sweep on H3-Image
+
+Three builds ran one prompt and seed through a script that loads the child module and calls its
+run, in the pattern the child uses. These times compare with each other, not with a studio row.
+
+| Build | Warm (s) | Grain, portrait |
+|---|---|---|
+| nvfp4 W4A4 | 32.1 | 1.58 |
+| fp8 weight only | 55.5 | 0.69 |
+| int8 W8A8 | 67.3 | 0.63 |
+
+int8 gives the cleanest picture and the slowest run. The store is not the cost: per-token
+activation quantization costs more than the int8 matmul saves. On this stack only the fused fp4
+kernel is fast, and that is why the nvfp4 build leads.
+Grain is the standard deviation of the flattest 32x32 block on a 0 to 255 luminance scale,
+measured on the portrait at the default canvas. It ranks the three builds at one prompt; the
+speckle figures above come from a different case.
+
+#### The canvas is larger than the request
+
+`get_image_canvas_size` at `before_denoise.py:94` scales the generation up when the request is
+below `min_generation_area`, whose default is 4194304 at `before_denoise.py:187`. A 1024x1024
+request becomes a 2048x2048 canvas, and every request from 576x1024 to 1536x864 lands on the same
+4.2 MP canvas. That is why the time was flat across sizes.
+
+| Request | Canvas | Warm (s) |
+|---|---|---|
+| 1024x1024 | 2048x2048, the default | 32.4 |
+| 1024x1024 | 1024x1024 | 20.6 |
+
+The 1.57x is not free on this backend. At a native 1024 canvas the portrait and the landscape
+show a smeared band in the sky, and the product shot is clean. The MLX engine is clean at 1024 on
+the same two prompts. So the floor hides a low-canvas defect instead of raising quality. Per
+megapixel this machine is ahead: 7.6 s at 4.2 MP, and 20.6 s at 1.0 MP against the Mac's 17.1 s.
+
+#### `num_inference_steps` does nothing
+
+`before_denoise.py:679` builds the timesteps from `components.config.sample_sigmas`, so a run
+asked for one step still takes the checkpoint's six. That is why one step and six steps measured
+the same. The 32.1 s is six denoise steps at about 5 s each, plus 2.5 s of VAE decode.
+
+#### Edits run the same checkpoint on both image backends
+
+Neither engine needs a second model for an edit. The diffusers Qwen-Image-2.1 pipeline
+conditions on reference images through its Qwen3-VL text encoder and its vae. The H3 pipeline
+switches to its image-conditioned blocks when `image` is set, which resize the references for the
+vae and for the text encoder. Measured on 2026-11-15 through the studio API, one GPU job at a
+time:
+
+| Case | Time (s) |
+|---|---|
+| Qwen generate, 512x512, 8 steps, warm | 4.0 |
+| Qwen edit, one reference, match | 6.1 |
+| Qwen edit, two references, match | 6.2 |
+| H3 generate, 1024x1024, 6 steps, cold | 96.1 |
+| H3 edit, one reference, match at 4 MP | 68.5 |
+
+The first Qwen run of that studio took 18.0 s and carries the load. The H3 run carries its 33.4 s
+pack load and generated on the engine's 4.2 MP canvas, so its 4 MP edit is the comparable row.
+A warm edit moved free memory by 0.00 GiB on Qwen and 0.27 GiB on H3, because the model was
+already resident in both cases: the peak is the model's own.
+
+H3's edit offers only sizes of about 4 MP, because an edit at 1024 came out posterized on the MLX
+engine and this backend inherits the model's behaviour. Its Match follows the first reference's
+aspect at that size, on the 32-pixel grid. Qwen's Match follows the last reference at its own
+area, also on the 32-pixel grid and under the 1344 cap the MLX edit path uses.
+
+#### The Qwen prompt rewriters run on this machine too
+
+The same two 9B cards the Mac loads, through transformers instead of mlx-vlm, with the
+instructions, the language nudge and the sampling taken from `qwen_runtime/rewriter_text` so
+both machines ask the same question. Measured on 2026-11-15 through the rewrite operation:
+
+| Case | Time (s) | Output |
+|---|---|---|
+| Rewrite for generate, first press | 102.2 | a full caption from "a pear on a table" |
+| Rewrite for edit, with a picture | 120.3 | a night relighting instruction for the teapot frame |
+
+Both times include the card's own load. The edit press left its card resident and moved free
+memory by 19.61 GiB; the child keeps one card at a time and frees it before the other loads.
+
+H3-Image's own 27B enhancer runs there too, from the release as published, which is 17 GB on
+disk because the weights ship pre-quantized. Measured the same way:
+
+| Case | Time (s) | Output |
+|---|---|---|
+| Enhance for generate, first press | 84.1 | a full caption from "a pear on a table" |
+| Enhance for edit, with a picture | 166.2 | a night relighting instruction for the teapot frame |
+
+One model serves both modes, so nothing is swapped between presses. It moved free memory by
+21 GiB and stays resident between presses.
+
+### Video
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
+| `ltx25_cuda/generate/text/768x448x97` | generate, 768x448, 97 frames, distilled eight-step schedule | 0.47 | 11.5 | 48.3 | Succeeded | 2 |
+| `ltx25_cuda/generate/text/1280x704x97` | generate, 1280x704, 97 frames, distilled eight-step schedule | 12.55 | 12.4 | 115.5 | Succeeded | 1 |
+| `ltx25_cuda/generate/text/768x768x97-fast` | generate, 768x768, 97 frames, Fast mode | 0.36 | 11.6 | 76.3 | Succeeded | 1 |
+| `ltx25_cuda/generate/text/768x768x97` | generate, 768x768, 97 frames, distilled eight-step schedule | 0.32 | 4.3 | 74.4 | Succeeded | 2 |
+| `ltx25_cuda/generate/keyframe/768x512x97` | generate, 768x512, 97 frames, one keyframe at frame 0, strength 1.0 | not sampled | not sampled | 110.4 | Succeeded | 1 |
+
+The first run of the 768x448 case took 96.4 s, which includes a 32.3 s load. The load was 189.2 s before each weight travelled through host memory.
+The keyframe row is one press on a fresh server: it carries the same 32-second load, and its
+first frame is the reference picture. The pipeline takes the reference as an
+`LTX2VideoCondition` and re-compresses it at the model's own CRF before the vae sees it, which
+needs PyAV in the child environment.
+The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eight-value sigma list, which is what the MLX backend runs when it takes its distilled path; `LTX2Pipeline` would run a linear thirty-step schedule at 3.75 times the cost.
+
+### Voice
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
+| `drama3_cuda/generate/sentence50` | generate, 7 words, 3.3 s of 44.1 kHz mono | 0.19 | 4.0 | 5.0 | Succeeded | 2 |
+| `drama3_cuda/generate/short` | generate, 13 words, one delivery cue | 0.41 | 4.0 | 9.0 | Succeeded | 2 |
+| `drama3_cuda/generate/paragraph700` | generate, 83 words, 36.9 s of 44.1 kHz mono | 1.53 | 4.1 | 51.1 | Succeeded | 1 |
+| `mandarin/voice/traditional` | generate, Traditional Chinese, 3.6 s of audio | 44.47 | 7.3 | 351.6 | Succeeded | 1 |
+| `mandarin/voice/simplified` | generate, Simplified Chinese, 3.9 s of audio | 0.10 | 4.0 | 7.0 | Succeeded | 1 |
+| `mandarin/voice/paragraph` | generate, Traditional Chinese, 19.6 s of audio | 1.75 | 4.1 | 27.1 | Succeeded | 1 |
+| `mandarin/voice/generate-same-text` | generate, no reference, 4.5 s of audio | 0.38 | 4.0 | 7.0 | Succeeded | 1 |
+| `mandarin/voice/clone-tw-reference` | clone, synthetic zh_TW reference, 3.5 s of audio | 46.89 | 5.8 | 339.6 | Succeeded | 1 |
+| `mandarin/voice/clone-4s6` | clone, 4.6 s human reference, 3.3 s of audio | 45.86 | 7.7 | 287.6 | Succeeded | 1 |
+| `mandarin/voice/clone-10s` | clone, 10 s human reference, 2.7 s of audio | 0.32 | 4.1 | 5.0 | Succeeded | 1 |
+
+The first Drama-3 run of a server took 350.7 s against 9.0 s warm, and the cost was the load, not a kernel compile: the engine copies each weight straight from the safetensors mapping into a device tensor, which measured 0.19 GB/s. Cloning each one into ordinary memory first took the load to 27.0 s and a first run to 38.1 s, with the audio byte-identical.
+Warm Drama-3 runs at 0.66x realtime on the 7-word English case and 0.72x on the 83-word one, and at 0.56x on the Mandarin sentence.
+The three clone rows are one target sentence with three references; each first run paid the load.
+Unconditioned Chinese completes but mispronounces: transcribing the output, 帶傘 came back as 呆散 and 可能 as 河冷. The clone rows read the same sentence correctly. The MLX backend mispronounces the same way, so this is the model, not the engine.
+A synthetic reference clones a synthetic voice. The human reference rows are the ones to judge accent by.
+
+#### No compile path, and fp16 does not lift the decode
+
+`ModelManager(compile=True)` stops with `ValueError: --compile is not supported for Drama 3
+checkpoints`, raised at `fish_speech/models/text2semantic/inference.py:447`. The child already
+passes `compile=False` for that reason.
+
+`--half` does not lift the rate either. Through one probe, the bf16 run decoded 234 frames in
+12.37 s, 18.91 frames per second, and the fp16 run decoded 158 frames in 8.40 s, 18.81 frames per
+second. The fp16 run took 9.0 s instead of 14.7 s only because it stopped at the end of speech
+after 7.34 s of audio instead of 10.87 s. The decode rate is the same, so the datatype is not a
+lever. Time follows the audio length at about 19 frames per second.
+
+### Music
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
+| `yue2_cuda/generate/short` | nvfp4, generate, style and one lyric line, 104.4 s of 48 kHz stereo | 9.05 | 5.3 | 107.3 | Succeeded | 1 |
+| `mandarin/music/verse` | nvfp4, generate, Mandarin style and lyric, 34.6 s of audio | 3.08 | 5.4 | 33.1 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | bf16, generate, style and one lyric line, 67.6 s of 48 kHz stereo | 18.14 | 9.7 | 207.4 | Succeeded | 1 |
+| `mandarin/music/verse` | bf16, generate, Mandarin style and lyric, 41.7 s of audio | 6.63 | 9.5 | 101.2 | Succeeded | 1 |
+| `yue2_cuda/generate/short` | fp8, generate, style and one lyric line, 65.0 s of 48 kHz stereo | 17.75 | 14.4 | 218.4 | Succeeded | 1 |
+| `mandarin/music/verse` | fp8, generate, Mandarin style and lyric, 56.9 s of audio | 7.11 | 11.2 | 150.3 | Succeeded | 1 |
+
+One build per pair, same payload and seed, all three in the same child environment, re-measured on
+2026-11-15: torch 2.15.0, torchao 0.18.0, mslk 1.4.0. The English case is the first run of each
+build, so it carries that build's start; the Mandarin case is warm. Per second of audio the Mandarin
+rows are the comparison: nvfp4 0.96 s, bf16 2.43 s, fp8 2.64 s. The run on 2026-11-14 measured
+1.19, 2.28 and 2.61 for the same three builds, so read the last digit as noise and the ratio as the
+result: nvfp4 is about 2.5 times faster per second of audio.
+The same seed wrote a different song in each build, so compare seconds per second of audio rather
+than total seconds.
+`fp8` is the engine's own `FP8Linear`, the arithmetic its authors mark experimental.
+The same song came back in each build on both dates, which is the seed holding. The nvfp4 pack is
+1.80 GB and takes the cold start from 111.4 s, cold Triton cache included, to 19.1 s; the English row
+above now carries 19.1 s of pack load instead of the build. It is rebuilt when the torch, torchao or
+mslk version changes.
+
+The lyric-length rows below were measured on the bf16 build before the move to torch 2.15. They
+bound the lyrics, which is what they were for, and their times are not comparable with the rows
+above.
+
+| Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
+|---|---|---|---|---|---|---|
+| `yue2_cuda/generate/lyrics-4-lines` | generate, one repeated line, 159 characters, 42.6 s of audio | 18.35 | 9.5 | 181.4 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-8-lines` | generate, one repeated line, 311 characters, 61.3 s of audio | 7.68 | 9.6 | 112.2 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-12-lines` | generate, one repeated line, 463 characters, 84.9 s of audio | 7.95 | 9.5 | 145.3 | Succeeded | 1 |
+| `yue2_cuda/generate/lyrics-16-lines` | generate, one repeated line, 615 characters, 118.7 s of audio | 8.04 | 9.6 | 179.4 | Succeeded | 1 |
+| `yue2_cuda/generate/long` | generate, style and 20 repeated lyric lines, 760 characters | 8.07 | 10.1 | 454.1 | Failed: the semantic stage reached its token limit | 1 |
+| `yue2_cuda/generate/instrumental` | generate, style and no lyrics, 127.6 s of audio | 0.00 | 9.6 | 259.6 | Succeeded | 1 |
+
+The four `lyrics-N-lines` rows are the sweep behind the gateway's lyric limit: 615 characters finished and 760 did not, so the CUDA gateway refuses more than 600 characters before it starts, instead of failing after seven minutes.
+The MLX pack finishes the 760 characters in 237.9 s, so the budget is this engine's limit, not the model's.
+No run truncated, and the nvfp4 build sings faster than realtime at 0.79 s of compute per second of audio.
+Chinese is slower per second of audio here: 40.0 s of audio in 176.4 s, against 114.5 s in 174.4 s for English.
+
+#### The bf16 sweep on this machine
+
+The shipped music build is bf16, because the song is the product. The same style and seed at
+four lyric lengths, one operation at a time through the studio API on 2026-11-15:
+
+| Case | Settings | Free-memory drop (GiB) | Time (s) | Result |
+|---|---|---|---|---|
+| `yue2_cuda/generate/short`, first run | bf16, 33 characters, 135.1 s of audio | 12.64 | 177.4 | Succeeded |
+| `yue2_cuda/generate/short`, warm | bf16, 33 characters, 135.1 s of audio | 0.50 | 117.2 | Succeeded |
+| `yue2_cuda/generate/mid272` | bf16, 272 characters, 159.0 s of audio | 0.36 | 137.3 | Succeeded |
+| `yue2_cuda/generate/mid413` | bf16, 413 characters, 444.2 s of audio | -1.09 | 318.8 | Succeeded |
+| `yue2_cuda/generate/long535` | bf16, 535 characters, 272.0 s of audio | 0.15 | 202.6 | Succeeded |
+| `yue2_cuda/generate/instrumental` | bf16, style and no lyric, 375.0 s of audio | -0.83 | 250.8 | Succeeded |
+| `yue2_cuda/plan/short` | bf16, style and one lyric line | 0.46 | 17.0 | Succeeded |
+| `yue2_cuda/cover/ref20s` | bf16, cover from a 20 s reference, 93.9 s of audio | -0.05 | 126.3 | Succeeded |
+| `yue2_cuda/transcribe/ref20s`, first run | bf16, transcribe a 20 s reference, `melody-full` | 1.02 | 39.1 | Succeeded |
+| `yue2_cuda/transcribe/ref20s`, warm | bf16, transcribe a 20 s reference, `melody-full` | 0.52 | 21.1 | Succeeded |
+
+A negative drop means free memory rose during the run, which happens when the run evicts
+more page cache than it allocates.
+The wall time follows the length of the song the engine writes, not the lyric it is given:
+413 characters produced 444 s of audio and 535 characters produced 272 s, so those two rows
+are 319 s and 203 s. The engine decides.
+
+#### The q8 path on this machine
+
+`Int8WeightOnlyConfig` on the Mandarin payload produced 32.7 s of audio in 84.6 s, then 91.7 s.
+Each run reloaded the audio decoder, 30.0 s and 39.6 s, so the lyric stages took 54.6 s and
+52.1 s. The warm nvfp4 run of that payload takes 33.1 s and pays no decoder load, so q8 is at
+least 1.6x slower on the lyric stages. The int8 store quarters the weight bytes, but every matmul
+still runs in bf16 and pays a dequantization step, where the fp4 kernel takes both operands
+natively.
+
+#### Transcribe and cover on this machine
+
+The CUDA engine has no transcriber, so the child runs the pinned upstream SheetSage2 script as
+its own process, with the release's requirements added to the child's environment. Measured on
+2026-11-15 on a 20 second excerpt of a generated song, task `melody-full`:
+
+| Case | Time (s) | Result |
+|---|---|---|
+| Transcribe | 42.1 | native ABC with Vocal and Ins voices |
+| Cover | 66.1 | 12.6 MB of 48 kHz stereo audio |
+
+Both carry the transcriber's own load. The song weights stay resident while the script runs,
+and the script's model is freed when it exits.
+
+### Kernels
+
+Kernel measurements on this machine, one 4096-square linear layer:
+
+| Measure | bf16 | NVFP4 weight-only | NVFP4 W4A4 |
+|---|---|---|---|
+| 512 tokens | 0.23 ms | 0.44 ms | 0.08 ms |
+| 4096 tokens | 1.55 ms | 1.73 ms | 1.12 ms |
+| 8192-square weights | 128 MiB | 128 MiB | 36 MiB |
+
+A 4096-square bf16 GEMM ran at 83 to 90 TFLOPS at 2048, 4096 and 8192.
+At these image sizes NVFP4 does not make the pipeline faster: attention, the text encoder and the VAE decode do not run in FP4.
+It does cut the transformer's weights by 72%. Qwen-Image tolerates the 4-bit path; MiniMax H3-Image does not, which is why its default is fp8.
+
+**The first load cost 236 s until the weights were materialized.** Moving safetensors' mmap-backed tensors straight to the device ran at 128 MB/s on this machine; the same tensors moved from ordinary memory at 14 GiB/s. A 16 GiB shard went from 135 s to 1.3 s, and a cold studio run from 242 s to 20 s.
+H3-Image cannot hold a host copy of its 62 GiB transformer beside the device copy: that order died with `CUDA_ERROR_OUT_OF_MEMORY` at 110 GiB resident, because the host copy and the device copy come out of one pool. It now clones one group of aliased weights at a time and drops the clone as the group lands, so the temporary is one tensor rather than the model. Measured on 2026-11-14, the transformer move fell from 511.7 s to 48.5 s and the whole load from 722.0 s to 203.1 s. What remained was quantization: 95.9 s for the encoder and 58.7 s for the transformer.
+A pack of the quantized weights removes that and halves the bytes. Measured on 2026-11-15, fp8: the pack is 51 GB, the build is a one-off 647.6 s (208.5 s to build the model, 439.1 s to write the pack, because the copy from the device to the host runs at about 116 MB/s), and a load from it takes 33.4 s. The picture is byte-identical to the one the build produced.
+
+A resident model costs nothing to come back to. Measured on 2026-11-15 with
+`[memory] policy = "boundary"`: a cold Qwen Turbo run took 31.1 s, an H3 run took 107.5 s
+beside it, and Qwen again took 12.2 s without a reload. Under `immediate`, which is the
+default, the third run pays Qwen's load again.
+
+The same per-tensor order applies to LTX-2.5. Its load fell from 189.2 s to 32.3 s, and its clip is byte-identical. Qwen-Image-2.1 uses it too: 87.7 s for its whole components against 14.4 s one group at a time, with the picture byte-identical.
+
+### Against the M5 Pro
+
+| Case | M5 Pro (s) | DGX Spark (s) | Ratio |
+|---|---|---|---|
+| Qwen Turbo generate, 512x512, 8 steps | 9.1 | 4.0 | 2.3x faster |
+| Qwen Turbo generate, 768x768, 8 steps | 17.2 | 5.6 | 3.1x faster |
+| Qwen Turbo generate, 1024x1024, 8 steps | 32.3 | 11.0 | 2.9x faster |
+| Qwen Turbo generate, 1328x1328, 8 steps | 69.6 | 17.6 | 4.0x faster |
+| LTX-2.5 generate, 768x768, 97 frames | 117.9 | 74.4 | 1.6x faster |
+| Drama-3 generate, 7 words | 25.2 | 5.0 | 5.0x faster |
+| YuE2 generate, instrumental (bf16) | 283.2 | 259.6 | 1.1x faster |
+| Drama-3 clone, one reference | 4.4 | 7.0 | 1.6x slower |
+| YuE2 generate, short (nvfp4) | 160.2 | 107.3 | 1.5x faster |
+| YuE2 generate, Mandarin lyric (nvfp4), Spark warm | 57.4 | 33.1 | 1.7x faster |
+| Drama-3 generate, 83 words | 29.2 | 51.1 | 1.8x slower |
+| MiniMax H3-Image generate, 1024x1024, 6 steps, NVFP4 | 23.2 | 33.3 | 1.4x slower |
+| MiniMax H3-Image generate, 1024x1024, 6 steps, fp8 | 23.2 | 55.2 | 2.4x slower |
+
+Every row is the same case on both machines.
+The three YuE2 rows include each side's first load, because music loads on first use. The Spark short row now carries the 1.80 GB nvfp4 pack's 19.1 s load instead of the build that the earlier run paid.
+YuE2's long case is absent because the Spark reaches its token limit; the Mac finishes it in 237.9 s.
+A rerun of the short case on the Mac on 2026-11-14 took 179.8 s, against the 160.2 s above and 107.3 s on the Spark on 2026-11-15 after the pack.
+Chinese music is now faster on the Spark. A warm run on 2026-11-15 took 33.1 s for 34.6 s of audio, 0.96 s per audio second, against the Mac's 57.4 s for 42.2 s, 1.36 s per audio second. The Mac figure includes its first load and the Spark figure does not, so the gap is wider than those two ratios show.
+The clone row used the same reference and text on both, measured on 2026-11-14 outside the two campaigns.
+Two machines differ by more than speed: the Spark wins by 3 to 4x on image generation and on English and Chinese music, and loses on long-form speech and cloning.
+
+The second cross-machine pass of 2026-11-15 measured part of this list again, and it moved one row. H3-Image at nvfp4 was 32.1 s warm against the Mac's 17.1 s, a gap of 1.9x rather than the 1.4x above. That pass also ran Qwen Turbo at bf16 on both machines: 12.0 s against 25.9 s.
+
+On H3-Image the ratio depends on the canvas. The Mac generated at 1024x1024, and the Spark's engine generated at 2048x2048 because of the 4.2 MP floor. Per megapixel the Spark takes 7.6 s and the Mac 17.1 s, so the Spark is faster for the work it actually does.
+
+[Platform comparison](platform-comparison.md) holds the pass of 2026-11-15 in full: every
+mode of the shipped builds, the two edits, the music and drama rows, and the constants each
+backend declares for its time estimate. Its rows replace the ones above where the build
+differs, because this table mixes the NVFP4 rows of an earlier pass with later ones.

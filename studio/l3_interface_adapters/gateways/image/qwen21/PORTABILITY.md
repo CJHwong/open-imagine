@@ -1,44 +1,66 @@
-# Porting the engine off Apple Silicon
+# Running the studio on two machines
 
-Status: the probe recognizes MLX GPU devices. macOS is the only platform this
-repo has run on. The seam is `studio/l4_frameworks_and_drivers/engines.py`.
+Status: two engines, one tree. macOS runs the MLX engine. The DGX Spark runs a CUDA
+engine in a child process. The provider names its engine and layer 4 compares that
+with the host, so neither machine sees a branch inside an adapter.
 
 ## What decides today
 
-`engines.py` probes for MLX and `create_studio` refuses a real studio without
-it. That refusal is not a platform check: it asks whether a capability is there.
-The stub passes the refusal, so the page stays workable on a machine that cannot
-run a model at all. The refusal happens before the port is bound, so such a host
-never occupies it.
+Each `ModelProvider` carries `engine`: `"mlx"`, `"cuda"`, or `""` for a plugin that
+owns its runtime. `engines.py` answers what the host has. `mlx_available()` imports
+`mlx.core` and asks for a GPU device. `cuda_available()` runs `nvidia-smi -L`, because
+the server does not import torch: a CUDA engine lives in its own environment, and the
+driver is the whole of what this process can check.
 
-The probe reads `mx.is_available(mx.Device(mx.DeviceType.gpu))`. This checks a
-GPU without naming Metal or CUDA. The pinned mflux release declares an MLX CUDA
-build for Linux, but this repo has not tested its model paths on CUDA.
+Layer 4 offers only the backends whose engine the host has, so the page lists what will
+run here. A studio left with no Image backend is refused by name, and the stub keeps
+every backend, so the page stays workable on a machine that cannot run a model at all.
+The refusal happens before the port is bound, so such a host never occupies it.
 
 **There is one startup gate now, not two.** Instruction editing used to run on a
 diffusers pipeline in a child process, and a non-Apple host was blocked from it
 separately by that script's MPS device check. mflux 0.21.0 ported the Qwen3-VL
 vision tower, so editing runs on the same MLX engine as generation and the child
 is gone. Both models behind qwen21 and the one behind flux2 are now mflux models.
-The MLX GPU probe is the startup gate. Real CUDA generation and editing remain
-unverified.
+
+## The DGX Spark, measured 2026-11-13
+
+| Fact | Value | Source |
+|---|---|---|
+| GPU | GB10, capability sm_121, 48 SMs, driver 580.178.04 | `torch.cuda.get_device_properties` |
+| Memory | 121.7 GiB usable, unified with the CPU | same |
+| Peak bf16 GEMM | 83 to 90 TFLOPS at 2048², 4096² and 8192² | `a @ b`, warmed |
+| Achievable bandwidth | 133 GB/s on a 1 GiB copy-add, against 273 GB/s nominal | MLX copy-add before the pivot |
+| torch | 2.14.1+cu130 aarch64 wheel from PyTorch's index | `torch.__version__` |
+| MSLK | 1.4.0+cu130 has aarch64 wheels; installs with `--index-strategy unsafe-best-match` | PyTorch wheel index |
+| NVFP4 W4A4 | 2.9x bf16 at 512 tokens, 1.4x at 4096; weights 72% smaller | torchao prototype config, MSLK installed |
+| NVFP4 weight-only | 0.5 to 0.97x of bf16, and stores the same bytes | same run |
+| Studio run, warm | 4.0s at 512x512, 8 steps; 12.0s at 1024x1024 | studio API, NVFP4 W4A4 |
+| Studio run, cold | 20.1s including the load | same |
+| Weights to the device | 128 MB/s from safetensors' mmap, 14 GiB/s from ordinary memory | 16 GiB shard, 135s against 1.3s |
+
+The weight-only number is the trap. It stores four bits and computes in bf16, so it is
+slower than doing nothing. Only W4A4 with MSLK puts the matmul on the FP4 tensor cores.
+
+MSLK 1.4.0 declares torch 2.15 and ran correctly on 2.14.1 here. Pin the pair the child
+actually tested, and re-test when either moves.
 
 ## Why a Mac cannot test this
 
-The branch that needs proving is the non-Apple one. Any Apple machine exercises
-the macOS path, which is the path that already works.
+The CUDA branch needs an NVIDIA driver. Any Apple machine exercises the macOS path,
+which is the path that already works.
 
 A second Mac is still worth running: it catches hardcoded assumptions from the
 development machine and gives a second chip. It is not portability proof.
 
-## The decisions a non-Apple build forces
+## The decisions a CUDA engine forces
 
 | Decision | Today | Why it changes |
 |---|---|---|
-| The engine | MLX only, and a host without an MLX GPU is refused | The pinned mflux release declares an MLX CUDA build for Linux. This repo still needs a real CUDA run for generation and editing. |
-| The memory guard | The two qwen21 models are freed against each other, sized for a 64 GB machine | That is a VRAM fact, not a platform fact. `mx.device_info()` reports `max_recommended_working_set_size` (26800603136 bytes on the M1 Pro here, measured 2026-09-25); CUDA has `torch.cuda.mem_get_info()`. A large card could hold both. |
-| The quantization | mflux quantizes the transformer and the VAE, and the badge the page shows follows it | Another engine quantizes another way, and the badge has to follow that engine. |
-| The weight layout | mflux reads its own layout and downloads `Qwen/Qwen-Image-2.1` itself | Another engine wants another layout. flux2 already takes a hand-placed folder, so the pattern exists. |
+| The engine | MLX only on the Mac; a diffusers child on the Spark | The engine is named on the provider, so each machine builds only what it can run |
+| The memory guard | The two qwen21 models are freed against each other, sized for a 64 GB machine | That is a VRAM fact, not a platform fact. `mx.device_info()` reports `max_recommended_working_set_size`; CUDA has `torch.cuda.mem_get_info()`, and on unified memory `/proc/meminfo` `MemAvailable` is the honest figure |
+| The quantization | mflux quantizes the transformer and the VAE | A CUDA engine quantizes with torchao, and the badge has to follow that engine. `nvfp4` is a badge this page has never shown |
+| The weight layout | mflux reads its own layout and downloads `Qwen/Qwen-Image-2.1` itself | diffusers reads the same Hub repo through `QwenImage21Pipeline` |
 
 ## Numbers already measured, all on Apple Silicon
 
@@ -73,13 +95,22 @@ before a port is built on it:
 - The edit call takes `image_paths`, not images, so the references go to disk for
   the length of a run. `edit.py` records why.
 
-## Next steps, cheapest first
+## What the Spark runs today
 
-1. **Get a Linux CUDA host.** The current office Mac cannot prove this path.
-2. **Run Qwen generation and editing on that host.** If either path fails, pick
-   an engine that supports both operations.
-3. **Measure a generate and an edit on that host.** Re-fit the constants in
-   `capabilities.py` against those runs.
+`qwen21_cuda` generates through `QwenImage21Pipeline` at NVFP4 W4A4, through the studio API.
+A cold run takes 20.1s at 512 and a warm one 4.0s; at 1024 a warm run takes 12.0s.
+At these sizes NVFP4 costs nothing and wins nothing in time: the linear layers are not
+the bottleneck, and the text encoder and VAE stay in bf16. It does cut the transformer's
+weights by 72%, which is what leaves room for larger checkpoints later.
 
-The probe change makes the existing MLX CUDA build reachable. The host tests
-remain necessary because this repo has no CUDA generation or edit run.
+## Next steps, in order
+
+1. **Add Edit.** The checkpoint edits, but only Generate is wired. `QwenImage21Pipeline`
+   takes `image`; the edit path needs the same measurement the generate path has.
+2. **Fit the Spark's step constants** and give the mode an estimate. Until then the
+   page shows no time for this backend, which is honest, not a placeholder.
+3. **Keep the version pair tested.** MSLK 1.4.0 declares torch 2.15 and ran on 2.14.1.
+   Re-test when either moves, and never quote a time from a mixed pair.
+4. **Compare a Mac result against a Spark result** on the same model, seed, and size.
+   The community figure of 54 s for Qwen-Image-2.1 at 1024 and 40 steps, bf16, is a
+   sanity check only.
