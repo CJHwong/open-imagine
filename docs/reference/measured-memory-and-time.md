@@ -210,16 +210,11 @@ These numbers apply to this machine. Another host has no calibrated estimate.
 
 ### Image
 
-The Qwen rows below ran the NVFP4 build, which no longer ships; the shipped entry is bf16 and
-its rows are in that build's table further down. The H3-Image rows are the two builds the
-picker offers, fp8 by default and NVFP4 second.
+These are the builds the picker offers: Qwen-Image-2.1 Turbo in bf16, and H3-Image in fp8 or
+NVFP4. The Qwen NVFP4 rows are in the section below, because that build was dropped.
 
 | Case | Settings | Free-memory drop (GiB) | Process footprint (GiB) | Time (s) | Result | Runs |
 |---|---|---|---|---|---|---|
-| `qwen21_turbo_cuda/generate/text/512` | generate, 512x512, 8 steps, NVFP4 W4A4 | not sampled | not sampled | 4.0 | Succeeded | 2 |
-| `qwen21_turbo_cuda/generate/text/768` | generate, 768x768, 8 steps, NVFP4 W4A4 | 2.90 | not sampled | 5.6 | Succeeded | 1 |
-| `qwen21_turbo_cuda/generate/text/1024` | generate, 1024x1024, 8 steps, NVFP4 W4A4 | 0.07 | 2.3 | 11.0 | Succeeded | 2 |
-| `qwen21_turbo_cuda/generate/text/1328` | generate, 1328x1328, 8 steps, NVFP4 W4A4 | 5.19 | not sampled | 17.6 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/512`, bf16, first run | generate, 512x512, 8 steps, bf16 | -52.75 | not sampled | 25.1 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/512`, bf16 | generate, 512x512, 8 steps, bf16 | 0.00 | not sampled | 3.0 | Succeeded | 1 |
 | `qwen21_turbo_cuda/generate/text/768`, bf16 | generate, 768x768, 8 steps, bf16 | 2.75 | not sampled | 7.0 | Succeeded | 1 |
@@ -228,7 +223,6 @@ picker offers, fp8 by default and NVFP4 second.
 | `minimax_h3_image_cuda/generate/text/1024` | generate, 1024x1024, 6 steps, NVFP4 W4A4 | 0.00 | 1.4 | 33.3 | Succeeded | 2 |
 | `minimax_h3_image_cuda/generate/text/1024-fp8` | generate, 1024x1024, 6 steps, fp8 weights | 0.00 | 2.3 | 55.2 | Succeeded | 2 |
 
-The Qwen NVFP4 cold run, the first of the two 512 runs, took 18.6 s and dropped free memory by 38.68 GiB. That row predates the load work: a cold 1024 run is now 38.1 s against 11.0 s warm, which includes the child start.
 The bf16 rows are the campaign of 2026-11-15 on the shipped entry: 25.1 s for its first 512 run and 3.0 s for the warm one beside it.
 The Turbo checkpoint ships its own eight-step schedule, so a 20-step request samples the same eight steps.
 The fp8 row is the shipped default. It costs 64% more sampling time than NVFP4 and removes the grain: at one prompt and seed, speckle fell from 3.94 to 2.04 and the smoothest 32x32 patch went from 5.99 to 2.17 standard deviation.
