@@ -202,7 +202,7 @@ LTX-2.5 carries a second transformer, a distilled LoRA and the 9.6 GiB prompt en
 A warm row counts only the run, because the weights were resident before submit. A cold row includes the model load.
 **Process footprint (GiB)** is the peak sum of the resident memory of the child process tree.
 On unified memory a resident figure under-reports the GPU allocation, so read it beside the free-memory drop. `not sampled` means no sample exists.
-The campaign of 2026-11-15 sampled free memory only, because its harness reads `MemAvailable` once a second and does not walk the child process tree. Its rows say `not sampled` for the footprint, and the rows that carry one were measured by the harness before it.
+The campaign of 2026-11-15 sampled free memory only, because its harness reads `MemAvailable` once a second and does not walk the child process tree. Its rows say `not sampled` for the footprint, and the rows that carry one were measured by the harness before it. Both harnesses and their case lists are in [`scripts/measure`](../../scripts/measure/README.md), so any row here can be produced again.
 **Time (s)** is the operation's wall time. The queue wait is excluded.
 Each case has one row and `Runs` gives the recorded runs, and the row shows the last run, so a case with two runs shows the warm one.
 A cold run also pays a submit wait before the child starts, and that wait is inside its time.
