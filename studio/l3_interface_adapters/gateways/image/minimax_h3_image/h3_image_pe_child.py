@@ -21,7 +21,6 @@ import argparse
 import base64
 import contextlib
 import json
-import math
 import os
 import sys
 from pathlib import Path
@@ -34,27 +33,14 @@ def log(message):
     print(message, file=sys.stderr, flush=True)
 
 
-def json_objects(text):
-    """Every balanced {...} in the reply, in order."""
-    depth, start = 0, None
-    for index, character in enumerate(text):
-        if character == "{":
-            if depth == 0:
-                start = index
-            depth += 1
-        elif character == "}" and depth:
-            depth -= 1
-            if depth == 0 and start is not None:
-                yield text[start : index + 1]
-                start = None
+sys.path.insert(0, str(Path(__file__).parent.parent / "shared"))
 
-
-def last_json_object(text):
-    """The last JSON object in the model's reply, after any reasoning in front of it."""
-    for candidate in reversed(list(json_objects(text))):
-        with contextlib.suppress(json.JSONDecodeError):
-            return json.loads(candidate)
-    raise ValueError("The prompt enhancer returned no JSON object.")
+from h3_image_pe_text import (  # noqa: E402  (a script's own directory is not on the path yet)
+    caption_reply,
+    edit_messages,
+    image_messages,
+    picture_ratio,
+)
 
 
 class Enhancer:
@@ -107,50 +93,21 @@ class Enhancer:
         raise ValueError(f"Unknown prompt-enhancer kind {kind!r}.")
 
     def rewrite_image(self, prompt):
-        system = (self.prompt_dir / "t2i/system_prompt.txt").read_text(encoding="utf-8").rstrip("\n")
-        task = (self.prompt_dir / "t2i/task_prompt.txt").read_text(encoding="utf-8").rstrip("\n").format(prompt)
-        text = self.ask([{"role": "system", "content": system}, {"role": "user", "content": task}])
-        answer = last_json_object(text)
-        caption = str(answer.get("expanded_caption") or "").strip()
-        ratio = str(answer.get("aspect_ratio") or "").strip() or None
-        if not caption:
-            raise ValueError("The prompt enhancer wrote an empty caption.")
-        return {"prompt": caption, "ratio": ratio}
+        text = self.ask(image_messages(self.prompt_dir, prompt))
+        return caption_reply(text, "aspect_ratio")
 
     def rewrite_edit(self, prompt, job):
-        task = (self.prompt_dir / "edit/task_prompt.txt").read_text(encoding="utf-8").strip()
         pictures = [base64.b64decode(raw) for raw in job.get("images") or []]
         ratio = str(job.get("ratio") or "adaptive")
-        lines = []
+        messages = edit_messages(self.prompt_dir, prompt, [picture_ratio(raw) for raw in pictures], ratio)
         with TemporaryDirectory(prefix="h3-pe-", dir=os.environ.get("SPEECH_GEN_SCRATCH")) as scratch:
             paths = []
             for index, raw in enumerate(pictures, start=1):
                 path = Path(scratch) / f"picture-{index}.png"
                 path.write_bytes(raw)
                 paths.append(str(path))
-                lines.append(f"Reference Media: <Picture {index}>, aspect_ratio {picture_ratio(raw)}")
-            lines.append(f"User Editing Instruction (JSON string): {json.dumps(prompt)}")
-            lines.append(f"User Aspect Ratio Selection: {ratio}")
-            messages = [{"role": "user", "content": task + "\n\n" + "\n".join(lines)}]
             text = self.ask(messages, paths)
-        answer = last_json_object(text)
-        caption = str(answer.get("expanded_caption") or "").strip()
-        target = str(answer.get("target_aspect_ratio") or "").strip() or ratio
-        if not caption:
-            raise ValueError("The prompt enhancer wrote an empty caption.")
-        return {"prompt": caption, "ratio": target}
-
-
-def picture_ratio(raw):
-    """The lowest whole-number ratio of the picture bytes."""
-    from io import BytesIO
-
-    from PIL import Image
-
-    with Image.open(BytesIO(raw)) as image:
-        width, height = image.size
-    divisor = math.gcd(width, height)
-    return f"{width // divisor}:{height // divisor}"
+        return caption_reply(text, "target_aspect_ratio", ratio)
 
 
 def main():

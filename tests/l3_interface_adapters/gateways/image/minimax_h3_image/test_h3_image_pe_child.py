@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image import h3_image_pe_child as child
+from studio.l3_interface_adapters.gateways.image.shared import h3_image_pe_text as pe_text
 
 
 def png(size=(640, 480)):
@@ -38,17 +39,17 @@ def enhancer(tmp_path):
 
 def test_the_last_json_object_wins_over_reasoning_and_a_broken_object():
     text = 'thinking... {"expanded_caption": "a pear", "aspect_ratio": "1:1"} and {bad json}'
-    assert child.last_json_object(text)["expanded_caption"] == "a pear"
+    assert pe_text.last_json_object(text)["expanded_caption"] == "a pear"
 
 
 def test_a_reply_without_json_is_an_input_error():
     with pytest.raises(ValueError, match="no JSON object"):
-        child.last_json_object("only words")
+        pe_text.last_json_object("only words")
 
 
 def test_a_picture_ratio_is_the_lowest_whole_number():
-    assert child.picture_ratio(png((640, 480))) == "4:3"
-    assert child.picture_ratio(png((1024, 1024))) == "1:1"
+    assert pe_text.picture_ratio(png((640, 480))) == "4:3"
+    assert pe_text.picture_ratio(png((1024, 1024))) == "1:1"
 
 
 def test_a_missing_pack_is_refused_before_loading(tmp_path):
@@ -153,7 +154,7 @@ def test_the_ask_uses_the_release_sampling(monkeypatch, tmp_path):
 
 def test_nested_objects_and_a_stray_close_are_handled():
     text = 'noise {"a": {"b": 1}} } {"c": 2}'
-    assert list(child.json_objects(text)) == ['{"a": {"b": 1}}', '{"c": 2}']
+    assert list(pe_text.json_objects(text)) == ['{"a": {"b": 1}}', '{"c": 2}']
 
 
 def test_the_first_request_loads_the_pack(tmp_path):

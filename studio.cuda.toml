@@ -32,6 +32,9 @@ rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
 # fp8 removes the grain NVFP4 leaves on this model; see the configuration reference.
 [minimax_h3_image_cuda]
 quantize = "fp8"
+# The release's own prompt enhancer, a 27B. Remove it to hide Rewrite; it loads on the first
+# press and is released before an image run.
+rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
 
 [drama3_cuda]
 checkpoint = "fishaudio/drama-3"

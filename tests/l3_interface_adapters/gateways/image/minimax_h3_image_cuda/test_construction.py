@@ -60,3 +60,16 @@ def test_a_host_without_uv_gets_a_named_refusal(monkeypatch):
 
     with pytest.raises(ModelConfigurationError, match="needs uv on PATH"):
         minimax_h3_image_cuda_backend(Config({}))
+
+
+def test_the_section_can_name_the_prompt_enhancer(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = construction.build_rewriter(Config({"rewrite_model": "me/pe"}), "minimax_h3_image_cuda")
+
+    assert gateway.modes() == ("generate", "edit")
+    assert gateway._child._command[-2:] == ["--model", "me/pe"]
+
+
+def test_without_the_setting_the_page_offers_no_rewrite():
+    assert construction.build_rewriter(Config({}), "minimax_h3_image_cuda").modes() == ()
