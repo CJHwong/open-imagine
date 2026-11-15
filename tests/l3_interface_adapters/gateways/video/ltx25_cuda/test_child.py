@@ -72,6 +72,15 @@ def fake_world(monkeypatch, pipe, available=True):
     monkeypatch.setitem(sys.modules, "torch", torch)
 
     diffusers = types.ModuleType("diffusers")
+
+    class Condition:
+        def __init__(self, frames, index, strength):
+            self.frames, self.index, self.strength = frames, index, strength
+
+    ltx2 = types.ModuleType("diffusers.pipelines.ltx2")
+    monkeypatch.setattr(ltx2, "LTX2VideoCondition", Condition, raising=False)
+    monkeypatch.setitem(sys.modules, "diffusers.pipelines", types.ModuleType("diffusers.pipelines"))
+    monkeypatch.setitem(sys.modules, "diffusers.pipelines.ltx2", ltx2)
     monkeypatch.setattr(
         diffusers, "LTX2DFRPipeline", SimpleNamespace(from_pretrained=lambda model, **kwargs: pipe), raising=False
     )
@@ -286,3 +295,44 @@ def test_local_snapshot_keeps_an_id_whose_snapshot_is_gone(monkeypatch, tmp_path
     (root / "refs" / "main").write_text("abc123")
 
     assert child.local_snapshot("me/pack") == "me/pack"
+
+
+def png():
+    import base64
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 3), "red").save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def test_a_keyframe_becomes_a_pipeline_condition(monkeypatch):
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+
+    child.run(
+        pipe,
+        {
+            "prompt": "a fox",
+            "width": 768,
+            "height": 512,
+            "frames": 97,
+            "frame_rate": 24,
+            "seed": 1,
+            "references": [{"png_base64": png(), "frame_index": 0, "strength": 0.8}],
+        },
+    )
+
+    condition = pipe.calls[-1]["conditions"][0]
+    assert (condition.index, condition.strength) == (0, 0.8)
+    assert (condition.frames.size, condition.frames.mode) == ((4, 3), "RGB")
+
+
+def test_a_run_without_keyframes_sends_no_conditions(monkeypatch):
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+
+    child.run(pipe, {"prompt": "a fox", "width": 768, "height": 512, "frames": 97, "frame_rate": 24, "seed": 1})
+
+    assert "conditions" not in pipe.calls[-1]

@@ -16,6 +16,7 @@
 #   "protobuf",
 #   "imageio",
 #   "imageio-ffmpeg",
+#   "av",
 # ]
 # [tool.uv]
 # index-strategy = "unsafe-best-match"
@@ -36,6 +37,7 @@ is a 9.5 GiB Gemma that only matters when a caller presses Rewrite.
 
 import argparse
 import base64
+import io
 import json
 import os
 import sys
@@ -167,6 +169,14 @@ def unpack(frames):
     return frames
 
 
+def reference_image(encoded: str):
+    """A keyframe the parent sent as a base64 PNG, as the pipeline wants it."""
+    from PIL import Image
+
+    with Image.open(io.BytesIO(base64.b64decode(encoded))) as found:
+        return found.convert("RGB")
+
+
 def run(pipe, job: dict) -> dict:
     import torch
 
@@ -190,6 +200,19 @@ def run(pipe, job: dict) -> dict:
     }
     if job.get("enhance"):
         arguments["enable_prompt_enhancement"] = True
+    if job.get("references"):
+        # The pipeline's own conditioning item: it resizes, re-compresses and encodes the
+        # picture, and pins one frame at the index with the strength the run asked for.
+        from diffusers.pipelines.ltx2 import LTX2VideoCondition
+
+        arguments["conditions"] = [
+            LTX2VideoCondition(
+                frames=reference_image(entry["png_base64"]),
+                index=int(entry.get("frame_index", 0)),
+                strength=float(entry.get("strength", 1.0)),
+            )
+            for entry in job["references"]
+        ]
     result = pipe(**arguments)
     frames = unpack(result[0])
     payload = encode(frames, int(arguments["frame_rate"]))

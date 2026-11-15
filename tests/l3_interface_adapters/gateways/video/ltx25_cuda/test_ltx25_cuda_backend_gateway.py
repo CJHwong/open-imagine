@@ -106,3 +106,16 @@ def test_load_waits_for_the_child_to_say_ready():
     gateway.load()
 
     child.wait_ready.assert_called_once_with()
+
+
+def test_a_keyframe_crosses_with_its_frame_index_and_strength():
+    from studio.l1_entities.video_job import VideoReference
+
+    reference = VideoReference(name="first.png", png=b"png", frame_index=0, strength=0.8)
+    payload = clip_payload(job(references=(reference,)))
+
+    assert payload["references"] == [{"png_base64": "cG5n", "frame_index": 0, "strength": 0.8}]
+
+
+def test_a_run_without_keyframes_sends_no_references():
+    assert "references" not in clip_payload(job())

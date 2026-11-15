@@ -13,7 +13,7 @@ from studio.l3_interface_adapters.gateways.video.ltx25_cuda.capabilities import 
 
 def clip_payload(job: VideoJob) -> dict:
     """One job as the child's JSON. The prompt and the sizes cross as values."""
-    return {
+    payload = {
         "prompt": job.prompt,
         "width": job.width,
         "height": job.height,
@@ -22,6 +22,16 @@ def clip_payload(job: VideoJob) -> dict:
         "seed": job.seed if job.seed is not None else 0,
         "enhance": bool(job.enhance),
     }
+    if job.references:
+        payload["references"] = [
+            {
+                "png_base64": base64.b64encode(reference.png).decode("ascii"),
+                "frame_index": reference.frame_index,
+                "strength": reference.strength,
+            }
+            for reference in job.references
+        ]
+    return payload
 
 
 class Ltx25CudaBackendGateway(VideoBackendGateway):

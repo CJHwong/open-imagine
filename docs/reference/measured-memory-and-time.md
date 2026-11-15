@@ -323,8 +323,13 @@ One model serves both modes, so nothing is swapped between presses. It moved fre
 | `ltx25_cuda/generate/text/1280x704x97` | generate, 1280x704, 97 frames, distilled eight-step schedule | 12.55 | 12.4 | 115.5 | Succeeded | 1 |
 | `ltx25_cuda/generate/text/768x768x97-fast` | generate, 768x768, 97 frames, Fast mode | 0.36 | 11.6 | 76.3 | Succeeded | 1 |
 | `ltx25_cuda/generate/text/768x768x97` | generate, 768x768, 97 frames, distilled eight-step schedule | 0.32 | 4.3 | 74.4 | Succeeded | 2 |
+| `ltx25_cuda/generate/keyframe/768x512x97` | generate, 768x512, 97 frames, one keyframe at frame 0, strength 1.0 | not sampled | not sampled | 110.4 | Succeeded | 1 |
 
 The first run of the 768x448 case took 96.4 s, which includes a 32.3 s load. The load was 189.2 s before each weight travelled through host memory.
+The keyframe row is one press on a fresh server: it carries the same 32-second load, and its
+first frame is the reference picture. The pipeline takes the reference as an
+`LTX2VideoCondition` and re-compresses it at the model's own CRF before the vae sees it, which
+needs PyAV in the child environment.
 The clip is a 1.4 MB MP4. `LTX2DFRPipeline` runs the checkpoint's distilled eight-value sigma list, which is what the MLX backend runs when it takes its distilled path; `LTX2Pipeline` would run a linear thirty-step schedule at 3.75 times the cost.
 
 ### Voice
