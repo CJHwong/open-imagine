@@ -8,6 +8,11 @@
 #   "mslk==1.4.0",
 #   "soundfile",
 #   "numpy",
+#   "torchaudio",
+#   "pretty_midi",
+#   "mir_eval",
+#   "mido",
+#   "imageio-ffmpeg",
 # ]
 # [tool.uv]
 # index-strategy = "unsafe-best-match"
@@ -34,6 +39,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import time
@@ -75,6 +81,19 @@ def install_transcriber(extras_dir: Path) -> Path:
     return directory
 
 
+def audio_suffix(raw: bytes) -> str:
+    """The extension the decoder infers a format from. A file called `.audio` needs ffmpeg."""
+    if raw.startswith(b"RIFF"):
+        return ".wav"
+    if raw.startswith(b"ID3") or raw[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"):
+        return ".mp3"
+    if raw.startswith(b"OggS"):
+        return ".ogg"
+    if raw[:4] == b"fLaC":
+        return ".flac"
+    return ".bin"
+
+
 def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
     """The reference audio as native ABC, through the pinned SheetSage2 script."""
     raw = base64.b64decode(job.get("reference_audio") or "")
@@ -86,10 +105,24 @@ def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
     snapshot_download(
         SHEETSAGE,
         revision=SHEETSAGE_REVISION,
-        allow_patterns=["config.json", "*.safetensors", "*.py", "LICENSE"],
+        allow_patterns=["config.json", "*.json", "*.safetensors", "*.py", "LICENSE"],
     )
+    base_model = snapshot_download(
+        MERT,
+        revision=MERT_REVISION,
+        allow_patterns=["config.json", "*.json", "*.safetensors", "*.py", "LICENSE"],
+    )
+    import imageio_ffmpeg
+
     with TemporaryDirectory(prefix="yue2-transcribe-") as scratch:
-        audio = Path(scratch) / "reference.audio"
+        # The transcriber's decoder asks for a command called `ffmpeg`. The package ships a
+        # binary under a longer name, so a link with that name goes first on PATH.
+        binaries = Path(scratch) / "bin"
+        binaries.mkdir()
+        (binaries / "ffmpeg").symlink_to(imageio_ffmpeg.get_ffmpeg_exe())
+        environment = dict(os.environ)
+        environment["PATH"] = os.pathsep.join([str(binaries), environment.get("PATH", "")])
+        audio = Path(scratch) / f"reference{audio_suffix(raw)}"
         audio.write_bytes(raw)
         output = Path(scratch) / "transcription"
         command = [
@@ -103,10 +136,12 @@ def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
             "--offline",
             "--revision",
             SHEETSAGE_REVISION,
+            "--base-model",
+            base_model,
             "--task",
             job.get("transcription_task", "melody-full"),
         ]
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=3600, env=environment)
         if completed.returncode != 0 or not (output / "score.abc").is_file():
             detail = (completed.stderr or completed.stdout or "").strip().splitlines()
             raise ValueError(f"Transcription failed: {detail[-1] if detail else 'no output'}")
@@ -156,6 +191,9 @@ TRANSCRIBER_FILES = {
 }
 SHEETSAGE = "m-a-p/SheetSage2"
 SHEETSAGE_REVISION = "eab522a8168e8b8b8c4856bf8609cd86198f01fe"
+# The adapter's base model. The script wants a local snapshot for an offline load.
+MERT = "m-a-p/MERT-v2-FullSong"
+MERT_REVISION = "d8ba1c745e733b3908ce6ad16ebeb17ac7600a42"
 
 QUANTIZERS = {"bf16", "fp8", "nvfp4"}
 """`bf16` is unquantized, `fp8` is the engine's own FP8 arithmetic for the lyric stages,

@@ -744,7 +744,16 @@ def test_transcription_refuses_a_job_without_audio(tmp_path):
         child.transcribe({"reference_audio": ""}, tmp_path)
 
 
+def fake_ffmpeg(monkeypatch, tmp_path):
+    module = types.ModuleType("imageio_ffmpeg")
+    binary = tmp_path / "ffmpeg"
+    binary.write_text("")
+    monkeypatch.setattr(module, "get_ffmpeg_exe", lambda: str(binary), raising=False)
+    monkeypatch.setitem(sys.modules, "imageio_ffmpeg", module)
+
+
 def test_transcription_runs_the_pinned_script_and_reads_the_score(monkeypatch, tmp_path):
+    fake_ffmpeg(monkeypatch, tmp_path)
     hub = types.ModuleType("huggingface_hub")
     downloads = []
     monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: downloads.append(a), raising=False)
@@ -774,6 +783,7 @@ def test_transcription_runs_the_pinned_script_and_reads_the_score(monkeypatch, t
 
 
 def test_a_failed_transcription_reports_the_last_line(monkeypatch, tmp_path):
+    fake_ffmpeg(monkeypatch, tmp_path)
     hub = types.ModuleType("huggingface_hub")
     monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: [], raising=False)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
@@ -817,3 +827,11 @@ def test_a_cover_job_sings_the_transcribed_score(monkeypatch, tmp_path):
 
     request = pipe.call_args.kwargs
     assert request["abc"] == "X:1" and request["cot"] == "full"
+
+
+def test_the_reference_extension_follows_its_bytes():
+    assert child.audio_suffix(b"RIFF....") == ".wav"
+    assert child.audio_suffix(b"ID3....") == ".mp3"
+    assert child.audio_suffix(b"OggS....") == ".ogg"
+    assert child.audio_suffix(b"fLaC....") == ".flac"
+    assert child.audio_suffix(b"????") == ".bin"

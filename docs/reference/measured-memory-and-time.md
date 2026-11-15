@@ -412,6 +412,20 @@ least 1.6x slower on the lyric stages. The int8 store quarters the weight bytes,
 still runs in bf16 and pays a dequantization step, where the fp4 kernel takes both operands
 natively.
 
+#### Transcribe and cover on this machine
+
+The CUDA engine has no transcriber, so the child runs the pinned upstream SheetSage2 script as
+its own process, with the release's requirements added to the child's environment. Measured on
+2026-11-15 on a 20 second excerpt of a generated song, task `melody-full`:
+
+| Case | Time (s) | Result |
+|---|---|---|
+| Transcribe | 42.1 | native ABC with Vocal and Ins voices |
+| Cover | 66.1 | 12.6 MB of 48 kHz stereo audio |
+
+Both carry the transcriber's own load. The song weights stay resident while the script runs,
+and the script's model is freed when it exits.
+
 ### Kernels
 
 Kernel measurements on this machine, one 4096-square linear layer:
