@@ -137,6 +137,11 @@ class SizeCaption extends Drawn {
         : t('image.size.follows');
     } else if (current) {
       text = current.width + ' × ' + current.height;
+    } else if (page.matchesFirstReferenceDimensions()) {
+      const first = page.firstReference();
+      text = first && first.width && first.height
+        ? first.width + ' × ' + first.height
+        : t('image.size.firstReference');
     } else {
       // Match under a size param: the label of the choice names the megapixels it gives.
       const megapixels = page.matchMegapixels();

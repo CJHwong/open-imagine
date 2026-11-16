@@ -2,9 +2,11 @@
 
 from collections.abc import Mapping
 
+from studio.l1_entities.errors import InvalidJob
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import MAX_REFERENCES
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.minimax_h3_image_backend_gateway import (
     MAX_REFERENCE_RATIO,
+    match_canvas,
 )
 from studio.l3_interface_adapters.gateways.memory.inputs import _has_loras, _image_size, _reference_sizes
 
@@ -32,8 +34,15 @@ def estimate_peak_gib(payload: Mapping[str, object]) -> float | None:
     # The gateway refuses a longer reference, and sends a larger one at 2048 x 2048 pixels at most.
     if any(max(size) > MAX_REFERENCE_RATIO * min(size) for size in references):
         return None
-    # Match sizes the output from the reference at about 4 MP; _image_size reads it as 1024 square.
-    width, height = _image_size(payload.get("size", "1024x1024"))
+    if payload.get("size") == "match":
+        if not references:
+            return None
+        try:
+            width, height = match_canvas(*references[0])
+        except InvalidJob:
+            return None
+    else:
+        width, height = _image_size(payload.get("size", "1024x1024"))
     if width is None or height is None or width * height > H3_IMAGE_MAX_PIXELS:
         return None
     return H3_IMAGE_PEAK_GIB

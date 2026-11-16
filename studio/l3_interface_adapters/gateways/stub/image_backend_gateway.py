@@ -22,7 +22,7 @@ from studio.l3_interface_adapters.gateways.png_images import to_png
 MATCH = "match"  # the size value every backend uses for "keep the reference's size"
 
 
-def image_size(job: ImageJob) -> tuple[int, int]:
+def image_size(job: ImageJob, matches_first: bool = False) -> tuple[int, int]:
     size = str(job.options.get("size", MATCH))
     if size != MATCH:
         width, height = (int(side) for side in size.split("x"))
@@ -31,6 +31,8 @@ def image_size(job: ImageJob) -> tuple[int, int]:
     if resolution != MATCH:
         return int(resolution), int(resolution)
     if job.references:
+        if matches_first:
+            return job.references[0].width, job.references[0].height
         return match_reference_size(job.references[-1].width, job.references[-1].height)
     return 1024, 1024
 
@@ -76,7 +78,9 @@ class StubBackendGateway(ImageBackendGateway):
             if should_stop():
                 raise Cancelled(f"stopped at step {step}")
             on_step(step, total)
-        width, height = image_size(job)
+        mode = self._capabilities.mode(job.mode)
+        matches_first = any(param.id == "size" and param.match_first_reference_dimensions for param in mode.params)
+        width, height = image_size(job, matches_first)
         return ImageResult(
             png=to_png(placeholder(job, width, height)),
             width=width,

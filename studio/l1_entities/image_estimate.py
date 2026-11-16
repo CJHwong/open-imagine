@@ -61,7 +61,7 @@ def estimate_image(
     pictures = reference_sizes[:-1] if mask else reference_sizes
     carried = 1 if each else len(reference_sizes)
     model = mode.reference_estimate if pictures and mode.reference_estimate else mode.estimate
-    pixels, width, height = _shape(options, pictures, model)
+    pixels, width, height = _shape(options, pictures, model, mode)
     steps = int(options.get("steps", 0))
     if model is None or "steps" not in options:
         return ImageEstimate("unavailable", steps, width, height, carried)
@@ -90,7 +90,7 @@ def estimate_image(
 
 
 def _shape(
-    options: Mapping[str, OptionValue], pictures: tuple[tuple[int, int], ...], model: Estimate | None
+    options: Mapping[str, OptionValue], pictures: tuple[tuple[int, int], ...], model: Estimate | None, mode: ModeSpec
 ) -> tuple[int, int, int]:
     """The pixel count that the cost reads, and the width and height of that area.
 
@@ -110,6 +110,10 @@ def _shape(
         else:
             side = MATCH_SIDE
         return side * side, *_sides(side * side, ratio)
+    exact_match = any(param.id == "size" and param.match_first_reference_dimensions for param in mode.params)
+    if options.get("size") == "match" and exact_match and pictures:
+        width, height = pictures[0]
+        return width * height, width, height
     width, _, height = str(options.get("size", "")).partition("x")
     if width.isdigit() and height.isdigit():
         return int(width) * int(height), int(width), int(height)

@@ -2,6 +2,7 @@
 
 import pytest
 
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image import memory_estimate
 from tests.support.memory_estimates import calibrated_mac_estimate_platform as calibrated_mac_estimate_platform
 from tests.support.memory_estimates import encoded_png, estimate
 
@@ -33,8 +34,27 @@ def test_h3_image_uses_its_measured_peak_inside_what_the_form_offers(mode, optio
         ("generate", {"each_reference": True}),
         ("edit", {"references": [encoded_png(64, 64)] * 5}),
         ("edit", {"references": [encoded_png(410, 100)]}),  # the gateway refuses past 4:1
+        ("edit", {"size": "match", "references": [encoded_png(4096, 4096)]}),
+        ("edit", {"size": "match", "references": [encoded_png(31, 32)]}),
+        ("edit", {"size": "match", "references": [encoded_png(255, 256)]}),
+        ("edit", {"size": "match", "references": [encoded_png(1041, 3989)]}),
+        ("edit", {"size": "match"}),
         ("generate", {"reference_sizes": [[512, 512]]}),  # sizes with no references
     ),
 )
 def test_h3_image_fails_closed_outside_what_was_measured(mode, options):
     assert estimate("image", "minimax_h3_image", mode, **options) is None
+
+
+@pytest.mark.parametrize("width,height", [(4096, 4096), (31, 32), (1041, 3989)])
+def test_match_estimate_checks_the_reference_dimensions(monkeypatch, width, height):
+    calls = []
+    original = memory_estimate.match_canvas
+
+    def record_canvas(*dimensions):
+        calls.append(dimensions)
+        return original(*dimensions)
+
+    monkeypatch.setattr(memory_estimate, "match_canvas", record_canvas)
+    assert estimate("image", "minimax_h3_image", "edit", size="match", references=[encoded_png(width, height)]) is None
+    assert calls == [(width, height)]

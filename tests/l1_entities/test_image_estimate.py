@@ -7,7 +7,7 @@ too, or breaks the promise that the two agree.
 
 from dataclasses import replace
 
-from studio.l1_entities.capabilities import Estimate, ModeSpec, ParamSpec
+from studio.l1_entities.capabilities import Choice, Estimate, ModeSpec, ParamSpec
 from studio.l1_entities.image_estimate import EXCLUDES, estimate_image
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 
@@ -119,6 +119,19 @@ def test_the_shape_comes_from_the_resolution_the_size_or_one_megapixel():
     assert (unseen.width, unseen.height) == (1024, 1024)
     assert (sized.width, sized.height) == (768, 512)
     assert (unsized.width, unsized.height) == (724, 1448)
+
+
+def test_exact_first_reference_match_uses_its_dimensions_for_the_estimate():
+    size = ParamSpec(
+        "size", "choice", "match", choices=(Choice("match", "Localized label"),), match_first_reference_dimensions=True
+    )
+    mode = ModeSpec(id="edit", label="Edit", params=(size, STEPS), estimate=Estimate(1.0, 1.0, 0, False))
+    first, second = (1600, 900), (512, 512)
+
+    result = estimate_image(mode, {"size": "match", "steps": 6}, (first, second), 1)
+
+    assert (result.width, result.height) == first
+    assert result.total_seconds == 8.6
 
 
 def test_a_long_reference_adds_its_ratio_past_square_to_the_step_cost():

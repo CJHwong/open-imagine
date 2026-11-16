@@ -1,11 +1,17 @@
 import base64
+from dataclasses import replace
 from unittest.mock import Mock
 
+import pytest
+
+from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_job import ImageJob, ReferenceImage
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import EDIT_SIZE, SIZE
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h3_image_cuda_backend_gateway import (
     MinimaxH3ImageCudaBackendGateway,
     edit_payload,
     generate_payload,
+    match_size,
 )
 
 
@@ -73,13 +79,49 @@ def edit_job(**options):
     )
 
 
-def test_an_edit_payload_follows_the_first_reference_at_four_megapixels():
+def test_an_edit_payload_matches_the_first_reference_size():
     payload = edit_payload(edit_job())
 
     assert payload["mode"] == "edit"
-    assert (payload["width"], payload["height"]) == (2720, 1536)
+    assert (payload["width"], payload["height"]) == (1024, 576)
     assert payload["steps"] == 6
     assert payload["references"] == [base64.b64encode(b"one").decode()]
+
+
+@pytest.mark.parametrize(("width", "height"), [(1024, 576), (1030, 575), (2048, 2048), (4096, 1024)])
+def test_match_preserves_the_reference_size(width, height):
+    assert match_size(width, height) == (width, height)
+
+
+@pytest.mark.parametrize(("width", "height"), [(100, 200), (8000, 2000), (4096, 255), (4097, 256)])
+def test_match_rejects_reference_sizes_outside_engine_limits(width, height):
+    with pytest.raises(InvalidJob, match=r"256.*4096"):
+        match_size(width, height)
+
+
+@pytest.mark.parametrize(("width", "height"), [(2049, 2048), (4096, 1025), (1025, 4096)])
+def test_match_rejects_a_reference_over_four_megapixels(width, height):
+    with pytest.raises(InvalidJob, match="4,194,304"):
+        match_size(width, height)
+
+
+@pytest.mark.parametrize(("width", "height"), [(1025, 256), (256, 1025)])
+def test_match_rejects_a_reference_wider_than_four_to_one(width, height):
+    with pytest.raises(InvalidJob, match="4:1"):
+        match_size(width, height)
+
+
+def test_edit_reference_at_the_aspect_limit_is_allowed():
+    reference = ReferenceImage(png=b"one", width=1024, height=256)
+    requested = replace(edit_job(size="1024x1024"), references=(reference,))
+    assert edit_payload(requested)["references"] == [base64.b64encode(b"one").decode()]
+
+
+def test_edit_offers_every_generate_size_and_an_accurate_match_label():
+    assert {choice.value for choice in EDIT_SIZE.choices} == {choice.value for choice in SIZE.choices} | {"match"}
+    match = next(choice for choice in EDIT_SIZE.choices if choice.value == "match")
+    assert "4 MP" in match.label
+    assert "4:1" in match.label
 
 
 def test_an_edit_payload_takes_a_named_size():

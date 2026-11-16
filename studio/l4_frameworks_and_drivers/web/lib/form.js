@@ -133,6 +133,10 @@ function referenceLimit() {
   return maxReferences();
 }
 
+function firstReference() {
+  return page.references()[0];
+}
+
 function lastReference() {
   return page.references()[page.references().length - 1];
 }
@@ -234,6 +238,12 @@ function currentOption() {
   return sizeOptions.find(function (option) { return option.value === page.el.sizeSelect.value; });
 }
 
+// The size capability declares when Match keeps the first reference's dimensions.
+function matchesFirstReferenceDimensions() {
+  const size = paramSpec('size');
+  return Boolean(size && size.match_first_reference_dimensions);
+}
+
 // The megapixels a Match choice names in its own label, such as "about 4 MP". A label that
 // names none is the 1 MP the first backends match at.
 function matchMegapixels() {
@@ -274,7 +284,8 @@ function editResolution() {
 
 // The shape the next image will have, for the progress card and its frame.
 function targetRatio() {
-  const reference = lastReference();
+  const exactMatch = page.el.sizeSelect.value === 'match' && matchesFirstReferenceDimensions();
+  const reference = exactMatch ? firstReference() : lastReference();
   const referenceRatio = reference && reference.width ? reference.width / reference.height : 1;
   if (followsReference()) return referenceRatio;
   const current = currentOption();
@@ -586,6 +597,10 @@ function excessRatio() {
 
 function targetPixels() {
   if (followsReference()) return Math.pow(editResolution(), 2);
+  const reference = firstReference();
+  if (page.el.sizeSelect.value === 'match' && matchesFirstReferenceDimensions() && reference && reference.width && reference.height) {
+    return reference.width * reference.height;
+  }
   const current = currentOption();
   return current ? current.width * current.height : 1024 * 1024;
 }
@@ -1555,6 +1570,8 @@ const handle = {
       ratios: ratios,
       resolutions: resolutionOptions,
       matchMegapixels: matchMegapixels,
+      matchesFirstReferenceDimensions: matchesFirstReferenceDimensions,
+      firstReference: firstReference,
       setSelect: setSelect,
       sizeSelect: page.el.sizeSelect,
       resolutionSelect: page.el.resolutionSelect,

@@ -36,44 +36,32 @@ STEP_COUNT = 6
 STEPS = ParamSpec("steps", "number", STEP_COUNT, minimum=STEP_COUNT, maximum=STEP_COUNT, integer=True, step=1)
 
 MATCH = "match"
-# An edit at 1024 x 1024 came out posterized and over-sharpened on the MLX engine; the same
-# edit at 2048 x 2048 was clean. Its reference path also holds an edit at 4 MP or more, so
-# Edit offers only the sizes of about 4 MP, and Match follows the first picture's aspect
-# at that size.
-EDIT_SIZES = tuple(size for size in SIZES if size[1] * size[2] >= 3_600_000)
 EDIT_SIZE = ParamSpec(
     "size",
     "choice",
     MATCH,
+    match_first_reference_dimensions=True,
     choices=(
-        *(Choice(f"{w}x{h}", label) for label, w, h in EDIT_SIZES),
-        Choice(MATCH, "Match first reference (about 4 MP)"),
+        *(Choice(f"{w}x{h}", label) for label, w, h in SIZES),
+        Choice(MATCH, "Match first reference dimensions (256 to 4096 per side, up to 4 MP, 4:1)"),
     ),
 )
 # The engine takes 16. Do not advertise more than the measurement reached.
 MAX_REFERENCES = 4
 
-# The measured cost, DGX Spark GB10, six steps, one operation at a time through the studio
-# API on 2026-11-15. Warm runs:
-#
-#   fp8      generate 1024 57.4   2048 57.3   edit, 1 ref at 4 MP 70.5
-#   NVFP4    generate 1024 34.3 (2)   edit, 1 ref at 4 MP 63.7
-#
-# The time does not follow the request. `get_image_canvas_size` raises every request below
-# 4,194,304 pixels to that canvas, and every size this form offers is at or below it, so the
-# six steps run on one canvas whatever the size says. That is why the two fp8 generate rows
-# agree to 0.1 s across four times the pixels, and why the step cost is zero here: the figure
-# is the canvas's, not the request's. An edit adds the reference encode, 13 s at one
-# reference on the fp8 build and 29 s on the pack. A second reference is unmeasured, and a
-# step cost of zero cannot carry one, so the edit figure holds one reference.
-#
-# The pack's first run is a different matter: 527.8 s and a 104.21 GiB free-memory drop,
-# because the child packs and loads 38 GB before it samples anything. After that it is
-# resident and a run is 34.3 s. The fp8 pack loads in 33.4 s.
-FP8_GENERATE_ESTIMATE = Estimate(0.0, 1.0, 57.3, overhead_per_image=True)
-FP8_EDIT_ESTIMATE = Estimate(0.0, 1.0, 70.5, overhead_per_image=True)
-NVFP4_GENERATE_ESTIMATE = Estimate(0.0, 1.0, 34.3, overhead_per_image=True)
-NVFP4_EDIT_ESTIMATE = Estimate(0.0, 1.0, 63.7, overhead_per_image=True)
+# DGX Spark, Studio API, resident child, six steps, 2026-11-16. One request per case.
+# Reference edits use one 512 x 512 image; the four-reference run repeats that image.
+# Times include polling. The estimate fits a linear cost to the three selected areas.
+#                         1024 x 576  1024 x 1024  2048 x 2048  4 refs at 1024
+# FP8 generate              38.42 s       41.21 s       56.23 s       --
+# FP8 edit                  50.54 s       52.32 s       68.38 s     90.76 s
+# NVFP4 generate            19.36 s       21.15 s       34.30 s       --
+# NVFP4 edit                29.51 s       31.26 s       44.29 s     64.79 s
+# Reference size also affects encoding time; these estimates are only a starting point.
+FP8_GENERATE_ESTIMATE = Estimate(0.814, 1.0, 35.80, overhead_per_image=True)
+FP8_EDIT_ESTIMATE = Estimate(0.835, 1.0, 47.35, overhead_per_image=True, per_reference=2.423)
+NVFP4_GENERATE_ESTIMATE = Estimate(0.693, 1.0, 16.86, overhead_per_image=True)
+NVFP4_EDIT_ESTIMATE = Estimate(0.686, 1.0, 27.02, overhead_per_image=True, per_reference=2.584)
 ESTIMATES = {
     "fp8": (FP8_GENERATE_ESTIMATE, FP8_EDIT_ESTIMATE),
     "nvfp4": (NVFP4_GENERATE_ESTIMATE, NVFP4_EDIT_ESTIMATE),

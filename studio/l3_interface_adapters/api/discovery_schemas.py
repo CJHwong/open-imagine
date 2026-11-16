@@ -62,6 +62,7 @@ def discovery_schemas() -> dict[str, Any]:
                     "items": {"type": "object", "properties": {"value": string, "label": string}},
                 },
                 "with_negative": nullable_number,
+                "match_first_reference_dimensions": boolean,
             },
             "description": "Send id as a request field. Choice requests use value, not label. Omitted values use default. Respect model-specific ranges.",
         },

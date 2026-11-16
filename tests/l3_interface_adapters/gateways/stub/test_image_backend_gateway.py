@@ -2,6 +2,10 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled
 from studio.l1_entities.image_job import ImageJob
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
+    minimax_h3_image_cuda_capabilities,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.png_images import to_pil
 from studio.l3_interface_adapters.gateways.stub.image_backend_gateway import StubBackendGateway
@@ -31,6 +35,17 @@ def test_the_stub_runs_only_the_steps_a_starting_image_leaves():
     result = stub().run(job, lambda step, total: steps.append((step, total)), lambda: False)
     assert steps[1] == (1, 6) and steps[-1] == (6, 6)
     assert result.width / result.height == pytest.approx(640 / 480, rel=0.02)
+
+
+@pytest.mark.parametrize("capabilities", [minimax_h3_image_capabilities, minimax_h3_image_cuda_capabilities])
+def test_the_h3_stub_matches_the_first_reference_dimensions(capabilities):
+    backend = StubBackendGateway(capabilities(), seconds_per_step=0)
+    job = ImageJob("edit", "make it blue", 7, {"size": "match", "steps": 6}, (png(640, 480), png(512, 512)))
+
+    result = backend.run(job, lambda step, total: None, lambda: False)
+
+    assert (result.width, result.height) == (640, 480)
+    assert to_pil(result.png).size == (640, 480)
 
 
 def test_the_stub_sizes_an_edit_by_its_resolution():

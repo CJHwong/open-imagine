@@ -35,6 +35,7 @@ class ParamSpec:
     # A guidance scale that a negative prompt depends on: the value the page
     # raises it to while a negative prompt is set. None means no dependence.
     with_negative: float | None = None
+    match_first_reference_dimensions: bool = False
 
     def parse(self, raw: str | None) -> OptionValue:
         """A raw form value as this setting's value. A blank value takes the default."""

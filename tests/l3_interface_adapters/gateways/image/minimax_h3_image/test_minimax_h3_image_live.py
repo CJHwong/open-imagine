@@ -22,7 +22,7 @@ def test_real_generate_and_reference_edit():
     references = ()
     for mode, size, expected, prompt in [
         ("generate", "1024x576", (1024, 576), "A red ceramic teapot on a pale wooden table, soft daylight."),
-        ("edit", "match", (2720, 1536), "Make the teapot in <Picture 1> blue. Keep the table and the light."),
+        ("edit", "match", (1024, 576), "Make the teapot in <Picture 1> blue. Keep the table and the light."),
     ]:
         progress = []
         result = backend.run(

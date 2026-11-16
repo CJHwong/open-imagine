@@ -407,6 +407,7 @@ def run(pipe, job: dict) -> dict:
         "prompt": job["prompt"],
         "height": int(job["height"]),
         "width": int(job["width"]),
+        "min_generation_area": 1024,
         "generator": torch.Generator().manual_seed(int(job["seed"])),
         "output": "images",
     }
