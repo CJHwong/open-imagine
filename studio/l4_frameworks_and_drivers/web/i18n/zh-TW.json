@@ -341,6 +341,7 @@
   "image.size.about": "約 {pixels} px，比例依參考圖片",
   "image.size.default": "加入圖片前為 1024 × 1024",
   "image.size.follows": "比例依參考圖片",
+  "image.size.firstReference": "加入第一張參考圖片以沿用尺寸",
   "image.size.match": "沿用",
   "image.size.megapixels": "{value} MP",
   "image.size.reference": "沿用參考圖片比例，約 {megapixels} MP",

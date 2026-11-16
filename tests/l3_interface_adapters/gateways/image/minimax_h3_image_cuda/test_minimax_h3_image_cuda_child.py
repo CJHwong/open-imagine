@@ -35,8 +35,19 @@ class FakePipe:
             "vae": self.vae,
         }
 
-    def __call__(self, prompt, height, width, generator, output, callback_on_step_end=None, image=None):
-        self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output, "image": image})
+    def __call__(
+        self, prompt, height, width, generator, output, min_generation_area, callback_on_step_end=None, image=None
+    ):
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "height": height,
+                "width": width,
+                "output": output,
+                "image": image,
+                "min_generation_area": min_generation_area,
+            }
+        )
         if callback_on_step_end is not None:
             callback_on_step_end(self, 0, None, {})
         return [FakeImage()]
@@ -64,7 +75,7 @@ class NoCallbackPipe:
             "vae": self.vae,
         }
 
-    def __call__(self, prompt, height, width, generator, output):
+    def __call__(self, prompt, height, width, generator, output, min_generation_area):
         self.calls.append({"prompt": prompt, "height": height, "width": width, "output": output})
         return [FakeImage()]
 
@@ -1022,3 +1033,23 @@ def test_a_generate_run_sends_no_image(monkeypatch):
     fake_torch(monkeypatch)
 
     child.run(FakePipe(), {"prompt": "a fox", "height": 512, "width": 512, "steps": 6, "seed": 1})
+
+
+def test_generate_and_edit_use_the_selected_canvas_without_an_area_floor(monkeypatch):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    for mode in ("generate", "edit"):
+        child.run(
+            pipe,
+            {
+                "mode": mode,
+                "prompt": "a fox",
+                "height": 576,
+                "width": 1024,
+                "steps": 6,
+                "seed": 1,
+                "references": [png()],
+            },
+        )
+        assert pipe.calls[-1]["min_generation_area"] == 1024
+        assert (pipe.calls[-1]["height"], pipe.calls[-1]["width"]) == (576, 1024)

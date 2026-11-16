@@ -33,10 +33,20 @@ WEIGHT_FILES = (
 # encoder loads.
 MAX_REFERENCE_RATIO = 4.0
 MAX_REFERENCE_PIXELS = 2048 * 2048
-# Match keeps the reference's shape at about 4 MP. Past 4:1 the long side passes the engine's
-# 4096 pixels, and a smaller output falls under the area an edit needs.
+# The reference and Match paths stay within the measured 4:1 aspect ratio.
 MAX_MATCH_RATIO = 4.0
 EVENT = "H3_IMAGE_EVENT "
+
+
+def match_canvas(width: int, height: int) -> tuple[int, int]:
+    if max(width, height) > MAX_MATCH_RATIO * min(width, height):
+        raise InvalidJob("Match takes a first reference of 4:1 at most. Choose a size.")
+    if min(width, height) < 256 or max(width, height) > 4096 or width * height > EDIT_PIXELS:
+        raise InvalidJob("Match needs a first reference between 256 and 4096 pixels per side, up to 4 MP.")
+    canvas = tuple(max(GRID, round(side / GRID) * GRID) for side in (width, height))
+    if canvas[0] * canvas[1] > EDIT_PIXELS:
+        raise InvalidJob("Match needs a first reference whose rounded canvas is at most 4 MP.")
+    return canvas[0], canvas[1]
 
 
 def image_size(job: ImageJob) -> tuple[int, int]:
@@ -44,11 +54,7 @@ def image_size(job: ImageJob) -> tuple[int, int]:
         width, height = (int(side) for side in str(job.options["size"]).split("x"))
         return width, height
     first = job.references[0]
-    if max(first.width, first.height) > MAX_MATCH_RATIO * min(first.width, first.height):
-        raise InvalidJob("Match takes a first reference of 4:1 at most. Choose a size.")
-    scale = math.sqrt(EDIT_PIXELS / (first.width * first.height))
-    width, height = (min(4096, max(GRID, round(side * scale / GRID) * GRID)) for side in (first.width, first.height))
-    return width, height
+    return match_canvas(first.width, first.height)
 
 
 def reference_png(reference) -> bytes:
@@ -181,4 +187,12 @@ class MinimaxH3ImageBackendGateway(ImageBackendGateway):
                 image.load()
                 if image.format != "PNG" or image.size != (width, height):
                     raise InvalidJob("MiniMax H3-Image engine returned an unexpected image format or size.")
+                if job.options["size"] == "match":
+                    first = job.references[0]
+                    if image.size != (first.width, first.height):
+                        resized = image.resize((first.width, first.height), Image.Resampling.LANCZOS)
+                        data = io.BytesIO()
+                        resized.save(data, format="PNG")
+                        png = data.getvalue()
+                        width, height = first.width, first.height
             return ImageResult(png, width, height, job.seed, STEP_COUNT)

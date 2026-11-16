@@ -39,9 +39,9 @@ quality the model was chosen for.
 Qwen-Image-2.1 Turbo had a third entry for a day. Its NVFP4 pack was measured on 2026-11-15
 and dropped: 11.0 s at 1024 against 12.0, and 18.1 at 1328 against 19.1, for visible grain
 and 4.7 GiB of memory. The rows stay in
-[Measured memory and time](measured-memory-and-time.md#the-nvfp4-builds-2026-11-15) as the
+[Measured memory and time](https://github.com/CJHwong/open-imagine/blob/6530af727d5d1e664593e426372d9c713f1536a5/docs/reference/measured-memory-and-time.md#the-nvfp4-builds-2026-11-15) as the
 record of the decision. The measurement that picks between the H3 builds is in the same page,
-under [the precision sweep on H3-Image](measured-memory-and-time.md#the-precision-sweep-on-h3-image).
+under [the precision sweep on H3-Image](https://github.com/CJHwong/open-imagine/blob/6530af727d5d1e664593e426372d9c713f1536a5/docs/reference/measured-memory-and-time.md#the-precision-sweep-on-h3-image).
 
 ## The same run on both machines
 
@@ -84,10 +84,8 @@ reference count is where the two engines separate. Each extra reference costs th
 and 49.8. The MLX backend encodes every reference in a stage of its own; the CUDA child does it
 in the process that already holds the model.
 
-H3-Image is the one model where the Mac wins at a small size, and the reason is the canvas: the
-CUDA engine raises every request below 4,194,304 pixels to that canvas, so a 1024 request does a
-2048 request's work. At 2048 the two are level, 57.4 against 56.6. The edit is 2 times faster on
-the Spark.
+During this historical campaign, CUDA raised small H3-Image requests to a 4 MP canvas.
+The current backend uses the selected size. See the [current measurements](measured-memory-and-time.md) for the new results.
 
 ## Video
 
@@ -130,10 +128,11 @@ The recorded times describe the earlier implementation.
 | Drama clone, 5.9 s reference | 5.1 | 8.2 | 0.6x |
 | Drama clone, 11.7 s reference | 5.1 | 7.1 | 0.7x |
 
-Drama is the Mac's model: two to three times faster on every case it finishes. The decode is a
-chain of one forward pass per codec frame at about 19 frames per second, so a GPU has nothing to
-overlap, and the engine refuses `compile=True`, which leaves no graph capture to cut the
-per-token launch. The Spark finishes the 800-word script the Mac's token cap refuses, in 477.4 s.
+The Mac finishes each successful Drama request faster in this sample. The engines use different
+weight formats and generation paths. The measurements do not isolate the cause of the difference.
+The CUDA engine has a graph decode path even though it refuses `compile=True`. The retained logs
+do not establish whether the measured requests used that path. The Spark finishes the 800-word
+script that reaches the Mac token cap, in 477.4 s.
 
 The clone is much closer than the older rows suggested, 5.1 against 7.1 s, once both are warm.
 The earlier 9.1 s row carried a load.
@@ -157,7 +156,7 @@ model is what costs the time.
 
 ## The estimate each backend declares
 
-The page draws a time under the run button from these constants. `step_cost` is seconds per
+During the historical campaign, the page drew a time under the run button from these constants. `step_cost` is seconds per
 step at one megapixel, `exponent` is how that grows with the pixel count, and `overhead` is
 the fixed cost of a run. The video and music records have their own shapes, named in the
 table.
@@ -176,7 +175,7 @@ table.
 | `yue2_cuda_nvfp4` | 52.4 s plus 0.175 s per lyric character, 73.2 s for an instrumental, and one figure per stage | 58.2, 100.0, 124.6, 136.9 s against 67.2, 89.2, 98.2, 164.5 s |
 | `yue2_cuda` | 108.8 s plus 0.272 s per lyric character, 140.1 s for an instrumental, and one figure per stage | 117.8, 182.7, 221.1, 254.2 s against 117.2, 137.3, 318.8, 202.6 s |
 
-Every CUDA row above is new. The image, voice and music backends declared no estimate at
+During that campaign, every CUDA row above was new. The image, voice and music backends declared no estimate at
 all before this pass, and `ltx25_cuda` inherited the MLX record, which reads 270 s for the
 768x768 clip that this machine runs in 76.3 s.
 
@@ -235,7 +234,7 @@ The manifest covers every case both engines can express. What it leaves out, and
 | Qwen Turbo edit with a mask, and Qwen edit of each reference separately | Both are MLX-only features; the CUDA backend has neither, so there is no second column |
 | LTX generated audio after the encoding fix | CPU encoding passes; CUDA inference has not been measured again |
 | LTX source audio, Edit and Fast mode | Unsupported on CUDA |
-| Qwen Turbo and H3-Image at other builds | The NVFP4 entries are measured in [Measured memory and time](measured-memory-and-time.md#the-nvfp4-builds-2026-11-15); the manifest runs the shipped default |
+| Qwen Turbo and H3-Image at other builds | The NVFP4 entries are measured in [Measured memory and time](https://github.com/CJHwong/open-imagine/blob/6530af727d5d1e664593e426372d9c713f1536a5/docs/reference/measured-memory-and-time.md#the-nvfp4-builds-2026-11-15); the manifest runs the shipped default |
 | Drama at 800 words on the Mac | The engine's token cap refuses it, so there is no time to compare. The Spark finishes in 477.4 s |
 | flux2, krea2, viggle_turbo, Qwen-Image-2.1, MiniMax H3, LTX-2.3, Auk | No CUDA backend, and some Mac weights are not installed |
 

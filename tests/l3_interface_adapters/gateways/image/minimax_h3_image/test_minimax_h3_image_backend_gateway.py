@@ -66,25 +66,60 @@ def test_every_size_is_on_the_engine_grid():
         assert min(width, height) >= 256 and max(width, height) <= 4096
 
 
-def test_edit_offers_only_the_sizes_of_about_four_megapixels():
-    """An edit at 1 MP came out posterized, so no smaller size may reach the edit form."""
+def test_edit_offers_every_generate_size():
     values = [choice.value for choice in CAPABILITIES.mode("edit").params[0].choices]
-    assert values == ["2048x2048", "2560x1440", "1440x2560", "2304x1728", "1728x2304", "match"]
-    assert all(width * height >= 3_600_000 for _, width, height in EDIT_SIZES)
+    assert values == [f"{width}x{height}" for _, width, height in SIZES] + ["match"]
+    assert EDIT_SIZES == SIZES
 
 
 @pytest.mark.parametrize(
     "reference,expected",
     [
-        ((1024, 1024), (2048, 2048)),
-        ((1600, 900), (2720, 1536)),
-        ((900, 1600), (1536, 2720)),
-        ((400, 100), (4096, 1024)),
+        ((1024, 1024), (1024, 1024)),
+        ((1600, 900), (1600, 896)),
+        ((900, 1600), (896, 1600)),
+        ((1024, 256), (1024, 256)),
     ],
 )
-def test_match_keeps_the_first_reference_shape_at_about_four_megapixels(reference, expected):
+def test_match_uses_the_nearest_supported_canvas(reference, expected):
     references = (ReferenceImage(b"", *reference), ReferenceImage(b"", 512, 4096))
     assert image_size(job("edit", "match", references)) == expected
+
+
+@pytest.mark.parametrize("dimensions", [(2049, 2049), (4097, 2048), (31, 32), (255, 256), (1041, 3989)])
+def test_match_refuses_unmeasured_output_size(dimensions):
+    with pytest.raises(InvalidJob, match="Match"):
+        image_size(job("edit", "match", (ReferenceImage(b"", *dimensions),)))
+
+
+def test_match_restores_exact_output_dimensions_after_grid_generation(tmp_path):
+    reference = ReferenceImage(png((1030, 575)), 1030, 575)
+    sizes = []
+
+    def run(command, **kwargs):
+        if command[4] == "vae":
+            request = json.loads((Path(command[5]) / "request.json").read_text())
+            sizes.append((request["width"], request["height"]))
+            (Path(command[5]) / "image.png").write_bytes(png(sizes[-1]))
+
+    result = gateway(run, tmp_path).run(job("edit", "match", (reference,)), lambda *args: None, lambda: False)
+    assert sizes == [(1024, 576)]
+    assert (result.width, result.height) == (1030, 575)
+    with Image.open(io.BytesIO(result.png)) as image:
+        assert image.size == (1030, 575)
+
+
+def test_match_keeps_grid_aligned_output_without_resizing(tmp_path):
+    reference = ReferenceImage(png((256, 256)), 256, 256)
+    output = png((256, 256))
+
+    def run(command, **kwargs):
+        if command[4] == "vae":
+            (Path(command[5]) / "image.png").write_bytes(output)
+
+    result = gateway(run, tmp_path).run(job("edit", "match", (reference,)), lambda *args: None, lambda: False)
+    assert (result.width, result.height) == (256, 256)
+    assert result.png == output
 
 
 @pytest.mark.parametrize("dimensions", [(4100, 1000), (1000, 4100)])
@@ -259,7 +294,7 @@ def test_a_failed_child_removes_the_scratch_files(tmp_path):
 
     with pytest.raises(StudioError):
         gateway(run, tmp_path).run(
-            job("edit", "match", (ReferenceImage(png(), 64, 48),)), lambda *args: None, lambda: False
+            job("edit", "match", (ReferenceImage(png((256, 256)), 256, 256),)), lambda *args: None, lambda: False
         )
     assert len(roots) == 1 and not roots[0].exists()
 
@@ -345,7 +380,7 @@ def test_engine_failure_preserves_exit_and_final_diagnostic(lines, detail):
 
 
 def test_the_estimates_track_the_measured_runs():
-    """The page's formula, against the table beside the constants: one image, six steps."""
+    """Compare the estimates with one-reference runs and a four-reference run."""
     caps = minimax_h3_image_capabilities()
     generate, edit = caps.mode("generate").estimate, caps.mode("edit").estimate
     assert generate is not None and edit is not None
@@ -354,27 +389,22 @@ def test_the_estimates_track_the_measured_runs():
         factor = 1 + estimate.per_reference * (references - 1)
         return 6 * estimate.step_cost * factor * megapixels**estimate.exponent + estimate.overhead
 
-    for megapixels, measured in ((0.59, 16.8), (1.05, 20.9), (1.33, 26.4), (3.69, 49.9), (4.19, 55.7)):
-        assert seconds(generate, megapixels) == pytest.approx(measured, rel=0.15)
-    # The page reads Match as 1 MP, so an edit must not scale with the size.
-    for megapixels in (1.05, 4.19):
-        assert seconds(edit, megapixels) == pytest.approx(142.9, rel=0.05)
-        assert seconds(edit, megapixels, 2) == pytest.approx(252.3, rel=0.1)
-        assert seconds(edit, megapixels, 4) == pytest.approx(556.4, rel=0.15)
+    for pixels, measured in ((0.589824, 17.13), (1.048576, 17.13), (4.194304, 48.37)):
+        assert seconds(generate, pixels) == pytest.approx(measured, rel=0.15)
+    for pixels, measured in ((0.589824, 36.33), (1.048576, 39.39), (4.194304, 81.69)):
+        assert seconds(edit, pixels) == pytest.approx(measured, rel=0.06)
+    assert seconds(edit, 1.048576, 4) == pytest.approx(136.17, rel=0.06)
     assert generate.overhead_per_image and edit.overhead_per_image
 
 
-@pytest.mark.parametrize(
-    "reference,measured",
-    [((2048, 2048), 142.9), ((2896, 1448), 164.8), ((6000, 2000), 184.4), ((4096, 1024), 208.4), ((1024, 4096), 208.4)],
-)
-def test_the_edit_estimate_tracks_the_measured_runs_from_a_long_reference(reference, measured):
-    """The figure of the plan route, for Match from one reference of each measured shape."""
+def test_match_estimate_uses_the_first_reference_dimensions():
     edit = CAPABILITIES.mode("edit")
-
-    figure = estimate_image(edit, edit.parse_options({}), (reference,), 1)
-
-    assert figure.total_seconds == pytest.approx(measured, rel=0.03)
+    small = estimate_image(edit, edit.parse_options({}), ((512, 512), (1024, 1024)), 1)
+    large = estimate_image(edit, edit.parse_options({}), ((1600, 900), (1024, 1024)), 1)
+    assert (small.width, small.height) == (512, 512)
+    assert (large.width, large.height) == (1600, 900)
+    assert small.total_seconds is not None and large.total_seconds is not None
+    assert small.total_seconds < large.total_seconds
 
 
 def test_the_model_refuses_private_operations_because_its_engine_reads_files():

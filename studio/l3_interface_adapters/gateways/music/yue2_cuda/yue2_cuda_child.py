@@ -45,6 +45,7 @@ import sys
 import time
 import urllib.request
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -175,6 +176,8 @@ def request_for(job: dict) -> dict:
     score = (job.get("abc") or "").strip()
     if score:
         request["abc"] = score
+    if "cfg_scale" in job:
+        request["cfg_scale"] = job["cfg_scale"]
     return request
 
 
@@ -450,7 +453,13 @@ def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     import soundfile
 
     song_sampling = {**plan_sampling, "semantic_sampling": sampling} if sampling else {}
-    song = pipe(**request_for(job), **song_sampling)
+    previous_config = pipe.generation_config
+    if "steps" in job:
+        pipe.generation_config = replace(previous_config, ode_steps=job["steps"])
+    try:
+        song = pipe(**request_for(job), **song_sampling)
+    finally:
+        pipe.generation_config = previous_config
     buffer = io.BytesIO()
     soundfile.write(buffer, song.audio, 48000, format="WAV", subtype="FLOAT")
     return {

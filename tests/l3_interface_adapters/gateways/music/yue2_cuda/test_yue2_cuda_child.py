@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import types
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -63,11 +64,18 @@ class FakeModel:
         self.evaluated = True
 
 
+@dataclass(frozen=True)
+class FakeGenerationConfig:
+    ode_steps: int = 32
+
+
 class FakePipe:
     def __init__(self, model=None, model_dir="/models/yue2"):
         self.model_dir = Path(model_dir)
         self._model = model
         self.requests = []
+        self.generation_config = FakeGenerationConfig()
+        self.observed_steps = []
 
     def __enter__(self):
         return self
@@ -84,6 +92,7 @@ class FakePipe:
 
     def __call__(self, **request):
         self.requests.append(("generate", request))
+        self.observed_steps.append(self.generation_config.ode_steps)
         return SimpleNamespace(audio=[[0.0, 0.0]], abc="X:1", truncated={"semantic": False})
 
 
@@ -618,6 +627,41 @@ def test_sampling_overrides_reach_both_stages_and_an_empty_map_stays_out(monkeyp
     assert with_sampling["abc_sampling"] == {"max_tokens": 2048}
     assert with_sampling["semantic_sampling"] == {"max_tokens": 2048}
     assert "abc_sampling" not in pipe.requests[-1][1]
+
+
+def test_synthesis_settings_reach_the_engine_without_leaking_to_the_next_job(monkeypatch):
+    pipe = FakePipe()
+    fake_modules(monkeypatch, pipe=pipe)
+
+    child.run(pipe, job(steps=8, cfg_scale=2.5), Path("/tmp/yue2-extras"))
+    child.run(pipe, job(steps=16, cfg_scale=0.0), Path("/tmp/yue2-extras"))
+    child.run(pipe, job(), Path("/tmp/yue2-extras"))
+
+    assert pipe.observed_steps == [8, 16, 32]
+    assert [request.get("cfg_scale") for _, request in pipe.requests] == [2.5, 0.0, None]
+    assert pipe.generation_config.ode_steps == 32
+
+
+def test_synthesis_steps_are_restored_after_engine_failure(monkeypatch):
+    class BrokenPipe(FakePipe):
+        def __call__(self, **request):
+            assert self.generation_config.ode_steps == 8
+            raise RuntimeError("engine failed")
+
+    pipe = BrokenPipe()
+    fake_modules(monkeypatch, pipe=pipe)
+    with pytest.raises(RuntimeError, match="engine failed"):
+        child.run(pipe, job(steps=8), Path("/tmp/yue2-extras"))
+    assert pipe.generation_config.ode_steps == 32
+
+
+def test_guidance_reaches_the_score_plan(monkeypatch):
+    pipe = FakePipe()
+    fake_modules(monkeypatch, pipe=pipe)
+
+    child.run(pipe, job(mode="plan", cfg_scale=2.0), Path("/tmp/yue2-extras"))
+
+    assert pipe.requests[0][1]["cfg_scale"] == 2.0
 
 
 def test_a_plan_job_returns_the_score_only(monkeypatch):

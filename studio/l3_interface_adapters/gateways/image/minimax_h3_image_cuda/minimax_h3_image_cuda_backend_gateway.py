@@ -1,6 +1,6 @@
 import base64
-import math
 
+from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
@@ -9,24 +9,23 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilit
 )
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
-# The engine takes sides that are multiples of 32, and its reference path holds an edit at
-# about 4 MP: below that the result came out posterized on the MLX engine's own run.
-GRID = 32
-MATCH_PIXELS = 2048 * 2048
+MAX_MATCH_PIXELS = 2048 * 2048
+MAX_REFERENCE_RATIO = 4
+
+
+def validate_reference_aspect(width: int, height: int) -> None:
+    if max(width, height) > MAX_REFERENCE_RATIO * min(width, height):
+        raise InvalidJob("Each reference must have an aspect ratio of 4:1 or less.")
 
 
 def match_size(width: int, height: int) -> tuple[int, int]:
-    """The first reference's aspect at 4 MP, on the engine's grid.
-
-    Match follows the picture, not its pixel count: an edit at 4 MP or more is the clean
-    case, and a smaller frame is where this model degrades.
-    """
-    ratio = width / height
-    wide = math.sqrt(MATCH_PIXELS * ratio)
-    return (
-        max(GRID, round(wide / GRID) * GRID),
-        max(GRID, round(wide / ratio / GRID) * GRID),
-    )
+    """Keep the first reference's output size within the model's supported limits."""
+    if not (256 <= width <= 4096 and 256 <= height <= 4096):
+        raise InvalidJob("Match requires a first reference with each side between 256 and 4096 pixels.")
+    if width * height > MAX_MATCH_PIXELS:
+        raise InvalidJob("Match requires a first reference with at most 4,194,304 pixels. Choose a size.")
+    validate_reference_aspect(width, height)
+    return width, height
 
 
 def generate_payload(job: ImageJob) -> dict:

@@ -1,6 +1,6 @@
 # MiniMax H3-Image CUDA performance
 
-The gateway keeps the 4,194,304-pixel canvas floor. The tested smaller canvas saves time but produces sky blotches.
+The gateway generates at the selected size. The CUDA pipeline rounds non-grid Match dimensions to its 32-pixel canvas and resizes the final image to the requested dimensions. Earlier small-canvas tests found some quality defects.
 Pack creation uses nonblocking CPU copies and waits for the source CUDA device before serialization.
 It releases unused CUDA memory before copying and releases pinned host memory after each component.
 The host release also runs when serialization fails.
@@ -29,7 +29,24 @@ The native portrait loses fine detail, and the native vase has broad tonal strip
 The portrait's content also changes, so its detail comparison remains qualitative.
 Independent inspection confirms the sky defect.
 Three prompts and one seed support retaining the default; they do not establish a universal quality result.
-No quality-preserving canvas change is established.
+This earlier experiment found quality defects at 1 MP. The user subsequently chose native selected-size generation.
+
+## Initial-noise experiment
+
+The MLX path uses NumPy noise. The CUDA path uses PyTorch noise. The same seed gives different initial tensors.
+A scratch CUDA child tested both noise sources at 1 MP. Each pair used the same prompt, seed, and weights.
+Three prompts and two seeds produced six pairs. Three further requests used the 4 MP canvas at seed 731.
+The requests ran through the Studio API with one warmup and a resident FP8 child.
+
+| Canvas and noise | Requests | Median request time |
+| --- | ---: | ---: |
+| 1 MP, PyTorch noise | 6 | 41.20 s |
+| 1 MP, NumPy noise | 6 | 41.19 s |
+| 4 MP, PyTorch noise | 3 | 55.29 s |
+
+The 4 MP seed 731 controls reproduced the earlier images. Noise changes the image composition.
+The new images do not establish that NumPy noise fixes 1 MP quality. The sample does not prove equal quality.
+The gateway now uses the selected size, by user choice. All images and request records remain in the local experiment evidence.
 
 ## Pack writing
 
@@ -59,7 +76,7 @@ An earlier HTTP live test passes with all 1,016 file digests unchanged before an
 ## Fresh pack creation
 
 The next experiment builds each pack in an empty directory, generates an image, releases the child, and reloads the new pack.
-All four requests use the Studio HTTP path and the default canvas floor.
+All four historical requests use the Studio HTTP path and the former 4 MP canvas floor.
 Each uses 1024×1024 output, six distilled steps, seed 7, and the same public fisherman prompt.
 Source digests bracket every request.
 One-second samples measure the summed resident set size (RSS) of the server and its descendants.

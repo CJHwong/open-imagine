@@ -345,6 +345,7 @@
   "image.size.about": "about {pixels} px, shape follows the image",
   "image.size.default": "1024 × 1024 until you add an image",
   "image.size.follows": "aspect ratio follows the image",
+  "image.size.firstReference": "Add the first reference to match its dimensions",
   "image.size.match": "Match",
   "image.size.megapixels": "{value} MP",
   "image.size.reference": "reference aspect ratio, about {megapixels} MP",

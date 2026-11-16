@@ -3,7 +3,7 @@
 It serves the real page and routes on two backends that make no model call:
 one with the qwen21 capabilities, and one with a generate mode only, a steps
 param only, no Looks and no templates. A last one has the MiniMax H3-Image
-capabilities, whose Edit mode offers other sizes than its Generate mode. It needs
+capabilities, including the exact first-reference Match option. It needs
 no GPU and runs in seconds.
 
 Usage: uv run --with playwright python tests/e2e/verify_capabilities.py
@@ -19,9 +19,13 @@ from PIL import Image
 from playwright.sync_api import expect, sync_playwright
 
 from studio.l1_entities.capabilities import Capabilities, ModeSpec, ParamSpec
+from studio.l1_entities.image_estimate import estimate_image
 from studio.l1_entities.image_job import ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
+    minimax_h3_image_cuda_capabilities,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import EDIT_TEMPLATES
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
@@ -118,7 +122,14 @@ def main():
     # rewrite toggle, so each gets the absent one. `build_rewriters` gives every
     # visible backend an entry, and so does this.
     h3_image = StubBackendGateway(minimax_h3_image_capabilities())
-    backends = {"qwen21": qwen, "tiny": tiny, "plain": plain, "minimax_h3_image": h3_image}
+    h3_cuda = StubBackendGateway(minimax_h3_image_cuda_capabilities())
+    backends = {
+        "qwen21": qwen,
+        "tiny": tiny,
+        "plain": plain,
+        "minimax_h3_image": h3_image,
+        "minimax_h3_image_cuda": h3_cuda,
+    }
     rewriters = {backend_id: NoPromptRewriterGateway() for backend_id in backends}
     studio = assemble_studio(backends, rewriters, "qwen21", tuple(backends))
     server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
@@ -439,11 +450,10 @@ def main():
             "Mark a region" not in names and "Change a color or material" in names,
             names[:60],
         )
-        # A backend whose modes offer different sizes. The size control has to follow the
-        # mode in use: Edit offers Match and only its own sizes, Generate offers no Match.
+        # H3 offers its named sizes in both modes and Match only in Edit.
         page.click("label[for=mode-generate]")
         page.click("#backend-toggle")
-        page.get_by_role("menuitemradio", name="MiniMax H3-Image").click()
+        page.get_by_role("menuitemradio", name="MiniMax H3-Image", exact=True).click()
         page.wait_for_function("STUDIO.backend.id === 'minimax_h3_image'")
         shapes = "nodes => nodes.map(node => node.dataset.ratio)"
         options = "nodes => nodes.map(node => node.value)"
@@ -453,18 +463,72 @@ def main():
         offered = page.locator("#size option").evaluate_all(options)
         check(
             "the size list follows the mode in use",
-            "match" in offered and "1024x1024" not in offered and "2560x1440" in offered,
+            "match" in offered and "1024x1024" in offered and "2560x1440" in offered,
             str(offered),
         )
-        check("the mode's own default size is picked", page.input_value("#size") == "match", page.input_value("#size"))
+        check(
+            "the shared size survives the mode switch",
+            page.input_value("#size") == "1024x1024",
+            page.input_value("#size"),
+        )
         drawn = page.locator("size-chips button").evaluate_all(shapes)
         check("a mode with Match draws the Match chip", "match" in drawn, str(drawn))
-        # This Match gives about 4 MP, so the caption must not promise the 1024 square of the others.
-        check(
-            "a Match of another size does not caption 1024 square",
-            page.inner_text("#size-caption") == "aspect ratio follows the image",
-            page.inner_text("#size-caption"),
+        page.locator('size-chips button[data-ratio="match"]').click()
+        while page.locator("#thumbs button.remove").count():
+            page.locator("#thumbs button.remove").first.click()
+        expect(page.locator("#size-caption")).to_have_text("Add the first reference to match its dimensions")
+        check("Match asks for the first reference", True)
+        files = []
+        for name, dimensions in (("first.png", (1600, 900)), ("second.png", (512, 512))):
+            content = io.BytesIO()
+            Image.new("RGB", dimensions, "blue").save(content, format="PNG")
+            files.append({"name": name, "mimeType": "image/png", "buffer": content.getvalue()})
+        page.set_input_files("#reference", files)
+        page.wait_for_function("() => references.length === 2 && references.every(ref => ref.width > 0)")
+        expect(page.locator("#size-caption")).to_have_text(f"1600 {TIMES} 900")
+        check("Match captions the first reference dimensions", True, page.inner_text("#size-caption"))
+        page.evaluate("""() => {
+          document.querySelector('#size option[value=match]').textContent = 'Localized text';
+          document.querySelector('#size').dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        expect(page.locator("#size-caption")).to_have_text(f"1600 {TIMES} 900")
+        check("Match behavior does not depend on its label", True)
+        page.fill("#prompt", "change the color")
+        page.evaluate("""() => {
+          const count = document.getElementById('count');
+          count.value = '1';
+          count.dispatchEvent(new Event('change', {bubbles: true}));
+        }""")
+        mode = minimax_h3_image_capabilities().mode("edit")
+        expected = estimate_image(
+            mode, mode.parse_options({"size": "match", "steps": "6"}), ((1600, 900), (512, 512)), 1
         )
+        shown = seconds(page.inner_text("#go-sub"))
+        check(
+            "Match browser and plan estimates agree",
+            expected.total_seconds is not None and abs(shown - expected.total_seconds) <= 5,
+            f"{shown}s and {expected.total_seconds}s",
+        )
+        page.evaluate("""() => {
+          const model = STUDIO.modes.find(mode => mode.id === 'edit').estimate;
+          Object.assign(model, {step_cost: 1, exponent: 1, overhead: 0, per_reference: 0, per_reference_ratio: 0});
+          document.getElementById('steps').dispatchEvent(new Event('input', {bubbles: true}));
+        }""")
+        check(
+            "Match estimate uses the first reference area",
+            seconds(page.inner_text("#go-sub")) == 10,
+            page.inner_text("#go-sub"),
+        )
+        page.click("#backend-toggle")
+        page.get_by_role("menuitemradio", name="MiniMax H3-Image (CUDA)", exact=True).click()
+        page.wait_for_function("STUDIO.backend.id === 'minimax_h3_image_cuda'")
+        page.click("label[for=mode-edit]")
+        page.locator('size-chips button[data-ratio="match"]').click()
+        expect(page.locator("#size-caption")).to_have_text("Add the first reference to match its dimensions")
+        page.set_input_files("#reference", files)
+        page.wait_for_function("() => references.length === 2 && references.every(ref => ref.width > 0)")
+        expect(page.locator("#size-caption")).to_have_text(f"1600 {TIMES} 900")
+        check("CUDA Match captions the first reference dimensions", True, page.inner_text("#size-caption"))
         page.click("label[for=mode-generate]")
         offered = page.locator("#size option").evaluate_all(options)
         check(
