@@ -197,6 +197,8 @@ class InMemoryOperationGateway(OperationGateway):
             if operation_id in self._queue:
                 self._queue.remove(operation_id)
                 self._records[operation_id].update(status="cancelled", finished_at=self._clock())
+                self._private_keys.pop(operation_id, None)
+                self._measure(operation_id)
                 self._condition.notify_all()
                 return self.get(operation_id)
             if self._active != operation_id:
@@ -363,10 +365,14 @@ class InMemoryOperationGateway(OperationGateway):
         self._results.pop(operation_id, None)
         self._items.pop(operation_id, None)
         self._sizes.pop(operation_id, None)
+        self._private_keys.pop(operation_id, None)
 
     def _prune(self) -> None:
         if self._active in self._continuations and self._clock() >= self._continuations[self._active][1]:
             self._end_continuation(self._active)
+        public_ids = [identifier for identifier, record in self._records.items() if not record.get("owner")]
+        public_count = len(public_ids)
+        public_bytes = sum(self._sizes[identifier] for identifier in public_ids)
         for operation_id in list(self._records):
             if operation_id == self._active:
                 continue
@@ -376,12 +382,11 @@ class InMemoryOperationGateway(OperationGateway):
             private = bool(record.get("owner"))
             max_age = 3600 if private else self._max_age
             expired = self._clock() - record["finished_at"] > max_age
-            public_ids = [identifier for identifier, entry in self._records.items() if not entry.get("owner")]
-            over_limit = not private and (
-                len(public_ids) > self._max_count
-                or sum(self._sizes[identifier] for identifier in public_ids) > self._max_bytes
-            )
+            over_limit = not private and (public_count > self._max_count or public_bytes > self._max_bytes)
             if expired or over_limit:
+                if not private:
+                    public_count -= 1
+                    public_bytes -= self._sizes[operation_id]
                 self._discard(operation_id)
 
 

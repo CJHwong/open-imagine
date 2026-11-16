@@ -3,7 +3,7 @@
 import base64
 from collections.abc import Callable
 
-from studio.l1_entities.errors import Cancelled
+from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.video_capabilities import VideoCapabilities
 from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
@@ -13,6 +13,14 @@ from studio.l3_interface_adapters.gateways.video.ltx25_cuda.capabilities import 
 
 def clip_payload(job: VideoJob) -> dict:
     """One job as the child's JSON. The prompt and the sizes cross as values."""
+    if job.edit is not None:
+        raise InvalidJob("LTX-2.5 on CUDA does not support Edit.")
+    if job.audio is not None:
+        raise InvalidJob("LTX-2.5 on CUDA takes no audio track.")
+    if job.fast_mode:
+        raise InvalidJob("LTX-2.5 on CUDA does not support Fast mode.")
+    if job.loras:
+        raise InvalidJob("LTX-2.5 on CUDA does not support LoRAs.")
     payload = {
         "prompt": job.prompt,
         "width": job.width,
@@ -21,6 +29,7 @@ def clip_payload(job: VideoJob) -> dict:
         "frame_rate": job.frame_rate,
         "seed": job.seed if job.seed is not None else 0,
         "enhance": bool(job.enhance),
+        "include_audio": job.include_audio,
     }
     if job.references:
         payload["references"] = [

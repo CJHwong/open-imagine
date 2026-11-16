@@ -1,10 +1,24 @@
 import struct
 import subprocess
+import tracemalloc
 
 import numpy as np
 import pytest
 
 from studio.l3_interface_adapters.gateways.video.minimax_h3 import media
+
+
+def test_memory_mux_does_not_allocate_another_complete_raw_clip(media_tools):
+    video = np.zeros((48, 256, 384, 3), dtype=np.uint8)
+    audio = np.zeros((2, 64000), dtype=np.float32)
+    tracemalloc.start()
+    try:
+        encoded = media.encode_mp4(video, 24, audio, 32000)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert encoded
+    assert peak < video.nbytes // 2
 
 
 def test_memory_mux_pipes_every_frame_and_stereo_sound_without_creating_files(tmp_path, monkeypatch, media_tools):

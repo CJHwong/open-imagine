@@ -194,6 +194,19 @@ The first cover took 24.93 seconds before and 25.94 seconds after the change.
 The second took 21.88 seconds before and 12.78 seconds after, a 41.6% reduction.
 Both output WAV files matched their baseline bytes exactly. These measurements cover one request pair, not all songs.
 
+The CUDA worker also retains one successful transcription in memory.
+Its key uses the decoded recording bytes and transcription task. Returned metadata uses independent copies.
+A failed cache miss clears the previous entry. Releasing the child clears the cache.
+CUDA adds no cache-hit field to public metadata and writes no cache to disk.
+
+Two identical 10-second synthetic melody requests tested the CUDA cache through Studio on the DGX Spark.
+The repeated request took 22.1 seconds before and 1.0 second after the change.
+The runner polls once per second, so the second figure is its measurement floor.
+All four response bodies matched exactly, including the 210-character composition score.
+Cold requests took 46.1 and 31.1 seconds. The cache cannot explain that difference because both requests missed it.
+The BF16 engine already loads generator weights lazily. Its constructor performs setup before transcription.
+The NVFP4 path loads packed generator weights earlier; this change preserves that lifecycle.
+
 No generation-time estimate is shown: duration itself is generated, and a short
 sample does not establish a cost fit for a full song.
 

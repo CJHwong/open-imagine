@@ -497,6 +497,50 @@ def test_restart_marks_a_queued_private_operation_failed(tmp_path):
     restored.close()
 
 
+def test_private_queued_cancel_persists_without_releasing_the_active_operation(tmp_path):
+    operations = Operations(private_directory=tmp_path, max_queue=1)
+    running = operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image", "owner": "digest"}, private_key="test-key", queued=True)
+
+    operations.stopping(queued["id"])
+
+    assert active_id(operations) == running["id"]
+    assert queued["id"] not in operations._private_keys
+    operations.close()
+    restored = Operations(private_directory=tmp_path)
+    assert restored.get(queued["id"])["status"] == "cancelled"
+    restored.close()
+
+
+def test_delete_drops_a_queued_private_key():
+    operations = Operations(max_queue=1)
+    operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image", "owner": "digest"}, private_key="test-key", queued=True)
+
+    operations.delete(queued["id"])
+
+    assert queued["id"] not in operations._private_keys
+
+
+def test_prune_reads_each_public_size_once():
+    class CountingSizes(dict):
+        reads = 0
+
+        def __getitem__(self, key):
+            self.reads += 1
+            return super().__getitem__(key)
+
+    operations = Operations(max_count=1000, max_bytes=1024**3)
+    for _ in range(100):
+        operation = operations.begin({"kind": "image"})
+        operations.finish(operation["id"], {})
+    operations._sizes = CountingSizes(operations._sizes)
+
+    operations.expire()
+
+    assert operations._sizes.reads == 100
+
+
 def test_a_negative_queue_size_is_refused():
     with pytest.raises(ValueError, match="max_queue"):
         Operations(max_queue=-1)

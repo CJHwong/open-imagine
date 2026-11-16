@@ -1,5 +1,6 @@
 import threading
 from dataclasses import replace
+from unittest.mock import Mock
 
 import pytest
 
@@ -20,6 +21,43 @@ from tests.support.fakes import FakeBackendGateway, FakeVideoBackendGateway
 
 def job():
     return VideoJob("moving clouds", 960, 544, 145, 24, 7)
+
+
+@pytest.mark.parametrize("batch", [False, True])
+def test_failed_video_runtime_loses_only_its_own_residency(batch):
+    use_case, _, image, video, _, _, _ = setup(RuntimeError("engine failed"))
+    residency = InMemoryModelResidencyGateway(
+        {"fake": image, "video-fake": video},
+        policy="boundary",
+        boundary_gib=50,
+        footprints={"fake": 10, "video-fake": 10},
+    )
+    residency.claim("fake")
+    use_case._residency = residency
+
+    with pytest.raises(RuntimeError, match="engine failed"):
+        if batch:
+            use_case.execute_batch([job()], "video-fake", "run", lambda *args: None, lambda *args: None, lambda: False)
+        else:
+            use_case.execute(job(), "video-fake", "run")
+
+    assert residency.resident_ids() == ("fake",)
+    assert residency.resident_gib("video-fake") == 0
+    assert image.events == []
+    assert video.releases == 1
+
+
+def test_a_failed_claim_finishes_progress_without_releasing_another_runtime():
+    use_case, _, image, _, progress, residency, lock = setup()
+    residency.claim = Mock(side_effect=RuntimeError("cannot claim model"))
+
+    with pytest.raises(RuntimeError, match="cannot claim model"):
+        use_case.execute(job(), "video-fake", "run")
+
+    assert not progress.snapshot().running
+    assert not lock.locked()
+    assert residency.active_id() == "fake"
+    assert image.events == []
 
 
 def test_batch_publishes_cancellable_preparation_before_the_first_clip(monkeypatch):

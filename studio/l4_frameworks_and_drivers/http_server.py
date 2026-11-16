@@ -40,6 +40,7 @@ WEB = Path(__file__).with_name("web").resolve()
 # design among them, are not served.
 PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
 MAX_VIDEO_REQUEST_BYTES = 64 * 1024 * 1024
+REQUEST_READ_TIMEOUT_SECONDS = 30.0
 # A caller that sends this header owns private operations. The routes below are the
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
@@ -70,11 +71,19 @@ def make_handler(
     a Tailscale serve URL that proxies to this port."""
 
     class StudioHandler(BaseHTTPRequestHandler):
+        def setup(self) -> None:
+            super().setup()
+            self._response_timeout = self.connection.gettimeout()
+            self.connection.settimeout(REQUEST_READ_TIMEOUT_SECONDS)
+
         def log_message(self, format: str, *args) -> None:
             """Silence the access log. Prompts live in POST bodies, and none of
             this is wanted on disk or on the terminal."""
 
         def do_GET(self):
+            if not self._trusted_host():
+                self._send("forbidden", status=403, content_type="text/plain")
+                return
             path = urlsplit(self.path).path
             if path == "/connect/qr.svg":
                 self._connect_qr()
@@ -104,22 +113,22 @@ def make_handler(
                 )
             elif path == "/api/docs":
                 self._send((WEB / "api-docs.html").read_text())
-            elif self.path == "/progress":
+            elif path == "/progress":
                 self._send_shared(lambda: presenter.progress(api.progress_snapshot() if api else controller.progress()))
-            elif self.path == "/video/progress":
+            elif path == "/video/progress":
                 self._send_shared(
                     lambda: presenter.video_progress(api.progress_snapshot() if api else controller.progress()),
                     content_type="application/json",
                 )
-            elif self.path == "/rewrite/state":
+            elif path == "/rewrite/state":
                 # The page polls this while a rewrite is in flight, so it is data
                 # the page reads, not a fragment it appends.
                 self._send_shared(
                     lambda: presenter.rewrite_state(api.rewrite_snapshot() if api else controller.rewrite_state()),
                     content_type="application/json",
                 )
-            elif self.path.startswith("/page/"):
-                self._send_page_asset(self.path.removeprefix("/page/"))
+            elif path.startswith("/page/"):
+                self._send_page_asset(path.removeprefix("/page/"))
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
@@ -167,27 +176,31 @@ def make_handler(
             if path == "/image/normalize":
                 self._normalize_image()
                 return
-            if self.path in ("/voice/operations", "/image/operations", "/music/operations"):
+            if path in ("/voice/operations", "/image/operations", "/music/operations"):
                 self._start_operation(source="ui")
                 return
-            if self.path == "/video/generate":
+            if path == "/video/generate":
                 self._run_video()
                 return
-            if self.path == "/video/cancel":
+            if path == "/video/cancel":
                 self._cancel_video()
                 return
-            form = self._read_form()
-            if self.path == "/generate":
+            try:
+                form = self._read_form()
+            except InvalidJob as error:
+                self._send_json({"error": str(error)}, status=400)
+                return
+            if path == "/generate":
                 self._send(self._outcome(lambda: self._run_image_form(form)))
-            elif self.path == "/cancel":
+            elif path == "/cancel":
                 self._send_shared(
                     lambda: api.cancel_image() if api else controller.cancel(), success=204, content_type="text/plain"
                 )
-            elif self.path == "/backend":
+            elif path == "/backend":
                 self._send(
                     self._outcome(lambda: (api.switch_backend(form, "image") if api else controller.switch(form)) or "")
                 )
-            elif self.path == "/video/backend":
+            elif path == "/video/backend":
                 if video_controller is None:
                     self._send_json({"error": "Video generation is not configured."}, status=503)
                 else:
@@ -196,17 +209,17 @@ def make_handler(
                             lambda: (api.switch_backend(form, "video") if api else video_controller.switch(form)) or ""
                         )
                     )
-            elif self.path in ("/voice/backend", "/music/backend"):
+            elif path in ("/voice/backend", "/music/backend"):
                 self._send(
                     self._outcome(
-                        lambda: api.switch_backend(form, "music" if self.path == "/music/backend" else "voice") or ""
+                        lambda: api.switch_backend(form, "music" if path == "/music/backend" else "voice") or ""
                     )
                     if api
                     else "Voice generation is not configured."
                 )
-            elif self.path == "/workspace":
+            elif path == "/workspace":
                 self._send(self._outcome(lambda: (api.leave_workspace() if api else controller.release_model()) or ""))
-            elif self.path == "/rewrite":
+            elif path == "/rewrite":
                 # The page reads this one as data, so a failure arrives as JSON
                 # too. The other routes send HTML, which the page appends or toasts.
                 self._send(
@@ -222,7 +235,7 @@ def make_handler(
                     ),
                     content_type="application/json",
                 )
-            elif self.path == "/rewrite/cancel":
+            elif path == "/rewrite/cancel":
                 # The rewrite answers on its own request, so this one only asks for
                 # the stop, the way `/cancel` does for a run.
                 self._send_shared(
@@ -230,7 +243,7 @@ def make_handler(
                     success=204,
                     content_type="text/plain",
                 )
-            elif self.path == "/hidden/cancel" and api is not None:
+            elif path == "/hidden/cancel" and api is not None:
                 # The page cannot see a private run, but that run holds the one GPU.
                 # This stop frees it, and its answer names nothing about the run.
                 self._send_shared(api.cancel_hidden, success=204, content_type="text/plain")
@@ -669,27 +682,35 @@ def make_handler(
                 return
             self._send("", status=204, content_type="text/plain")
 
+        def _trusted_host(self, *, allow_proxy: bool = True) -> bool:
+            hosts = self.headers.get_all("Host", [])
+            if len(hosts) != 1 or not isinstance(self.server.server_address, tuple):
+                return False
+            bound, port = self.server.server_address[:2]
+            if bound in ("0.0.0.0", "::"):
+                bound = self.connection.getsockname()[0]
+            trusted = {f"{bound}:{port}", f"[{bound}]:{port}", f"localhost:{port}"}
+            if allow_proxy:
+                trusted.update(urlsplit(origin).netloc for origin in allowed_origins)
+            return hosts[0] in trusted
+
         def _from_this_page(self) -> bool:
             """Any site open in the browser can post here. Its page sends its own
             Origin. With DNS rebinding its host name points here, and then its
             Host header names that site. So a POST must name this server in both.
 
-            An allowed origin passes on its own. A proxy such as Tailscale serve
+            A proxy such as Tailscale serve
             gives the page an https origin and a host name that this server did not
-            bind. A foreign page cannot send that origin, with or without rebinding."""
+            bind. Only a configured proxy host and origin can use that exception."""
+            if not StudioHandler._trusted_host(self):
+                return False
             host = self.headers.get("Host", "")
             origin = self.headers.get("Origin")
             if origin is not None and origin in allowed_origins:
                 return True
             if origin is not None and origin != f"http://{host}":
                 return False
-            address = self.server.server_address
-            if not isinstance(address, tuple):
-                return False  # not a TCP server, so no host to compare
-            bound, port = address[:2]
-            if bound in ("0.0.0.0", "::"):
-                return True  # every address of the machine is this server
-            return host in (f"{bound}:{port}", f"[{bound}]:{port}", f"localhost:{port}")
+            return StudioHandler._trusted_host(self, allow_proxy=False)
 
         @staticmethod
         def _outcome(action, as_json: bool = False) -> str:
@@ -702,22 +723,20 @@ def make_handler(
 
         def _normalize_image(self) -> None:
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-            except ValueError:
-                length = 0
-            if not 0 < length <= MAX_IMAGE_IMPORT_BYTES:
-                self._send_json({"error": "The image size must be between 1 byte and 64 MB."}, status=400)
-                return
-            try:
-                image = ImageImportController().normalize(self.rfile.read(length))
+                contents = self._read_body(MAX_IMAGE_IMPORT_BYTES, "The image size must be between 1 byte and 64 MB.")
+                image = ImageImportController().normalize(contents)
             except StudioError as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
             self._send_bytes(image, 200, "image/png")
 
         def _read_form(self) -> dict[str, str]:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length).decode("utf-8")
+            try:
+                body = self._read_body(
+                    MAX_VIDEO_REQUEST_BYTES, "The form request size must be between 0 bytes and 64 MB", allow_empty=True
+                ).decode("utf-8")
+            except UnicodeDecodeError:
+                raise InvalidJob("The form request must contain valid UTF-8") from None
             form = {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
             form["client_id"] = self.headers.get("X-Studio-Client", "")
             form["library_id"] = self.headers.get("X-Studio-Library", "")
@@ -725,20 +744,54 @@ def make_handler(
 
         def _read_json(self, *, include_identity: bool = True) -> dict:
             if not self.headers.get("Content-Type", "").startswith("application/json"):
-                raise InvalidJob("The video request must use application/json")
-            length = int(self.headers.get("Content-Length", 0))
-            if not 0 < length <= MAX_VIDEO_REQUEST_BYTES:
-                raise InvalidJob("The video request size must be between 1 byte and 64 MB")
+                raise InvalidJob("The request must use application/json")
+            contents = self._read_body(MAX_VIDEO_REQUEST_BYTES, "The request size must be between 1 byte and 64 MB")
             try:
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                payload = json.loads(contents.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
-                raise InvalidJob("The video request must contain valid JSON") from None
+                raise InvalidJob("The request must contain valid JSON") from None
             if not isinstance(payload, dict):
-                raise InvalidJob("The video request must be a JSON object")
+                raise InvalidJob("The request must be a JSON object")
             if include_identity:
                 payload["client_id"] = self.headers.get("X-Studio-Client") or payload.get("client_id", "")
                 payload["library_id"] = self.headers.get("X-Studio-Library") or payload.get("library_id", "")
             return payload
+
+        def _read_body(self, maximum: int, size_error: str, *, allow_empty: bool = False) -> bytes:
+            lengths = self.headers.get_all("Content-Length", [])
+            if self.headers.get("Transfer-Encoding") is not None:
+                raise InvalidJob("The request must not use Transfer-Encoding")
+            if not lengths and allow_empty:
+                return b""
+            if len(lengths) != 1 or not lengths[0].isascii() or not lengths[0].isdigit():
+                raise InvalidJob(size_error)
+            if len(lengths[0]) > 10:
+                raise InvalidJob(size_error)
+            length = int(lengths[0])
+            minimum = 0 if allow_empty else 1
+            if not minimum <= length <= maximum:
+                raise InvalidJob(size_error)
+            return self._read_body_bytes(length)
+
+        def _read_body_bytes(self, length: int) -> bytes:
+            deadline = time.monotonic() + REQUEST_READ_TIMEOUT_SECONDS
+            previous_timeout = self.connection.gettimeout()
+            contents = bytearray()
+            try:
+                while len(contents) < length:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError
+                    self.connection.settimeout(remaining)
+                    chunk = self.rfile.read1(min(length - len(contents), 64 * 1024))
+                    if not chunk:
+                        raise InvalidJob("The request body is shorter than Content-Length")
+                    contents.extend(chunk)
+            except TimeoutError:
+                raise InvalidJob("The request body did not arrive before the read deadline") from None
+            finally:
+                self.connection.settimeout(previous_timeout)
+            return bytes(contents)
 
         def _send_page_asset(self, name: str) -> None:
             """One module or stylesheet out of web/. Two rules keep it to those:
@@ -769,6 +822,7 @@ def make_handler(
             content_type: str = "application/octet-stream",
             headers: dict[str, str] | None = None,
         ):
+            self.connection.settimeout(self._response_timeout)
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(payload)))

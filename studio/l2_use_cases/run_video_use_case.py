@@ -34,21 +34,22 @@ class RunVideoUseCase:
             backend: VideoBackendGateway = self._catalog.get(backend_id)
             self._progress.clear_cancel()
             self._progress.begin("", kind="video", request_id=request_id)
+            self._residency.claim(backend_id)
             try:
-                self._residency.claim(backend_id)
                 result = backend.run(job, self._progress.set_step, self._progress.cancel_requested)
                 return replace(result, loras=job.loras)
             except Cancelled:
+                self._residency.release_active()
                 self._progress.clear_cancel()
                 raise
             except Exception:
+                self._residency.release_active()
                 if self._progress.cancel_requested():
                     self._progress.clear_cancel()
                     raise Cancelled("video generation was cancelled") from None
                 raise
-            finally:
-                self._progress.finish()
         finally:
+            self._progress.finish()
             self._engine_lock.release()
 
     def cancel(self, request_id: str) -> bool:
@@ -82,13 +83,17 @@ class RunVideoUseCase:
             def done(index: int, result: VideoResult) -> None:
                 completed(index, replace(result, loras=jobs[0].loras))
 
-            results = self._catalog.get(backend_id).run_batch(
-                jobs,
-                done,
-                begin,
-                self._progress.set_step,
-                lambda: cancelled() or self._progress.cancel_requested(),
-            )
+            try:
+                results = self._catalog.get(backend_id).run_batch(
+                    jobs,
+                    done,
+                    begin,
+                    self._progress.set_step,
+                    lambda: cancelled() or self._progress.cancel_requested(),
+                )
+            except Exception:
+                self._residency.release_active()
+                raise
             return [replace(result, loras=jobs[0].loras) for result in results]
         except Exception:
             if cancelled() or self._progress.cancel_requested():

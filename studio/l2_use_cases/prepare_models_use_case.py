@@ -25,9 +25,18 @@ class PrepareModelsUseCase:
         for backend_id, model in targets:
             on_start(backend_id)
             started = time.monotonic()
-            try:
-                model.load()
-            finally:
-                model.release()
+            _prepare_model(backend_id, model)
             prepared.append((backend_id, time.monotonic() - started))
         return prepared
+
+
+def _prepare_model(backend_id: str, model: ModelLifecycleGateway) -> None:
+    try:
+        model.load()
+    except BaseException as load_error:
+        try:
+            model.release()
+        except BaseException as release_error:
+            raise BaseExceptionGroup(f"{backend_id}: load and release failed", [load_error, release_error]) from None
+        raise
+    model.release()

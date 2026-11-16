@@ -173,9 +173,9 @@ def load(checkpoint: str, half: bool):
 
 
 def request_for(job: dict):
+    """Read the flat Voice payload shared by the gateway and child."""
     from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 
-    options = job.get("options", {})
     reference = job.get("audio") or ""
     fields = {
         "text": job["text"],
@@ -187,13 +187,13 @@ def request_for(job: dict):
         "use_memory_cache": "on",
         "seed": int(job["seed"]),
         "streaming": False,
-        "max_new_tokens": int(options.get("max_tokens", 1024)),
-        "top_p": float(options.get("top_p", 0.8)),
+        "max_new_tokens": int(job.get("max_tokens", 1024)),
+        "top_p": float(job.get("top_p", 0.8)),
         "repetition_penalty": 1.1,
-        "temperature": float(options.get("temperature", 0.8)),
+        "temperature": float(job.get("temperature", 0.8)),
     }
-    if "top_k" in options:
-        fields["top_k"] = int(options["top_k"])
+    if "top_k" in job:
+        fields["top_k"] = int(job["top_k"])
     if reference:
         # This revision of the schema takes a ServeReferenceAudio object, not the
         # (rate, samples) tuple earlier ones took. A tuple reaches its validator and

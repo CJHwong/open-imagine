@@ -3,11 +3,63 @@ import json
 import sys
 import types
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from studio.l3_interface_adapters.gateways.voice.drama3_cuda import drama3_cuda_child as child
+
+
+@pytest.mark.parametrize("mode", ["generate", "clone"])
+def test_controller_options_survive_the_gateway_and_child(monkeypatch, mode):
+    import base64
+
+    import soundfile
+
+    from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+    from studio.l3_interface_adapters.gateways.voice.drama3_cuda.capabilities import drama_cuda_capabilities
+    from studio.l3_interface_adapters.gateways.voice.drama3_cuda.drama3_cuda_backend_gateway import (
+        Drama3CudaBackendGateway,
+    )
+
+    fake_world(monkeypatch)
+    payload = {
+        "mode": mode,
+        "text": "The river is quiet.",
+        "seed": 19,
+        "temperature": 0.55,
+        "top_p": 0.9,
+        "top_k": 11,
+        "max_tokens": 700,
+    }
+    if mode == "clone":
+        reference = io.BytesIO()
+        soundfile.write(reference, np.zeros(4410), 44100, format="WAV")
+        payload.update(
+            reference={"wav_base64": base64.b64encode(reference.getvalue()).decode()}, ref_text="A clear day."
+        )
+    controller = VoiceController(Mock(), drama_cuda_capabilities())
+    gateway_child = Mock()
+    received = []
+
+    def request(serialized, on_step, should_stop):
+        received.append(child.request_for(json.loads(json.dumps(serialized))))
+        return {"wav": "", "seconds": 0, "sample_rate": 44100, "steps": 1}
+
+    gateway_child.request.side_effect = request
+    Drama3CudaBackendGateway(gateway_child).run(controller.validate(payload), Mock(), lambda: False)
+
+    assert len(received) == 1
+    actual = received[0]
+    assert actual["temperature"] == 0.55
+    assert actual["top_p"] == 0.9
+    assert actual["top_k"] == 11
+    assert actual["max_new_tokens"] == 700
+    assert actual["seed"] == 19
+    if mode == "clone":
+        assert actual["references"][0]["text"] == "A clear day."
+        assert actual["references"][0]["audio"] == reference.getvalue()
 
 
 class Event:
@@ -119,7 +171,7 @@ def test_request_for_reads_a_reference_and_carries_the_options(monkeypatch):
     fake_world(monkeypatch)
 
     request = child.request_for(
-        {"text": "hi", "seed": 3, "options": {"top_k": 5}, "audio": "cmVm", "ref_text": "the reference words"}
+        {"text": "hi", "seed": 3, "top_k": 5, "audio": "cmVm", "ref_text": "the reference words"}
     )
 
     assert request["text"] == "hi" and request["seed"] == 3 and request["top_k"] == 5

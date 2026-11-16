@@ -59,12 +59,12 @@ class Written:
 
 class FakeProcessor:
     def __init__(self):
-        self.template_text = ""
+        self.template_content: str | list[dict[str, str]] = ""
         self.images = []
         self.inputs = FakeInputs()
 
     def apply_chat_template(self, messages, tokenize, add_generation_prompt, enable_thinking):
-        self.template_text = messages[-1]["content"]
+        self.template_content = messages[-1]["content"]
         return "formatted"
 
     def __call__(self, text, images, return_tensors):
@@ -101,6 +101,9 @@ def fake_torch(monkeypatch, available=True):
 
 def fake_transformers(monkeypatch, processor, model):
     module = types.ModuleType("transformers")
+    monkeypatch.setattr(
+        module, "AutoConfig", SimpleNamespace(from_pretrained=lambda path: SimpleNamespace()), raising=False
+    )
     monkeypatch.setattr(module, "AutoProcessor", SimpleNamespace(from_pretrained=lambda path: processor), raising=False)
     monkeypatch.setattr(
         module,
@@ -144,7 +147,7 @@ def test_a_generate_job_uses_the_cards_own_system_and_task_text(monkeypatch, tmp
     reply = child.generate(processor, model, {"kind": "generate", "prompt": "a pear"}, templates(tmp_path))
 
     assert reply == {"prompt": "a longer caption", "ratio": "3:2"}
-    assert processor.template_text == "Request: a pear"
+    assert processor.template_content == "Request: a pear"
 
 
 def test_an_edit_job_labels_each_picture_and_keeps_the_requested_ratio(monkeypatch, tmp_path):
@@ -158,9 +161,31 @@ def test_an_edit_job_labels_each_picture_and_keeps_the_requested_ratio(monkeypat
         templates(tmp_path),
     )
 
-    assert "Reference Media: <Picture 1>, aspect_ratio 4:3" in processor.template_text
+    assert isinstance(processor.template_content, list)
+    assert "Reference Media: <Picture 1>, aspect_ratio 4:3" in processor.template_content[-1]["text"]
+    assert processor.template_content[0] == {"type": "image"}
     assert len(processor.images) == 1
     assert reply == {"prompt": "a longer caption", "ratio": "2:3"}
+
+
+def test_cuda_chat_template_receives_each_image_marker_without_mutating_messages(monkeypatch):
+    fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    messages = [{"role": "system", "content": "Keep the subject."}, {"role": "user", "content": "Make it night."}]
+    pictures = [object(), object()]
+
+    child.ask(processor, model, messages, pictures)
+
+    assert processor.template_content == [
+        {"type": "image"},
+        {"type": "image"},
+        {"type": "text", "text": "Make it night."},
+    ]
+    assert processor.images == pictures
+    assert messages == [
+        {"role": "system", "content": "Keep the subject."},
+        {"role": "user", "content": "Make it night."},
+    ]
 
 
 def test_an_empty_prompt_and_an_unknown_kind_are_refused(monkeypatch, tmp_path):

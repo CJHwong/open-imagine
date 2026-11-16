@@ -114,10 +114,11 @@ export function blobBase64(blob) {
 }
 
 export function audioPeaks(samples, count = 80) {
-  const stride = Math.max(1, Math.floor(samples.length / count));
   return Array.from({length: count}, (_, index) => {
     let peak = 0;
-    for (let offset = index * stride; offset < Math.min(samples.length, (index + 1) * stride); offset++) {
+    const start = Math.floor(index * samples.length / count);
+    const end = Math.floor((index + 1) * samples.length / count);
+    for (let offset = start; offset < end; offset++) {
       peak = Math.max(peak, Math.abs(samples[offset]));
     }
     return peak;

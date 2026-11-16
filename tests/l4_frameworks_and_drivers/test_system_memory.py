@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,38 @@ from studio.l1_entities.errors import StudioError
 from studio.l4_frameworks_and_drivers import system_memory
 
 TOTAL = 64 * 1024**3
+
+
+def test_linux_uses_available_memory_instead_of_free_pages(monkeypatch):
+    monkeypatch.setattr(system_memory.sys, "platform", "linux")
+    monkeypatch.setattr(
+        Path, "read_text", lambda self: "MemTotal: 128000 kB\nMemFree: 1000 kB\nMemAvailable: 96000 kB\n"
+    )
+
+    assert system_memory.memory_headroom() == (128000 * 1024, 96000 * 1024)
+
+
+@pytest.mark.parametrize(
+    "report",
+    ["", "MemTotal: 10 kB\n", "MemTotal: bad kB\nMemAvailable: 2 kB\n", "MemTotal: 1 kB\nMemAvailable: 2 kB\n"],
+)
+def test_linux_rejects_invalid_memory_reports(monkeypatch, report):
+    monkeypatch.setattr(system_memory.sys, "platform", "linux")
+    monkeypatch.setattr(Path, "read_text", lambda self: report)
+
+    with pytest.raises(StudioError, match="could not read Linux memory headroom"):
+        system_memory.memory_headroom()
+
+
+def test_linux_reports_an_unreadable_memory_probe(monkeypatch):
+    monkeypatch.setattr(system_memory.sys, "platform", "linux")
+
+    def unreadable(self):
+        raise OSError("missing procfs")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    with pytest.raises(StudioError, match="could not read Linux memory headroom"):
+        system_memory.memory_headroom()
 
 
 def test_macos_memory_headroom_reads_total_and_free_percentage(monkeypatch):
@@ -54,7 +87,7 @@ def test_macos_memory_headroom_reports_command_failures(monkeypatch, failure):
 
 
 def test_other_platforms_use_sysconf(monkeypatch):
-    monkeypatch.setattr(system_memory.sys, "platform", "linux")
+    monkeypatch.setattr(system_memory.sys, "platform", "freebsd")
     values = {"SC_PAGE_SIZE": 4096, "SC_PHYS_PAGES": 100, "SC_AVPHYS_PAGES": 25}
     monkeypatch.setattr(system_memory.os, "sysconf", values.__getitem__)
 
@@ -63,7 +96,7 @@ def test_other_platforms_use_sysconf(monkeypatch):
 
 @pytest.mark.parametrize("failure", (OSError("unsupported"), ValueError("unknown name")))
 def test_other_platforms_report_sysconf_failures(monkeypatch, failure):
-    monkeypatch.setattr(system_memory.sys, "platform", "linux")
+    monkeypatch.setattr(system_memory.sys, "platform", "freebsd")
     monkeypatch.setattr(system_memory.os, "sysconf", lambda name: (_ for _ in ()).throw(failure))
 
     with pytest.raises(StudioError, match="could not read system memory headroom"):

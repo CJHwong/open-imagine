@@ -17,7 +17,7 @@ SAMPLING = (
         "number",
         0.7,
         minimum=0.1,
-        maximum=1.5,
+        maximum=1.0,
         step=0.05,
         hint="Higher values vary the performance more.",
     ),

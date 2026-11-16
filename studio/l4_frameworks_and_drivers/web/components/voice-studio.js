@@ -1140,7 +1140,8 @@ class VoiceStudio extends LitElement {
           ${this.templateFields(template)}
           ${!template ? html`<p class="caption voice-note">${t('voice.description.hint')}</p>` : nothing}
         </section>` : this.needsReference ? html`<section class="field voice-reference-group">
-          <div class="field-head"><label for="voice-reference">${t('voice.reference.label')}</label>
+          <div class="field-head">
+            <label for="voice-reference">${t('voice.reference.label')}</label>
             <button type="button" class="text-btn" ?disabled=${this.locked || this.recordingPending || Boolean(this.reference) && !this.recording} @click=${() => this.toggleRecording()}>${this.recording ? t('voice.action.stopRecording') : this.recordingPending ? t('voice.status.openingMicrophone') : t('voice.action.record')}</button></div>
           <input id="voice-reference" type="file" accept="audio/*" hidden ?disabled=${this.locked || this.recording}
             @change=${event => { this.chooseReference(event.target.files[0]); event.target.value = ''; }}>

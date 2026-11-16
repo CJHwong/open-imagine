@@ -72,7 +72,8 @@ with sync_playwright() as playwright:
         str(offered),
     )
     page.keyboard.press("Escape")
-    chips = page.locator("#look-rows .chip").all_text_contents()
+    options = page.locator("#look-rows").get_by_role("menuitemradio", include_hidden=True).all_text_contents()
+    chips = [option.strip() for option in options if option.strip().lower() != "none"]
     check(
         "Look offers only the options flux2 passed",
         page.is_visible("#look") and len(chips) == 11 and "Documentary" not in chips and "3D render" in chips,

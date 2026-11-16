@@ -49,3 +49,43 @@ def test_the_start_callback_names_each_model_before_it_loads():
 
 def test_nothing_to_prepare_reports_nothing():
     assert PrepareModelsUseCase().execute([]) == []
+
+
+def test_a_failed_load_and_release_report_both_failures_and_stop():
+    load_error = RuntimeError("no weights")
+    release_error = RuntimeError("release failed")
+    log = []
+
+    class Broken(Model):
+        def release(self):
+            super().release()
+            raise release_error
+
+    with pytest.raises(ExceptionGroup, match=r"a.*load.*release") as failed:
+        PrepareModelsUseCase().execute([("a", Broken(log, "a", load_error)), ("b", Model(log, "b"))])
+
+    assert failed.value.exceptions == (load_error, release_error)
+    assert log == ["load a", "release a"]
+
+
+def test_a_successful_load_with_a_failed_release_reports_the_release_error():
+    log = []
+
+    class Broken(Model):
+        def release(self):
+            super().release()
+            raise RuntimeError("release failed")
+
+    with pytest.raises(RuntimeError, match="release failed"):
+        PrepareModelsUseCase().execute([("a", Broken(log, "a"))])
+
+    assert log == ["load a", "release a"]
+
+
+def test_an_interrupted_load_still_releases_the_model():
+    log = []
+
+    with pytest.raises(KeyboardInterrupt):
+        PrepareModelsUseCase().execute([("a", Model(log, "a", KeyboardInterrupt()))])
+
+    assert log == ["load a", "release a"]

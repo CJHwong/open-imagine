@@ -1,5 +1,6 @@
 """The assembled Studio application and its owned lifecycle."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -26,6 +27,7 @@ class Studio:
     video_rewriter: PromptRewriterGateway | None = None
 
     connect: ConnectTransport | None = None
+    close_gpu: Callable[[], None] | None = None
 
     def active_capabilities(self):
         return self.catalog.get(self.catalog.active_id()).capabilities()
@@ -50,12 +52,20 @@ class Studio:
         The frees wait in line on the GPU thread, behind any run, so the run is
         cancelled first. Without that, Ctrl-C waited for the image to finish.
         """
-        self.cancel.execute()
-        self.residency.release()
-        self.operations.close()
-        if self.rewriter is not None:
-            self.rewriter.release()
-        if self.video_rewriter is not None:
-            self.video_rewriter.release()
+        cleanups = [self.cancel.execute, self.residency.release]
+        cleanups.extend(model.release for model in (self.rewriter, self.video_rewriter) if model is not None)
         if self.connect is not None:
-            self.connect.stop()
+            cleanups.append(self.connect.stop)
+        cleanups.append(self.operations.close)
+        if self.close_gpu is not None:
+            cleanups.append(self.close_gpu)
+        failures = []
+        for cleanup in cleanups:
+            try:
+                cleanup()
+            except Exception as error:
+                failures.append(error)
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            raise ExceptionGroup("Studio shutdown failed", failures)

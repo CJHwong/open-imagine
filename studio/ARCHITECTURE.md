@@ -295,6 +295,12 @@ restore. Export reports its packing as a progress toast with the same bar and pe
 `web/lib/store.js`, Voice through `addTake`, and Music through `saveMusicSong`; each store keeps
 its own tombstones and cutoff.
 
+Import validates ZIP offsets, safe integer sizes, duplicate paths, decoded sizes, and CRC32 checksums.
+It bounds decompression while reading and counts repeated references before decoding.
+A cache prevents repeated inflation of the same entry.
+The limits are documented in [Work with media](../docs/how-to/work-with-media.md).
+The stage uses text nodes for imported model labels.
+
 ## Copy and locales
 
 UI copy lives in `web/i18n/<code>.json`, one file per locale. The file name is the locale
@@ -377,6 +383,13 @@ are independent of speech model packages. `gateways/stdio_child.py` is the share
 pipe process helper, used by both media. Music shares the operation reservation, non-queueing
 engine lock and model residency map. All model IDs, including Music, are globally reserved.
 The current plugin SDK still extends Image, Video and Voice only.
+
+`StdioChild` allows 30 minutes for startup and 60 minutes for each request by default.
+Its constructor accepts positive finite deadlines for an engine that needs different bounds.
+A timeout kills and reaps only the process group that the child owns.
+Every request ends its cancellation watcher, including failed exchanges and failed cancellation callbacks.
+Studio closes its GPU worker after releasing models and rewriters.
+In-process model cancellation still depends on engine cooperation.
 
 YuE2 runs in an isolated pinned child, uses local generator and decoder weights, and preserves
 48 kHz stereo. Music operations retain audio separately from score/configuration metadata.

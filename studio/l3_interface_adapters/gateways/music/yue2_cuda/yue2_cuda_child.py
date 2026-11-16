@@ -44,6 +44,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from copy import deepcopy
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -402,7 +403,31 @@ def load(model: str, name: str = "bf16", root: Path | None = None):
     return pipe
 
 
-def run(pipe, job: dict, extras_dir: Path) -> dict:
+class Worker:
+    """Keep one transcription in this child, without retaining its reference audio."""
+
+    def __init__(self, pipe, extras_dir: Path):
+        self.pipe = pipe
+        self.extras_dir = extras_dir
+        self.transcription_key = None
+        self.transcription_result = None
+
+    def transcribe(self, job: dict) -> tuple[str, dict]:
+        reference_hash = hashlib.sha256(base64.b64decode(job.get("reference_audio") or "")).digest()
+        key = (reference_hash, job.get("transcription_task", "melody-full"))
+        if key != self.transcription_key:
+            self.transcription_key = None
+            self.transcription_result = None
+            result = transcribe(job, self.extras_dir)
+            self.transcription_result = deepcopy(result)
+            self.transcription_key = key
+        return deepcopy(self.transcription_result)
+
+    def run(self, job: dict) -> dict:
+        return run(self.pipe, job, self.extras_dir, transcriber=self.transcribe)
+
+
+def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     """The engine's sampling overrides reach both stages, as they do on the MLX backend.
 
     An empty map keeps each stage's own recipe. Without this the studio's sampling
@@ -411,7 +436,7 @@ def run(pipe, job: dict, extras_dir: Path) -> dict:
     mode = job.get("mode", "generate")
     transcribed = {}
     if mode in {"transcribe", "cover"}:
-        score, transcribed = transcribe(job, extras_dir)
+        score, transcribed = transcribe(job, extras_dir) if transcriber is None else transcriber(job)
         if mode == "transcribe":
             return {"wav": "", "score": score, "metadata": {**transcribed, "mode": "transcribe"}}
         # A cover sings the transcribed score with the request's own style and lyrics.
@@ -449,13 +474,14 @@ def main() -> int:
         say("CUDA is not available in this environment")
         return 2
     pipe = load(arguments.model, arguments.quantize, Path(arguments.pack_dir) if arguments.pack_dir else None)
+    worker = Worker(pipe, Path(arguments.extras_dir))
     say("ready")
     for line in sys.stdin:
         line = line.strip()
         if not line:
             continue
         try:
-            answer(run(pipe, json.loads(line), Path(arguments.extras_dir)))
+            answer(worker.run(json.loads(line)))
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}"})
     return 0

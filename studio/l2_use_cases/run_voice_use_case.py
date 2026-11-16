@@ -54,6 +54,7 @@ class RunVoiceUseCase:
             self._backend.prepare_batch(jobs, self._progress.cancel_requested)
             return self._make_takes(jobs, completed, started)
         except Exception:
+            self._residency.release_active()
             if self._progress.cancel_requested():
                 raise Cancelled("Voice generation was cancelled.") from None
             raise

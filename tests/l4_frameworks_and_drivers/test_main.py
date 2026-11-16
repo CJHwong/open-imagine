@@ -916,7 +916,13 @@ def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
         def release(self):
             calls.append("release")
 
-    providers = [SimpleNamespace(backend_id=name, create=lambda config: Model()) for name in ("a", "b", "c")]
+    dependencies = []
+
+    def create(config, *, execute_process, services):
+        dependencies.append((execute_process, services))
+        return Model()
+
+    providers = [SimpleNamespace(backend_id=name, create=create) for name in ("a", "b", "c")]
     monkeypatch.setattr(main, "BUILTIN_PROVIDERS", providers)
     config = SimpleNamespace(
         visible_backends=("a",),
@@ -929,3 +935,47 @@ def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
 
     assert [name for name, _ in report] == ["a", "b"]
     assert calls == ["load", "release", "load", "release"]
+    assert len(dependencies) == 2
+    assert dependencies[0][1] is dependencies[1][1]
+    assert all(execute is services.run_process for execute, services in dependencies)
+
+
+@pytest.mark.parametrize("config_name", ["studio.toml", "studio.cuda.toml", "all builtins"])
+def test_prepare_constructs_real_provider_factories_with_fake_lifecycles(monkeypatch, config_name):
+    from studio.l4_frameworks_and_drivers import main
+
+    root = Path(__file__).resolve().parents[2]
+    config = load_config(root / ("studio.toml" if config_name == "all builtins" else config_name))
+    if config_name == "all builtins":
+        by_kind = {
+            kind: tuple(provider.backend_id for provider in main.BUILTIN_PROVIDERS if provider.kind == kind)
+            for kind in ("image", "video", "voice", "music")
+        }
+        config = replace(
+            config,
+            visible_backends=by_kind["image"],
+            visible_video_backends=by_kind["video"],
+            visible_voice_backends=by_kind["voice"],
+            visible_music_backends=by_kind["music"],
+        )
+    lifecycle = main.PrepareModelsUseCase.execute
+    calls = []
+
+    def execute(use_case, targets, on_start):
+        for name, model in targets:
+            monkeypatch.setattr(model, "load", lambda name=name: calls.append((name, "load")))
+            monkeypatch.setattr(model, "release", lambda name=name: calls.append((name, "release")))
+        return lifecycle(use_case, targets, on_start)
+
+    monkeypatch.setattr(main.PrepareModelsUseCase, "execute", execute)
+
+    report = main.prepare_models(config)
+
+    expected = set(
+        config.visible_backends
+        + config.visible_video_backends
+        + config.visible_voice_backends
+        + config.visible_music_backends
+    )
+    assert {name for name, _ in report} == expected
+    assert calls == [event for name, _ in report for event in [(name, "load"), (name, "release")]]

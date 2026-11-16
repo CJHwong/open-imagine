@@ -145,7 +145,11 @@ class RunImageUseCase:
             self._rewriter.release()
         self._residency.claim(backend_id)
         self._progress.begin("Preparing batch")
-        backend.prepare_batch(jobs, lambda: cancelled() or self._progress.cancel_requested())
+        try:
+            backend.prepare_batch(jobs, lambda: cancelled() or self._progress.cancel_requested())
+        except Exception:
+            self._residency.release_active()
+            raise
         results = []
         for index, job in enumerate(jobs, 1):
             self._check_batch_cancel(cancelled)
@@ -290,6 +294,7 @@ class RunImageUseCase:
             self._progress.clear_cancel()
             raise
         except Exception:
+            self._residency.release_active()
             # A stop that the engine never saw is enforced by freeing it, and the engine
             # dying is how that reads here. The user asked to stop, so this reports a
             # stop rather than the engine's own account of dying.

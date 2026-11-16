@@ -142,6 +142,24 @@ Turn Keep off to clear saved browser media and drafts.
 Open tabs retain their existing galleries in memory before saved files are cleared. This can take
 time for a large collection; keeping persistence enabled uses less memory while browsing it.
 
+Export in the Media menu creates a gallery backup. Import restores a backup from that menu.
+Import checks each ZIP entry's size and checksum. It refuses duplicate paths and paths outside the archive.
+Stored model names remain text, including names from imported records.
+
+Import uses these limits to bound memory use:
+
+| Part | Limit |
+|---|---|
+| Archive file | 8 GiB |
+| Total decoded media, including repeated references | 8 GiB |
+| One media file | 2 GiB |
+| Manifest | 16 MiB |
+| ZIP directory | 8 MiB |
+| ZIP entries or media references | 10,000 |
+| Decoded version 1 or version 2 backup | 256 MiB |
+
+Export has no new size limit. Use smaller backups when an import exceeds a limit.
+
 ## Cancel a run
 
 Use the shared operation control to cancel. Open tabs follow the same operation, including work started by the API.

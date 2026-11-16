@@ -4,8 +4,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from studio.l1_entities.errors import Cancelled
-from studio.l1_entities.video_job import VideoJob
+from studio.l1_entities.errors import Cancelled, InvalidJob
+from studio.l1_entities.lora import LoraUse
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob
 from studio.l3_interface_adapters.gateways.video.ltx25_cuda.ltx25_cuda_backend_gateway import (
     Ltx25CudaBackendGateway,
     clip_payload,
@@ -28,6 +29,7 @@ def test_the_payload_carries_values_and_a_step_count():
         "frame_rate": 24,
         "seed": 7,
         "enhance": False,
+        "include_audio": True,
     }
 
 
@@ -119,3 +121,25 @@ def test_a_keyframe_crosses_with_its_frame_index_and_strength():
 
 def test_a_run_without_keyframes_sends_no_references():
     assert "references" not in clip_payload(job())
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"edit": VideoEdit("custom", 1.0, "", b"clip", "clip.mp4")},
+        {"audio": VideoAudio(b"audio", "track.wav")},
+        {"fast_mode": True},
+        {"loras": (LoraUse("unsupported", 1.0),)},
+    ],
+)
+def test_unsupported_jobs_fail_before_the_child_starts(overrides):
+    child = Mock()
+
+    with pytest.raises(InvalidJob):
+        Ltx25CudaBackendGateway(child).run(job(**overrides))
+
+    child.request.assert_not_called()
+
+
+def test_a_silent_request_preserves_the_output_flag():
+    assert clip_payload(job(include_audio=False))["include_audio"] is False

@@ -1,6 +1,7 @@
 <h1 align="center"><img src="docs/images/logo.svg" width="120" alt=""><br>Open Imagine</h1>
 
-A local Image, Video, Voice, and Music studio for Apple Silicon, with a shared UI and API.
+A local Image, Video, Voice, and Music studio for Apple Silicon and selected NVIDIA CUDA hosts.
+Both platforms share the page and API. The available modes depend on the backend.
 
 - **Image:** generate and edit with Qwen Image Turbo, references, and region marking.
 - **Video:** create clips with LTX-2.5 from text, keyframes, and audio; apply editing effects or turn a layout animation and look image into a rendered shot.
@@ -25,6 +26,9 @@ uv run studio
 
 Open **http://127.0.0.1:8765**. Models load on first use. The default Image model downloads about 32.5 GB;
 Video builds its engine on the first run and needs [ffmpeg and the model terms](docs/how-to/set-up-models.md#video-ltx-25). Use `uv run studio --stub` to explore without models. On an NVIDIA machine, see [Run on an NVIDIA machine](docs/how-to/set-up-models.md#run-on-an-nvidia-machine).
+
+LTX-2.5 on CUDA supports Generate with text, keyframes, and optional generated sound.
+It refuses Edit, source audio, and Fast mode.
 
 ## Android app
 

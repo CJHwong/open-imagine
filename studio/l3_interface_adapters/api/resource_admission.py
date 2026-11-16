@@ -39,7 +39,7 @@ class ResourceAdmission:
         if required_gib > available_gib:
             raise InsufficientMemory(
                 f"Not enough memory to start this request. It needs about {needed_gib:.1f} GiB "
-                f"plus {OS_RESERVE_GIB:.0f} GiB reserved for macOS; about {available_gib:.1f} GiB is available. "
+                f"plus {OS_RESERVE_GIB:.0f} GiB reserved for the operating system; about {available_gib:.1f} GiB is available. "
                 "Close other memory-heavy apps or release the loaded model, then retry. "
                 "For images or video, try a smaller output or fewer references."
             )

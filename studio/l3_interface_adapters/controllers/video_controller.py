@@ -6,7 +6,7 @@ import io
 import secrets
 from collections.abc import Callable, Mapping
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode
@@ -15,6 +15,7 @@ from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBa
 from studio.l2_use_cases.plan_video_use_case import PlanVideoRequest, PlanVideoResponse, PlanVideoUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
 from studio.l2_use_cases.switch_video_backend_use_case import SwitchVideoBackendUseCase
+from studio.l3_interface_adapters.controllers.image_import_controller import ImageImportController, decode_image_base64
 
 
 class VideoController:
@@ -522,10 +523,10 @@ def _decode_png(encoded: object) -> tuple[bytes, int, int]:
     if not isinstance(encoded, str) or not encoded:
         raise UnreadableImage("Could not read that video reference image.")
     try:
-        image = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(encoded, validate=True))))
-        image = image.convert("RGBA" if image.has_transparency_data else "RGB")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-    except (binascii.Error, UnidentifiedImageError, OSError, ValueError):
+        png = ImageImportController().normalize(decode_image_base64(encoded, validate=True), convert_profile=False)
+        with Image.open(io.BytesIO(png)) as image:
+            return png, image.width, image.height
+    except InvalidJob:
+        raise
+    except (binascii.Error, UnidentifiedImageError, OSError, ValueError, UnreadableImage):
         raise UnreadableImage("Could not read that video reference image.") from None
-    return buffer.getvalue(), image.width, image.height

@@ -182,11 +182,24 @@ def quantize_kwargs(weight) -> dict | None:
     return dict(vars(values)) if values is not None else None
 
 
+def copy_to_host(tensor):
+    """Wait before serialization reads a nonblocking device copy."""
+    if tensor.device.type == "cpu":
+        return tensor
+    import torch
+
+    copied = tensor.to("cpu", non_blocking=True)
+    torch.cuda.synchronize(tensor.device)
+    return copied
+
+
 def write_pack(pipe, directory: Path, manifest: dict) -> None:
     """One safetensors file per component, written from the CPU copies of the parts."""
+    import torch
     from safetensors.torch import save_file
 
     directory.mkdir(parents=True, exist_ok=True)
+    torch.cuda.empty_cache()
     entries = {}
     for component_name in PACK_COMPONENTS:
         module = component(pipe, component_name)
@@ -197,10 +210,10 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             kind = weight_kind(weight)
             entry = {"kind": kind}
             if kind == "nvfp4":
-                tensors[f"{key}.qdata"] = weight.qdata.cpu()
-                tensors[f"{key}.scale"] = weight.scale.cpu()
+                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
+                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
                 if weight.per_tensor_scale is not None:
-                    tensors[f"{key}.per_tensor_scale"] = weight.per_tensor_scale.cpu()
+                    tensors[f"{key}.per_tensor_scale"] = copy_to_host(weight.per_tensor_scale)
                 entry.update(
                     {
                         "block_size": weight.block_size,
@@ -212,14 +225,17 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
                     }
                 )
             elif kind == "fp8":
-                tensors[f"{key}.qdata"] = weight.qdata.cpu()
-                tensors[f"{key}.scale"] = weight.scale.cpu()
+                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
+                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
                 entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype)})
             else:
-                tensors[key] = weight.cpu()
+                tensors[key] = copy_to_host(weight)
             entries[key] = entry
-        save_file(tensors, str(directory / f"{component_name}.safetensors"))
-        del tensors
+        try:
+            save_file(tensors, str(directory / f"{component_name}.safetensors"))
+        finally:
+            tensors.clear()
+            torch.accelerator.memory.empty_host_cache()
     manifest["tensors"] = entries
     (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
 
