@@ -10,28 +10,54 @@ in a scratch directory.
 ## What a run is
 
 1. One studio, one operation at a time. A second GPU job makes every number wrong.
-2. The runner submits the payload, waits for a terminal status, and reads the result. `Time`
-   is submit to terminal status: it includes the child's start but not the queue wait or a
-   weight download.
+2. The runner records four spans, because one number hides where the time went.
+   `submit_to_accept` is the POST and the response. `active` is the accept to the terminal
+   status, which is the job itself. `fetch` is the download of the result. `seconds` is the
+   whole thing end to end, and it is the only number that includes the queue wait and the
+   load. Two machines compare on `active`.
 3. Two runs of one case give a cold row and a warm row. The first case of a workspace carries
    that workspace's load, so the warm-up pass at the end repeats it and the warm figure is the
    one to compare.
-4. Free memory is `MemAvailable` before the submit minus the lowest sample during the run, as
-   a share of the machine's total. A negative figure means the run evicted more page cache
-   than it allocated, which happens on unified memory.
+4. Free memory is `MemAvailable` sampled five times a second for the whole run. The figure is
+   the start minus the lowest sample, in GiB, with the start and the end recorded beside it.
+   A negative figure means the run evicted more page cache than it allocated, which happens on
+   unified memory. The two ends of a job are not a peak, and a job that allocates and frees
+   inside itself shows nothing at its ends. A macOS host has no `/proc/meminfo`, so it
+   reports no figure.
+5. Every successful result is recorded with its SHA-256 and with the facts its own bytes
+   carry: the width and height of a PNG, the sample rate, channels and seconds of a WAV, and
+   whether an MP4 names an audio track. A success says the API answered. These say what it
+   answered with.
+
+## A campaign
+
+A campaign is a commit, a platform, an interpreter and a set of asset bytes. The first
+`run_matrix.py` writes them to `campaign-<machine>.json` and every later run must match.
+
+- A case is skipped only when a result of this campaign already succeeded on it. The skip
+  tests a fingerprint of the manifest and the case, so a changed commit, a changed asset or a
+  changed payload schedules the work again.
+- `--reuse-compatible` keeps the manifest on disk when this tree differs from it. Use it to
+  add cases to a campaign that is already running, not to mix two revisions.
+- `--force` runs a case this campaign already finished. Use it for a deliberate repeat.
+- `--deadline` caps one case in seconds, 1800 by default. On a breach the runner asks the
+  studio to cancel and records `timeout` with the reason. A stuck operation costs one row,
+  not the night.
+- A case that finished but whose result never arrived is fetched on the next run, not
+  generated again.
 
 ## The four parts
 
 | File | What it does |
 |---|---|
-| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. Both machines then read the same bytes. |
+| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. It writes `assets.sha256` beside the directory, and it refuses to build over assets another machine already owns. |
 | `parity_matrix.py` | Writes `matrix.jsonl`: one JSON line per case, carrying a payload for each engine. Same prompt, same seed, same reference; only the backend id and the field each engine names differently change. |
-| `run_matrix.py` | Runs the manifest against one studio, appends one JSON line per run, and skips a case that already succeeded. |
-| `report.py` | Prints both columns side by side and names every case that is missing or did not succeed. That last list is the point: it is how a case stops being forgotten. |
+| `run_matrix.py` | Runs the manifest against one studio, appends one JSON line per run, and skips a case this campaign already succeeded on. |
+| `report.py` | Prints both columns side by side and names every case that is missing or did not succeed. It also prints the manifest of each machine and marks a figure that came from another campaign. That last part is the point: it is how a case stops being forgotten and how a stale figure stops being compared. |
 
 ## Running it
 
-On each machine, with its own studio on its own port:
+On the machine that owns the engines, build the assets once:
 
 ```sh
 uv run studio --config studio.cuda.toml --port 8899   # the CUDA machine
@@ -41,12 +67,23 @@ uv run python scripts/measure/parity_matrix.py --work /tmp/parity
 uv run python scripts/measure/run_matrix.py --machine cuda --base http://127.0.0.1:8899 --work /tmp/parity
 ```
 
-Then, on the other machine, the same three steps with its own backends and port, and finally:
+Then copy `/tmp/parity/assets` and `/tmp/parity/assets.sha256` to the other machine. Do not
+run `build_assets.py` there: a second generated picture is a different picture, and a case
+that cites it is not the same case.
+
+On the other machine, with its own studio on its own port:
 
 ```sh
+uv run python scripts/measure/run_matrix.py --machine mlx --base http://127.0.0.1:8899 --work /tmp/parity
 uv run python scripts/measure/parity_matrix.py --work /tmp/parity --warmup-only
 uv run python scripts/measure/run_matrix.py --machine mlx --matrix /tmp/parity/warmup.jsonl \
     --out /tmp/parity/warm-mlx.jsonl --base http://127.0.0.1:8899 --work /tmp/parity
+```
+
+Finally, collect both result files, both `campaign-<machine>.json` files and the media in
+`results/`, then:
+
+```sh
 uv run python scripts/measure/report.py --work /tmp/parity
 ```
 
@@ -64,16 +101,16 @@ prefers.
   one.
 - `music-10s.wav` and `music-15s.wav` are slices of one recording, for transcribe and cover.
 
-Assets are generated, never committed. The manifest names them, so a missing file fails before
-a GPU is touched.
+Assets are generated, never committed. The manifest names them, and the runner checks every
+byte it reads against it, so a missing or changed asset fails before a GPU is touched.
 
 ## The rules that are not obvious
 
 - One GPU job at a time, and one studio per machine. Check the other ports first.
-- A case that fails is retried by the next run of the same command, because only a success is
-  skipped. A payload fault shows up as a rejection in the results file with the API's own
-  words.
-- Both machines must run the same commit. A backend that grew a field since the other one was
-  updated fails at the API, not in the engine.
-- The reference bytes are the ones in `matrix.jsonl`. A case that cites a file that changed
-  since the other machine's run is not the same case.
+- A case that fails is retried by the next run of the same command, because only a success of
+  this campaign is skipped. A payload fault shows up as a rejection in the results file with
+  the API's own words.
+- Both machines must run the same commit and the same asset bytes. `report.py` says so when
+  they do not, because the two columns then describe two different products.
+- A case id may contain a slash. The result file name carries a short fingerprint as well, so
+  two ids that read alike cannot overwrite each other.

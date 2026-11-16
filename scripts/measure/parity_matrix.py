@@ -43,7 +43,7 @@ def ref(name: str) -> dict:
 def cases() -> list[dict]:
     rows: list[dict] = []
 
-    def image(case_id: str, mode: str, spark: dict, office: dict) -> None:
+    def image(case_id: str, spark: dict, office: dict) -> None:
         rows.append(
             {
                 "id": case_id,
@@ -84,12 +84,11 @@ def cases() -> list[dict]:
 
     for size in ("512x512", "768x768", "1024x1024", "1328x1328"):
         body = {"mode": "generate", "prompt": PICTURE, "size": size, "steps": 8, "guidance": 1.0, "seed": 7}
-        image(f"qwen21_turbo/generate/text/{size.split('x')[0]}", "generate", body, body)
+        image(f"qwen21_turbo/generate/text/{size.split('x')[0]}", body, body)
 
     for out in ("512", "768", "1024", "1344"):
         image(
             f"qwen21_turbo/edit/one-ref/out{out}",
-            "edit",
             {
                 "mode": "edit",
                 "prompt": "Make it night, lit by the window.",
@@ -113,7 +112,6 @@ def cases() -> list[dict]:
     for count in (2, 4, 8, 10):
         image(
             f"qwen21_turbo/edit/{count}-refs/out1024",
-            "edit",
             {
                 "mode": "edit",
                 "prompt": "Put the objects from the pictures on one table.",
@@ -137,7 +135,6 @@ def cases() -> list[dict]:
     for name in ("512", "1600x900", "2048", "4032x3024"):
         image(
             f"qwen21_turbo/edit/one-ref/in{name}",
-            "edit",
             {
                 "mode": "edit",
                 "prompt": "Make it night, lit by the window.",
@@ -160,7 +157,7 @@ def cases() -> list[dict]:
 
     for size in ("1024x1024", "2048x2048"):
         body = {"mode": "generate", "prompt": PICTURE, "size": size, "steps": 6, "seed": 7}
-        image(f"minimax_h3_image/generate/{size.split('x')[0]}", "generate", body, body)
+        image(f"minimax_h3_image/generate/{size.split('x')[0]}", body, body)
     edit = {
         "mode": "edit",
         "prompt": "Make <Picture 1> night time, lit by the window.",
@@ -169,7 +166,7 @@ def cases() -> list[dict]:
         "seed": 7,
         "references": [ref("ref-2048.png")],
     }
-    image("minimax_h3_image/edit/one-ref-2048", "edit", edit, edit)
+    image("minimax_h3_image/edit/one-ref-2048", edit, edit)
 
     for width, height, frames in ((768, 768, 97), (1280, 704, 97), (1920, 1088, 97), (384, 384, 25)):
         video(

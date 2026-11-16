@@ -7,6 +7,7 @@ recording. Every case then cites a file here, so both engines read the same byte
 
 import argparse
 import base64
+import hashlib
 import json
 import time
 import urllib.request
@@ -44,8 +45,13 @@ def post(base: str, body: dict) -> dict:
         return json.loads(answer.read())
 
 
-def wait(base: str, operation: str) -> dict:
+def wait(base: str, operation: str, deadline: float) -> dict:
+    """Poll until the operation ends. A server that never answers must not stall a
+    whole comparison, so the caller sets how long one asset may take."""
+    started = time.time()
     while True:
+        if time.time() - started > deadline:
+            raise SystemExit(f"{operation} did not end within {deadline:g} s")
         with urllib.request.urlopen(f"{base}/api/v1/operations/{operation}", timeout=120) as answer:
             state = json.loads(answer.read())
         if state["status"] in ("succeeded", "failed", "cancelled"):
@@ -53,10 +59,23 @@ def wait(base: str, operation: str) -> dict:
         time.sleep(1.0)
 
 
-def run(base: str, body: dict, name: str, assets: Path) -> Path:
+def write_manifest(assets: Path) -> Path:
+    """One line per asset, so a machine that did not build them can prove it reads the
+    same bytes. This is the file the runner checks before it sends anything."""
+    lines = [
+        f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
+        for path in sorted(assets.iterdir())
+        if path.is_file()
+    ]
+    manifest = assets.parent / "assets.sha256"
+    manifest.write_text("\n".join(lines) + "\n")
+    return manifest
+
+
+def run(base: str, body: dict, name: str, assets: Path, deadline: float) -> Path:
     started = time.time()
     accepted = post(base, body)
-    state = wait(base, accepted["id"])
+    state = wait(base, accepted["id"], deadline)
     if state["status"] != "succeeded":
         raise SystemExit(f"{name} ended {state['status']}: {state.get('error')}")
     with urllib.request.urlopen(f"{base}/api/v1/operations/{accepted['id']}/result", timeout=600) as answer:
@@ -77,9 +96,17 @@ def main() -> int:
     parser.add_argument("--image-backend", required=True)
     parser.add_argument("--voice-backend", required=True)
     parser.add_argument("--audio-source", default="", help="a recording to slice for transcribe and cover")
+    parser.add_argument("--deadline", type=float, default=900.0, help="seconds one asset may take")
+    parser.add_argument("--force", action="store_true", help="build again over an asset directory that exists")
     arguments = parser.parse_args()
 
     assets = Path(arguments.work) / "assets"
+    manifest = assets.parent / "assets.sha256"
+    if manifest.is_file() and not arguments.force:
+        raise SystemExit(
+            f"{manifest} exists, so these assets already have an owner. Every machine must read "
+            "those bytes, so copying the directory beats building it again. Pass --force to rebuild."
+        )
     assets.mkdir(parents=True, exist_ok=True)
     print("picture", flush=True)
     source = run(
@@ -96,6 +123,7 @@ def main() -> int:
         },
         "picture-1024.png",
         assets,
+        arguments.deadline,
     )
     with Image.open(source) as picture:
         for name, size in SIZES.items():
@@ -107,12 +135,14 @@ def main() -> int:
         {"kind": "voice", "backend": arguments.voice_backend, "mode": "generate", "text": SHORT, "seed": 7},
         "voice-short.wav",
         assets,
+        arguments.deadline,
     )
     run(
         arguments.base,
         {"kind": "voice", "backend": arguments.voice_backend, "mode": "generate", "text": LONG, "seed": 7},
         "voice-long.wav",
         assets,
+        arguments.deadline,
     )
 
     if arguments.audio_source:
@@ -131,7 +161,8 @@ def main() -> int:
     (assets / "scripts.json").write_text(
         json.dumps({"short": SHORT, "long": LONG, "picture": PICTURE}, indent=1) + "\n"
     )
-    print("assets ready in", assets)
+    manifest = write_manifest(assets)
+    print("assets ready in", assets, "listed in", manifest)
     return 0
 
 
