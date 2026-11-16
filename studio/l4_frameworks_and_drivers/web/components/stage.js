@@ -397,7 +397,11 @@ export function renderStage() {
   // The name is recorded as the server writes it. The edge draws it the way the
   // film does, in capitals with the hyphens opened out, whatever path made it.
   const edgeModel = String(entry.backend || '').toUpperCase().replace(/-/g, ' ');
-  edge.innerHTML = '<span>' + edgeModel + '</span><span>' + frameNumber(entry.id) + '</span>';
+  const modelLabel = document.createElement('span');
+  modelLabel.textContent = edgeModel;
+  const numberLabel = document.createElement('span');
+  numberLabel.textContent = frameNumber(entry.id);
+  edge.append(modelLabel, numberLabel);
   shot.append(pic, edge);
   if (region.onPrint()) shot.classList.add('marking');
   // A brush on the print takes the drag that the divided view's divider would

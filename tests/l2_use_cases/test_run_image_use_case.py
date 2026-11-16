@@ -36,6 +36,38 @@ def request(**overrides):
     return replace(BASE, **overrides)
 
 
+@pytest.mark.parametrize("stage", ["single", "batch", "prepare"])
+def test_failed_image_runtime_loses_only_its_own_residency(stage, monkeypatch):
+    backend = FakeBackendGateway(fail_with=RuntimeError("engine failed"))
+    retained = FakeVideoBackendGateway()
+    residency = InMemoryModelResidencyGateway(
+        {"fake": backend, "video-fake": retained},
+        policy="boundary",
+        boundary_gib=50,
+        footprints={"fake": 10, "video-fake": 10},
+    )
+    residency.claim("video-fake")
+    catalog = InMemoryBackendCatalogGateway({"fake": backend}, "fake", ("fake",))
+    run = RunImageUseCase(catalog, InMemoryProgressGateway(), InMemoryReferenceStoreGateway(), residency=residency)
+
+    def fail_preparation(*args):
+        raise RuntimeError("engine failed")
+
+    if stage == "prepare":
+        monkeypatch.setattr(backend, "prepare_batch", fail_preparation)
+
+    with pytest.raises(RuntimeError, match="engine failed"):
+        if stage != "single":
+            run.execute_batch([request()], lambda *args: None, lambda *args: None, lambda: False)
+        else:
+            run.execute(request())
+
+    assert residency.resident_ids() == ("video-fake",)
+    assert residency.resident_gib("fake") == 0
+    assert retained.releases == 0
+    assert backend.events == ["release"]
+
+
 @pytest.fixture
 def studio():
     backend = FakeBackendGateway()

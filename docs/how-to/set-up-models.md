@@ -272,9 +272,9 @@ uv run studio --config studio.cuda.toml --prepare
 uv run studio --config studio.cuda.toml
 ```
 
-`--prepare` is the one long step. It builds the packs of quantized weights and the engine
-environments, then exits, so no generation pays for them. Skip it and the first generation
-of each model pays instead.
+`--prepare` loads each configured model, builds its packs and engine environment, then releases it.
+It does not run inference. A first generation can still compile kernels for its shape.
+Without preparation, the first generation also pays for pack and environment setup.
 
 `uv` must be on the server's PATH, because each engine runs as a PEP 723 script child with
 its own pinned environment; YuE2 moves that environment's torch to 2.15 so `mslk` will load.

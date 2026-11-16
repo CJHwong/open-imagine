@@ -267,7 +267,11 @@ def toggle_look(page, row, label):
     """
     page.locator("#look-rows").get_by_role("button", name=re.compile(rf"^{re.escape(row)}")).click()
     # An option is a menuitemradio, not a button: the row's own toggle is the button.
-    page.locator("#look-rows").get_by_role("menuitemradio", name=label, exact=True).click()
+    option = page.locator("#look-rows").get_by_role("menuitemradio", name=label, exact=True)
+    if option.get_attribute("aria-checked") == "true":
+        page.locator("#look-rows").get_by_role("menuitemradio", name=re.compile(r"^none$", re.IGNORECASE)).click()
+        return
+    option.click()
 
 
 def region_rows(page):
@@ -281,8 +285,11 @@ def picked_looks(page):
     A pick closes its row, and a closed row is out of the accessibility tree, so
     the search keeps the hidden ones. A class query saw them whether or not the
     row was open, and this is the same claim.
+    Each row checks None when it has no Look.
     """
-    return page.locator("#look-rows").get_by_role("menuitemradio", checked=True, include_hidden=True)
+    return page.locator("#look-rows").get_by_role(
+        "menuitemradio", name=re.compile(r"^(?!none$)", re.IGNORECASE), checked=True, include_hidden=True
+    )
 
 
 def selection(page):
@@ -624,7 +631,9 @@ with sync_playwright() as playwright:
         page.locator(".facts span", has_text="Took ").count() == 1,
         page.inner_text(".facts"),
     )
-    toggle_look(page, "Light", "Overcast")
+    page.locator("#look-rows").get_by_role("button", name=re.compile(r"^Light")).click()
+    page.locator("#look-rows").get_by_role("menuitemradio", name=re.compile(r"^none$", re.IGNORECASE)).click()
+    check("the Look is cleared before reuse", picked_looks(page).count() == 0)
     page.fill("#prompt", "")
     page.get_by_role("button", name="More actions").click()
     page.get_by_role("menuitem", name="Reuse prompt").click()
@@ -935,6 +944,10 @@ with sync_playwright() as playwright:
     )
     wait_idle(page)
     check("cancel ends the run, no new image", frames(page).count() == 4)
+    # The cancellation notice stays over the canvas until the user dismisses it.
+    dismiss = page.locator("#toasts").get_by_role("button", name="Dismiss", exact=True)
+    dismiss.click()
+    dismiss.wait_for(state="hidden")
 
     # Remove, themes, phone
     frames(page).nth(0).click()
@@ -1331,6 +1344,10 @@ with sync_playwright() as playwright:
         region_rows(page).count() == 0 and page.locator("#toasts").inner_text().strip() != "",
         str(page.locator("#region-rows").all_inner_texts()),
     )
+    # Notices cover the canvas until the user dismisses them.
+    notices = page.locator("#toasts").get_by_role("button", name="Dismiss", exact=True)
+    while notices.count():
+        notices.first.click()
 
     # Two references: the mask would mark a region of the first image while the
     # prompt names only the mask, and which picture owns the region is untested,
@@ -1528,47 +1545,27 @@ with sync_playwright() as playwright:
     # LEFT: a scroll width.
     width = page.evaluate("document.documentElement.scrollWidth")
     check("phone has no sideways scroll", width <= 390, str(width))
-    # LEFT: the summary line's spans and where each one sits on the line.
-    rows = page.evaluate("""() => [...document.querySelectorAll('.facts span:not(.break)')]
-        .map(fact => [fact.innerText, Math.round(fact.getBoundingClientRect().top)])""")
-    seed = next(index for index, (text, _) in enumerate(rows) if text.startswith("Seed"))
-    check(
-        "a phone puts the facts on two lines: which image, then how",
-        # The badge's border and padding lift its top a few pixels on the same line.
-        abs(rows[0][1] - rows[seed][1]) <= 4 and rows[seed + 1][1] == rows[-1][1] > rows[seed][1] + 8,
-        str(rows),
-    )
-    # The caption is a control here, so it names itself with the prompt it holds.
-    caption = page.get_by_role("button", name=re.compile("^A ceramic teapot"))
-    sheet = page.get_by_role("dialog", name="The whole prompt")
-    check("a caption the phone cuts becomes a toggle", caption.get_attribute("aria-expanded") == "false")
-    # LEFT: the print's own box.
+    # The phone moves result details into a sheet to leave room for the image.
+    about = page.locator("#image-stage .stage-bar .about")
+    details = page.locator("#image-stage .preview-details-toggle")
+    check("the phone hides the inline details", not about.is_visible())
+    check("the phone offers result details", details.is_visible())
     print_box = page.locator(".pic").bounding_box()
-    caption.click()
+    details.click()
+    sheet = page.locator("dialog.sheet[open]")
+    expect(sheet).to_be_visible()
     check(
-        "a click opens the whole prompt over the print",
-        caption.get_attribute("aria-expanded") == "true"
-        # The sheet holds one definition per line it prints, and the prompt leads.
-        and sheet.get_by_role("definition").first.inner_text().startswith("A ceramic teapot")
-        and "Overcast sky" in sheet.inner_text(),
+        "result details include the prompt and seed",
+        "A ceramic teapot" in sheet.inner_text() and "Seed" in sheet.inner_text(),
         sheet.inner_text(),
     )
-    # LEFT: the print's own box again.
     check("the print does not move", page.locator(".pic").bounding_box() == print_box)
-    check(
-        "focus goes to Close",
-        page.get_by_role("button", name="Close").evaluate("el => el === document.activeElement"),
-    )
     page.keyboard.press("Escape")
-    check(
-        "Escape closes it and gives focus back to the label",
-        sheet.count() == 0
-        and caption.get_attribute("aria-expanded") == "false"
-        and caption.evaluate("el => el === document.activeElement"),
-    )
-    caption.press("Enter")
-    check("Enter opens it", sheet.count() == 1)
-    page.get_by_role("button", name="Close").click()
+    check("Escape closes result details", sheet.count() == 0)
+    check("focus returns to result details", details.evaluate("el => el === document.activeElement"))
+    details.press("Enter")
+    expect(sheet).to_be_visible()
+    sheet.locator(".sheet-head .close").click()
     page.screenshot(path=OUT + "5-phone.png")
     page.evaluate("window.scrollTo(0, 560)")
     page.screenshot(path=OUT + "6-phone-form.png")
@@ -1577,6 +1574,10 @@ with sync_playwright() as playwright:
     page.get_by_role("button", name="Clear all").click()
     check("clear empties the strip", frames(page).count() == 0)
     page.click("label[for=mode-edit]")
+    references = page.locator("#thumbs").get_by_role("button", name=re.compile(r"^Remove "))
+    while references.count():
+        references.first.click()
+    reference_count(page, 0)
     check("edit empty offers a picker", button(page, "Choose an image").is_visible())
     check("no leave warning after clear", not leave_blocked(page))
 
@@ -1597,7 +1598,7 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(300)
     check(
         "the rewrite button is locked while the rewriter loads",
-        rewrite_verb(page) == "Rewrite" and button.is_disabled(),
+        rewrite_verb(page) == "Preparing…" and button.is_disabled(),
         f"{rewrite_verb(page)!r}, disabled {button.is_disabled()}",
     )
     page.wait_for_function(VERB_IS_CANCEL, timeout=REWRITE_TIMEOUT)

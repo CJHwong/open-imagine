@@ -330,3 +330,30 @@ def test_a_plan_refuses_the_pictures_and_their_sizes_together():
 def test_a_plan_refuses_sizes_that_are_not_pairs_of_whole_numbers(raw):
     with pytest.raises(InvalidJob, match="reference_sizes must be an array"):
         plan_request({"reference_sizes": raw})
+
+
+@pytest.mark.parametrize("decode", [run_request, rewrite_request, plan_request])
+def test_image_reference_pixel_limit_precedes_conversion(monkeypatch, decode):
+    from studio.l3_interface_adapters.controllers import image_import_controller
+
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_PIXELS", 100)
+    monkeypatch.setattr(
+        image_import_controller.ImageOps,
+        "exif_transpose",
+        lambda image: pytest.fail("Oversized image reached conversion"),
+    )
+    with pytest.raises(InvalidJob, match="64 megapixels"):
+        decode({"prompt": "Synthetic scene", "references": json.dumps([encoded(size=(11, 10))])})
+
+
+def test_a_non_text_reference_has_a_controlled_input_error():
+    with pytest.raises(UnreadableImage, match="base64 text"):
+        reference_of(None)
+
+
+def test_image_reference_byte_limit_precedes_base64_decode(monkeypatch):
+    from studio.l3_interface_adapters.controllers import image_import_controller
+
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_BYTES", 3)
+    with pytest.raises(InvalidJob, match="64 MB"):
+        reference_of("Zm91cg==")

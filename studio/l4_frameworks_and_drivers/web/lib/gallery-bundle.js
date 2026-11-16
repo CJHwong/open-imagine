@@ -16,6 +16,15 @@ const FORMAT = 'studio-gallery';
 const VERSION = 3;
 const MAX32 = 0xffffffff;
 const MAX16 = 0xffff;
+const IMPORT_LIMITS = Object.freeze({
+  archive: 8 * 1024 ** 3,
+  decoded: 8 * 1024 ** 3,
+  media: 2 * 1024 ** 3,
+  manifest: 16 * 1024 ** 2,
+  directory: 8 * 1024 ** 2,
+  entries: 10000,
+  legacy: 256 * 1024 ** 2,
+});
 
 export async function encodeBundle(items, at = Date.now(), onProgress) {
   const manifest = {format: FORMAT, version: VERSION, exportedAt: at, items: []};
@@ -90,6 +99,7 @@ async function buildZip(files, at, manifest, onProgress) {
 }
 
 export async function decodeBundle(file) {
+  if (file.size > IMPORT_LIMITS.archive) throw fail('gallery.error.tooLarge');
   const head = new Uint8Array(await file.slice(0, 4).arrayBuffer());
   if (head[0] === 0x50 && head[1] === 0x4b) return decodeZip(file);
   const plain = head[0] === 0x7b;  // `{`: a bundle that is not gzipped
@@ -97,7 +107,7 @@ export async function decodeBundle(file) {
     throw fail('gallery.error.notBundle');
   }
   const stream = plain ? file.stream() : file.stream().pipeThrough(new DecompressionStream('gzip'));
-  return decodeLines(stream);
+  return decodeLines(boundedStream(stream, IMPORT_LIMITS.legacy));
 }
 
 export function bundleName(at = Date.now()) {
@@ -277,11 +287,13 @@ async function decodeZip(file) {
   const manifestEntry = entries.get('gallery.json');
   if (!manifestEntry) throw fail('gallery.error.notBundle');
   let manifest;
-  try { manifest = JSON.parse(await (await entryBlob(file, manifestEntry)).text()); }
-  catch (error) { throw fail('gallery.error.notBundle'); }
-  if (manifest.format !== FORMAT) throw fail('gallery.error.notBundle');
+  try { manifest = JSON.parse(await (await entryBlob(file, manifestEntry, '', IMPORT_LIMITS.manifest)).text()); }
+  catch (error) { throw error.bundle ? error : fail('gallery.error.notBundle'); }
+  if (!manifest || manifest.format !== FORMAT) throw fail('gallery.error.notBundle');
   if (manifest.version !== VERSION) throw fail('gallery.error.newer');
+  validateReferences(manifest.items || [], entries);
   const items = [];
+  const decoded = new Map();
   for (const item of manifest.items || []) {
     const media = [];
     let complete = true;
@@ -290,25 +302,46 @@ async function decodeZip(file) {
       // A file the archive names but does not hold is corruption. Drop the whole
       // item, or a restored record would point at a picture it never had.
       if (!entry) { complete = false; break; }
-      media.push({role: ref.role, mime: ref.mime || '', blob: await entryBlob(file, entry, ref.mime)});
+      if (!decoded.has(ref.file)) decoded.set(ref.file, await entryBlob(file, entry));
+      const original = decoded.get(ref.file);
+      const blob = ref.mime ? new Blob([original], {type: ref.mime}) : original;
+      media.push({role: ref.role, mime: ref.mime || '', blob});
     }
     if (complete) items.push({...item, media});
   }
   return items.filter(item => typeof item.id !== 'undefined');
 }
 
-function zip64Values(extra, view, at, length, wanted) {
+function validateReferences(items, entries) {
+  if (!Array.isArray(items)) throw fail('gallery.error.notBundle');
+  let bytes = 0;
+  let count = 0;
+  for (const item of items) {
+    if (!item || !Array.isArray(item.media)) throw fail('gallery.error.notBundle');
+    for (const ref of item.media) {
+      if (!ref || typeof ref.file !== 'string') throw fail('gallery.error.notBundle');
+      bytes += entries.get(ref.file)?.size || 0;
+      count += 1;
+      if (bytes > IMPORT_LIMITS.decoded || count > IMPORT_LIMITS.entries) throw fail('gallery.error.tooLarge');
+    }
+  }
+}
+
+function zip64Values(view, at, length, wanted) {
   const values = [];
   let offset = 0;
   while (offset + 4 <= length) {
     const tag = view.getUint16(at + offset, true);
     const size = view.getUint16(at + offset + 2, true);
+    if (offset + 4 + size > length) throw fail('gallery.error.notBundle');
     if (tag === 0x0001) {
       let inner = at + offset + 4;
       const end = inner + size;
       for (const _ of wanted) {
         if (values.length >= wanted.length || inner + 8 > end) break;
-        values.push(Number(view.getBigUint64(inner, true)));
+        const value = Number(view.getBigUint64(inner, true));
+        if (!Number.isSafeInteger(value)) throw fail('gallery.error.notBundle');
+        values.push(value);
         inner += 8;
       }
       return values;
@@ -333,21 +366,32 @@ async function readDirectory(file) {
     const locator = end - 20;
     if (locator < 0 || view.getUint32(locator, true) !== 0x07064b50) throw fail('gallery.error.notBundle');
     const z64 = Number(view.getBigUint64(locator + 8, true));
+    requireRange(z64, 56, file.size);
     const z = new DataView(await file.slice(z64, z64 + 56).arrayBuffer());
     if (z.getUint32(0, true) !== 0x06064b50) throw fail('gallery.error.notBundle');
     count = Number(z.getBigUint64(32, true));
     size = Number(z.getBigUint64(40, true));
     offset = Number(z.getBigUint64(48, true));
   }
+  if (!Number.isSafeInteger(count) || count > IMPORT_LIMITS.entries || size > IMPORT_LIMITS.directory) {
+    throw fail('gallery.error.tooLarge');
+  }
+  requireRange(offset, size, file.size - 22);
   const directory = new DataView(await file.slice(offset, offset + size).arrayBuffer());
   const entries = new Map();
   let at = 0;
+  let decoded = 0;
   for (let index = 0; index < count; index += 1) {
+    requireRange(at, 46, directory.byteLength);
     if (directory.getUint32(at, true) !== 0x02014b50) throw fail('gallery.error.notBundle');
     const nameLength = directory.getUint16(at + 28, true);
     const extraLength = directory.getUint16(at + 30, true);
     const commentLength = directory.getUint16(at + 32, true);
+    requireRange(at, 46 + nameLength + extraLength + commentLength, directory.byteLength);
     const name = new TextDecoder().decode(new Uint8Array(directory.buffer, at + 46, nameLength));
+    if (!safeEntryName(name) || entries.has(name) || directory.getUint16(at + 8, true) & 1) {
+      throw fail('gallery.error.notBundle');
+    }
     let compressed = directory.getUint32(at + 20, true);
     let stored = directory.getUint32(at + 24, true);
     let local = directory.getUint32(at + 42, true);
@@ -356,29 +400,70 @@ async function readDirectory(file) {
       if (stored === MAX32) wanted.push('size');
       if (compressed === MAX32) wanted.push('compressed');
       if (local === MAX32) wanted.push('offset');
-      const values = zip64Values(null, directory, at + 46 + nameLength, extraLength, wanted);
+      const values = zip64Values(directory, at + 46 + nameLength, extraLength, wanted);
       const take = name => values[wanted.indexOf(name)];
       stored = stored === MAX32 ? take('size') : stored;
       compressed = compressed === MAX32 ? take('compressed') : compressed;
       local = local === MAX32 ? take('offset') : local;
     }
-    entries.set(name, {method: directory.getUint16(at + 10, true), compressed, size: stored, local});
+    requireRange(local, 30, offset);
+    requireRange(0, compressed, file.size);
+    requireRange(0, stored, Number.MAX_SAFE_INTEGER);
+    decoded += stored;
+    const limit = name === 'gallery.json' ? IMPORT_LIMITS.manifest : IMPORT_LIMITS.media;
+    if (stored > limit || compressed > limit || decoded > IMPORT_LIMITS.decoded) {
+      throw fail('gallery.error.tooLarge');
+    }
+    entries.set(name, {method: directory.getUint16(at + 10, true), compressed, size: stored, local,
+      crc: directory.getUint32(at + 16, true), end: offset});
     at += 46 + nameLength + extraLength + commentLength;
   }
   return entries;
 }
 
-async function entryBlob(file, entry, mime) {
-  const local = new DataView(await file.slice(entry.local, entry.local + 30).arrayBuffer());
-  const start = entry.local + 30 + local.getUint16(26, true) + local.getUint16(28, true);
-  const slice = file.slice(start, start + entry.compressed);
-  if (entry.method === 0) return mime ? new Blob([slice], {type: mime}) : slice;
-  if (entry.method === 8) {
-    const plain = await new Response(slice.stream().pipeThrough(new DecompressionStream('deflate-raw')))
-      .arrayBuffer();
-    return new Blob([plain], {type: mime || 'application/octet-stream'});
+function requireRange(offset, size, end) {
+  if (![offset, size, end].every(Number.isSafeInteger) || offset < 0 || size < 0 || offset > end - size) {
+    throw fail('gallery.error.notBundle');
   }
-  throw fail('gallery.error.notBundle');
+}
+
+function safeEntryName(name) {
+  return name && !name.startsWith('/') && !/[\\\0:]/.test(name)
+    && !name.split('/').some(part => part === '.' || part === '..');
+}
+
+function boundedStream(stream, limit) {
+  let size = 0;
+  return stream.pipeThrough(new TransformStream({
+    transform(chunk, controller) {
+      size += chunk.byteLength;
+      if (size > limit) throw fail('gallery.error.tooLarge');
+      controller.enqueue(chunk);
+    },
+  }));
+}
+
+async function entryBlob(file, entry, mime, limit = IMPORT_LIMITS.media) {
+  if (entry.size > limit) throw fail('gallery.error.tooLarge');
+  const local = new DataView(await file.slice(entry.local, entry.local + 30).arrayBuffer());
+  if (local.getUint32(0, true) !== 0x04034b50 || local.getUint16(8, true) !== entry.method) {
+    throw fail('gallery.error.notBundle');
+  }
+  const start = entry.local + 30 + local.getUint16(26, true) + local.getUint16(28, true);
+  requireRange(start, entry.compressed, entry.end);
+  const slice = file.slice(start, start + entry.compressed);
+  let blob = mime ? new Blob([slice], {type: mime}) : slice;
+  try {
+    if (entry.method === 8) {
+      const stream = slice.stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      blob = await new Response(boundedStream(stream, Math.min(limit, entry.size))).blob();
+      if (mime) blob = new Blob([blob], {type: mime});
+    } else if (entry.method !== 0) throw fail('gallery.error.notBundle');
+    if (blob.size !== entry.size || await crc32Blob(blob) !== entry.crc) throw fail('gallery.error.notBundle');
+  } catch (error) {
+    throw error.bundle ? error : fail('gallery.error.notBundle');
+  }
+  return blob;
 }
 
 // ---- version 1 and 2 ----

@@ -36,6 +36,7 @@ class InMemoryModelResidencyGateway(ModelResidencyGateway):
         self._footprints = dict(footprints or {})
         self._resident: list[str] = []
         self._active_id: str | None = None
+        self._owned_id: str | None = None
         self._lock = threading.RLock()
 
     def resident_gib(self, backend_id: str) -> float:
@@ -58,27 +59,35 @@ class InMemoryModelResidencyGateway(ModelResidencyGateway):
                 freed = self._release_all(except_id=backend_id)
                 self._keep(backend_id)
                 self._active_id = backend_id
+                self._owned_id = backend_id
                 return tuple(freed)
+            freed = self._release_unretained(except_id=backend_id)
             if backend_id in self._resident:
                 self._active_id = backend_id
-                return ()
+                self._owned_id = backend_id
+                return tuple(freed)
             footprint = self._footprints.get(backend_id)
             if footprint is None:
+                freed.extend(self._release_all(except_id=backend_id))
                 self._active_id = backend_id
-                return tuple(self._release_all())
+                self._owned_id = backend_id
+                return tuple(freed)
             boundary = self._boundary_gib
             assert boundary is not None  # the constructor refuses a boundary policy without one
-            freed = []
             while self._resident and self._used() + footprint > boundary:
                 freed.append(self._release_one(self._resident[0]))
             self._keep(backend_id)
             self._active_id = backend_id
+            self._owned_id = backend_id
             return tuple(freed)
 
     def release_active(self) -> None:
         with self._lock:
-            if self._active_id is not None and self._active_id in self._resident:
-                self._release_one(self._active_id)
+            if self._owned_id is not None:
+                # A failed load cannot supply the resident credit, even if cleanup also fails.
+                if self._owned_id in self._resident:
+                    self._resident.remove(self._owned_id)
+                self._release_one(self._owned_id)
             self._active_id = None
 
     def release_idle(self) -> None:
@@ -86,6 +95,8 @@ class InMemoryModelResidencyGateway(ModelResidencyGateway):
             if self._policy == IMMEDIATE:
                 self._release_all()
                 self._active_id = None
+            elif self._owned_id is not None and self._owned_id not in self._resident:
+                self.release_active()
 
     def release(self) -> None:
         with self._lock:
@@ -121,13 +132,26 @@ class InMemoryModelResidencyGateway(ModelResidencyGateway):
 
     def _release_all(self, except_id: str | None = None) -> list[str]:
         freed = []
-        for backend_id in list(self._resident):
+        owned = self._owned_id
+        targets = list(self._resident)
+        if owned is not None and owned not in targets:
+            targets.append(owned)
+        for backend_id in targets:
             if backend_id == except_id:
                 continue
             freed.append(self._release_one(backend_id))
         return freed
 
+    def _release_unretained(self, except_id: str) -> list[str]:
+        owned = self._owned_id
+        if owned is None or owned in self._resident or owned == except_id:
+            return []
+        return [self._release_one(owned)]
+
     def _release_one(self, backend_id: str) -> str:
         self._backends[backend_id].release()
-        self._resident.remove(backend_id)
+        if backend_id in self._resident:
+            self._resident.remove(backend_id)
+        if self._owned_id == backend_id:
+            self._owned_id = None
         return backend_id

@@ -13,21 +13,40 @@ import threading
 class GpuThread:
     def __init__(self):
         self._calls = queue.Queue()
-        threading.Thread(target=self._serve, daemon=True, name="gpu").start()
+        self._state_lock = threading.Lock()
+        self._closed = False
+        self._worker = threading.Thread(target=self._serve, daemon=True, name="gpu")
+        self._worker.start()
 
     def call(self, function, *args):
         """Run `function(*args)` on the GPU thread. Blocks until it returns or raises."""
         done = threading.Event()
         outcome = {}
-        self._calls.put((function, args, outcome, done))
+        with self._state_lock:
+            if self._closed:
+                raise RuntimeError("GPU worker is closed")
+            self._calls.put((function, args, outcome, done))
         done.wait()
         if "error" in outcome:
             raise outcome["error"]
         return outcome.get("value")
 
+    def close(self) -> None:
+        """Finish accepted calls, stop the worker, and refuse later calls."""
+        if threading.current_thread() is self._worker:
+            raise RuntimeError("GPU worker cannot close itself")
+        with self._state_lock:
+            if not self._closed:
+                self._closed = True
+                self._calls.put(None)
+        self._worker.join()
+
     def _serve(self):
         while True:
-            function, args, outcome, done = self._calls.get()
+            call = self._calls.get()
+            if call is None:
+                return
+            function, args, outcome, done = call
             try:
                 outcome["value"] = function(*args)
             except BaseException as error:  # handed back to the caller, who raises it

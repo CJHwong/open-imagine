@@ -30,6 +30,97 @@ def never():
     return False
 
 
+def test_a_silent_load_has_a_deadline_and_reaps_its_child():
+    runner = StdioChild([sys.executable, "-c", "import time; time.sleep(60)"], startup_timeout=0.1)
+    started = time.monotonic()
+    try:
+        runner.ensure()
+        assert runner._proc is not None
+        pid = runner._proc.pid
+        with pytest.raises(RuntimeError, match="loading timed out"):
+            runner.wait_ready()
+        assert time.monotonic() - started < 3
+        assert not runner.running()
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        runner.stop()
+
+
+def test_a_silent_reply_has_a_deadline_and_releases_the_process_group():
+    command = "import sys, time; print('ready', file=sys.stderr, flush=True); sys.stdin.readline(); time.sleep(60)"
+    runner = StdioChild([sys.executable, "-c", command], request_timeout=0.1)
+    try:
+        runner.wait_ready()
+        assert runner._proc is not None
+        pid = runner._proc.pid
+        started = time.monotonic()
+        with pytest.raises(RuntimeError, match="request timed out"):
+            runner.request({}, lambda *_: None, never)
+        assert time.monotonic() - started < 3
+        assert not runner.running()
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        runner.stop()
+
+
+def test_an_exchange_failure_stops_its_cancel_watcher(child, monkeypatch):
+    ended = threading.Event()
+    watch = child._watch_cancel
+
+    def track(*arguments):
+        try:
+            watch(*arguments)
+        finally:
+            ended.set()
+
+    monkeypatch.setattr(child, "_watch_cancel", track)
+    with monkeypatch.context() as patch:
+        patch.setattr(child, "_exchange", Mock(side_effect=TypeError("invalid payload")))
+        with pytest.raises(TypeError, match="invalid payload"):
+            child.request({}, lambda *_: None, never)
+        assert ended.wait(1), "the failed request left its watcher running"
+    assert child.request({"echo": "next"}, lambda *_: None, never)["echo"] == "next"
+
+
+@pytest.mark.parametrize("name", ["startup_timeout", "request_timeout"])
+@pytest.mark.parametrize("seconds", [0, -1, float("inf"), float("nan")])
+def test_engine_deadlines_require_positive_finite_seconds(name, seconds):
+    with pytest.raises(ValueError, match="positive finite"):
+        StdioChild([], **{name: seconds})
+
+
+def test_a_failed_cancel_callback_cannot_disable_the_request_deadline():
+    runner = StdioChild([sys.executable, "-c", "import time; time.sleep(60)"], request_timeout=0.1)
+    try:
+        with pytest.raises(ValueError, match="cancel probe failed"):
+            runner.request({}, lambda *_: None, Mock(side_effect=ValueError("cancel probe failed")))
+        assert not runner.running()
+    finally:
+        runner.stop()
+
+
+@pytest.mark.parametrize("callback_error", [False, True])
+def test_a_late_cancel_callback_cannot_kill_the_next_request(monkeypatch, callback_error):
+    runner = StdioChild([])
+    monkeypatch.setattr(runner, "running", lambda: True)
+    killed = Mock()
+    monkeypatch.setattr(runner, "_kill", killed)
+    answered = threading.Event()
+
+    def late_cancel():
+        answered.set()
+        if callback_error:
+            raise ValueError("stale probe")
+        return True
+
+    errors = []
+    runner._watch_cancel(late_cancel, threading.Event(), answered, threading.Event(), errors)
+    killed.assert_not_called()
+    assert errors == []
+
+
 def test_a_job_comes_back_with_its_steps(child):
     steps = []
     reply = child.request({"echo": "hi", "steps": 3}, lambda step, total: steps.append((step, total)), never)

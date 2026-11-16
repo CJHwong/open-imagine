@@ -25,6 +25,8 @@ Usage: uv run --with playwright python tests/e2e/verify_batch.py <port>
 
 import base64
 import contextlib
+import hashlib
+import io
 import re
 import sys
 import tempfile
@@ -32,7 +34,7 @@ import time
 import urllib.parse
 from pathlib import Path
 
-from PIL import ImageChops, ImageStat
+from PIL import Image, ImageChops, ImageStat
 from playwright.sync_api import sync_playwright
 
 from tests.support.image_scene import scene_border
@@ -105,6 +107,12 @@ def save_frame(page, locator, path):
     Path(path).write_bytes(base64.b64decode(b64))
 
 
+def pixel_key(contents):
+    with Image.open(io.BytesIO(contents)) as image:
+        pixels = image.convert("RGB")
+        return pixels.size, hashlib.sha256(pixels.tobytes()).digest()
+
+
 def source_numbers(page, folder):
     """The source behind each instruction row, read off the picture that row carries.
 
@@ -114,10 +122,8 @@ def source_numbers(page, folder):
     thumbs = page.eval_on_selector_all("#each-rows .each-thumb", "els => els.map(el => el.src)")
     known = {}
     for path in sorted(Path(folder).glob("source-*.png")):
-        known["data:image/png;base64," + base64.b64encode(path.read_bytes()).decode()] = (
-            int(path.stem.split("-")[1]) - 1
-        )
-    return [known.get(thumb, -1) for thumb in thumbs]
+        known[pixel_key(path.read_bytes())] = int(path.stem.split("-")[1]) - 1
+    return [known.get(pixel_key(base64.b64decode(thumb.split(",", 1)[1])), -1) for thumb in thumbs]
 
 
 def ring(path):
@@ -372,6 +378,7 @@ with sync_playwright() as playwright:
     pressed = time.monotonic() - started
     answers = [rows.nth(place).input_value().strip() for place in range(rows.count())]
     pictures = source_numbers(page, OUT)
+    assert sorted(pictures) == list(range(4)), f"The four references do not match their source pixels: {pictures}"
     check(
         "the press wrote an instruction for every image",
         len(answers) == 4 and all(answers),

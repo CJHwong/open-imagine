@@ -115,6 +115,7 @@ def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, 
     Plugins are not prepared: their provider owns its own runtime, and the page discovers
     them at start.
     """
+    services = ModelServices(SubprocessRunner().execute)
     configured = {
         *config.visible_backends,
         *config.visible_video_backends,
@@ -122,7 +123,10 @@ def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, 
         *config.visible_music_backends,
     }
     targets = [
-        (provider.backend_id, provider.create(config))
+        (
+            provider.backend_id,
+            provider.create(config, execute_process=services.run_process, services=services),
+        )
         for provider in BUILTIN_PROVIDERS
         if provider.backend_id in configured
     ]
@@ -508,4 +512,5 @@ def assemble_studio(
         rewriter=rewriter,
         video_rewriter=video_rewriter,
         connect=connect,
+        close_gpu=gpu.close,
     )

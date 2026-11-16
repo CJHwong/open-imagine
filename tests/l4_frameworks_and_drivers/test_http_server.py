@@ -7,6 +7,7 @@ import threading
 import urllib.error
 import urllib.request
 from dataclasses import replace
+from email.message import Message
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any, cast
@@ -368,7 +369,7 @@ def test_video_route_rejects_invalid_json_and_wrong_content_type(served):
     wrong_type = call(served[1], "/video/generate", b"{}", **{"Content-Type": "text/plain"})
 
     assert invalid_json[0] == 400
-    assert json.loads(invalid_json[2])["error"] == "The video request must contain valid JSON"
+    assert json.loads(invalid_json[2])["error"] == "The request must contain valid JSON"
     assert wrong_type[0] == 400
     assert "application/json" in json.loads(wrong_type[2])["error"]
 
@@ -575,13 +576,19 @@ def from_this_page(studio, address, host):
     A ThreadingHTTPServer always has a (host, port) address, so the branches for
     another shape are reached with a stand-in instead of a socket.
     """
-    handler = SimpleNamespace(headers={"Host": host}, server=SimpleNamespace(server_address=address))
+    headers = Message()
+    headers["Host"] = host
+    local_address = "::1" if address[0] == "::" else "192.168.1.4"
+    handler = SimpleNamespace(
+        headers=headers,
+        server=SimpleNamespace(server_address=address),
+        connection=SimpleNamespace(getsockname=lambda: (local_address, 8765)),
+    )
     return studio.handler._from_this_page(handler)
 
 
-def test_a_server_on_every_address_accepts_any_host(served):
-    """`--host 0.0.0.0` serves every address of the machine, so every host name
-    the browser could have reached it by is this server."""
+def test_a_server_on_every_address_accepts_the_local_socket_host(served):
+    """A wildcard listener accepts the address that received the connection."""
     assert from_this_page(served[0], ("0.0.0.0", 8765), "192.168.1.4:8765") is True
     assert from_this_page(served[0], ("::", 8765), "[::1]:8765") is True
 
@@ -608,7 +615,10 @@ def test_an_allowed_origin_posts_through_a_proxy():
     handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None), allowed_origins=(proxy,)))
 
     def posts(origin, host="my-mac.example.ts.net:8765"):
-        headers = {"Host": host} if origin is None else {"Host": host, "Origin": origin}
+        headers = Message()
+        headers["Host"] = host
+        if origin is not None:
+            headers["Origin"] = origin
         request = SimpleNamespace(headers=headers, server=SimpleNamespace(server_address=("127.0.0.1", 8765)))
         return handler._from_this_page(request)
 
@@ -1997,3 +2007,237 @@ def test_the_page_device_route_lists_the_listener_devices():
     stub = _connect_stub(None)
     stub._connect_devices()
     assert json.loads(stub.sent[0][0]) == {"devices": [], "active": 0, "total": 0}
+
+
+@pytest.mark.parametrize("path", ["/api/v1/state", "/connect/qr.svg", "/progress", "/"])
+def test_get_rejects_a_foreign_host_before_dispatch(served, path):
+    assert call(served[1], path, Host="foreign.example")[0] == 403
+
+
+@pytest.mark.parametrize("path", ["/progress", "/video/progress", "/rewrite/state", "/page/lib/form.js"])
+def test_get_accepts_query_strings_on_existing_resources(served, path):
+    original = call(served[1], path)
+    assert original[0] == 200
+    assert call(served[1], path + "?v=2") == original
+
+
+@pytest.mark.parametrize("path", ["/generate", "/api/v1/images/generate", "/video/generate", "/image/normalize"])
+@pytest.mark.parametrize("length", ["invalid", "-1", "67108865", "+2"])
+def test_request_lengths_fail_before_body_read_or_model_work(served, path, length):
+    status, _, _ = call(served[1], path, b"", **{"Content-Type": "application/json", "Content-Length": length})
+    assert status == 400
+    assert served[2].jobs == []
+
+
+def test_form_rejects_invalid_utf8_before_model_work(served):
+    assert call(served[1], "/generate", b"prompt=\xff")[0] == 400
+
+
+@pytest.mark.parametrize("path", ["/generate", "/api/v1/images/generate", "/image/normalize"])
+def test_request_rejects_unsupported_transfer_encoding(served, path):
+    assert call(served[1], path, b"", **{"Transfer-Encoding": "chunked", "Content-Type": "application/json"})[0] == 400
+
+
+def test_request_body_read_has_a_deadline(served, monkeypatch):
+    import socket
+
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.05, raising=False)
+    port = served[1].server_address[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+        connection.sendall(
+            f"POST /generate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 100\r\n\r\nprompt=".encode()
+        )
+        response = connection.recv(4096)
+    assert response.startswith(b"HTTP/1.0 400")
+    assert served[2].jobs == []
+
+
+def test_post_uses_the_parsed_path(served):
+    assert call(served[1], "/cancel?v=2", b"")[0] == 204
+
+
+def test_get_accepts_only_the_configured_proxy_host():
+    proxy = "https://studio.example:8765"
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None), allowed_origins=(proxy,))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    try:
+        assert call(server, "/connect/devices", Host="studio.example:8765")[0] == 200
+        assert call(server, "/connect/devices", Host="foreign.example:8765", Origin=proxy)[0] == 403
+    finally:
+        server.shutdown()
+        worker.join()
+        server.server_close()
+
+
+def test_get_on_a_wildcard_listener_checks_the_local_socket_host():
+    handler = http_server.make_handler(cast(Any, None), cast(Any, None))
+    server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    try:
+        port = server.server_address[1]
+        import http.client
+
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        connection.request("GET", "/connect/devices")
+        assert connection.getresponse().status == 200
+        connection.close()
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+        connection.request("GET", "/connect/devices", headers={"Host": "foreign.example"})
+        assert connection.getresponse().status == 403
+        connection.close()
+    finally:
+        server.shutdown()
+        worker.join()
+        server.server_close()
+
+
+def test_body_rejects_duplicate_lengths_and_truncated_bytes(served):
+    import socket
+
+    port = served[1].server_address[1]
+    for headers in ["Content-Length: 1\r\nContent-Length: 1", "Content-Length: 5"]:
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+            connection.sendall(f"POST /generate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{headers}\r\n\r\nx".encode())
+            connection.shutdown(socket.SHUT_WR)
+            assert connection.recv(4096).startswith(b"HTTP/1.0 400")
+
+
+def test_get_rejects_duplicate_hosts(served):
+    import socket
+
+    port = served[1].server_address[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+        connection.sendall(
+            f"GET /api/v1/state HTTP/1.1\r\nHost: localhost:{port}\r\nHost: foreign.example\r\n\r\n".encode()
+        )
+        assert connection.recv(4096).startswith(b"HTTP/1.0 403")
+
+
+def test_body_deadline_also_stops_a_client_that_keeps_sending(monkeypatch):
+    from unittest.mock import Mock
+
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None)))
+    connection = Mock()
+    connection.gettimeout.return_value = 30
+    request = SimpleNamespace(connection=connection, rfile=SimpleNamespace(read1=Mock(return_value=b"x")))
+    clock = iter([0.0, 0.01, 0.06])
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(http_server.time, "monotonic", lambda: next(clock))
+    with pytest.raises(http_server.InvalidJob, match="read deadline"):
+        handler._read_body_bytes(request, 10)
+    request.rfile.read1.assert_called_once()
+    assert connection.settimeout.call_args.args == (30,)
+
+
+def test_headers_have_an_inactivity_timeout(served, monkeypatch):
+    import socket
+
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.05)
+    with socket.create_connection(("127.0.0.1", served[1].server_address[1]), timeout=2) as connection:
+        connection.sendall(b"POST /generate HTTP/1.1\r\nHost: ")
+        assert connection.recv(4096) == b""
+
+
+@pytest.mark.parametrize("path,status", [("/cancel", 204), ("/api/v1/images/generate", 400)])
+def test_missing_length_keeps_empty_form_actions_but_refuses_json(served, path, status):
+    import socket
+
+    port = served[1].server_address[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+        connection.sendall(
+            f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n\r\n".encode()
+        )
+        assert connection.recv(4096).startswith(f"HTTP/1.0 {status}".encode())
+
+
+def test_get_requires_a_tcp_listener():
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None)))
+    headers = Message()
+    headers["Host"] = "localhost:8765"
+    request = SimpleNamespace(headers=headers, server=SimpleNamespace(server_address="/tmp/studio.sock"))
+    assert handler._trusted_host(request) is False
+
+
+def test_request_refuses_a_length_that_cannot_be_safely_parsed(served):
+    assert call(served[1], "/generate", b"", **{"Content-Length": "9" * 5000})[0] == 400
+
+
+def test_read_deadlines_do_not_limit_response_writes():
+    from unittest.mock import Mock
+
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None)))
+    connection = Mock()
+    connection.gettimeout.return_value = 30
+
+    def write(payload):
+        assert connection.settimeout.call_args.args == (None,)
+
+    request = SimpleNamespace(
+        connection=connection,
+        _response_timeout=None,
+        send_response=Mock(),
+        send_header=Mock(),
+        end_headers=Mock(),
+        wfile=SimpleNamespace(write=write),
+    )
+    handler._send_bytes(request, b"synthetic download")
+
+
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+def test_wildcard_listener_rejects_matching_foreign_host_and_origin(method):
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None)))
+    server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    try:
+        import http.client
+
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=2)
+        connection.request(
+            method, "/cancel", body=b"", headers={"Host": "foreign.example", "Origin": "http://foreign.example"}
+        )
+        assert connection.getresponse().status == 403
+        connection.close()
+    finally:
+        server.shutdown()
+        worker.join()
+        server.server_close()
+
+
+def test_a_slow_download_can_outlive_the_request_read_deadline(monkeypatch):
+    import http.client
+    import socket
+    import time
+
+    payload = "x" * (2 * 1024 * 1024)
+    presenter = SimpleNamespace(page=lambda *args: payload, locale_for=lambda **kwargs: None)
+    controller = SimpleNamespace(page=lambda: None)
+    handler = cast(Any, http_server.make_handler(cast(Any, controller), cast(Any, presenter)))
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.02)
+
+    class DownloadHandler(handler):
+        def setup(self):
+            super().setup()
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), cast(Any, DownloadHandler))
+    worker = threading.Thread(target=server.serve_forever)
+    worker.start()
+    connection = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=5)
+    try:
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        received = bytearray()
+        while chunk := response.read(4096):
+            received.extend(chunk)
+            time.sleep(0.001)
+        assert bytes(received) == payload.encode()
+        assert int(response.headers["Content-Length"]) == len(received)
+    finally:
+        connection.close()
+        server.shutdown()
+        worker.join()
+        server.server_close()

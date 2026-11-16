@@ -256,6 +256,23 @@ The adapter retains the upstream staged sampler and full VAE decode.
 The main subprocess driver adds optional binary pipes and owned-group cancellation.
 Existing engines keep their previous transport by default.
 
+The encoder passes a buffer view of the contiguous RGB array to FFmpeg.
+Python's subprocess driver writes that view in chunks without making another complete raw clip.
+The timeout, audio pipe, codec settings, and process cleanup keep their existing behavior.
+
+An encoding-only check used Python 3.12.9 and FFmpeg 9.0.2 on an M1 Pro with 32 GiB.
+The input had 97 frames at 1280 x 704, 24 fps, and stereo audio.
+Three runs per path produced byte-identical MP4 files.
+
+| Input transport | Median encoding time | Peak traced Python allocation |
+|---|---|---|
+| Complete bytes copy | 5.99 s | 251.09 MiB |
+| Buffer view | 5.96 s | 2.96 MiB |
+
+This check measures Python allocations during encoding, excluding the original array and FFmpeg's memory.
+It demonstrates a smaller allocation peak, without a meaningful encoding speed gain.
+It does not measure full model inference.
+
 One real-model smoke test on an M5 Pro with 64 GiB passed through this integration's gateway and worker.
 It rendered 512 x 288, 73 frames at 24 fps, with seed 7 and native stereo audio.
 The child took 75.6 seconds. MLX peak allocation was 25.6 GiB; sampled child RSS peaked at 25.8 GiB.

@@ -920,3 +920,26 @@ def test_a_plan_checks_the_frame_of_a_look_image_as_a_run_does():
     assert plan_request({**value, "references": [look]}, "ltx25_mlx", capabilities).references == 1
     with pytest.raises(InvalidJob, match="look image must use frame_index 0"):
         plan_request({**value, "references": [{**look, "frame_index": 5}]}, "ltx25_mlx", capabilities)
+
+
+def test_video_reference_pixel_limit_precedes_conversion(monkeypatch):
+    from studio.l3_interface_adapters.controllers import image_import_controller
+
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_PIXELS", 100)
+    monkeypatch.setattr(
+        image_import_controller.ImageOps,
+        "exif_transpose",
+        lambda image: pytest.fail("Oversized image reached conversion"),
+    )
+    reference = {"name": "synthetic.png", "image": png_data(), "frame_index": 0, "strength": 1}
+    with pytest.raises(InvalidJob, match="64 megapixels"):
+        video_job(payload(references=[reference]), fake_video_capabilities())
+
+
+def test_video_reference_byte_limit_precedes_base64_decode(monkeypatch):
+    from studio.l3_interface_adapters.controllers import image_import_controller
+
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_BYTES", 3)
+    reference = {"name": "synthetic.png", "image": "Zm91cg==", "frame_index": 0, "strength": 1}
+    with pytest.raises(InvalidJob, match="64 MB"):
+        video_job(payload(references=[reference]), fake_video_capabilities())

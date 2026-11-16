@@ -38,3 +38,47 @@ def test_the_thread_serves_the_next_call_after_a_failure():
     with pytest.raises(RuntimeError):
         gpu.call(boom)
     assert gpu.call(lambda: "still here") == "still here"
+
+
+def test_close_stops_the_worker_and_rejects_later_calls():
+    before = {thread.ident for thread in threading.enumerate() if thread.name == "gpu"}
+    gpu = GpuThread()
+    worker_id = gpu.call(threading.get_ident)
+
+    gpu.close()
+    gpu.close()
+
+    assert worker_id not in {thread.ident for thread in threading.enumerate() if thread.name == "gpu"} - before
+    with pytest.raises(RuntimeError, match="GPU worker is closed"):
+        gpu.call(lambda: "too late")
+
+
+def test_close_drains_accepted_calls_before_stopping():
+    gpu = GpuThread()
+    entered = threading.Event()
+    finish = threading.Event()
+    outcomes = []
+
+    def block():
+        entered.set()
+        assert finish.wait(2)
+        return "finished"
+
+    caller = threading.Thread(target=lambda: outcomes.append(gpu.call(block)))
+    caller.start()
+    assert entered.wait(2)
+    closer = threading.Thread(target=gpu.close)
+    closer.start()
+    finish.set()
+    caller.join(2)
+    closer.join(2)
+
+    assert not caller.is_alive() and not closer.is_alive()
+    assert outcomes == ["finished"]
+
+
+def test_worker_cannot_join_itself():
+    gpu = GpuThread()
+    with pytest.raises(RuntimeError, match="cannot close itself"):
+        gpu.call(gpu.close)
+    gpu.close()

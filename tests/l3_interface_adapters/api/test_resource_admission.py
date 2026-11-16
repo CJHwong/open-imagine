@@ -47,6 +47,7 @@ def test_memory_rejection_explains_the_shortfall_and_how_to_retry():
     assert "Close other memory-heavy apps" in message
     assert "release the loaded model" in message
     assert "smaller output or fewer references" in message
+    assert "reserved for the operating system" in message
 
 
 def test_admission_accepts_a_request_that_fits_with_the_reserve():

@@ -2,6 +2,7 @@ import io
 import json
 import pathlib
 import sys
+import tracemalloc
 import types
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -26,6 +27,7 @@ class FakePipe:
         self.text_encoder = EmptyModule()
         self.connectors = EmptyModule()
         self.vae = EmptyModule()
+        self.vocoder = SimpleNamespace(config=SimpleNamespace(output_sampling_rate=48000))
         self.device = None
         self.calls = []
         self.components = {
@@ -46,18 +48,7 @@ class FakePipe:
         if callback is not None:
             for index in range(child.DISTILLED_STEPS):
                 callback(self, index, None, {})
-        return ([[np.zeros((2, 2, 3), dtype=np.uint8)]], None, None, None)
-
-
-class FakeWriter:
-    def __init__(self, buffer):
-        self.buffer = buffer
-
-    def append_data(self, frame):
-        pass
-
-    def close(self):
-        self.buffer.write(b"mp4-bytes")
+        return ([[np.zeros((2, 2, 3), dtype=np.uint8)]], np.zeros((1, 2, 2000)), None, None)
 
 
 def fake_world(monkeypatch, pipe, available=True):
@@ -86,22 +77,14 @@ def fake_world(monkeypatch, pipe, available=True):
     )
     monkeypatch.setitem(sys.modules, "diffusers", diffusers)
 
-    imageio = types.ModuleType("imageio")
+    encoder = types.ModuleType("diffusers.utils.export_utils")
 
-    class PathWriter:
-        def __init__(self, path):
-            self.path = path
+    def encode_video(frames, rate, output_path, *, audio, audio_sample_rate):
+        pathlib.Path(output_path).write_bytes(b"mp4-bytes")
 
-        def append_data(self, frame):
-            pass
-
-        def close(self):
-            self.path.write_bytes(b"mp4-bytes")
-
-    v2 = types.ModuleType("imageio.v2")
-    monkeypatch.setattr(v2, "get_writer", lambda path, **kwargs: PathWriter(pathlib.Path(path)), raising=False)
-    monkeypatch.setitem(sys.modules, "imageio", imageio)
-    monkeypatch.setitem(sys.modules, "imageio.v2", v2)
+    monkeypatch.setattr(encoder, "encode_video", encode_video, raising=False)
+    monkeypatch.setitem(sys.modules, "diffusers.utils", types.ModuleType("diffusers.utils"))
+    monkeypatch.setitem(sys.modules, "diffusers.utils.export_utils", encoder)
 
 
 def test_prepare_environment_sets_ptxas_only_when_present(monkeypatch, tmp_path):
@@ -236,7 +219,7 @@ def test_an_enhanced_run_passes_the_flag_and_a_flat_frame_list(monkeypatch):
         def __call__(self, **kwargs):
             self.calls.append(kwargs)
             kwargs["callback_on_step_end"](self, 1, None, {})
-            return ([np.zeros((2, 2, 3), dtype=np.uint8)], np.zeros((4, 2)), None, None)
+            return ([np.zeros((2, 2, 3), dtype=np.uint8)], np.zeros((1, 2, 2000)), None, None)
 
     pipe = Enhanced()
     fake_world(monkeypatch, pipe)
@@ -336,3 +319,107 @@ def test_a_run_without_keyframes_sends_no_conditions(monkeypatch):
     child.run(pipe, {"prompt": "a fox", "width": 768, "height": 512, "frames": 97, "frame_rate": 24, "seed": 1})
 
     assert "conditions" not in pipe.calls[-1]
+
+
+@pytest.mark.parametrize("include_audio", [True, False])
+def test_a_controller_job_preserves_audio_through_serialization_and_encoding(monkeypatch, include_audio):
+    from studio.l3_interface_adapters.controllers.video_controller import video_job
+    from studio.l3_interface_adapters.gateways.video.ltx25_cuda.capabilities import ltx25_cuda_capabilities
+    from studio.l3_interface_adapters.gateways.video.ltx25_cuda.ltx25_cuda_backend_gateway import clip_payload
+
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+    encoder = Mock(return_value=b"mp4")
+    monkeypatch.setattr(child, "encode", encoder)
+    request = video_job(
+        {
+            "prompt": "The river is quiet.",
+            "width": 768,
+            "height": 512,
+            "num_frames": 97,
+            "frame_rate": 24,
+            "seed": 19,
+            "include_audio": include_audio,
+        },
+        ltx25_cuda_capabilities(),
+    )
+
+    child.run(pipe, json.loads(json.dumps(clip_payload(request))))
+
+    _, rate, audio, sample_rate = encoder.call_args.args
+    assert rate == 24
+    if include_audio:
+        np.testing.assert_array_equal(audio, np.zeros((2, 2000)))
+        assert sample_rate == 48000
+    else:
+        assert audio is None
+        assert sample_rate is None
+
+
+def test_missing_generated_audio_fails_instead_of_returning_a_silent_clip(monkeypatch):
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+    monkeypatch.setattr(FakePipe, "__call__", lambda *args, **kwargs: ([np.zeros((2, 2, 3))], None, None, None))
+
+    with pytest.raises(ValueError, match="returned no audio"):
+        child.run(pipe, {"prompt": "a fox", "width": 8, "height": 8, "seed": 1})
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_encode_forwards_both_streams_and_removes_scratch_files(monkeypatch, tmp_path, failure):
+    module = types.ModuleType("diffusers.utils.export_utils")
+    calls = []
+
+    def encode_video(frames, rate, output_path, *, audio, audio_sample_rate):
+        calls.append((np.concatenate(list(frames)), rate, pathlib.Path(output_path), audio, audio_sample_rate))
+        pathlib.Path(output_path).write_bytes(b"encoded")
+        if failure:
+            raise RuntimeError("encoder failed")
+
+    monkeypatch.setattr(module, "encode_video", encode_video, raising=False)
+    monkeypatch.setitem(sys.modules, "diffusers.utils", types.ModuleType("diffusers.utils"))
+    monkeypatch.setitem(sys.modules, "diffusers.utils.export_utils", module)
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(from_numpy=lambda frame: frame))
+    monkeypatch.setenv("SPEECH_GEN_SCRATCH", str(tmp_path))
+    frames = np.zeros((3, 8, 8, 3), dtype=np.float32)
+    audio = np.zeros((2, 6000), dtype=np.float32)
+
+    if failure:
+        with pytest.raises(RuntimeError, match="encoder failed"):
+            child.encode(frames, 24, audio, 48000)
+    else:
+        assert child.encode(frames, 24, audio, 48000) == b"encoded"
+
+    actual_frames, rate, target, actual_audio, audio_sample_rate = calls[0]
+    np.testing.assert_array_equal(actual_frames, frames)
+    assert (rate, audio_sample_rate) == (24, 48000)
+    assert actual_audio is audio
+    assert not target.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("values", [[0.0, 0.5, 1.0], [0, 1, 0]])
+def test_video_chunks_keep_exporter_rounding_without_clip_sized_copies(monkeypatch, values):
+    frames = np.tile(np.asarray(values), (97, 64, 64, 1))
+    expected = (frames * 255).round().astype("uint8")
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(from_numpy=lambda frame: frame))
+    tracemalloc.start()
+    chunks = child.video_chunks(frames)
+    assert not isinstance(chunks, np.ndarray)
+    for index, frame in enumerate(chunks):
+        np.testing.assert_array_equal(frame, expected[index : index + 1])
+        assert frame.nbytes == expected[0].nbytes
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < frames.nbytes // 2
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.1, float("nan")])
+def test_video_chunks_leave_exporter_fallback_unchanged(value):
+    frames = np.array([[[[value, 0.0, 1.0]]]])
+    assert child.video_chunks(frames) is frames
+
+
+def test_video_chunks_leave_empty_input_to_exporter():
+    frames = np.empty((0, 8, 8, 3))
+    assert child.video_chunks(frames) is frames

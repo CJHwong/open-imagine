@@ -6,6 +6,7 @@
 #   "accelerate>=1.0",
 #   "torchvision",
 #   "pillow",
+#   "numpy",
 #   "huggingface-hub>=1.0",
 #   "safetensors",
 # ]
@@ -24,6 +25,7 @@ One model serves both modes, so nothing is swapped in or out between presses.
 
 import argparse
 import base64
+import contextlib
 import io
 import json
 import sys
@@ -78,16 +80,98 @@ def move_by_way_of_memory(module, device: str = "cuda") -> None:
             tensor.data = landed
 
 
+def dequantize_nvfp4(packed, scales, global_scale):
+    """Decode the release's low-nibble-first weights, in blocks of sixteen."""
+    import numpy as np
+
+    if packed.dtype != np.uint8 or packed.ndim != 2 or packed.shape[1] % 8:
+        raise ValueError("NVFP4 weights must hold uint8 rows with eight-byte blocks.")
+    if scales.shape != (packed.shape[0], packed.shape[1] // 8) or global_scale.size != 1:
+        raise ValueError("NVFP4 scales do not match the packed weights.")
+    levels = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6], dtype=np.float32)
+    decoded = np.empty((packed.shape[0], packed.shape[1] * 2), dtype=np.float32)
+    decoded[:, 0::2] = levels[packed & 15]
+    decoded[:, 1::2] = levels[packed >> 4]
+    decoded.reshape(packed.shape[0], packed.shape[1] // 8, 16)[:] *= scales.astype(np.float32)[:, :, None]
+    decoded *= global_scale.astype(np.float32).reshape(())
+    return decoded
+
+
+def indexed_tensor_reader(source: Path, index: dict, stack):
+    """Keep shard readers open because a weight and its scales can occupy different shards."""
+    from safetensors import safe_open
+
+    readers = {}
+
+    def read(name):
+        shard = index[name]
+        if shard not in readers:
+            readers[shard] = stack.enter_context(safe_open(str(source / shard), framework="pt", device="cpu"))
+        return readers[shard].get_tensor(name)
+
+    return read
+
+
+def checkpoint_tensor(read, index: dict, name: str):
+    import torch
+
+    packed = read(name)
+    if f"{name}_scale" not in index:
+        return packed.clone()
+    decoded = dequantize_nvfp4(
+        packed.numpy(), read(f"{name}_scale").float().numpy(), read(f"{name}_scale_2").float().numpy()
+    )
+    return torch.from_numpy(decoded).to(torch.bfloat16)
+
+
+def load_nvfp4(source: str, config):
+    """Load one decoded weight at a time without a dense checkpoint copy on disk."""
+    from accelerate import init_empty_weights  # ty: ignore[unresolved-import]
+    from accelerate.utils import set_module_tensor_to_device  # ty: ignore[unresolved-import]
+    from huggingface_hub import snapshot_download
+    from transformers import GenerationConfig, Qwen3_5ForConditionalGeneration
+
+    if config.quantization_config.get("quant_method") != "modelopt":
+        raise ValueError("The prompt enhancer requires the ModelOpt NVFP4 checkpoint layout.")
+    if config.quantization_config.get("group_size") != 16:
+        raise ValueError("The prompt enhancer requires NVFP4 groups of sixteen.")
+    directory = Path(source) if Path(source).is_dir() else Path(snapshot_download(source))
+    index = json.loads((directory / "model.safetensors.index.json").read_text())["weight_map"]
+    del config.quantization_config
+    with init_empty_weights():
+        weights = Qwen3_5ForConditionalGeneration(config)
+    expected = set(weights.state_dict())
+    found = {name for name in index if not name.endswith((".input_scale", ".weight_scale", ".weight_scale_2"))}
+    if expected != found:
+        raise ValueError(
+            f"Checkpoint weights differ: missing {sorted(expected - found)}, unexpected {sorted(found - expected)}"
+        )
+    with contextlib.ExitStack() as stack:
+        read = indexed_tensor_reader(directory, index, stack)
+        for name in sorted(expected):
+            tensor = checkpoint_tensor(read, index, name)
+            set_module_tensor_to_device(weights, name, "cuda", value=tensor, dtype=tensor.dtype)
+    weights.tie_weights()
+    for buffer in weights.buffers():
+        buffer.data = buffer.data.clone().to("cuda")
+    if (directory / "generation_config.json").is_file():
+        weights.generation_config = GenerationConfig.from_pretrained(str(directory))
+    return weights.eval()
+
+
 def load(model: str):
     import torch
-    from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
+    from transformers import AutoConfig, AutoProcessor, Qwen3_5ForConditionalGeneration
 
     started = time.time()
-    processor = AutoProcessor.from_pretrained(local_snapshot(model))
-    weights = Qwen3_5ForConditionalGeneration.from_pretrained(
-        local_snapshot(model), torch_dtype=torch.bfloat16, device_map="cpu"
-    )
-    move_by_way_of_memory(weights, "cuda")
+    source = local_snapshot(model)
+    processor = AutoProcessor.from_pretrained(source)
+    config = AutoConfig.from_pretrained(source)
+    if (getattr(config, "quantization_config", None) or {}).get("quant_algo") == "NVFP4":
+        weights = load_nvfp4(source, config)
+    else:
+        weights = Qwen3_5ForConditionalGeneration.from_pretrained(source, torch_dtype=torch.bfloat16, device_map="cpu")
+        move_by_way_of_memory(weights, "cuda")
     torch.cuda.synchronize()
     say(f"loaded {model} in {time.time() - started:.1f}s")
     return processor, weights
@@ -103,6 +187,11 @@ def reference_image(raw: bytes):
 def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> str:
     import torch
 
+    if images:
+        # The processor needs a template marker for each separately supplied image.
+        content = [{"type": "image"} for _ in images]
+        content.append({"type": "text", "text": messages[-1]["content"]})
+        messages = [*messages[:-1], {**messages[-1], "content": content}]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=True)
     inputs = processor(text=[text], images=list(images) or None, return_tensors="pt").to("cuda")
     with torch.inference_mode():

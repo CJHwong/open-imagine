@@ -23,6 +23,59 @@ def gateway(events, names, **options):
     return InMemoryModelResidencyGateway({name: Runtime(name, events) for name in names}, **options)
 
 
+def test_unknown_footprint_runtime_releases_on_explicit_stop_once():
+    events = []
+    residency = boundary(events, {"known": 10.0})
+    residency._backends["unknown"] = Runtime("unknown", events)
+    residency.claim("known")
+    residency.claim("unknown")
+
+    residency.release_active()
+    residency.release_active()
+
+    assert events == ["release known", "release unknown"]
+    assert residency.resident_ids() == ()
+    assert residency.active_id() is None
+
+
+@pytest.mark.parametrize("action", ["release", "release_idle"])
+def test_unknown_footprint_runtime_is_not_retained_when_idle(action):
+    events = []
+    residency = boundary(events, {})
+    residency._backends["unknown"] = Runtime("unknown", events)
+    residency.claim("unknown")
+
+    getattr(residency, action)()
+
+    assert events == ["release unknown"]
+
+
+def test_claim_releases_an_unknown_runtime_before_the_next_model():
+    events = []
+    residency = boundary(events, {"known": 10.0})
+    residency._backends["unknown"] = Runtime("unknown", events)
+    residency.claim("unknown")
+
+    freed = residency.claim("known")
+
+    assert events == ["release unknown"]
+    assert freed == ("unknown",)
+    assert residency.resident_ids() == ("known",)
+
+
+def test_claiming_the_same_unknown_runtime_keeps_its_live_owner():
+    events = []
+    residency = boundary(events, {})
+    residency._backends["unknown"] = Runtime("unknown", events)
+    residency.claim("unknown")
+
+    assert residency.claim("unknown") == ()
+    assert events == []
+
+    residency.release_active()
+    assert events == ["release unknown"]
+
+
 def boundary(events, footprints, boundary_gib=50.0):
     return InMemoryModelResidencyGateway(
         {name: Runtime(name, events) for name in footprints},

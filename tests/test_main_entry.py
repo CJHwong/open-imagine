@@ -8,6 +8,7 @@ written in it would not run. The test lives here instead.
 import runpy
 import sys
 import warnings
+from http.client import HTTPMessage
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -84,8 +85,11 @@ def test_an_allowed_origin_reaches_the_handler_in_the_browser_form(tmp_path, mon
 
     entry.main()
 
+    headers = HTTPMessage()
+    headers["Host"] = "my-mac.example.ts.net"
+    headers["Origin"] = proxy
     request = SimpleNamespace(
-        headers={"Host": "my-mac.example.ts.net", "Origin": proxy},
+        headers=headers,
         server=SimpleNamespace(server_address=("127.0.0.1", 8765)),
     )
     assert server_class.call_args.args[1]._from_this_page(request) is True

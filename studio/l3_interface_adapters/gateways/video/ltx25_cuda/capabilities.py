@@ -52,12 +52,16 @@ def ltx25_cuda_estimate() -> VideoEstimate:
 
 
 def ltx25_cuda_capabilities() -> VideoCapabilities:
+    shared = ltx25_mlx_capabilities()
     return replace(
-        ltx25_mlx_capabilities(),
+        shared,
         backend_id="ltx25_cuda",
         name="LTX-2.5 (CUDA)",
         badge="bf16",
         description="Clips with a soundtrack on an NVIDIA GPU, from the diffusers pipeline.",
         precision="bf16",
+        modes=(replace(shared.mode("generate"), accepts_audio=False),),
+        adapters=(),
+        fast_mode=False,
         estimate=ltx25_cuda_estimate(),
     )

@@ -2,6 +2,8 @@ import io
 import json
 import sys
 import types
+import weakref
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -83,6 +85,9 @@ def fake_torch(monkeypatch, available=True):
         raising=False,
     )
     monkeypatch.setattr(torch, "Generator", lambda: SimpleNamespace(manual_seed=lambda seed: seed), raising=False)
+    monkeypatch.setattr(
+        torch, "accelerator", SimpleNamespace(memory=SimpleNamespace(empty_host_cache=Mock())), raising=False
+    )
     monkeypatch.setitem(sys.modules, "torch", torch)
 
 
@@ -324,6 +329,7 @@ class Part:
     def __init__(self, name):
         self.name = name
         self.route = []
+        self.device = SimpleNamespace(type="cuda")
 
     def cpu(self):
         self.route.append("cpu")
@@ -332,8 +338,9 @@ class Part:
     def clone(self):
         return Part(self.name)
 
-    def to(self, device):
-        self.route.append(f"to {device}")
+    def to(self, device, non_blocking=False):
+        suffix = " (non-blocking)" if non_blocking else ""
+        self.route.append(f"to {device}{suffix}")
         return self
 
 
@@ -444,6 +451,29 @@ def test_quantize_kwargs_reads_the_settings_a_weight_carries():
     assert child.quantize_kwargs(Part("plain")) is None
 
 
+def test_host_copy_waits_for_the_device_before_return(monkeypatch):
+    fake_torch(monkeypatch)
+    events = []
+    host = object()
+    source = SimpleNamespace(
+        device=SimpleNamespace(type="cuda"),
+        to=lambda device, non_blocking: events.append((device, non_blocking)) or host,
+    )
+    sys.modules["torch"].cuda.synchronize.side_effect = lambda device: events.append(("synchronized", device))
+
+    assert child.copy_to_host(source) is host
+    assert events == [("cpu", True), ("synchronized", source.device)]
+
+
+def test_host_copy_keeps_a_cpu_tensor_without_a_device_wait(monkeypatch):
+    fake_torch(monkeypatch)
+    source = SimpleNamespace(device=SimpleNamespace(type="cpu"), to=Mock())
+
+    assert child.copy_to_host(source) is source
+    source.to.assert_not_called()
+    sys.modules["torch"].cuda.synchronize.assert_not_called()
+
+
 def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
     fake_torch(monkeypatch)
     fake_pack_torchao(monkeypatch)
@@ -482,7 +512,10 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
         "transformer.block.weight.scale",
         "transformer.norm.weight",
     }
-    assert qdata.route == ["cpu"] and scale.route == ["cpu"]
+    assert qdata.route == ["to cpu (non-blocking)"] and scale.route == ["to cpu (non-blocking)"]
+    assert scalar.route == ["to cpu (non-blocking)"]
+    assert transformer.weights["norm.weight"].route == ["to cpu (non-blocking)"]
+    assert sys.modules["torch"].cuda.synchronize.call_count == 6
     assert manifest["tensors"]["transformer.block.weight"] == {
         "kind": "fp8",
         "block_size": [1, 256],
@@ -689,6 +722,66 @@ def test_write_pack_leaves_out_a_missing_scalar(monkeypatch, tmp_path):
     stored = store[str(tmp_path / "transformer.safetensors")]
     assert set(stored) == {"transformer.proj.weight.qdata", "transformer.proj.weight.scale"}
     assert manifest["tensors"]["transformer.proj.weight"]["per_tensor_scale"] is False
+
+
+@pytest.mark.parametrize("save_fails", [False, True])
+def test_write_pack_releases_host_copies_before_the_cache_on_success_or_failure(monkeypatch, tmp_path, save_fails):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    fake_safetensors(monkeypatch, {})
+    pending = {"copy": False}
+    captured = []
+    references = []
+
+    class HostTensor:
+        pass
+
+    def transfer(device, non_blocking):
+        assert device == "cpu" and non_blocking
+        pending["copy"] = True
+        return HostTensor()
+
+    def synchronize(device):
+        pending["copy"] = False
+
+    def save(tensors, path):
+        assert not pending["copy"]
+        captured.append(tensors)
+        references.extend(weakref.ref(tensor) for tensor in tensors.values())
+        if save_fails:
+            raise OSError("disk full")
+
+    def release():
+        assert not captured[-1]
+        assert all(reference() is None for reference in references)
+
+    source = SimpleNamespace(device=SimpleNamespace(type="cuda"), to=transfer)
+    torch = sys.modules["torch"]
+    torch.cuda.synchronize.side_effect = synchronize
+    torch.accelerator.memory.empty_host_cache.side_effect = release
+    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", save)
+    expected = pytest.raises(OSError, match="disk full") if save_fails else nullcontext()
+
+    with expected:
+        child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+
+    assert torch.accelerator.memory.empty_host_cache.call_count == (1 if save_fails else 3)
+
+
+def test_write_pack_releases_unused_device_cache_before_the_first_host_copy(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    fake_safetensors(monkeypatch, {})
+    events = []
+    source = SimpleNamespace(
+        device=SimpleNamespace(type="cuda"),
+        to=lambda device, non_blocking: events.append("copy") or object(),
+    )
+    sys.modules["torch"].cuda.empty_cache.side_effect = lambda: events.append("release device cache")
+
+    child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+
+    assert events == ["release device cache", "copy"]
 
 
 def test_an_unknown_weight_kind_stops_the_rebuild(monkeypatch):

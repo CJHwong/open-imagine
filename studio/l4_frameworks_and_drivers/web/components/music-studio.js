@@ -437,7 +437,8 @@ class MusicStudio extends HTMLElement {
         <textarea id="music-style" rows="4" placeholder="${t('music.style.placeholder')}" required></textarea>
       </section>
       <section class="music-reference-fields field">
-        <div class="field-head"><label for="music-reference">${t('music.field.reference')}</label>
+        <div class="field-head">
+          <label for="music-reference">${t('music.field.reference')}</label>
           <span class="music-reference-actions">
             <button type="button" class="text-btn" id="music-reference-record">${t('music.reference.record')}</button>
             <button type="button" class="text-btn" id="music-reference-replace" hidden>${t('music.common.replace')}</button></span></div>

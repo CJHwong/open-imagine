@@ -52,6 +52,7 @@ class RunMusicUseCase:
             self._backend.load()
             return self._make_takes(jobs, completed, started)
         except Exception:
+            self._residency.release_active()
             if self._progress.cancel_requested():
                 raise Cancelled("Music generation was cancelled.") from None
             raise

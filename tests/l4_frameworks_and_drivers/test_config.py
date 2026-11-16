@@ -95,36 +95,6 @@ def test_a_file_with_no_visible_list_offers_its_default(tmp_path: Path):
     assert config.visible_backends == ("flux2",)
 
 
-def test_an_empty_visible_list_offers_that_workspace_nothing(tmp_path: Path):
-    """A machine that cannot run Video says so in its file, instead of being refused."""
-    config = load_config(
-        write(
-            tmp_path,
-            'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n'
-            "visible_video_backends = []\nvisible_voice_backends = []\nvisible_music_backends = []\n"
-            "[qwen21]\nquantize = 0\n",
-        )
-    )
-    assert config.visible_video_backends == ()
-    assert config.visible_voice_backends == ()
-    assert config.visible_music_backends == ()
-
-
-def test_the_default_backend_joins_a_list_that_does_not_name_it(tmp_path: Path):
-    config = load_config(
-        write(
-            tmp_path,
-            'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\nvisible_video_backends = ["ltx23_mlx"]\n',
-        )
-    )
-    assert config.visible_video_backends == ("ltx25_mlx", "ltx23_mlx")
-
-
-def test_a_repeated_backend_is_named_once(tmp_path: Path):
-    config = load_config(write(tmp_path, 'default_backend = "qwen21"\nvisible_backends = ["qwen21", "qwen21"]\n'))
-    assert config.visible_backends == ("qwen21",)
-
-
 def test_a_setting_that_is_present_comes_back(tmp_path: Path):
     config = load_config(write(tmp_path, SETTINGS))
     assert config.required("qwen21", "quantize") is None  # 0 in the file, read as no quantization
@@ -270,6 +240,14 @@ def test_the_connect_flag_turns_the_connection_on_without_editing_the_file(tmp_p
     assert config.connect_studio_port == 8765
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+@pytest.mark.parametrize("override", [None, True, False])
+def test_the_connect_override_wins_over_an_explicit_file_value(tmp_path, enabled, override):
+    text = SETTINGS + f"\n[connect]\nenabled = {str(enabled).lower()}\n"
+    config = load_config(write(tmp_path, text), connect_enabled=override)
+    assert config.connect_enabled is (enabled if override is None else override)
+
+
 def test_a_phone_connection_loads_its_fields_and_resolves_its_identity(tmp_path):
     text = SETTINGS + (
         '\n[connect]\nenabled = true\ntransport = "dumbpipe"\nstudio_port = 9000\n'
@@ -315,9 +293,41 @@ def test_a_non_string_dumbpipe_path_is_refused(tmp_path):
         load_config(write(tmp_path, SETTINGS + "\n[connect]\ndumbpipe_path = 3\n"))
 
 
-@pytest.mark.parametrize("enabled", [True, False])
-@pytest.mark.parametrize("override", [None, True, False])
-def test_the_connect_override_wins_over_an_explicit_file_value(tmp_path, enabled, override):
-    text = SETTINGS + f"\n[connect]\nenabled = {str(enabled).lower()}\n"
-    config = load_config(write(tmp_path, text), connect_enabled=override)
-    assert config.connect_enabled is (enabled if override is None else override)
+def test_an_empty_visible_list_offers_that_workspace_nothing(tmp_path):
+    """A machine that cannot run Video says so in its file, instead of being refused."""
+    config = load_config(
+        write(
+            tmp_path,
+            'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\n'
+            "visible_video_backends = []\nvisible_voice_backends = []\nvisible_music_backends = []\n"
+            "[qwen21]\nquantize = 0\n",
+        )
+    )
+
+    assert config.visible_video_backends == ()
+    assert config.visible_voice_backends == ()
+    assert config.visible_music_backends == ()
+
+
+def test_the_default_backend_joins_a_list_that_does_not_name_it(tmp_path):
+    config = load_config(
+        write(
+            tmp_path,
+            'default_backend = "qwen21"\nvisible_backends = ["qwen21"]\nvisible_video_backends = ["ltx23_mlx"]\n',
+        )
+    )
+
+    assert config.visible_video_backends == ("ltx25_mlx", "ltx23_mlx")
+
+
+def test_a_repeated_backend_is_named_once(tmp_path):
+    config = load_config(write(tmp_path, 'default_backend = "qwen21"\nvisible_backends = ["qwen21", "qwen21"]\n'))
+
+    assert config.visible_backends == ("qwen21",)
+
+
+def test_a_flag_offers_exactly_what_it_names(tmp_path):
+    path = write(tmp_path, SETTINGS)
+
+    assert load_config(path, visible_video=()).visible_video_backends == ()
+    assert load_config(path, visible=("qwen21_turbo",)).visible_backends == ("qwen21", "qwen21_turbo")

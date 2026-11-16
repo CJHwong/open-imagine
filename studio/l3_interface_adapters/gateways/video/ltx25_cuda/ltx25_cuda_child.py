@@ -125,31 +125,29 @@ def load(model: str):
     return pipe
 
 
-def encode(frames, rate: int) -> bytes:
-    """An MP4 through imageio, written to a scratch file.
-
-    imageio's ffmpeg plugin opens a path, not a buffer: "FFMPEG can not handle the given
-    uri" is what a BytesIO gets. The file lives in the child's scratch folder, which the
-    parent makes per child and removes when it goes.
-    """
-    import tempfile
-    from pathlib import Path
-
-    import imageio.v2 as imageio
+def video_chunks(frames):
+    """Keep the exporter's rounding without its complete-clip temporary arrays."""
     import numpy as np
 
-    scratch = os.environ.get("SPEECH_GEN_SCRATCH") or tempfile.mkdtemp(prefix="ltx-cuda-")
-    target = Path(scratch) / "clip.mp4"
-    writer = imageio.get_writer(str(target), fps=rate, codec="libx264", quality=7, macro_block_size=1)
-    try:
-        for frame in frames:
-            writer.append_data(np.asarray(frame))
-    finally:
-        writer.close()
-    try:
+    frames = np.asarray(frames)
+    if not frames.size or not (frames.min(initial=0) >= 0 and frames.max(initial=1) <= 1):
+        return frames
+
+    import torch
+
+    return (torch.from_numpy((frame[None] * 255).round().astype("uint8")) for frame in frames)
+
+
+def encode(frames, rate: int, audio=None, audio_sample_rate: int | None = None) -> bytes:
+    """Use the pinned pipeline's encoder to keep video and audio in one MP4."""
+    import tempfile
+
+    from diffusers.utils.export_utils import encode_video
+
+    with tempfile.TemporaryDirectory(prefix="ltx-cuda-", dir=os.environ.get("SPEECH_GEN_SCRATCH")) as scratch:
+        target = Path(scratch) / "clip.mp4"
+        encode_video(video_chunks(frames), rate, str(target), audio=audio, audio_sample_rate=audio_sample_rate)
         return target.read_bytes()
-    finally:
-        target.unlink(missing_ok=True)
 
 
 def unpack(frames):
@@ -215,7 +213,13 @@ def run(pipe, job: dict) -> dict:
         ]
     result = pipe(**arguments)
     frames = unpack(result[0])
-    payload = encode(frames, int(arguments["frame_rate"]))
+    audio, audio_sample_rate = None, None
+    if job.get("include_audio", True):
+        if result[1] is None:
+            raise ValueError("LTX-2.5 returned no audio for a clip that requires audio.")
+        audio = result[1][0]
+        audio_sample_rate = int(pipe.vocoder.config.output_sampling_rate)
+    payload = encode(frames, int(arguments["frame_rate"]), audio, audio_sample_rate)
     return {
         "mp4": base64.b64encode(payload).decode("ascii"),
         "seconds": round(len(frames) / arguments["frame_rate"], 3),

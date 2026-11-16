@@ -35,6 +35,7 @@ ready before that made its first request pay for the load.
 
 import contextlib
 import json
+import math
 import os
 import re
 import shutil
@@ -42,6 +43,7 @@ import signal
 import subprocess
 import tempfile
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 
@@ -55,8 +57,12 @@ SCRATCH_ENV = "SPEECH_GEN_SCRATCH"
 
 
 class StdioChild:
-    def __init__(self, command: list[str]):
+    def __init__(self, command: list[str], *, startup_timeout: float = 1800, request_timeout: float = 3600):
+        if any(not math.isfinite(timeout) or timeout <= 0 for timeout in (startup_timeout, request_timeout)):
+            raise ValueError("engine deadlines must be positive finite seconds")
         self._command = command
+        self._startup_timeout = startup_timeout
+        self._request_timeout = request_timeout
         self._proc = None
         self._pgid = None
         self._on_step = None
@@ -118,7 +124,10 @@ class StdioChild:
         go into the error.
         """
         self.ensure()
-        self._ready.wait()
+        if not self._ready.wait(self._startup_timeout):
+            self.stop()
+            self._drain()
+            raise RuntimeError("the engine loading timed out" + self._last_words())
         if not self._loaded:
             self.stop()
             raise RuntimeError("the engine stopped while loading" + self._last_words())
@@ -147,11 +156,29 @@ class StdioChild:
         self._last_step = 0
         killed = threading.Event()
         answered = threading.Event()
-        watcher = threading.Thread(target=self._watch_cancel, args=(should_stop, killed, answered), daemon=True)
+        timed_out = threading.Event()
+        watcher_errors = []
+        watcher = threading.Thread(
+            target=self._watch_cancel, args=(should_stop, killed, answered, timed_out, watcher_errors), daemon=True
+        )
         watcher.start()
-        answer = self._exchange(payload)
-        answered.set()
-        watcher.join()
+        try:
+            answer = self._exchange(payload)
+        except BaseException:
+            self.stop()
+            self._drain()
+            raise
+        finally:
+            answered.set()
+            watcher.join(timeout=1)
+        if watcher_errors:
+            self.stop()
+            self._drain()
+            raise watcher_errors[0]
+        if timed_out.is_set():
+            self.stop()
+            self._drain()
+            raise RuntimeError("the engine request timed out" + self._last_words())
         # Only a kill counts as a cancel. A cancel that lands after the answer
         # keeps the finished clip and the warm child.
         if killed.is_set():
@@ -238,18 +265,34 @@ class StdioChild:
             return ""
         return ". It last said: " + " | ".join(said[-SAID_IN_MESSAGE:])
 
-    def _watch_cancel(self, should_stop, killed, answered) -> None:
+    def _watch_cancel(self, should_stop, killed, answered, timed_out, errors) -> None:
         """Cancel means kill. There is no polite way to interrupt the engine.
 
         The watch ends with the job. The child outlives it, and a watcher left
         polling an idle child used to kill it on the next cancel of anything.
         """
+        deadline = time.monotonic() + self._request_timeout
         while not answered.is_set() and self.running():
-            if should_stop():
+            try:
+                cancel_requested = should_stop()
+            except BaseException as error:
+                if answered.is_set():
+                    return
+                errors.append(error)
+                self._kill()
+                return
+            if answered.is_set():
+                return
+            if cancel_requested:
                 killed.set()
                 self._kill()
                 return
-            answered.wait(0.4)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out.set()
+                self._kill()
+                return
+            answered.wait(min(0.4, remaining))
 
     def _kill(self) -> None:
         """Kill the child and anything it started, by the group id taken at spawn."""
@@ -260,6 +303,7 @@ class StdioChild:
             os.killpg(pgid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError, OSError):
             proc.kill()  # the group is already gone
+        proc.wait(timeout=5)
         self._remove_scratch()
 
     def _remove_scratch(self) -> None:

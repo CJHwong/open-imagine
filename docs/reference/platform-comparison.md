@@ -1,9 +1,8 @@
 # Platform comparison: Apple M5 Pro and DGX Spark
 
-One studio, two machines. The Mac runs the MLX backends and the Spark runs the CUDA ones.
-This page puts the same case on both, names the build each one ran, and says where a figure
-is missing or a feature is not built. The memory samples, the harness and the full case
-list are in [Measured memory and time](measured-memory-and-time.md).
+**Historical measurements, 2026-11-12 to 2026-11-15.** This page preserves that campaign's builds, labels, and numbers.
+It does not establish current hardware rankings or current feature support.
+The [2026-11-16 measurements](measured-memory-and-time.md) contain current results, explicit model states, quality limits, and the coverage record.
 
 | Item | Apple M5 Pro | DGX Spark |
 |---|---|---|
@@ -13,8 +12,9 @@ list are in [Measured memory and time](measured-memory-and-time.md).
 | Path | the studio API, one operation at a time | the studio API on port 8899, one operation at a time |
 | Seed | 7 for video, voice and music | 7 for every case |
 
-A time is submit to terminal status. It excludes the queue wait and the weight download. A
-warm row excludes the model load, because the child holds the model between runs.
+A time runs from submit to terminal status. It excludes queue wait and weight download.
+The historical warm label does not prove resident model reuse. Per-call engines can reuse filesystem data while still loading their models.
+FLUX.3, H3-Image MLX, and LTX MLX use per-call processes. Base Qwen can rebuild its generator for a new uncached prompt.
 
 ## The builds
 
@@ -50,8 +50,9 @@ reference bytes. The references are one picture made by Qwen bf16 on the Spark, 
 two Drama speeches with their scripts written down, and slices of one recording. The method and
 the case list are in [`scripts/measure`](../../scripts/measure/README.md).
 
-`load` marks a row whose time includes a model load, which the free-memory sample proves: the
-run moved ten gigabytes or more of free memory. Every other row is warm.
+The historical `load` label uses a free-memory-drop heuristic of at least ten gigabytes. That heuristic does not prove a model lifecycle.
+All other historical labels remain unchanged, but they do not prove warm resident inference.
+The current measurements use explicit process, configuration, and lifecycle evidence.
 
 ## Image
 
@@ -112,9 +113,10 @@ Keyframes are nearly free on the Spark and almost linear on the Mac. A keyframe 
 Spark nothing after the first, 72.7, 72.6 and 73.1 s for two, four and eight, where the Mac goes
 167.3, 193.6 and 243.9, about 25 s each.
 
-Fast mode saves the Mac a quarter of a 121-frame clip and the Spark nothing, 119.1 s against
-118.2 s without it, because `clip_payload` does not send the flag
-to the child. That is a fault, named under "What is not built".
+During this campaign, Fast mode saved the Mac a quarter of a 121-frame clip.
+It saved the Spark nothing: 119.1 s against 118.2 s without it.
+The current CUDA backend hides Fast mode and refuses requests that enable it.
+The recorded times describe the earlier implementation.
 
 ## Voice
 
@@ -199,23 +201,19 @@ The CUDA records are read from a running studio's `/api/v1/studio` and its
 | `yue2_cuda` | all four | n/a | n/a | n/a | n/a | 16 | yes, with a 600-character lyric limit |
 | `yue2_cuda_nvfp4` | all four | n/a | n/a | n/a | n/a | 16 | yes, with a 600-character lyric limit |
 
-The video records agree field for field, which is the problem: `ltx25_cuda` inherits the
-MLX shape, the frame counts, `fast_mode`, `can_skip_audio` and nine Edit adapters, and its
-gateway sends only the prompt, the size, the frames, the frame rate, the seed, the enhance
-flag and the keyframes.
+During the campaign, `ltx25_cuda` inherited unsupported MLX controls.
+The current backend advertises Generate only. It refuses Edit, source audio, Fast mode, and LoRAs.
+It forwards the generated-audio flag and retains the pipeline's soundtrack in the MP4.
+CPU checks confirm encoding with and without audio. Full CUDA inference needs another measurement.
 
 ## What is not built
 
 These are the gaps between the two machines, in the order they cost a user. Each one is
 read from the code that runs, not from the record the form draws.
 
-1. LTX Edit. The Spark form offers Edit with nine adapters. `clip_payload` sends no
-   adapter and no clip, and the child has no branch for either, so the run renders a
-   Generate from the prompt.
-2. LTX audio. The form offers an audio track and `can_skip_audio`. The gateway sends no
-   track and no audio flag.
-3. LTX Fast mode. The form offers it. The gateway sends nothing, and the measured time
-   agrees: 77.3 s with the flag against 76.3 s without it.
+1. LTX Edit remains unsupported on CUDA. The form hides it, and direct requests fail.
+2. LTX source audio remains unsupported on CUDA. Generated sound is optional and retained in the MP4.
+3. LTX Fast mode remains unsupported on CUDA. The form hides it, and direct requests fail.
 4. LTX LoRAs. The backend declares none, so the form offers none, and the MLX backend
    offers none either. No gap.
 5. Qwen generate from a reference. The MLX backend takes one reference with a strength and
@@ -235,7 +233,8 @@ The manifest covers every case both engines can express. What it leaves out, and
 | Case | Why it is missing |
 |---|---|
 | Qwen Turbo edit with a mask, and Qwen edit of each reference separately | Both are MLX-only features; the CUDA backend has neither, so there is no second column |
-| LTX audio track | Not wired on the CUDA backend |
+| LTX generated audio after the encoding fix | CPU encoding passes; CUDA inference has not been measured again |
+| LTX source audio, Edit and Fast mode | Unsupported on CUDA |
 | Qwen Turbo and H3-Image at other builds | The NVFP4 entries are measured in [Measured memory and time](measured-memory-and-time.md#the-nvfp4-builds-2026-11-15); the manifest runs the shipped default |
 | Drama at 800 words on the Mac | The engine's token cap refuses it, so there is no time to compare. The Spark finishes in 477.4 s |
 | flux2, krea2, viggle_turbo, Qwen-Image-2.1, MiniMax H3, LTX-2.3, Auk | No CUDA backend, and some Mac weights are not installed |

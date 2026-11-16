@@ -3,13 +3,16 @@ from unittest.mock import Mock
 
 import pytest
 
-from studio.l1_entities.errors import BackendBusy, BackendChanged, Cancelled
+from studio.l1_entities.errors import BackendBusy, BackendChanged, Cancelled, InsufficientMemory
 from studio.l1_entities.music_job import MusicJob, MusicResult
 from studio.l2_use_cases.run_music_use_case import RunMusicUseCase
+from studio.l3_interface_adapters.api.resource_admission import GIB, ResourceAdmission
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import InMemoryModelResidencyGateway
 from studio.l3_interface_adapters.gateways.in_memory.music_backend_catalog_gateway import (
     InMemoryMusicBackendCatalogGateway,
 )
 from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
+from studio.l3_interface_adapters.gateways.in_memory.studio_settings_gateway import InMemoryStudioSettingsGateway
 
 
 def setup(catalog=False):
@@ -22,6 +25,58 @@ def setup(catalog=False):
 
 def job(seed=7):
     return MusicJob("pop", "[Verse]\nhello", seed)
+
+
+@pytest.mark.parametrize("stage", ["load", "run"])
+def test_failed_music_runtime_loses_only_its_own_residency(stage):
+    usecase, backend, _, _, _ = setup()
+    retained = Mock()
+    residency = InMemoryModelResidencyGateway(
+        {"yue2": backend, "retained": retained},
+        policy="boundary",
+        boundary_gib=50,
+        footprints={"yue2": 10, "retained": 10},
+    )
+    residency.claim("retained")
+    usecase._residency = residency
+    getattr(backend, stage).side_effect = RuntimeError("engine failed")
+
+    with pytest.raises(RuntimeError, match="engine failed"):
+        usecase.execute(job())
+
+    assert residency.resident_ids() == ("retained",)
+    assert residency.resident_gib("yue2") == 0
+    retained.release.assert_not_called()
+    backend.release.assert_called_once()
+    backend.load.side_effect = None
+    backend.run.side_effect = lambda job, step, stop: MusicResult(b"wav", 1, 48000, job.seed)
+    assert usecase.execute(job()).seed == 7
+    assert residency.resident_ids() == ("retained", "yue2")
+
+
+def test_failed_cleanup_removes_phantom_memory_and_keeps_its_runtime_for_retry():
+    usecase, backend, _, _, _ = setup()
+    residency = InMemoryModelResidencyGateway({"yue2": backend}, footprints={"yue2": 10})
+    usecase._residency = residency
+    backend.load.side_effect = RuntimeError("load failed")
+    backend.release.side_effect = [RuntimeError("cleanup failed"), None]
+
+    with pytest.raises(RuntimeError, match="cleanup failed") as failed:
+        usecase.execute(job())
+
+    assert str(failed.value.__context__) == "load failed"
+    assert residency.resident_ids() == ()
+    assert residency.resident_gib("yue2") == 0
+    estimates = Mock()
+    estimates.estimate.return_value = 10
+    admission = ResourceAdmission(
+        lambda: (64 * GIB, 15 * GIB), estimates, InMemoryStudioSettingsGateway(True), residency.resident_gib
+    )
+    with pytest.raises(InsufficientMemory):
+        admission({"kind": "music", "backend": "yue2"})
+    residency.release_active()
+    assert backend.release.call_count == 2
+    assert residency.active_id() is None
 
 
 @pytest.mark.parametrize("catalog", [False, True])

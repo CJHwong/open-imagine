@@ -118,3 +118,37 @@ def test_heic_import_bounds_pixels_before_decoding(monkeypatch):
 
     with pytest.raises(InvalidJob, match="64 megapixels"):
         ImageImportController().normalize(encoded_image("HEIF", size=(11, 10)))
+
+
+def test_reference_bytes_use_the_import_limit_before_base64_decode(monkeypatch):
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_BYTES", 3)
+
+    def refuse_decode(*args, **kwargs):
+        pytest.fail("Oversized input reached base64 decode")
+
+    monkeypatch.setattr(image_import_controller.base64, "b64decode", refuse_decode)
+    with pytest.raises(InvalidJob, match="64 MB"):
+        image_import_controller.decode_image_base64("Zm91cg==")
+
+
+def test_reference_normalization_keeps_colors_and_clears_an_unreadable_profile():
+    contents = encoded_image(icc_profile=b"invalid profile")
+    normalized = ImageImportController().normalize(contents, convert_profile=False)
+    with Image.open(io.BytesIO(normalized)) as image:
+        assert image.getpixel((32, 24)) == (210, 30, 20)
+        assert image.info == {}
+
+
+def test_pixel_limit_handles_pillow_warnings_without_decoding(monkeypatch):
+    contents = encoded_image(size=(11, 10))
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_PIXELS", 100)
+    with pytest.raises(InvalidJob, match="64 megapixels"):
+        ImageImportController().normalize(contents)
+
+
+def test_pillow_bomb_error_is_a_controlled_image_error(monkeypatch):
+    contents = encoded_image(size=(11, 20))
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    with pytest.raises(UnreadableImage, match="Could not read that image"):
+        ImageImportController().normalize(contents)

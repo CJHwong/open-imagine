@@ -106,6 +106,7 @@
   "gallery.clearAll.title": "刪除此工作區媒體庫中的所有檔案。刪除前會先詢問。",
   "gallery.error.action": "媒體庫操作失敗，請再試一次。",
   "gallery.error.notBundle": "這個檔案不是 Studio 的媒體庫備份。",
+  "gallery.error.tooLarge": "備份超過匯入限制。請匯入較小的備份。",
   "gallery.error.newer": "Studio 無法讀取此版本的備份。請重新載入頁面，或更新 Studio 後重試。",
   "gallery.error.remove": "有 {count} 個結果無法移除，請再試一次。",
   "gallery.filterMode": "依模式篩選",

@@ -9,6 +9,7 @@ from studio.l1_entities.voice_job import SpeechJob, SpeechResult
 from studio.l2_use_cases.boundaries.model_residency_gateway import ModelResidencyGateway
 from studio.l2_use_cases.boundaries.voice_backend_gateway import VoiceBackendGateway
 from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
+from studio.l3_interface_adapters.gateways.in_memory.model_residency_gateway import InMemoryModelResidencyGateway
 from studio.l3_interface_adapters.gateways.in_memory.progress_gateway import InMemoryProgressGateway
 
 
@@ -23,6 +24,33 @@ def setup():
 
 def job(mode="design", seed=7):
     return SpeechJob(mode, "Read this line.", seed, {"voice": "A calm clear narrator."})
+
+
+@pytest.mark.parametrize("stage", ["load", "run"])
+def test_failed_voice_runtime_loses_only_its_own_residency(stage):
+    use_case, backend, _, _, _ = setup()
+    retained = Mock()
+    residency = InMemoryModelResidencyGateway(
+        {"auk": backend, "retained": retained},
+        policy="boundary",
+        boundary_gib=50,
+        footprints={"auk": 10, "retained": 10},
+    )
+    residency.claim("retained")
+    use_case._residency = residency
+    getattr(backend, stage).side_effect = RuntimeError("engine failed")
+
+    with pytest.raises(RuntimeError, match="engine failed"):
+        use_case.execute(job())
+
+    assert residency.resident_ids() == ("retained",)
+    assert residency.resident_gib("auk") == 0
+    retained.release.assert_not_called()
+    backend.release.assert_called_once()
+    backend.load.side_effect = None
+    backend.run.side_effect = lambda job, step, stop: SpeechResult(b"wav", 2, 16000, job.seed, 4)
+    assert use_case.execute(job()).seed == 7
+    assert residency.resident_ids() == ("retained", "auk")
 
 
 def test_single_voice_run_loads_model_and_clears_progress():

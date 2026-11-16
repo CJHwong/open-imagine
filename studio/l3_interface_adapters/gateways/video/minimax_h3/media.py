@@ -91,7 +91,8 @@ def encode_mp4(video, fps, audio, sample_rate, *, crf=18):
     sender = threading.Thread(target=send_audio, daemon=True)
     sender.start()
     try:
-        output, _ = process.communicate(video.tobytes(), timeout=180)
+        # Python 3.12 writes buffer views in chunks; its type stub accepts only bytes.
+        output, _ = process.communicate(memoryview(video).cast("B"), timeout=180)  # ty: ignore[invalid-argument-type]
     except BaseException:
         process.kill()
         process.communicate()

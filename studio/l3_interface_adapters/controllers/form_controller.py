@@ -1,12 +1,11 @@
 """The page's form, turned into use case calls."""
 
-import base64
 import binascii
 import io
 import json
 from collections.abc import Callable, Mapping
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.image_job import ReferenceImage
@@ -22,6 +21,7 @@ from studio.l2_use_cases.release_model_use_case import ReleaseModelUseCase
 from studio.l2_use_cases.rewrite_prompt_use_case import RewritePromptUseCase, RewriteRequest, RewriteResponse
 from studio.l2_use_cases.run_image_use_case import RunImageRequest, RunImageResponse, RunImageUseCase
 from studio.l2_use_cases.switch_backend_use_case import SwitchBackendUseCase
+from studio.l3_interface_adapters.controllers.image_import_controller import ImageImportController, decode_image_base64
 
 
 class FormController:
@@ -182,10 +182,10 @@ def _reference(blob: str) -> ReferenceImage:
     page offers follow the reference, so the turn is applied first. Every image is
     encoded again, which also drops the text a PNG can carry, such as a prompt."""
     try:
-        image = ImageOps.exif_transpose(Image.open(io.BytesIO(base64.b64decode(blob))))
-        image = image.convert("RGBA" if image.has_transparency_data else "RGB")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-    except (binascii.Error, UnidentifiedImageError, OSError, ValueError) as error:
+        png = ImageImportController().normalize(decode_image_base64(blob), convert_profile=False)
+        with Image.open(io.BytesIO(png)) as image:
+            return ReferenceImage(png=png, width=image.width, height=image.height)
+    except InvalidJob:
+        raise
+    except (binascii.Error, UnidentifiedImageError, OSError, ValueError, UnreadableImage) as error:
         raise UnreadableImage(f"Could not read that reference image: {error}") from None
-    return ReferenceImage(png=buffer.getvalue(), width=image.width, height=image.height)

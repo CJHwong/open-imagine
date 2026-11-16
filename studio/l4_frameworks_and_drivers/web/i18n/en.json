@@ -110,6 +110,7 @@
   "gallery.clearAll.title": "Delete all files in this workspace's gallery. Studio asks for confirmation first.",
   "gallery.error.action": "The gallery action failed. Try again.",
   "gallery.error.notBundle": "This file is not a Studio gallery backup.",
+  "gallery.error.tooLarge": "This backup exceeds an import limit. Import a smaller backup.",
   "gallery.error.newer": "Studio cannot read this backup version. Reload the page or update Studio, then try again.",
   "gallery.error.remove": "{count} results could not be removed. Try again.",
   "gallery.filterMode": "Filter by mode",

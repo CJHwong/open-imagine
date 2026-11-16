@@ -807,6 +807,127 @@ def test_a_transcribe_job_returns_the_score_only(monkeypatch, tmp_path):
     assert reply == {"wav": "", "score": "X:1\n", "metadata": {"transcription": {}, "mode": "transcribe"}}
 
 
+def transcription_job(audio=b"reference", **overrides):
+    return {"mode": "transcribe", "reference_audio": base64.b64encode(audio).decode(), **overrides}
+
+
+def test_a_worker_reuses_a_transcription_for_the_same_audio_and_task(monkeypatch, tmp_path):
+    transcriber = Mock(return_value=("X:1\n", {"transcription": {"warnings": []}}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(FakePipe(), tmp_path)
+
+    first = worker.run(transcription_job(seed=1))
+    second = worker.run(transcription_job(seed=2, style="different style", transcription_task="melody-full"))
+
+    assert transcriber.call_count == 1
+    assert first["score"] == second["score"] == "X:1\n"
+    assert first["metadata"] == second["metadata"] == {"transcription": {"warnings": []}, "mode": "transcribe"}
+
+
+def test_a_worker_keys_transcription_on_decoded_audio_bytes(monkeypatch, tmp_path):
+    transcriber = Mock(return_value=("X:1\n", {}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(FakePipe(), tmp_path)
+    first = transcription_job()
+    wrapped = {**first, "reference_audio": first["reference_audio"] + "\n"}
+
+    worker.run(first)
+    reply = worker.run(wrapped)
+
+    transcriber.assert_called_once()
+    assert reply["metadata"] == {"mode": "transcribe"}
+
+
+@pytest.mark.parametrize("changed", [{"audio": b"other reference"}, {"transcription_task": "full"}])
+def test_a_worker_keeps_only_its_latest_transcription(monkeypatch, tmp_path, changed):
+    transcriber = Mock(return_value=("X:1\n", {}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(FakePipe(), tmp_path)
+
+    worker.run(transcription_job())
+    miss = worker.run(transcription_job(**changed))
+    evicted = worker.run(transcription_job())
+
+    assert transcriber.call_count == 3
+    assert miss["metadata"] == evicted["metadata"] == {"mode": "transcribe"}
+
+
+def test_transcription_metadata_cannot_mutate_the_cached_result(monkeypatch, tmp_path):
+    original = {"transcription": {"warnings": ["original"]}, "artifacts": [{"name": "score.abc"}]}
+    transcriber = Mock(return_value=("X:1\n", original))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(FakePipe(), tmp_path)
+
+    first = worker.run(transcription_job())
+    first["metadata"]["transcription"]["warnings"].append("caller change")
+    first["metadata"]["artifacts"][0]["name"] = "changed"
+    original["transcription"]["warnings"].append("source change")
+    second = worker.run(transcription_job())
+
+    assert second["metadata"]["transcription"]["warnings"] == ["original"]
+    assert second["metadata"]["artifacts"][0]["name"] == "score.abc"
+
+
+def test_a_failed_transcription_is_retried_and_does_not_retain_an_old_entry(monkeypatch, tmp_path):
+    transcriber = Mock(side_effect=[("X:1\n", {}), ValueError("decode failed"), ("X:2\n", {})])
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(FakePipe(), tmp_path)
+
+    worker.run(transcription_job())
+    with pytest.raises(ValueError, match="decode failed"):
+        worker.run(transcription_job(b"bad reference"))
+    reply = worker.run(transcription_job())
+
+    assert transcriber.call_count == 3
+    assert reply["score"] == "X:2\n"
+    assert reply["metadata"] == {"mode": "transcribe"}
+
+
+def test_a_new_worker_has_no_previous_transcription(monkeypatch, tmp_path):
+    transcriber = Mock(return_value=("X:1\n", {}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+
+    child.Worker(FakePipe(), tmp_path).run(transcription_job())
+    reply = child.Worker(FakePipe(), tmp_path).run(transcription_job())
+
+    assert transcriber.call_count == 2
+    assert reply["metadata"] == {"mode": "transcribe"}
+
+
+def test_a_cover_reuses_transcription_without_changing_generation_inputs(monkeypatch, tmp_path):
+    pipe = FakePipe()
+    fake_modules(monkeypatch, pipe=pipe)
+    transcriber = Mock(return_value=("X:1\n", {}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    worker = child.Worker(pipe, tmp_path)
+
+    worker.run(transcription_job())
+    reply = worker.run(transcription_job(mode="cover", style="piano", lyrics="la", seed=7))
+    generated = worker.run(job())
+
+    transcriber.assert_called_once()
+    assert reply["metadata"] == {"mode": "cover", "cot": "melody"}
+    assert pipe.requests[0][1]["abc"] == "X:1"
+    assert pipe.requests[0][1]["style"] == "piano"
+    assert pipe.requests[0][1]["lyrics"] == "la"
+    assert len(pipe.requests) == 2
+    assert "transcription_cache_hit" not in generated["metadata"]
+
+
+def test_the_child_loop_retains_only_one_worker_cache(monkeypatch, capsys):
+    fake_modules(monkeypatch, pipe=FakePipe())
+    transcriber = Mock(return_value=("X:1\n", {}))
+    monkeypatch.setattr(child, "transcribe", transcriber)
+    monkeypatch.setattr(sys, "argv", ["child"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join([json.dumps(transcription_job())] * 2)))
+
+    assert child.main() == 0
+
+    replies = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    transcriber.assert_called_once()
+    assert replies[0] == replies[1] == {"wav": "", "score": "X:1\n", "metadata": {"mode": "transcribe"}}
+
+
 def test_a_cover_job_sings_the_transcribed_score(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "transcribe", lambda job, extras: ("X:1\n", {"transcription": {"status": "complete"}}))
     pipe = Mock()

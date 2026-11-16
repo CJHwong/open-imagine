@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 from studio.l1_entities.errors import StudioError
 
@@ -15,7 +16,22 @@ def memory_headroom() -> tuple[int, int]:
     """Return total bytes and currently free bytes, including reclaimable macOS memory."""
     if sys.platform == "darwin":
         return _macos_memory_headroom()
+    if sys.platform == "linux":
+        return _linux_memory_headroom()
     return _sysconf_memory_headroom()
+
+
+def _linux_memory_headroom() -> tuple[int, int]:
+    try:
+        report = Path("/proc/meminfo").read_text()
+        fields = dict(re.findall(r"^(MemTotal|MemAvailable):\s*(\d+) kB$", report, re.MULTILINE))
+        total = int(fields["MemTotal"]) * 1024
+        available = int(fields["MemAvailable"]) * 1024
+        if total <= 0 or not 0 <= available <= total:
+            raise ValueError("invalid memory totals")
+    except (OSError, KeyError, ValueError):
+        raise StudioError("The studio could not read Linux memory headroom.") from None
+    return total, available
 
 
 def _macos_memory_headroom() -> tuple[int, int]:
