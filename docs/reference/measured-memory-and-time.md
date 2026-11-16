@@ -1,10 +1,15 @@
 # Measured memory and time
 
-The latest measurements ran on 16 November 2026, after the gateway performance changes.
+The 16 November 2026 measurements follow the gateway performance changes. The 17 November
+2026 run repeated the Qwen-Image-2.1 Turbo and MiniMax H3-Image rows on both machines with the
+harness in the tree, which samples free memory during the run and separates the phases.
+The 17 November figures are in [the 17 November comparison](#the-17-november-comparison).
+
 They use the Studio API and public fixtures. Each row is one request unless it says otherwise.
 
 - [Apple M5 Pro](#apple-m5-pro)
 - [DGX Spark](#dgx-spark)
+- [The 17 November comparison](#the-17-november-comparison)
 - [Mac and Spark comparison](#mac-and-spark-comparison)
 - [Component measurements](#current-component-measurements)
 
@@ -13,12 +18,18 @@ They use the Studio API and public fixtures. Each row is one request unless it s
 GiB means gibibytes.
 
 - **Time** runs from submission to terminal status. It excludes queue wait and weight downloads.
+  An empty queue makes the two definitions the same figure. The 17 November rows print the
+  operation's own span, from the studio accepting the request to its terminal status, and the
+  runner recorded the submit, the fetch and the end-to-end total beside it.
 - **Free drop** is the change from baseline to the lowest sampled available memory. A negative value means available memory rose during the run. Background activity affects this value.
-- **Peak footprint** is the sampled peak across the process tree. On the Mac it sums physical footprints. Shared pages can be counted more than once. On Spark it sums resident memory and can omit GPU allocations. Do not compare the two directly.
+  The 17 November runner samples five times a second, from before the submit to the terminal
+  status. A model that stays resident between cases shows a small drop on every case after the
+  one that loaded it.
+- **Peak footprint** is the sampled peak across the process tree. On the Mac it sums physical footprints. Shared pages can be counted more than once. On Spark it sums resident memory and can omit GPU allocations. Do not compare the two directly. The 17 November run did not measure it.
 - Measurements use one-second samples. fps means frames per second. Mac footprint values use rounded `footprint` output. A missing peak is shown as `not sampled`.
 - A decoded result confirms the output can be read. It does not prove prompt fidelity or equal quality.
 
-Source identifies the frozen code used for each measurement. Sources 1 and 2 precede the final H3 prompt-encoder fix. Sources 4 and 5 hold the native-size H3 studies. Later page and validation changes do not change the measured model path.
+Source identifies the frozen code used for each measurement. Sources 1 and 2 precede the final H3 prompt-encoder fix. Sources 4 and 5 hold the native-size H3 studies. Source 6 is the 17 November campaign. Later page and validation changes do not change the measured model path.
 
 | Source | Snapshot SHA-256 |
 | --- | --- |
@@ -27,8 +38,65 @@ Source identifies the frozen code used for each measurement. Sources 1 and 2 pre
 | 3 | `aac6350dd097528822befd61c7fec45bfbe0118ac806bcabcb5c5e8e3e795a53` |
 | 4 | `e97c6075aa44a376118109e9829892f2e2f78e5cf5887bff4ea525533b15cbeb` (SHA-256 of the 1,018-file source manifest) |
 | 5 | `a922b0a3a95448944e7c742789726f73e3821457cb16a5f70b99a0e7e56ff82a` (SHA-256 of the 1,018-file source manifest) |
+| 6 | `f47bd8e529a9e0c36235d68c90491993ce2b160f` (campaign recorded by the runner; the runner itself was amended during the campaign, and no measured engine changed) |
 
-The [model setup guide](../how-to/set-up-models.md) lists weights and licenses. The [measurement scripts](../../scripts/measure/README.md) describe the earlier harness; the latest run used the retained V3/V5 drivers.
+The [model setup guide](../how-to/set-up-models.md) lists weights and licenses. The [measurement scripts](../../scripts/measure/README.md) hold the harness, and the 17 November run used them.
+
+## The 17 November comparison
+
+One campaign ran on both machines from the same case list, the same asset bytes and the same
+seed. Source 6 records it.
+
+Spark runs Qwen-Image-2.1 Turbo 1.7 to 2.9 times faster than the Mac. The gap widens with the
+resolution and with the number of references: 1.7 times at 512 text generation, 2.4 times at
+1328, and 2.9 times at ten references.
+
+MiniMax H3-Image does not follow that pattern. The Mac is 2.2 times faster at 1024 and level at
+2048 and at the 2048-reference edit. Spark's 1024 figure is a warm repeat; the first run of
+that case in a fresh studio took 80.6 s, which includes the load.
+
+`active` is the operation's own span. The Mac reports no free-memory figure, because it has no
+`/proc/meminfo`.
+
+| Case | Mac active (s) | Spark active (s) | Spark peak free drop (GiB) |
+| --- | ---: | ---: | ---: |
+| `qwen21_turbo/generate/text/512` | 5.0 | 3.0 | 0.0 |
+| `qwen21_turbo/generate/text/768` | 12.1 | 7.0 | 0.03 |
+| `qwen21_turbo/generate/text/1024` | 22.2 | 12.1 | 0.03 |
+| `qwen21_turbo/generate/text/1328` | 45.3 | 19.1 | 0.0 |
+| `qwen21_turbo/edit/one-ref/out512` | 13.1 | 5.0 | 0.19 |
+| `qwen21_turbo/edit/one-ref/out768` | 18.1 | 9.0 | 0.09 |
+| `qwen21_turbo/edit/one-ref/out1024` | 34.2 | 15.0 | 0.03 |
+| `qwen21_turbo/edit/one-ref/out1344` | 72.5 | 27.1 | 6.53 |
+| `qwen21_turbo/edit/2-refs/out1024` | 42.3 | 18.1 | 0.07 |
+| `qwen21_turbo/edit/4-refs/out1024` | 62.4 | 25.1 | 0.28 |
+| `qwen21_turbo/edit/8-refs/out1024` | 111.8 | 40.1 | 7.18 |
+| `qwen21_turbo/edit/10-refs/out1024` | 147.2 | 50.1 | 7.28 |
+| `qwen21_turbo/edit/one-ref/in512` | 35.2 | 15.1 | 0.0 |
+| `qwen21_turbo/edit/one-ref/in1600x900` | 37.3 | 15.1 | 0.07 |
+| `qwen21_turbo/edit/one-ref/in2048` | 35.2 | 16.1 | 0.2 |
+| `qwen21_turbo/edit/one-ref/in4032x3024` | 37.2 | 17.1 | 0.46 |
+| `minimax_h3_image/generate/1024` | 18.1 | 40.4 | 0.04 |
+| `minimax_h3_image/generate/2048` | 47.3 | 55.4 | 0.08 |
+| `minimax_h3_image/edit/one-ref-2048` | 128.0 | 134.5 | 60.08 |
+
+Both Qwen columns are bf16. The H3 columns are the Mac's int8 pack and Spark's fp8 pack, so
+those three rows compare two different weight formats as well as two machines.
+
+The Spark memory column is the transient pressure of one job, not a model footprint. The model
+stays resident between cases, so most rows read near zero. The two rows that read about 7 GiB,
+the eight-reference and ten-reference edits, carry the reference batch. The H3 edit reads
+60.08 GiB because that case loaded the model in a studio that had released it.
+
+Two H3 generate cases failed on Spark with `CUDA_ERROR_OUT_OF_MEMORY` while the Qwen model was
+still resident in the same studio. The edit case in that session succeeded. A studio restart
+cleared the memory, and both generate cases then succeeded. The rows above come from the runs
+after the restart. The studio left two engine children alive after it exited, and they held
+about 106 GiB until they were stopped.
+
+The Mac now completes the 1344 edit in 72.5 s. Source 1 recorded that request as a failure at
+the expected memory limit. The engine code changed between the two sources; this run changed
+neither the engine nor the page.
 
 ## Apple M5 Pro
 
@@ -520,15 +588,18 @@ The driver did not retain the full request time or its host memory samples. The 
 
 ## Coverage and limits
 
-The matrix accounts for 183 planned case IDs. Of these, 178 reached their expected outcome.
+The 16 November campaign accounts for 183 planned case IDs. Of these, 178 reached their expected outcome.
 Four use replacement reference fixtures. One Drama request unexpectedly reached `max_tokens`.
 Expected outcomes include expected errors and limits. They do not all represent successful media generation.
 Warmups, retries, comparison requests, and component checks are separate from that count.
+The 17 November campaign ran 19 of the 46 case IDs that `parity_matrix.py` writes.
 
 | Check | Coverage and result |
 | --- | --- |
 | Mac and Spark comparison | 15 matched rows. Public inputs and seed match; precision and some output geometry differ. |
-| macOS CPU suite | 3,587 tests passed after the H3 and YuE2 fixes. Statement and branch coverage reached 100%. |
+| 17 November parity run | 19 image cases on each machine, and all succeeded. Video, voice and music were not re-run. The Mac reports no free-memory figure. |
+| macOS CPU suite | 3,601 tests passed with the 17 November changes. Statement and branch coverage reached 100%. |
+| macOS CPU suite, 16 November | 3,587 tests passed after the H3 and YuE2 fixes. Statement and branch coverage reached 100%. |
 | MLX product checks | Page: 181 checks passed. Batch: 12 passed. Backend switch: 19 passed. |
 | H3 MLX video | Both real model tests passed. |
 | Spark targeted suite | 690 tests passed. Real CUDA checks covered generation, edit, cancellation, and a backend switch. |
