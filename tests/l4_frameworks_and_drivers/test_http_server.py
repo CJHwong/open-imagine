@@ -2116,6 +2116,22 @@ def test_get_rejects_duplicate_hosts(served):
         assert connection.recv(4096).startswith(b"HTTP/1.0 403")
 
 
+def test_the_phone_probe_reads_the_studio_only_when_its_host_names_the_port(served):
+    """The phone sends this exact request. A Host without the port is refused, so a
+    probe that leaves it out reads a healthy tunnel as a studio that has gone."""
+    import socket
+
+    port = served[1].server_address[1]
+
+    def probe(host):
+        with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+            connection.sendall(f"GET /api/v1/studio HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
+            return connection.recv(4096)
+
+    assert probe(f"127.0.0.1:{port}").startswith(b"HTTP/1.0 200")
+    assert probe("127.0.0.1").startswith(b"HTTP/1.0 403")
+
+
 def test_body_deadline_also_stops_a_client_that_keeps_sending(monkeypatch):
     from unittest.mock import Mock
 

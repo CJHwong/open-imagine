@@ -336,10 +336,23 @@ class JsonApi:
             observed["finished_at"] = completed.finished_at
         return completed.value
 
+    @staticmethod
+    def _reserved_body(operation: Mapping[str, Any], payload: Mapping[str, object]) -> dict[str, Any]:
+        """The job as it was reserved.
+
+        A request that named no model runs the model the studio chose when it accepted
+        the request, not the one another operation switched to while this one waited.
+        A prompt rewrite has no model of its own, so it keeps the body it was sent.
+        """
+        body = {key: value for key, value in payload.items() if key not in ("kind", "workspace")}
+        if operation["kind"] != "rewrite" and operation["backend"]:
+            body["backend"] = operation["backend"]
+        return body
+
     def execute_operation(self, operation: dict[str, Any], payload: Mapping[str, object]):
         mode = operation["mode"]
         kind = operation["kind"]
-        body = {key: value for key, value in payload.items() if key not in ("kind", "workspace")}
+        body = self._reserved_body(operation, payload)
         self._operations.wait_for_turn(operation["id"])
         if self._operations.get(operation["id"]).get("pending_admission"):
             try:

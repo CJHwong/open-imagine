@@ -63,7 +63,10 @@ class InMemoryOperationGateway(OperationGateway):
             self._prune()
             if description.get("owner") and not private_key:
                 raise InvalidJob("A private operation requires its original key.")
-            waiting = self._active is not None or self._reservation is not None
+            # A queue with no active operation is a handoff in progress: the head of the
+            # queue is about to claim the slot. A new request must line up behind it, or
+            # it takes the slot the queue was waiting for.
+            waiting = self._active is not None or self._reservation is not None or bool(self._queue)
             if waiting and (not queued or self._max_queue == 0):
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
             if waiting and len(self._queue) >= self._max_queue:
@@ -129,7 +132,7 @@ class InMemoryOperationGateway(OperationGateway):
     def busy(self) -> bool:
         with self._lock:
             self._prune()
-            return self._active is not None or self._reservation is not None or bool(self._queue)
+            return self._active is not None or self._reservation is not None
 
     def exclusive(self, action: Callable[[], None]) -> None:
         with self._lock:

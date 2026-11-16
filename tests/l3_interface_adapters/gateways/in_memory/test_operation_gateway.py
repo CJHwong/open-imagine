@@ -1,4 +1,5 @@
 import threading
+import time
 
 import pytest
 
@@ -420,6 +421,59 @@ def test_wait_for_turn_claims_the_first_queued_operation_when_the_active_one_end
     assert operations.get(second["id"])["status"] == "running"
     assert active_id(operations) == second["id"]
     assert operations.queue_position(second["id"]) is None
+
+
+def test_a_new_request_queues_behind_the_operation_that_is_next_in_line():
+    """The slot is free while the head of the queue wakes up. A request that arrives in
+    that window must line up behind it, not take its place."""
+    operations = Operations(max_queue=2)
+    first = operations.begin({"kind": "image"})
+    second = operations.begin({"kind": "image"}, queued=True)
+    operations.finish(first["id"], {})
+
+    third = operations.begin({"kind": "image"}, queued=True)
+
+    assert operations.active() is None
+    assert operations.get(third["id"])["status"] == "queued"
+    assert operations.queue_position(second["id"]) == 1
+    assert operations.queue_position(third["id"]) == 2
+
+    operations.wait_for_turn(second["id"])
+
+    assert active_id(operations) == second["id"]
+
+
+def test_queued_work_runs_one_operation_at_a_time_and_leaves_none_behind():
+    operations = Operations(max_queue=8)
+    first = operations.begin({"kind": "image"})
+    guard = threading.Lock()
+    state = {"running": 0, "peak": 0}
+    finished = []
+
+    def work(index):
+        operation = operations.begin({"kind": "image", "index": index}, queued=True)
+        operations.wait_for_turn(operation["id"])
+        with guard:
+            state["running"] += 1
+            state["peak"] = max(state["peak"], state["running"])
+        time.sleep(0.005)
+        with guard:
+            state["running"] -= 1
+            finished.append(index)
+        operations.finish(operation["id"], {"index": index})
+
+    threads = [threading.Thread(target=work, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    operations.finish(first["id"], {})
+    for thread in threads:
+        thread.join(5)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(finished) == 8
+    assert state["peak"] == 1
+    assert operations.active() is None
+    assert operations.busy() is False
 
 
 def test_a_direct_reservation_does_not_wait_for_a_turn():

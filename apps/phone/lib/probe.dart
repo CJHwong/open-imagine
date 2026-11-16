@@ -98,9 +98,11 @@ Future<bool> probeStudio(
       port,
       timeout: const Duration(seconds: 3),
     );
+    // The studio trusts a Host that names its own port, and refuses one without
+    // it. The tunnel listens on the studio's port, so it carries this one.
     socket.write(
       'GET /api/v1/studio HTTP/1.0\r\n'
-      'Host: 127.0.0.1\r\n'
+      'Host: 127.0.0.1:$port\r\n'
       'Connection: close\r\n\r\n',
     );
     await socket.flush();

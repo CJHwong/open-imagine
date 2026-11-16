@@ -2,6 +2,7 @@
 
 import base64
 import threading
+from dataclasses import replace
 from typing import cast
 
 import pytest
@@ -49,6 +50,7 @@ class FakeController(FormController):
         self.cancelled = 0
         self.rewrites_cancelled = 0
         self.watches = []
+        self.switched = []
 
     def page(self):
         return self._view
@@ -76,6 +78,9 @@ class FakeController(FormController):
 
     def watch_cancel(self, identity, active, guarded_release):
         self.watches.append((identity, active, guarded_release))
+
+    def switch(self, form):
+        self.switched.append(form.get("backend", ""))
 
     def cancel(self):
         self.cancelled += 1
@@ -712,6 +717,21 @@ class FakeVoice(VoiceController):
         for index, payload in enumerate(payloads, 1):
             started(index, len(payloads))
             completed(index, self.run(payload))
+
+
+class SwitchingVoice(FakeVoice):
+    """A voice workspace whose active model the test can change while work waits."""
+
+    def __init__(self):
+        super().__init__()
+        self.active = "auk"
+        self.switched = []
+
+    def active_id(self):
+        return self.active
+
+    def switch(self, payload):
+        self.switched.append(payload["backend"])
 
 
 def test_voice_operation_discovery_and_retained_audio():
@@ -1668,6 +1688,49 @@ def test_a_queued_operation_runs_without_a_resource_policy():
     thread.join(2)
 
     assert api.operation(second["id"])["status"] == "succeeded"
+
+
+def test_a_queued_image_run_keeps_the_model_it_reserved():
+    """Another operation can switch the workspace model while this one waits. The run
+    still goes to the model the studio chose when it accepted the request."""
+    controller = FakeController(
+        run=_pear_run,
+        view=StudioView(active=fake_capabilities("a", "A"), backends=(("a", "A", ""), ("b", "B", ""))),
+    )
+    api = api_for(controller, max_queue=1)
+    first = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    queued = api.reserve({"kind": "image", "prompt": "pear"}, queued=True)
+    assert queued["backend"] == "a"
+
+    controller._view = replace(controller._view, active=fake_capabilities("b", "B"))
+    thread = threading.Thread(target=lambda: api.execute_operation(queued, {"kind": "image", "prompt": "pear"}))
+    thread.start()
+    api.complete(first["id"], lambda: {"images": []})
+    thread.join(2)
+
+    assert controller.switched == ["a"]
+    assert controller.forms[-1]["backend"] == "a"
+    assert api.operation(queued["id"])["backend"] == "a"
+
+
+def test_a_queued_voice_run_keeps_the_model_it_reserved():
+    voice = SwitchingVoice()
+    api = api_for(FakeController(), voice=voice, max_queue=1)
+    first = api.reserve({"kind": "voice", "text": "Hello", "voice": "warm"}, queued=True)
+    queued = api.reserve({"kind": "voice", "text": "Hello", "voice": "warm"}, queued=True)
+    assert queued["backend"] == "auk"
+
+    voice.active = "other"
+    thread = threading.Thread(
+        target=lambda: api.execute_operation(queued, {"kind": "voice", "text": "Hello", "voice": "warm"})
+    )
+    thread.start()
+    api.complete(first["id"], lambda: {"seconds": 1.2})
+    thread.join(2)
+
+    assert voice.switched == ["auk"]
+    assert voice.payloads[-1]["backend"] == "auk"
+    assert api.operation(queued["id"])["backend"] == "auk"
 
 
 def test_a_queued_batch_is_admitted_with_its_items_when_its_turn_comes():
