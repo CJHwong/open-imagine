@@ -36,6 +36,7 @@ in the same environment, where weight-only nvfp4 without those kernels ran 19.5x
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import io
 import json
@@ -45,6 +46,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import uuid
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -310,11 +312,64 @@ def source_revision(model: str) -> str:
 
 
 def staging_directory(directory: Path) -> Path:
-    """An empty folder beside the pack in use, where a new one is assembled."""
-    staging = directory.with_name(directory.name + ".building")
-    shutil.rmtree(staging, ignore_errors=True)
+    """An empty folder beside the pack in use, where a new one is assembled.
+
+    The name carries this process, so two studios preparing the same model never delete
+    each other's work.
+    """
+    staging = directory.with_name(f"{directory.name}.building-{os.getpid()}-{uuid.uuid4().hex[:8]}")
     staging.mkdir(parents=True)
     return staging
+
+
+def recover(directory: Path) -> None:
+    """Put a valid pack back when a previous publish died between its two renames."""
+    previous = directory.with_name(directory.name + ".old")
+    if not directory.exists() and previous.is_dir():
+        previous.rename(directory)
+
+
+@contextlib.contextmanager
+def pack_lock(directory: Path):
+    """One builder per pack. A second studio waits, then uses what the first built.
+
+    A lock left by a process that died is taken over: its pid no longer runs.
+    """
+    lock = directory.with_name(directory.name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                holder = int(lock.read_text().strip() or "0")
+            except (OSError, ValueError):
+                holder = 0
+            if holder and not _running(holder):
+                lock.unlink(missing_ok=True)
+                continue
+            if not holder and time.time() - lock.stat().st_mtime > 60:
+                # A lock with no pid that nobody has touched for a minute is a leftover.
+                lock.unlink(missing_ok=True)
+                continue
+            time.sleep(5)
+    try:
+        os.write(descriptor, str(os.getpid()).encode())
+        yield
+    finally:
+        os.close(descriptor)
+        lock.unlink(missing_ok=True)
+
+
+def _running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def publish(staging: Path, directory: Path) -> None:
@@ -460,18 +515,29 @@ def load_packed(model_name: str, root: Path):
     pipe.__enter__()
     directory = pack_path(root, model_name)
     expected = expected_manifest(model_name)
-    reason = pack_state(directory, expected)
-    if reason is None:
+    attempt = 0
+    while True:
+        attempt += 1
+        recover(directory)
+        reason = pack_state(directory, expected)
+        if reason is not None:
+            with pack_lock(directory):
+                # Another studio may have published a pack while this one waited.
+                recover(directory)
+                if pack_state(directory, expected) is not None:
+                    say(f"{reason}, so the pack is built again")
+                    build_packed(pipe, directory, expected)
+                    return pipe
+                say("another studio built the pack while this one waited")
         try:
             return serve_packed(pipe, directory, read_manifest(directory))
         except Exception as error:
             # A pack that will not load is a cache fault, not a reason to stop. Move it
             # aside and build once; a second failure raises with nothing left to try.
+            if attempt == 2:
+                raise
             say(f"the pack did not load ({error}), so it is built again")
             quarantine(directory)
-    else:
-        say(f"{reason}, so the pack is built again")
-    return build_packed(pipe, directory, expected)
 
 
 def build_packed(pipe, directory: Path, expected: dict):

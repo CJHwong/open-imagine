@@ -831,3 +831,39 @@ def test_a_label_that_names_no_machine_is_refused(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="MACHINE=TEXT"):
         report.main()
+
+
+def test_an_asset_set_left_under_its_old_name_is_put_back(tmp_path):
+    """A publish that dies between its two renames leaves the set under `.old`. The next
+    build or campaign uses it instead of nothing."""
+    assets = tmp_path / "assets"
+    previous = tmp_path / "assets.old"
+    previous.mkdir()
+    (previous / "keep.png").write_bytes(b"bytes")
+
+    build_assets.recover(assets)
+
+    assert (assets / "keep.png").read_bytes() == b"bytes"
+    assert not previous.exists()
+
+
+def test_two_builds_never_share_a_staging_folder(tmp_path, monkeypatch):
+    (tmp_path / "assets").mkdir()
+    seen = []
+
+    def stop(_base, _body, name, target, _deadline):
+        seen.append(target)
+        raise SystemExit("stop here")
+
+    monkeypatch.setattr(build_assets, "run", stop)
+    for _ in range(2):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["build_assets.py", "--work", str(tmp_path), "--image-backend", "a", "--voice-backend", "b", "--force"],
+        )
+        with pytest.raises(SystemExit, match="stop here"):
+            build_assets.main()
+
+    assert seen[0] != seen[1]
+    assert all(target.name.startswith("assets.building-") for target in seen)

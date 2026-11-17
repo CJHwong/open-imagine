@@ -1300,3 +1300,125 @@ def test_quarantine_leaves_a_missing_pack_alone(tmp_path):
     child.quarantine(tmp_path / "absent")
 
     assert not (tmp_path / "absent").exists()
+
+
+def test_a_pack_left_under_its_old_name_is_put_back(tmp_path):
+    """A publish that dies between its two renames leaves the pack under `.old`. The next
+    start uses it instead of spending the quantization again."""
+    directory = tmp_path / "pack"
+    previous = tmp_path / "pack.old"
+    previous.mkdir()
+    (previous / "pack.json").write_text("{}")
+
+    child.recover(directory)
+
+    assert (directory / "pack.json").is_file()
+    assert not previous.exists()
+
+
+def test_recovery_leaves_a_published_pack_alone(tmp_path):
+    directory = tmp_path / "pack"
+    directory.mkdir()
+    (directory / "pack.json").write_text("{}")
+    (tmp_path / "pack.old").mkdir()
+
+    child.recover(directory)
+
+    assert (directory / "pack.json").is_file()
+    assert (tmp_path / "pack.old").is_dir()
+
+
+def test_two_builders_never_share_a_staging_folder(tmp_path):
+    first = child.staging_directory(tmp_path / "pack")
+    second = child.staging_directory(tmp_path / "pack")
+
+    assert first != second
+    assert first.is_dir() and second.is_dir()
+
+
+def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
+    lock = tmp_path / "pack.lock"
+    lock.write_text("4194303")  # no such process
+
+    with child.pack_lock(tmp_path / "pack"):
+        assert lock.is_file()
+
+    assert not lock.exists()
+
+
+def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    monkeypatch.setattr(child, "load_packed", lambda model, directory, manifest: "packed")
+    reasons = iter(["there is no readable pack", None])
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: next(reasons, None))
+
+    assert child.load("me/pack", "fp8", tmp_path) == "packed"
+    assert built == [], "the waited-for pack is used instead of building again"
+
+
+def test_a_lock_with_no_holder_and_an_old_stamp_is_left_over(tmp_path):
+    import os
+
+    lock = tmp_path / "pack.lock"
+    lock.write_text("garbage")
+    old = lock.stat().st_mtime - 120
+    os.utime(lock, (old, old))
+
+    with child.pack_lock(tmp_path / "pack"):
+        assert lock.is_file()
+
+    assert not lock.exists()
+
+
+def test_a_live_lock_is_waited_for(tmp_path):
+    import threading
+
+    held = threading.Event()
+    released = threading.Event()
+    acquired = []
+
+    with child.pack_lock(tmp_path / "pack"):
+        held.set()
+
+        def wait():
+            with child.pack_lock(tmp_path / "pack"):
+                acquired.append(True)
+            released.set()
+
+        thread = threading.Thread(target=wait)
+        thread.start()
+        assert held.wait(1)
+        assert not released.wait(0.5), "the second builder must wait"
+    assert released.wait(10)
+    thread.join(10)
+    assert acquired == [True]
+
+
+def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
+    monkeypatch.setattr(child, "build", lambda model, quantize: "built")
+    monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
+
+    def refuse(model, directory, manifest):
+        raise ValueError("the weights are truncated")
+
+    monkeypatch.setattr(child, "load_packed", refuse)
+
+    with pytest.raises(ValueError, match="truncated"):
+        child.load("me/pack", "fp8", tmp_path)
+
+
+def test_the_running_check_answers_for_this_process_and_a_dead_one():
+    import os
+
+    assert child._running(os.getpid()) is True
+    assert child._running(4194303) is False
+    assert child._running(1) is True, "another user's process is there, we just may not signal it"
