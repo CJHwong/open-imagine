@@ -342,7 +342,7 @@ picker, the cookie and `?lang`.
 The JSON adapter records operations for browser and API requests. One reservation covers a complete Image, Video, or Voice batch, or one rewrite.
 The HTTP driver creates a worker thread only for the optional asynchronous route. Existing synchronous routes keep their response formats.
 `[queue] max_size` gives asynchronous operations a FIFO waiting list. A queued operation reports its position, and its memory admission runs when its turn comes. A full queue answers `429`. Zero disables the queue and restores the single-slot refusal.
-The slot goes to the oldest waiting operation. A request that arrives while the previous one is handing the slot over lines up behind the queue, so it cannot take the turn the head was waiting for.
+The slot goes to the oldest waiting operation. A request that arrives while the previous one is handing the slot over lines up behind the queue, so it cannot take the turn the head was waiting for. Model control takes the same test: a model switch, release or asset deletion waits while a queue is non-empty, because deleting weights the head is about to load would fail a run the studio already accepted.
 A queued operation runs the model the studio recorded when it accepted the request. Another operation that switches the workspace model while this one waits changes neither the run nor the recorded model.
 The operation store retains bounded metadata and results. It keeps completed items after cancellation or failure. Active batches expose their manifest and completed item URLs.
 A browser batch carries its operation ID in each continuation. A 30-second lease applies only between requests.
@@ -411,7 +411,7 @@ notation and scrolls only when the score is longer than the pane. A width change
 ### Private result storage
 
 `InMemoryOperationGateway` keeps public results in memory for ten minutes after completion.
-The count and byte limits never evict the newest finished public result, so a caller that just watched a run succeed can still fetch it; age still ends it.
+The count and byte limits never evict the newest finished public result, so a caller that just watched a run succeed can still fetch it; age still ends it. A record that kept no result does not count as newest, so a cancelled waiting request cannot evict the run it was waiting behind.
 It delegates private media to `EncryptedResultGateway`, which stores authenticated ciphertext in a local SQLite database.
 The composition root supplies the private storage folder. An exclusive file lock prevents concurrent recovery or deletion.
 The `--private-results-dir` option selects another folder. Stub servers and tests use isolated storage by default.

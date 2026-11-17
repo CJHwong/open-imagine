@@ -650,3 +650,54 @@ def test_the_newest_finished_result_survives_the_size_limit():
     assert operations.result(older["id"]).mp4 == b"y" * 4096
     with pytest.raises(OperationMissing):
         operations.result(newest["id"])
+
+
+def test_a_cancelled_waiting_request_cannot_evict_the_run_it_waited_behind():
+    """A queued request that is cancelled gets a finish time without ever running. The
+    newest-result protection used to read that finish time as the newest completion, so
+    the large result that had just succeeded was the one pruned."""
+    operations = Operations(max_queue=1, max_bytes=1024)
+    running = operations.begin({"kind": "video"})
+    waiting = operations.begin({"kind": "video"}, queued=True)
+
+    assert operations.stopping(waiting["id"])["status"] == "cancelled"
+    operations.finish(running["id"], VideoResult(b"x" * 4096, 8, 8, 1, 24, 7))
+
+    assert operations.result(running["id"]).mp4 == b"x" * 4096
+    with pytest.raises(OperationMissing):
+        operations.get(waiting["id"])
+
+
+def test_the_protected_result_does_not_depend_on_the_clock():
+    """Two finishes in one tick are not ordered by their timestamps. The protection holds
+    because only a record that kept a result can be newest, and one operation runs at a
+    time, so the clock has nothing to decide."""
+    operations = Operations(max_queue=1, max_bytes=1024, clock=lambda: 0.0)
+    running = operations.begin({"kind": "video"})
+    waiting = operations.begin({"kind": "video"}, queued=True)
+
+    operations.stopping(waiting["id"])
+    operations.finish(running["id"], VideoResult(b"x" * 4096, 8, 8, 1, 24, 7))
+
+    assert operations.result(running["id"]).mp4 == b"x" * 4096
+
+
+def test_model_control_waits_for_a_queue_that_holds_the_slot():
+    """Between one run ending and the head of the queue claiming the slot there is no
+    active operation, and the slot is still spoken for. A model switch or an asset
+    deletion there would free or delete what the queued run is about to load."""
+    operations = Operations(max_queue=1)
+    first = operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image"}, queued=True)
+    operations.finish(first["id"], {})
+
+    assert operations.active() is None
+    assert operations.busy()
+    with pytest.raises(BackendBusy):
+        operations.exclusive(lambda: None)
+
+    operations.wait_for_turn(queued["id"])
+    operations.finish(queued["id"], {})
+
+    assert not operations.busy()
+    operations.exclusive(lambda: None)

@@ -69,8 +69,9 @@ class InMemoryOperationGateway(OperationGateway):
                 raise InvalidJob("A private operation requires its original key.")
             # A queue with no active operation is a handoff in progress: the head of the
             # queue is about to claim the slot. A new request must line up behind it, or
-            # it takes the slot the queue was waiting for.
-            waiting = self._active is not None or self._reservation is not None or bool(self._queue)
+            # it takes the slot the queue was waiting for. `busy()` is the one definition
+            # of taken, so model control and this admission cannot drift apart.
+            waiting = self.busy()
             if waiting and (not queued or self._max_queue == 0):
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
             if waiting and len(self._queue) >= self._max_queue:
@@ -147,14 +148,20 @@ class InMemoryOperationGateway(OperationGateway):
             return self._queue.index(operation_id) + 1
 
     def busy(self) -> bool:
+        """Whether the one slot is taken, promised, or about to be handed over.
+
+        A queue with no active operation is a handoff in progress: the head is about to
+        claim the slot. Model control goes through `exclusive()`, and one running in that
+        window could switch the model or delete weights the head is about to load.
+        """
         with self._lock:
             self._prune()
-            return self._active is not None or self._reservation is not None
+            return self._active is not None or self._reservation is not None or bool(self._queue)
 
     def exclusive(self, action: Callable[[], None]) -> None:
         with self._lock:
             if self.busy():
-                raise BackendBusy("The studio is busy. Wait for the active operation.")
+                raise BackendBusy("The studio is busy. Wait for the operation holding the slot.")
             self._reservation = "model-control"
         try:
             action()
@@ -395,12 +402,15 @@ class InMemoryOperationGateway(OperationGateway):
         public_bytes = sum(self._sizes[identifier] for identifier in public_ids)
         # The newest finished public result survives the size and count limits. A caller
         # that just watched a large job succeed has to be able to fetch it: retention may
-        # not contradict a success the studio already reported. Age still ends it. One
-        # operation runs at a time, so the finished records complete in the order they were
-        # added, and the last one with a finish time is the newest.
+        # not contradict a success the studio already reported. Age still ends it. Only a
+        # record that kept a result counts, because a queued request that is cancelled gets
+        # a finish time without ever running, and it would otherwise protect itself while
+        # evicting the run it was waiting behind. One operation runs at a time, so the
+        # records that keep a result still finish in the order they were added.
         newest = None
         for identifier in public_ids:
-            if self._records[identifier]["finished_at"] is not None:
+            record = self._records[identifier]
+            if record["finished_at"] is not None and record.get("result_retained"):
                 newest = identifier
         for operation_id in list(self._records):
             if operation_id == self._active:
