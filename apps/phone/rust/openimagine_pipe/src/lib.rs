@@ -9,7 +9,7 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use std::str::FromStr;
 use std::sync::{Mutex, Once};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use iroh::{endpoint::presets, Endpoint, EndpointAddr, SecretKey};
 use iroh_tickets::endpoint::EndpointTicket;
 use jni::objects::JObject;
@@ -92,10 +92,28 @@ pub unsafe extern "C" fn oi_pipe_start(
         return -4;
     };
     oi_pipe_stop();
+    // Bind before returning. A port already in use and an endpoint that cannot start
+    // are answers the app can show; a task that fails after this call returns is a
+    // timeout six seconds later with no cause.
+    let endpoint = match runtime.block_on(
+        Endpoint::builder(presets::N0)
+            .secret_key(secret)
+            .alpns(vec![ALPN.to_vec()])
+            .bind(),
+    ) {
+        Ok(endpoint) => endpoint,
+        Err(_) => return -7,
+    };
+    let listener = match runtime.block_on(TcpListener::bind(("127.0.0.1", port))) {
+        Ok(listener) => listener,
+        Err(_) => return -8,
+    };
     let token = CancellationToken::new();
     let cancel = token.clone();
     runtime.spawn(async move {
-        let _ = run(ticket, port, secret, cancel).await;
+        if let Err(error) = run(ticket, endpoint, listener, cancel).await {
+            eprintln!("listener stopped: {error}");
+        }
     });
     if let Ok(mut slot) = PIPE.lock() {
         *slot = Some(Pipe { token, runtime });
@@ -118,33 +136,45 @@ pub extern "C" fn oi_pipe_stop() {
 
 async fn run(
     ticket: EndpointTicket,
-    port: u16,
-    secret: SecretKey,
+    endpoint: Endpoint,
+    listener: TcpListener,
     token: CancellationToken,
 ) -> Result<()> {
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(secret)
-        .alpns(vec![ALPN.to_vec()])
-        .bind()
-        .await?;
-    let listener = TcpListener::bind(("127.0.0.1", port))
-        .await
-        .with_context(|| format!("cannot bind 127.0.0.1:{port}"))?;
     let addr = ticket.endpoint_addr();
+    // A listener that keeps failing would spin a core while the studio is unreachable.
+    let mut failures: u32 = 0;
     loop {
         let accepted = tokio::select! {
             _ = token.cancelled() => break,
             result = listener.accept() => result,
         };
-        let Ok((tcp, _)) = accepted else {
-            continue;
+        let (tcp, _) = match accepted {
+            Ok(pair) => {
+                failures = 0;
+                pair
+            }
+            Err(error) => {
+                failures += 1;
+                if failures >= 32 {
+                    return Err(anyhow::anyhow!(
+                        "the listener failed 32 times in a row: {error}"
+                    ));
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(
+                    100 * u64::from(failures.min(10)),
+                ))
+                .await;
+                continue;
+            }
         };
         let endpoint = endpoint.clone();
         let addr = addr.clone();
         tokio::spawn(async move {
-            // A forward ends when either side closes. The next connection opens
-            // its own, so the error carries no action here.
-            let _ = forward(tcp, endpoint, addr).await;
+            // A forward ends when either side closes. The next connection opens its
+            // own; the cause is kept as one line, with no ticket or prompt in it.
+            if let Err(error) = forward(tcp, endpoint, addr).await {
+                eprintln!("forward failed: {error}");
+            }
         });
     }
     endpoint.close().await;

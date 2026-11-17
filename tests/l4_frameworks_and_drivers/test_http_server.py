@@ -2417,3 +2417,12 @@ def test_one_connection_carries_more_than_one_request(served):
             while len(body) < length:
                 body += connection.recv(65536)
             assert head.startswith(b"HTTP/1.1 200")
+
+
+def test_a_form_with_too_many_fields_is_refused(served):
+    """A body under the byte cap can hold hundreds of thousands of tiny fields."""
+    body = "&".join(f"f{index}=x" for index in range(http_server.MAX_FORM_FIELDS + 10)).encode()
+    status, _, answer = call(served[1], "/generate", body, **{"Content-Type": "application/x-www-form-urlencoded"})
+
+    assert status == 400
+    assert "more than" in answer

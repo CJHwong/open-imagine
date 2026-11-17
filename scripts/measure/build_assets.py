@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import shutil
+import tempfile
 import time
 import urllib.request
 import wave
@@ -82,6 +83,14 @@ def write_manifest(directory: Path, manifest: Path) -> Path:
     return manifest
 
 
+def recover(assets: Path) -> None:
+    """Put a set back when a previous publish died between its two renames."""
+    previous = assets.with_name(assets.name + ".old")
+    if not assets.exists() and previous.is_dir():
+        previous.rename(assets)
+        print(f"recovered {assets} from {previous.name}", flush=True)
+
+
 def publish(staging: Path, assets: Path, manifest: Path) -> None:
     """Put the new set in place, and only then the manifest that describes it.
 
@@ -133,9 +142,9 @@ def main() -> int:
             f"{manifest} exists, so these assets already have an owner. Every machine must read "
             "those bytes, so copying the directory beats building it again. Pass --force to rebuild."
         )
-    staging = assets.parent / "assets.new"
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
+    recover(assets)
+    # A name per build, so two builders do not delete each other's work.
+    staging = Path(tempfile.mkdtemp(prefix="assets.building-", dir=assets.parent))
     print("picture", flush=True)
     source = run(
         arguments.base,

@@ -81,7 +81,10 @@ class InMemoryProgressGateway(ProgressGateway):
                 total=state.total,
                 phase=state.phase,
                 label=state.label,
-                stopping=self._cancel,
+                # The operation's own cancel and this flag are one answer. A queued or
+                # API-owned operation shows `stopping` on its record, and the progress
+                # beside it has to agree.
+                stopping=self._cancel or self._external_cancel(),
                 kind=state.kind,
                 request_id=state.request_id,
             )

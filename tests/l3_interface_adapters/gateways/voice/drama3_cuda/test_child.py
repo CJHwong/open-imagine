@@ -2,6 +2,7 @@ import io
 import json
 import sys
 import types
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -158,13 +159,24 @@ def test_patch_triton_teaches_it_cuda_13(monkeypatch):
 
 def test_checkout_clones_once(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(child.subprocess, "run", lambda command, check: calls.append(command))
+
+    def fake(command, check, **_):
+        calls.append(command)
+        if command[1] == "clone":
+            Path(command[-1]).mkdir(parents=True)
+        if "rev-parse" in command:
+            return SimpleNamespace(returncode=0, stdout=child.REVISION + "\n")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(child.subprocess, "run", fake)
     root = child.checkout(tmp_path)
-    root.mkdir(parents=True, exist_ok=True)
     (root / ".project-root").write_text("")
-    assert len(calls) == 2
+    assert len(calls) == 3
     child.checkout(tmp_path)
-    assert len(calls) == 2
+    assert len(calls) == 4  # the second start reads HEAD and clones nothing
+
+    assert root == tmp_path / child.REVISION
+    assert (root / ".project-root").is_file()
 
 
 def test_request_for_reads_a_reference_and_carries_the_options(monkeypatch):
@@ -373,3 +385,65 @@ def test_snapshot_downloads_only_when_the_cache_is_cold(monkeypatch):
 
     assert child.snapshot("fishaudio/drama-3") == "/downloaded"
     assert calls == [True, False]
+
+
+def test_a_checkout_on_another_commit_is_replaced(monkeypatch, tmp_path):
+    """A clone that succeeded and a checkout that did not leaves the marker on the
+    default branch. The marker is not proof: HEAD is."""
+    target = tmp_path / child.REVISION
+    target.mkdir(parents=True)
+    (target / ".project-root").write_text("")
+    cloned = []
+
+    def fake(command, check, **_):
+        if command[1] == "clone":
+            cloned.append(command[-1])
+            Path(command[-1]).mkdir(parents=True)
+        if "rev-parse" in command:
+            # The old install answers with another commit; the fresh clone with the pinned one.
+            if str(target) in command:
+                return SimpleNamespace(returncode=0, stdout="deadbeef\n")
+            return SimpleNamespace(returncode=0, stdout=child.REVISION + "\n")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(child.subprocess, "run", fake)
+
+    root = child.checkout(tmp_path)
+
+    assert cloned, "an install on another commit is cloned again"
+    assert root == target
+    assert (root / ".project-root").is_file() or root.is_dir()
+
+
+def test_a_failed_checkout_leaves_no_install(monkeypatch, tmp_path):
+    def fake(command, check, **_):
+        if command[1] == "clone":
+            Path(command[-1]).mkdir(parents=True)
+            return SimpleNamespace(returncode=0, stdout="")
+        if "checkout" in command:
+            raise child.subprocess.CalledProcessError(1, command)
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(child.subprocess, "run", fake)
+
+    with pytest.raises(child.subprocess.CalledProcessError):
+        child.checkout(tmp_path)
+
+    assert not (tmp_path / child.REVISION).exists()
+    assert not list(tmp_path.glob(f".{child.REVISION}.building-*"))
+
+
+def test_a_checkout_on_an_unpinned_commit_is_refused(monkeypatch, tmp_path):
+    def fake(command, check, **_):
+        if command[1] == "clone":
+            Path(command[-1]).mkdir(parents=True)
+        if "rev-parse" in command:
+            return SimpleNamespace(returncode=0, stdout="other-commit\n")
+        return SimpleNamespace(returncode=0, stdout="")
+
+    monkeypatch.setattr(child.subprocess, "run", fake)
+
+    with pytest.raises(RuntimeError, match="fish-speech checked out"):
+        child.checkout(tmp_path)
+
+    assert not (tmp_path / child.REVISION).exists()

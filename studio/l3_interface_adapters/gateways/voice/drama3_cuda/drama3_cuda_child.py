@@ -53,6 +53,7 @@ import base64
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -131,15 +132,44 @@ def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
 
 
+def head_of(root: Path) -> str:
+    """The commit a checkout is on, or "" when it cannot say."""
+    completed = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
 def checkout(cache: Path) -> Path:
-    """The pinned engine source, cloned once."""
+    """The pinned engine source, cloned once, and proved to sit on the pinned commit.
+
+    A `.project-root` marker is not proof. A clone that succeeded followed by a checkout
+    that did not leaves the marker on the default branch, and every later start used it.
+    Each start reads HEAD, and an install on another commit is replaced: the clone is made
+    beside it, checked, and swapped in, so a failed attempt leaves the old one untouched.
+    """
     target = cache / REVISION
-    if (target / ".project-root").is_file():
+    if (target / ".project-root").is_file() and head_of(target) == REVISION:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
+    staging = cache / f".{REVISION}.building-{os.getpid()}"
+    shutil.rmtree(staging, ignore_errors=True)
     say(f"cloning fish-speech {REVISION[:8]}")
-    subprocess.run(["git", "clone", "--quiet", REPO, str(target)], check=True)
-    subprocess.run(["git", "-C", str(target), "checkout", "--quiet", REVISION], check=True)
+    try:
+        subprocess.run(["git", "clone", "--quiet", REPO, str(staging)], check=True)
+        subprocess.run(["git", "-C", str(staging), "checkout", "--quiet", REVISION], check=True)
+        head = head_of(staging)
+        if head != REVISION:
+            raise RuntimeError(f"fish-speech checked out {head or 'nothing'}, not {REVISION}")
+        previous = cache / f"{REVISION}.old"
+        shutil.rmtree(previous, ignore_errors=True)
+        if target.exists():
+            target.rename(previous)
+        staging.rename(target)
+        shutil.rmtree(previous, ignore_errors=True)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return target
 
 

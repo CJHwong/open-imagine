@@ -831,3 +831,147 @@ def test_a_label_that_names_no_machine_is_refused(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="MACHINE=TEXT"):
         report.main()
+
+
+def test_an_asset_set_left_under_its_old_name_is_put_back(tmp_path):
+    """A publish that dies between its two renames leaves the set under `.old`. The next
+    build or campaign uses it instead of nothing."""
+    assets = tmp_path / "assets"
+    previous = tmp_path / "assets.old"
+    previous.mkdir()
+    (previous / "keep.png").write_bytes(b"bytes")
+
+    build_assets.recover(assets)
+
+    assert (assets / "keep.png").read_bytes() == b"bytes"
+    assert not previous.exists()
+
+
+def test_two_builds_never_share_a_staging_folder(tmp_path, monkeypatch):
+    (tmp_path / "assets").mkdir()
+    seen = []
+
+    def stop(_base, _body, name, target, _deadline):
+        seen.append(target)
+        raise SystemExit("stop here")
+
+    monkeypatch.setattr(build_assets, "run", stop)
+    for _ in range(2):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["build_assets.py", "--work", str(tmp_path), "--image-backend", "a", "--voice-backend", "b", "--force"],
+        )
+        with pytest.raises(SystemExit, match="stop here"):
+            build_assets.main()
+
+    assert seen[0] != seen[1]
+    assert all(target.name.startswith("assets.building-") for target in seen)
+
+
+def test_an_interrupted_line_is_dropped_before_anything_is_appended(work):
+    """`rows()` skips a damaged last line, but a record appended after it joins it and
+    both are lost. The repair runs once, before the first append of a run."""
+    path = work / "results-mlx.jsonl"
+    path.write_text(json.dumps({"id": "ok"}) + "\n" + '{"id":"torn"')
+
+    run_matrix.repair_tail(path)
+
+    assert path.read_text() == json.dumps({"id": "ok"}) + "\n"
+    run_matrix.repair_tail(path)
+    assert path.read_text() == json.dumps({"id": "ok"}) + "\n"
+
+
+def test_a_torn_tail_then_two_appends_stay_readable(work):
+    path = work / "results-mlx.jsonl"
+    path.write_text(json.dumps({"id": "ok"}) + "\n" + '{"id":"torn"')
+    run_matrix.repair_tail(path)
+    with path.open("a") as handle:
+        handle.write(json.dumps({"id": "one"}) + "\n")
+        handle.write(json.dumps({"id": "two"}) + "\n")
+
+    assert [record["id"] for record in run_matrix.rows(path)] == ["ok", "one", "two"]
+
+
+def test_reuse_cannot_waive_a_changed_model_configuration(work, monkeypatch):
+    case = one_case()
+    (work / "matrix.jsonl").write_text(json.dumps(case) + "\n")
+    monkeypatch.setattr(run_matrix, "git_sha", lambda: "runner-sha")
+    with served() as studio:
+        studio.build = {"commit": "runner-sha", "dirty": False}
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_matrix.py", "--machine", "mlx", "--base", studio.base, "--work", str(work), "--reuse-compatible"],
+        )
+        assert run_matrix.main() == 0
+        recorded = json.loads((work / "campaign-mlx.json").read_text())
+        # A different live model configuration, with the reuse flag set.
+        (work / "campaign-mlx.json").write_text(json.dumps({**recorded, "studio": {**recorded["studio"], "extra": 1}}))
+
+        with pytest.raises(SystemExit, match="reuse-compatible covers only"):
+            run_matrix.main()
+
+
+def test_dirty_trees_are_told_apart_by_their_content(monkeypatch):
+    class Answer:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def git(arguments, **_):
+        if arguments[:2] == ["git", "diff"]:
+            return Answer(f"diff {monkeypatch.diff_text}")
+        return Answer("")
+
+    monkeypatch.setattr(run_matrix.subprocess, "run", git)
+    monkeypatch.diff_text = "one"
+    first = run_matrix.git_changes()
+    monkeypatch.diff_text = "two"
+
+    assert first and run_matrix.git_changes() != first
+
+
+def test_a_tree_that_cannot_be_read_has_no_change_digest(monkeypatch):
+    monkeypatch.setattr(run_matrix.subprocess, "run", Mock(side_effect=OSError("no git")))
+
+    assert run_matrix.git_changes() is None
+
+
+def report_with_media(tmp_path, monkeypatch, capsys, warm_row, keep_warm=True):
+    report_work(tmp_path, warm=warm_row)
+    if not keep_warm:
+        (tmp_path / "results" / "mlx" / "one.bin").unlink()
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path)])
+    report.main()
+    return capsys.readouterr().out
+
+
+def test_a_warm_row_that_lost_its_media_does_not_replace_a_sound_cold_row(tmp_path, monkeypatch, capsys):
+    """The cold row still has the only inspectable output for the case."""
+    printed = report_with_media(tmp_path, monkeypatch, capsys, {"status": "succeeded", "file": "results/mlx/gone.bin"})
+
+    assert "| 1.0 |" in printed or "1.0" in printed
+    assert "0 of 1 cases succeeded on both engines with their media" not in printed
+
+
+def test_the_report_names_the_precision_each_backend_was_built_at(tmp_path, monkeypatch, capsys):
+    case = {
+        "id": "minimax_h3_image/generate/1024",
+        "kind": "image",
+        "machines": {"mlx": {"backend": "minimax_h3_image"}, "cuda": {}},
+    }
+    (tmp_path / "matrix.jsonl").write_text(json.dumps(case) + "\n")
+    manifest = {
+        "git": "abc",
+        "assets": {},
+        "studio": {"offered": {"image/minimax_h3_image": {"badge": "bf16"}}},
+    }
+    for machine in ("mlx", "cuda"):
+        (tmp_path / f"campaign-{machine}.json").write_text(json.dumps(manifest))
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path)])
+
+    report.main()
+
+    printed = capsys.readouterr().out
+    assert "mlx models: minimax_h3_image bf16" in printed
+    assert "compare hardware, not identical weights" in printed

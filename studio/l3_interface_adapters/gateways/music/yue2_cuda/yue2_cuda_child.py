@@ -36,6 +36,7 @@ in the same environment, where weight-only nvfp4 without those kernels ran 19.5x
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import io
 import json
@@ -45,6 +46,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import uuid
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
@@ -276,37 +278,98 @@ def pack_path(root: Path, model_name: str) -> Path:
 def source_revision(model: str) -> str:
     """The committed snapshot this model resolves to, when this machine can name one.
 
-    A repository id can point at a branch that moves, so the id alone does not say which
-    weights a pack holds. `huggingface_hub` caches a repo under
-    `models--org--name/snapshots/<commit>/`, and that commit is the identity to record. A
-    local directory is named by its file list and sizes, which catches another snapshot but
-    not a same-size change inside one. Anything else reports unknown.
+    The cache writes `refs/main`, and that is the commit the engine's loader takes. Counting
+    snapshot directories answered `unknown` as soon as a second one was cached, which let a
+    pack built from one revision serve another. A local folder is named by each file's
+    path, size and modification time: a rewrite changes the identity even at the same
+    length, and hashing every shard on every start would cost minutes.
     """
     try:
         from huggingface_hub.constants import HF_HUB_CACHE
     except ImportError:  # the unit tests run without the engine's packages
         HF_HUB_CACHE = ""
-    cache = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
-    if HF_HUB_CACHE and cache.is_dir():
-        commits = sorted(one.name for one in cache.iterdir() if one.is_dir())
-        if len(commits) == 1:
-            return commits[0]
+    if HF_HUB_CACHE:
+        root = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
+        reference = root / "refs" / "main"
+        if reference.is_file():
+            commit = reference.read_text().strip()
+            if (root / "snapshots" / commit).is_dir():
+                return commit
+        snapshots = root / "snapshots"
+        if snapshots.is_dir():
+            commits = sorted(one.name for one in snapshots.iterdir() if one.is_dir())
+            if len(commits) == 1:
+                return commits[0]
     local = Path(model).expanduser()
     if local.is_dir():
         digest = hashlib.sha256()
         for path in sorted(local.rglob("*")):
             if path.is_file():
-                digest.update(f"{path.relative_to(local)}:{path.stat().st_size}".encode())
+                stat = path.stat()
+                digest.update(f"{path.relative_to(local)}:{stat.st_size}:{stat.st_mtime_ns}".encode())
         return "local:" + digest.hexdigest()[:16]
     return "unknown"
 
 
 def staging_directory(directory: Path) -> Path:
-    """An empty folder beside the pack in use, where a new one is assembled."""
-    staging = directory.with_name(directory.name + ".building")
-    shutil.rmtree(staging, ignore_errors=True)
+    """An empty folder beside the pack in use, where a new one is assembled.
+
+    The name carries this process, so two studios preparing the same model never delete
+    each other's work.
+    """
+    staging = directory.with_name(f"{directory.name}.building-{os.getpid()}-{uuid.uuid4().hex[:8]}")
     staging.mkdir(parents=True)
     return staging
+
+
+def recover(directory: Path) -> None:
+    """Put a valid pack back when a previous publish died between its two renames."""
+    previous = directory.with_name(directory.name + ".old")
+    if not directory.exists() and previous.is_dir():
+        previous.rename(directory)
+
+
+@contextlib.contextmanager
+def pack_lock(directory: Path):
+    """One builder per pack. A second studio waits, then uses what the first built.
+
+    A lock left by a process that died is taken over: its pid no longer runs.
+    """
+    lock = directory.with_name(directory.name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                holder = int(lock.read_text().strip() or "0")
+            except (OSError, ValueError):
+                holder = 0
+            if holder and not _running(holder):
+                lock.unlink(missing_ok=True)
+                continue
+            if not holder and time.time() - lock.stat().st_mtime > 60:
+                # A lock with no pid that nobody has touched for a minute is a leftover.
+                lock.unlink(missing_ok=True)
+                continue
+            time.sleep(5)
+    try:
+        os.write(descriptor, str(os.getpid()).encode())
+        yield
+    finally:
+        os.close(descriptor)
+        lock.unlink(missing_ok=True)
+
+
+def _running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def publish(staging: Path, directory: Path) -> None:
@@ -324,11 +387,42 @@ def read_manifest(directory: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        manifest = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         # Half a manifest is an interrupted write, not a pack. Absent means build one.
         say(f"{path} cannot be read, so the pack is built again")
         return None
+    if not isinstance(manifest, dict):
+        # `[]` or `"text"` parses, and then fails inside the first lookup.
+        say(f"{path} is not a pack manifest, so the pack is built again")
+        return None
+    return manifest
+
+
+def pack_state(directory: Path, expected: dict) -> str | None:
+    """Why this pack cannot be used, or None when it can."""
+    manifest = read_manifest(directory)
+    if manifest is None:
+        return "there is no readable pack"
+    if not manifest_matches(manifest, expected):
+        return "the pack was made for another model, version or revision"
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        return "the pack does not name its files"
+    weights = directory / "weights.safetensors"
+    if not weights.is_file() or weights.stat().st_size != files.get("weights.safetensors"):
+        return "weights.safetensors is missing or the wrong size"
+    return None
+
+
+def quarantine(directory: Path) -> None:
+    """Move a pack that will not load out of the way, so a new one can be built."""
+    aside = directory.with_name(f"{directory.name}.corrupt-{int(time.time())}")
+    try:
+        directory.rename(aside)
+        say(f"moved the pack that would not load to {aside.name}")
+    except OSError:
+        pass
 
 
 def write_pack(model, directory, manifest: dict) -> None:
@@ -350,6 +444,9 @@ def write_pack(model, directory, manifest: dict) -> None:
     manifest = {**manifest, "has_per_tensor_scale": has_scale}
     staging = staging_directory(directory)
     save_file(tensors, str(staging / "weights.safetensors"))
+    # The size is what a later start checks cheaply. A truncated or replaced file is a
+    # different size, and a pack that fails to load is moved aside and built again.
+    manifest["files"] = {"weights.safetensors": (staging / "weights.safetensors").stat().st_size}
     (staging / "pack.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     publish(staging, directory)
 
@@ -412,28 +509,55 @@ def attach_pack(model, tensors: dict, manifest: dict) -> None:
 
 def load_packed(model_name: str, root: Path):
     """The fp4 path: a pack when it matches this host, a build when it does not."""
-    from safetensors.torch import load_file
     from yue2 import YuE2Pipeline
 
     pipe = YuE2Pipeline.from_pretrained(model_name, device="cuda")
     pipe.__enter__()
     directory = pack_path(root, model_name)
-    manifest = read_manifest(directory)
-    weights = directory / "weights.safetensors"
-    if manifest is None or not manifest_matches(manifest, expected_manifest(model_name)) or not weights.is_file():
-        started = time.time()
-        model = pipe._load_model()
-        quantize_ar(model)
-        write_pack(model, directory, {**expected_manifest(model_name), "layers": packed_layers(model)})
-        say(f"built the pack in {directory} in {time.time() - started:.1f}s")
-        return pipe
+    expected = expected_manifest(model_name)
+    attempt = 0
+    while True:
+        attempt += 1
+        recover(directory)
+        reason = pack_state(directory, expected)
+        if reason is not None:
+            with pack_lock(directory):
+                # Another studio may have published a pack while this one waited.
+                recover(directory)
+                if pack_state(directory, expected) is not None:
+                    say(f"{reason}, so the pack is built again")
+                    build_packed(pipe, directory, expected)
+                    return pipe
+                say("another studio built the pack while this one waited")
+        try:
+            return serve_packed(pipe, directory, read_manifest(directory))
+        except Exception as error:
+            # A pack that will not load is a cache fault, not a reason to stop. Move it
+            # aside and build once; a second failure raises with nothing left to try.
+            if attempt == 2:
+                raise
+            say(f"the pack did not load ({error}), so it is built again")
+            quarantine(directory)
+
+
+def build_packed(pipe, directory: Path, expected: dict):
+    started = time.time()
+    model = pipe._load_model()
+    quantize_ar(model)
+    write_pack(model, directory, {**expected, "layers": packed_layers(model)})
+    say(f"built the pack in {directory} in {time.time() - started:.1f}s")
+    return pipe
+
+
+def serve_packed(pipe, directory: Path, manifest: dict):
+    from safetensors.torch import load_file
 
     started = time.time()
     model = empty_model(pipe.model_dir)
     loaded = load_unpacked(model, pipe.model_dir, set(manifest["layers"]))
     attach_pack(
         model,
-        {key: value.to("cuda") for key, value in load_file(str(weights)).items()},
+        {key: value.to("cuda") for key, value in load_file(str(directory / "weights.safetensors")).items()},
         manifest,
     )
     model.eval()

@@ -6,6 +6,8 @@ before the last pull. The public capabilities can be identical in both and say n
 about the code that produced the number.
 """
 
+import contextlib
+import hashlib
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -21,6 +23,23 @@ def _git(*arguments: str) -> str | None:
     return answer.stdout.strip()
 
 
+def _changes() -> str | None:
+    """A digest of this studio's own uncommitted changes, or None when git cannot say.
+
+    A boolean says the studio is dirty; it does not say how. Two different edits under
+    one commit would otherwise look like the same build to a benchmark.
+    """
+    diff = _git("diff", "HEAD", "--", "studio")
+    if diff is None:
+        return None
+    digest = hashlib.sha256(diff.encode())
+    for name in sorted((_git("ls-files", "--others", "--exclude-standard", "--", "studio") or "").splitlines()):
+        digest.update(name.encode())
+        with contextlib.suppress(OSError):
+            digest.update((SOURCE / name).read_bytes())
+    return digest.hexdigest()[:16]
+
+
 @lru_cache(maxsize=1)
 def build_identity() -> dict:
     """The commit and the state of this studio's own files, read once per process.
@@ -30,8 +49,9 @@ def build_identity() -> dict:
     so the file's content reaches the campaign by its effect.
     """
     commit = _git("rev-parse", "HEAD")
-    changes = _git("status", "--porcelain", "--", "studio")
+    status = _git("status", "--porcelain", "--", "studio")
     return {
         "commit": commit or "unknown",
-        "dirty": None if changes is None else bool(changes),
+        "dirty": None if status is None else bool(status),
+        "changes": _changes() if status else None,
     }

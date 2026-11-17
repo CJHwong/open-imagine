@@ -506,6 +506,7 @@ def test_a_matching_pack_is_served_without_touching_the_checkpoint_weights(monke
         **child.expected_manifest("m-a-p/YuE2-3B"),
         "layers": ["layer"],
         "has_per_tensor_scale": False,
+        "files": {"weights.safetensors": 0},
     }
     (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
     shard = tmp_path / "checkpoint" / "model.safetensors"
@@ -1125,3 +1126,228 @@ def test_a_pack_from_another_snapshot_is_rebuilt(monkeypatch, tmp_path):
     child.load_packed("m-a-p/YuE2-3B", tmp_path)
 
     assert len(recorded["quantized"]) == 1, "a pack from another snapshot is not this model's"
+
+
+def test_the_source_is_the_snapshot_the_cache_points_at(monkeypatch, tmp_path):
+    """Two cached snapshots used to report `unknown`, so a pack built from one revision
+    could serve the other."""
+    root = tmp_path / "models--m-a-p--YuE2-3B"
+    for commit in ("aaa111", "bbb222"):
+        (root / "snapshots" / commit).mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("bbb222\n")
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("m-a-p/YuE2-3B") == "bbb222"
+
+
+def test_a_manifest_that_is_not_an_object_reads_as_no_pack(tmp_path, capsys):
+    (tmp_path / "pack.json").write_text('"text"', encoding="utf-8")
+
+    assert child.read_manifest(tmp_path) is None
+    assert "not a pack manifest" in capsys.readouterr().err
+
+
+def test_a_matching_manifest_whose_weights_changed_size_is_rebuilt(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "weights.safetensors").write_bytes(b"truncated")
+    manifest = {
+        **child.expected_manifest("m-a-p/YuE2-3B"),
+        "layers": ["layer"],
+        "files": {"weights.safetensors": 0},
+    }
+    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1
+
+
+def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "weights.safetensors").write_bytes(b"")
+    manifest = {
+        **child.expected_manifest("m-a-p/YuE2-3B"),
+        "layers": ["layer"],
+        "files": {"weights.safetensors": 0},
+    }
+    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monkeypatch.setattr(child, "load_file", lambda path: (_ for _ in ()).throw(ValueError("truncated")), raising=False)
+    monkeypatch.setattr(child, "empty_model", lambda model_dir: model)
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1
+    assert list(tmp_path.glob(f"{directory.name}.corrupt-*")), "the bad pack is kept out of the way"
+    assert (directory / "pack.json").is_file(), "a fresh pack is published in its place"
+
+
+def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "weights.safetensors").write_bytes(b"")
+    (directory / "pack.json").write_text(
+        json.dumps({**child.expected_manifest("m-a-p/YuE2-3B"), "layers": ["layer"]}), encoding="utf-8"
+    )
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1
+
+
+def test_a_cache_that_names_no_snapshot_is_unknown(monkeypatch, tmp_path):
+    root = tmp_path / "models--m-a-p--YuE2-3B"
+    for commit in ("aaa111", "bbb222"):
+        (root / "snapshots" / commit).mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("gone\n")
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("m-a-p/YuE2-3B") == "unknown"
+
+
+def test_quarantine_leaves_a_missing_pack_alone(tmp_path):
+    child.quarantine(tmp_path / "absent")
+
+    assert not (tmp_path / "absent").exists()
+
+
+def test_a_pack_left_under_its_old_name_is_put_back(tmp_path):
+    directory = tmp_path / "pack"
+    previous = tmp_path / "pack.old"
+    previous.mkdir()
+    (previous / "pack.json").write_text("{}")
+
+    child.recover(directory)
+
+    assert (directory / "pack.json").is_file()
+    assert not previous.exists()
+
+
+def test_recovery_leaves_a_published_pack_alone(tmp_path):
+    directory = tmp_path / "pack"
+    directory.mkdir()
+    (directory / "pack.json").write_text("{}")
+    (tmp_path / "pack.old").mkdir()
+
+    child.recover(directory)
+
+    assert (directory / "pack.json").is_file()
+    assert (tmp_path / "pack.old").is_dir()
+
+
+def test_two_builders_never_share_a_staging_folder(tmp_path):
+    first = child.staging_directory(tmp_path / "pack")
+    second = child.staging_directory(tmp_path / "pack")
+
+    assert first != second
+    assert first.is_dir() and second.is_dir()
+
+
+def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
+    lock = tmp_path / "pack.lock"
+    lock.write_text("4194303")
+
+    with child.pack_lock(tmp_path / "pack"):
+        assert lock.is_file()
+
+    assert not lock.exists()
+
+
+def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    monkeypatch.setattr(child, "serve_packed", lambda pipe, directory, manifest: "served")
+    reasons = iter(["there is no readable pack", None])
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: next(reasons, None))
+
+    assert child.load_packed("m-a-p/YuE2-3B", tmp_path) == "served"
+    assert recorded["quantized"] == []
+
+
+def test_a_lock_with_no_holder_and_an_old_stamp_is_left_over(tmp_path):
+    import os
+
+    lock = tmp_path / "pack.lock"
+    lock.write_text("garbage")
+    old = lock.stat().st_mtime - 120
+    os.utime(lock, (old, old))
+
+    with child.pack_lock(tmp_path / "pack"):
+        assert lock.is_file()
+
+    assert not lock.exists()
+
+
+def test_a_live_lock_is_waited_for(tmp_path):
+    import threading
+
+    held = threading.Event()
+    released = threading.Event()
+    acquired = []
+
+    with child.pack_lock(tmp_path / "pack"):
+        held.set()
+
+        def wait():
+            with child.pack_lock(tmp_path / "pack"):
+                acquired.append(True)
+            released.set()
+
+        thread = threading.Thread(target=wait)
+        thread.start()
+        assert held.wait(1)
+        assert not released.wait(0.5), "the second builder must wait"
+    assert released.wait(10)
+    thread.join(10)
+    assert acquired == [True]
+
+
+def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
+
+    def refuse(*_):
+        raise ValueError("the weights are truncated")
+
+    monkeypatch.setattr(child, "serve_packed", refuse)
+
+    with pytest.raises(ValueError, match="truncated"):
+        child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+
+def test_the_running_check_answers_for_this_process_and_a_dead_one():
+    import os
+
+    assert child._running(os.getpid()) is True
+    assert child._running(4194303) is False
+    assert child._running(1) is True, "another user's process is there, we just may not signal it"

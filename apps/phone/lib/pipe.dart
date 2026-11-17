@@ -23,6 +23,11 @@ class PipeRefused implements Exception {
 
   final int code;
 
+  /// Whether the stored pairing itself is unusable. A port already in use, or an
+  /// endpoint that could not start, is this attempt's failure, and the pairing is worth
+  /// keeping for the next one.
+  bool get permanent => code == -1 || code == -2 || code == -3 || code == -6;
+
   @override
   String toString() => 'The pipe refused the ticket (code $code).';
 }
@@ -99,6 +104,9 @@ class FFIPipeTransport implements PipeTransport {
       await _waitForPort(port, generation);
     } catch (error) {
       if (generation != _generation) return;
+      // The listener is ours and it is already up; leaving it running holds the port
+      // and makes the next attempt bind over something this object cannot name.
+      _stopCurrent();
       _running = false;
       _error = '$error';
       rethrow;

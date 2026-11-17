@@ -189,7 +189,9 @@ async function importBatch(operation, answer) {
 }
 
 async function importResult(operation) {
-  if (Date.now() < (importRetryAt.get(operation.id) || 0)) return;
+  // A deferred import has not succeeded. The caller must not read this as one, or the
+  // retry deadline is cleared and the next poll starts the backoff over.
+  if (Date.now() < (importRetryAt.get(operation.id) || 0)) return 'deferred';
   // A rewrite this tab made before this page opened is already in the box and the draft.
   // A refresh gives the page a new client id, so the tab's saved owners carry it.
   const appliedRewrite = operation.kind === 'rewrite' && operation.source === 'ui'
@@ -326,9 +328,11 @@ async function poll() {
     let importFailure = '';
     for (const operation of (state.operations || []).slice().reverse()) {
       try {
-        await importResult(operation);
-        importFailures.delete(operation.id);
-        importRetryAt.delete(operation.id);
+        const outcome = await importResult(operation);
+        if (outcome !== 'deferred') {
+          importFailures.delete(operation.id);
+          importRetryAt.delete(operation.id);
+        }
       } catch (error) {
         // One result that will not load must not hold the page on "Cancel" or hide the
         // results behind it. It is not imported though, so it stays visible and the page
@@ -342,8 +346,10 @@ async function poll() {
         // A private operation keeps its id to itself.
         const where = operation.private ? '' : ` (${operation.kind} ${String(operation.id).slice(0, 8)})`;
         importFailure = message + where;
-        if (lastFailure !== message) page.notify('error', message + where);
-        lastFailure = message;
+        // The notice names the operation, so two failures with the same words are two
+        // notices, not one repeated.
+        if (lastFailure !== message + where) page.notify('error', message + where);
+        lastFailure = message + where;
       }
       page.finishImageOperation(operation);
     }

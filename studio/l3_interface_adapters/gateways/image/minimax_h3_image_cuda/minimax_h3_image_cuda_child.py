@@ -30,12 +30,15 @@ the packed copy, so the order is encoder first, transformer second, quantize thi
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import io
 import json
+import os
 import shutil
 import sys
 import time
+import uuid
 from pathlib import Path
 
 
@@ -161,37 +164,100 @@ def expected_manifest(model: str, quantize: str) -> dict:
 def source_revision(model: str) -> str:
     """The committed snapshot this model resolves to, when this machine can name one.
 
-    A repository id can point at a branch that moves, so the id alone does not say which
-    weights a pack holds. `huggingface_hub` caches a repo under
-    `models--org--name/snapshots/<commit>/`, and that commit is the identity to record. A
-    local directory is named by its file list and sizes, which catches another snapshot but
-    not a same-size change inside one. Anything else reports unknown.
+    The cache writes `refs/main`, and that is the commit `local_snapshot` hands the
+    pipeline. Counting snapshot directories answered `unknown` as soon as a second one was
+    cached, which let a pack built from one revision serve another.
+
+    A local folder is named by each file's path, size and modification time. Rewriting a
+    shard changes the identity even at the same length, and hashing every shard on every
+    start would cost minutes on a machine that keeps its weights locally.
     """
     try:
         from huggingface_hub.constants import HF_HUB_CACHE
     except ImportError:  # the unit tests run without the engine's packages
         HF_HUB_CACHE = ""
-    cache = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
-    if HF_HUB_CACHE and cache.is_dir():
-        commits = sorted(one.name for one in cache.iterdir() if one.is_dir())
-        if len(commits) == 1:
-            return commits[0]
+    if HF_HUB_CACHE:
+        root = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
+        reference = root / "refs" / "main"
+        if reference.is_file():
+            commit = reference.read_text().strip()
+            if (root / "snapshots" / commit).is_dir():
+                return commit
+        snapshots = root / "snapshots"
+        if snapshots.is_dir():
+            commits = sorted(one.name for one in snapshots.iterdir() if one.is_dir())
+            if len(commits) == 1:
+                return commits[0]
     local = Path(model).expanduser()
     if local.is_dir():
         digest = hashlib.sha256()
         for path in sorted(local.rglob("*")):
             if path.is_file():
-                digest.update(f"{path.relative_to(local)}:{path.stat().st_size}".encode())
+                stat = path.stat()
+                digest.update(f"{path.relative_to(local)}:{stat.st_size}:{stat.st_mtime_ns}".encode())
         return "local:" + digest.hexdigest()[:16]
     return "unknown"
 
 
 def staging_directory(directory: Path) -> Path:
-    """An empty folder beside the pack in use, where a new one is assembled."""
-    staging = directory.with_name(directory.name + ".building")
-    shutil.rmtree(staging, ignore_errors=True)
+    """An empty folder beside the pack in use, where a new one is assembled.
+
+    The name carries this process, so two studios preparing the same model never delete
+    each other's work.
+    """
+    staging = directory.with_name(f"{directory.name}.building-{os.getpid()}-{uuid.uuid4().hex[:8]}")
     staging.mkdir(parents=True)
     return staging
+
+
+def recover(directory: Path) -> None:
+    """Put a valid pack back when a previous publish died between its two renames."""
+    previous = directory.with_name(directory.name + ".old")
+    if not directory.exists() and previous.is_dir():
+        previous.rename(directory)
+
+
+@contextlib.contextmanager
+def pack_lock(directory: Path):
+    """One builder per pack. A second studio waits, then uses what the first built.
+
+    A lock left by a process that died is taken over: its pid no longer runs.
+    """
+    lock = directory.with_name(directory.name + ".lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            descriptor = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                holder = int(lock.read_text().strip() or "0")
+            except (OSError, ValueError):
+                holder = 0
+            if holder and not _running(holder):
+                lock.unlink(missing_ok=True)
+                continue
+            if not holder and time.time() - lock.stat().st_mtime > 60:
+                # A lock with no pid that nobody has touched for a minute is a leftover.
+                lock.unlink(missing_ok=True)
+                continue
+            time.sleep(5)
+    try:
+        os.write(descriptor, str(os.getpid()).encode())
+        yield
+    finally:
+        os.close(descriptor)
+        lock.unlink(missing_ok=True)
+
+
+def _running(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def publish(staging: Path, directory: Path) -> None:
@@ -209,11 +275,43 @@ def read_manifest(directory: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        manifest = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         # Half a manifest is an interrupted write, not a pack. Absent means build one.
         say(f"{path} cannot be read, so the pack is built again")
         return None
+    if not isinstance(manifest, dict):
+        # `[]` or `"text"` parses, and then fails inside the first lookup.
+        say(f"{path} is not a pack manifest, so the pack is built again")
+        return None
+    return manifest
+
+
+def pack_state(directory: Path, expected: dict) -> str | None:
+    """Why this pack cannot be used, or None when it can."""
+    manifest = read_manifest(directory)
+    if manifest is None:
+        return "there is no readable pack"
+    if not manifest_matches(manifest, expected):
+        return "the pack was made for another model, version or revision"
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        return "the pack does not name its files"
+    for name in PACK_COMPONENTS:
+        path = directory / f"{name}.safetensors"
+        if not path.is_file() or path.stat().st_size != files.get(f"{name}.safetensors"):
+            return f"{path.name} is missing or the wrong size"
+    return None
+
+
+def quarantine(directory: Path) -> None:
+    """Move a pack that will not load out of the way, so a new one can be built."""
+    aside = directory.with_name(f"{directory.name}.corrupt-{int(time.time())}")
+    try:
+        directory.rename(aside)
+        say(f"moved the pack that would not load to {aside.name}")
+    except OSError:
+        pass
 
 
 def manifest_matches(manifest: dict, expected: dict) -> bool:
@@ -296,6 +394,11 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             tensors.clear()
             torch.accelerator.memory.empty_host_cache()
     manifest["tensors"] = entries
+    # The sizes are what a later start can check cheaply. A truncated or replaced file is
+    # a different size, and a pack that fails to load is moved aside and built again.
+    manifest["files"] = {
+        f"{name}.safetensors": (staging / f"{name}.safetensors").stat().st_size for name in PACK_COMPONENTS
+    }
     (staging / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
     publish(staging, directory)
 
@@ -379,20 +482,41 @@ def load(model: str, quantize: str, root: Path | None = None):
     if quantize == "bf16" or root is None:
         return build(model, quantize)
     directory = pack_directory(root, model)
-    manifest = read_manifest(directory)
     expected = expected_manifest(model, quantize)
-    files = [directory / f"{name}.safetensors" for name in PACK_COMPONENTS]
-    if manifest is None or not manifest_matches(manifest, expected) or not all(path.is_file() for path in files):
-        pipe = build(model, quantize)
-        started = time.time()
+    attempt = 0
+    while True:
+        attempt += 1
+        recover(directory)
+        reason = pack_state(directory, expected)
+        if reason is not None:
+            with pack_lock(directory):
+                # Another studio may have published a pack while this one waited.
+                recover(directory)
+                if pack_state(directory, expected) is not None:
+                    say(f"{reason}, so the pack is built again")
+                    return build_and_write(model, quantize, directory, expected)
+                say("another studio built the pack while this one waited")
         try:
-            write_pack(pipe, directory, expected)
-            say(f"wrote the pack in {time.time() - started:.1f}s")
-        except OSError as error:
-            # A full or read-only disk costs the next start a rebuild, not this run.
-            say(f"could not write the pack: {error}")
-        return pipe
-    return load_packed(model, directory, manifest)
+            return load_packed(model, directory, read_manifest(directory))
+        except Exception as error:
+            # A pack that will not load is a cache fault, not a reason to stop. Move it
+            # aside and build once; a second failure raises with nothing left to try.
+            if attempt == 2:
+                raise
+            say(f"the pack did not load ({error}), so it is built again")
+            quarantine(directory)
+
+
+def build_and_write(model: str, quantize: str, directory: Path, expected: dict):
+    pipe = build(model, quantize)
+    started = time.time()
+    try:
+        write_pack(pipe, directory, expected)
+        say(f"wrote the pack in {time.time() - started:.1f}s")
+    except OSError as error:
+        # A full or read-only disk costs the next start a rebuild, not this run.
+        say(f"could not write the pack: {error}")
+    return pipe
 
 
 def build(model: str, quantize: str):

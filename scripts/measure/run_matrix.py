@@ -41,6 +41,8 @@ POLL_SECONDS = 1.0
 FETCH_SECONDS = 600.0
 FETCH_FLOOR_SECONDS = 60.0
 POLL_LONGEST_SECONDS = 180.0
+# The only manifest fields a reuse may waive: they cannot change a measured figure.
+REUSABLE_FIELDS = {"dirty", "changes", "python"}
 
 
 def sha256(data: bytes) -> str:
@@ -273,6 +275,31 @@ def git_sha() -> str:
         return "unknown"
 
 
+def git_changes() -> str | None:
+    """A digest of what the working tree changes, so two dirty trees are told apart.
+
+    A boolean says a result came from an uncommitted tree; it does not say which. The
+    digest covers the diff and every untracked file's name and bytes.
+    """
+    try:
+        diff = subprocess.run(["git", "diff", "HEAD"], capture_output=True, check=True, timeout=20).stdout
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=20,
+        ).stdout.split()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return None
+    digest = hashlib.sha256(diff.encode() if isinstance(diff, str) else diff)
+    for name in sorted(untracked):
+        digest.update(name.encode())
+        with contextlib.suppress(OSError):
+            digest.update(Path(name).read_bytes())
+    return digest.hexdigest()[:16]
+
+
 def git_dirty() -> bool | str:
     """Whether the tree under test carries changes its commit does not name.
 
@@ -324,6 +351,7 @@ def campaign_manifest(machine: str, digests: dict[str, str], live: dict | None =
         "machine": machine,
         "git": git_sha(),
         "dirty": git_dirty(),
+        "changes": git_changes(),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "assets": digests,
@@ -333,6 +361,22 @@ def campaign_manifest(machine: str, digests: dict[str, str], live: dict | None =
 
 def fingerprint(case: dict, manifest: dict) -> str:
     return sha256(json.dumps({"manifest": manifest, "case": case}, sort_keys=True).encode())[:16]
+
+
+def repair_tail(path: Path) -> None:
+    """Drop an interrupted last line before anything is appended after it.
+
+    `rows()` skips a damaged last line, but appending a record after it joins the two and
+    the result is unreadable. The repair runs once, before the first append of a run.
+    """
+    if not path.is_file():
+        return
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return
+    cut = data.rfind(b"\n") + 1
+    path.write_bytes(data[:cut])
+    print(f"  {path.name}: dropped {len(data) - cut} bytes of an interrupted line", flush=True)
 
 
 def rows(path: Path) -> list[dict]:
@@ -716,16 +760,25 @@ def main() -> int:
     if manifest_path.is_file():
         recorded = json.loads(manifest_path.read_text())
         differing = sorted(key for key, value in manifest.items() if recorded.get(key) != value)
-        if differing and not arguments.reuse_compatible:
-            raise SystemExit(
-                f"{manifest_path.name} records a different {', '.join(differing)}. "
-                "Start a new --work directory, or pass --reuse-compatible to keep the old results."
-            )
+        if differing:
+            # A flag that waived every difference attached new runs to a model the old
+            # campaign never measured. Only what cannot change a figure may differ.
+            harmless = set(differing) <= REUSABLE_FIELDS
+            if not (arguments.reuse_compatible and harmless):
+                note = (
+                    " --reuse-compatible covers only "
+                    + ", ".join(sorted(REUSABLE_FIELDS))
+                    + ", and this is not one of those."
+                    if arguments.reuse_compatible
+                    else " Start a new --work directory, or pass --reuse-compatible to keep the old results."
+                )
+                raise SystemExit(f"{manifest_path.name} records a different {', '.join(differing)}.{note}")
         manifest = recorded
     else:
         manifest_path.write_text(json.dumps(manifest, indent=1) + "\n")
 
     fingerprints = {case["id"]: fingerprint(case, manifest) for case in cases}
+    repair_tail(out)
     finished = set() if arguments.force else done(out, fingerprints, work)
     print(f"{arguments.machine}: {len(cases)} cases, {len(finished)} already done", flush=True)
 

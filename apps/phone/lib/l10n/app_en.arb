@@ -34,5 +34,6 @@
   },
   "inputUnavailable": "Cannot open this input. Please try again.",
   "microphoneDenied": "Microphone access is off. Allow it in Android Settings, then try again.",
-  "pageSetupFailed": "The page could not finish setting up. Reload to try again."
+  "pageSetupFailed": "The page could not finish setting up. Reload to try again.",
+  "retry": "Try again"
 }

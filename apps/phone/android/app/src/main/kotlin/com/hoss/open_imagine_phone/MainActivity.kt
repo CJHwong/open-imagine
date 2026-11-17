@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.Executors
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -15,6 +17,9 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private lateinit var studioInputs: StudioInputs
     private external fun nativeInit(context: Context)
+    // A saved clip can be hundreds of megabytes. Writing it on the platform thread stalls
+    // every animation and lifecycle callback for the length of the write.
+    private val writer = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +46,13 @@ class MainActivity : FlutterActivity() {
                     val name = call.argument<String>("name") ?: "download"
                     val mime = call.argument<String>("mime") ?: "application/octet-stream"
                     val bytes = call.argument<ByteArray>("bytes") ?: ByteArray(0)
-                    result.success(saveFile(name, mime, bytes))
+                    writer.execute {
+                        try {
+                            result.success(saveFile(name, mime, bytes))
+                        } catch (error: Exception) {
+                            result.error("save-failed", error.message ?: "the file was not saved", null)
+                        }
+                    }
                 } else {
                     result.notImplemented()
                 }
@@ -60,27 +71,58 @@ class MainActivity : FlutterActivity() {
 
     override fun onDestroy() {
         studioInputs.dispose()
+        writer.shutdown()
         super.onDestroy()
     }
 
+    private fun safeName(name: String): String {
+        // Only a leaf: a name carrying separators or `..` used to point the old path at
+        // another file this app can write.
+        val leaf = name.substringAfterLast('/').substringAfterLast('\\').trim()
+        if (leaf.isEmpty() || leaf == "." || leaf == ".." || leaf.any { it.code < 0x20 }) {
+            return "download"
+        }
+        return leaf
+    }
+
     private fun saveFile(name: String, mime: String, bytes: ByteArray): String {
+        val leaf = safeName(name)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
-                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.DISPLAY_NAME, leaf)
                 put(MediaStore.Downloads.MIME_TYPE, mime)
                 put(MediaStore.Downloads.IS_PENDING, 1)
             }
             val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
                 ?: throw IllegalStateException("No Downloads collection")
-            contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-            values.clear()
-            values.put(MediaStore.Downloads.IS_PENDING, 0)
-            contentResolver.update(uri, values, null, null)
+            try {
+                val stream = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Android opened no stream for the download")
+                stream.use { it.write(bytes) }
+                val written = contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1
+                if (written != bytes.size.toLong()) {
+                    throw IOException("The download was not written whole")
+                }
+            } catch (error: Exception) {
+                // A pending row with nothing in it is invisible to the person and stays
+                // for ever. It goes with the failure.
+                contentResolver.delete(uri, null, null)
+                throw error
+            }
+            val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+            contentResolver.update(uri, done, null, null)
             return uri.toString()
         }
         val folder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
         folder.mkdirs()
-        val file = File(folder, name)
+        val file = File(folder, leaf)
+        // `toPath` needs API 26 and this app runs on 24. The canonical path with its
+        // separator is the same test and works there.
+        val root = folder.canonicalFile
+        val target = file.canonicalFile
+        if (target != root && !target.path.startsWith(root.path + File.separator)) {
+            throw IOException("The download name points outside the downloads folder")
+        }
         file.writeBytes(bytes)
         return file.absolutePath
     }

@@ -972,7 +972,9 @@ from urllib.request import Request, urlopen
 
 BASE = os.environ.get("STUDIO_URL", "http://127.0.0.1:8765").rstrip("/")
 LYRICS = "[Verse]\nMorning light crosses the floor\nFootsteps gather at the door\n\n[Chorus]\nCarry this song into the day\nLet the bright notes lead the way"
-STYLE = "Use a pop arrangement with a steady pulse and a clear melodic hook. Feature acoustic piano and warm lead vocals."
+STYLE = (
+    "Use a pop arrangement with a steady pulse and a clear melodic hook. Feature acoustic piano and warm lead vocals."
+)
 
 
 def request(path, payload=None):
@@ -993,12 +995,20 @@ def read_json(path, payload=None):
 def build_payload(choice, filename=None):
     common = {"kind": "music", "backend": "yue2", "cot": "full", "steps": 32, "cfg_scale": 1, "seed": 42}
     vocal = {**common, "mode": "generate", "style": STYLE, "lyrics": LYRICS, "instrumental": False}
-    instrumental = {**vocal, "style": "Warm acoustic piano with a clear melody and gentle rhythmic accents.", "lyrics": "", "instrumental": True}
+    instrumental = {
+        **vocal,
+        "style": "Warm acoustic piano with a clear melody and gentle rhythmic accents.",
+        "lyrics": "",
+        "instrumental": True,
+    }
     examples = {
         "vocal": vocal,
         "instrumental": instrumental,
         "plan": {**instrumental, "mode": "plan"},
-        "batch": {**vocal, "items": [{"seed": 42}, {"seed": 43, "lyrics": "", "instrumental": True, "style": instrumental["style"]}]},
+        "batch": {
+            **vocal,
+            "items": [{"seed": 42}, {"seed": 43, "lyrics": "", "instrumental": True, "style": instrumental["style"]}],
+        },
         "cancel": vocal,
     }
     if choice in examples:
@@ -1008,7 +1018,10 @@ def build_payload(choice, filename=None):
     source = Path(filename)
     if choice == "render":
         return {**instrumental, "abc": source.read_text(encoding="utf-8")}
-    reference = {"reference_audio": base64.b64encode(source.read_bytes()).decode("ascii"), "reference_name": source.name}
+    reference = {
+        "reference_audio": base64.b64encode(source.read_bytes()).decode("ascii"),
+        "reference_name": source.name,
+    }
     return {**(vocal if choice == "cover" else common), **reference, "mode": choice, "transcription_task": "full"}
 
 
@@ -1137,8 +1150,7 @@ import os
 if os.environ.get("STUDIO_PRIVATE_KEY"):
     raise SystemExit("Use the asynchronous client for private Music jobs.")
 payload = json.dumps(build_payload("instrumental")).encode("utf-8")
-request = Request(BASE + "/api/v1/music/generate", data=payload,
-                  headers={"Content-Type": "application/json"})
+request = Request(BASE + "/api/v1/music/generate", data=payload, headers={"Content-Type": "application/json"})
 with urlopen(request, timeout=3600) as response:
     operation_id = response.headers["X-Studio-Operation"]
     Path("synchronous.wav").write_bytes(response.read())
