@@ -145,7 +145,9 @@ class _StudioPageState extends State<StudioPage> {
                 if (!mounted) return;
                 setState(() {
                   _loading = false;
-                  _error = failed ? AppLocalizations.of(context).pageSetupFailed : null;
+                  _error = failed
+                      ? AppLocalizations.of(context).pageSetupFailed
+                      : null;
                 });
               },
               onWebResourceError: (error) {

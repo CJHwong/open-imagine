@@ -2362,11 +2362,14 @@ def test_a_body_may_take_longer_than_the_idle_timeout_when_it_keeps_arriving(ser
     """A fixed deadline refused a legitimate large upload from a slow link while accepting
     it from a fast one. The deadline follows the size; the idle timeout still catches a
     client that stops."""
-    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 1.0)
-    monkeypatch.setattr(http_server, "MINIMUM_BODY_BYTES_PER_SECOND", 10)
+    # The deadline has to be wide enough that a loaded runner cannot miss it, and the
+    # idle timeout narrow enough that the gaps cannot trip it. The send takes about three
+    # seconds, which the old fixed two seconds would have refused.
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 2.0)
+    monkeypatch.setattr(http_server, "MINIMUM_BODY_BYTES_PER_SECOND", 1)
     body = json.dumps({"kind": "image", "prompt": "pear"}).encode()
 
-    status, _ = slow_post(served[1], body, chunks=12, gap=0.2)
+    status, _ = slow_post(served[1], body, chunks=6, gap=0.5)
 
     assert status == 202, "a body that kept arriving was refused for being slow"
 
