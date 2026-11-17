@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -87,12 +88,17 @@ class _StudioPageState extends State<StudioPage> {
   late final WebViewController _controller;
   late final StudioInputs _inputs;
   final BytesBuilder _incoming = BytesBuilder(copy: false);
+  bool _receiving = false;
+  int _incomingBytes = 0;
   String _savingName = 'download';
   String _savingMime = 'application/octet-stream';
   bool _loading = true;
   bool _checking = false;
   bool _reading = false;
   int _misses = 0;
+  // Bumped when the page goes away. A read that finishes afterwards must not post a
+  // notification for a run nobody is watching any more.
+  int _epoch = 0;
   String? _error;
   Timer? _heartbeat;
   Timer? _progress;
@@ -185,22 +191,38 @@ class _StudioPageState extends State<StudioPage> {
   }
 
   Future<void> _open() async {
-    final platform = _controller.platform;
-    if (platform is AndroidWebViewController) {
-      await platform.setOnShowFileSelector(_inputs.pickFiles);
-      await platform.setMediaPlaybackRequiresUserGesture(false);
-      // The page keeps its own pinch zoom in the image viewer. Browser zoom
-      // would scale the whole menu instead.
-      await platform.enableZoom(false);
+    // Native setup and the load both fail with a PlatformException, and an unhandled
+    // asynchronous error leaves the page on a spinner with nothing to press.
+    try {
+      final platform = _controller.platform;
+      if (platform is AndroidWebViewController) {
+        await platform.setOnShowFileSelector(_inputs.pickFiles);
+        await platform.setMediaPlaybackRequiresUserGesture(false);
+        // The page keeps its own pinch zoom in the image viewer. Browser zoom
+        // would scale the whole menu instead.
+        await platform.enableZoom(false);
+      }
+      await _controller.loadRequest(Uri.parse(_origin));
+    } catch (error) {
+      if (!mounted) return;
+      if (kDebugMode) debugPrint('Opening the studio failed: $error');
+      setState(() {
+        _loading = false;
+        _error = AppLocalizations.of(context).couldNotReach;
+      });
     }
-    await _controller.loadRequest(Uri.parse(_origin));
   }
 
   Future<void> _read() async {
     if (_reading) return;
     _reading = true;
+    final epoch = _epoch;
     try {
-      await RunNotifications.observe(await readProgress(widget.port));
+      final progress = await readProgress(widget.port);
+      // A read started before dispose() finishes after it, and observing then would
+      // bring the foreground notification back.
+      if (!mounted || epoch != _epoch) return;
+      await RunNotifications.observe(progress);
     } finally {
       _reading = false;
     }
@@ -227,17 +249,36 @@ class _StudioPageState extends State<StudioPage> {
     }
   }
 
+  /// The largest download this page accepts. A result is a generated clip, not a
+  /// library, and the whole thing is held in memory until it is saved.
+  static const int maxDownloadBytes = 1024 * 1024 * 1024;
+
   Future<void> _receive(String message) async {
     final payload = jsonDecode(message) as Map<String, dynamic>;
     final l10n = AppLocalizations.of(context);
     final kind = payload['kind'];
     if (kind == 'begin') {
       _incoming.clear();
+      _incomingBytes = 0;
+      _receiving = true;
       _savingName = (payload['name'] as String?) ?? 'download';
       _savingMime = (payload['mime'] as String?) ?? 'application/octet-stream';
     } else if (kind == 'chunk') {
-      _incoming.add(base64Decode(payload['data'] as String));
+      if (!_receiving) return;
+      final chunk = base64Decode(payload['data'] as String);
+      _incomingBytes += chunk.length;
+      if (_incomingBytes > maxDownloadBytes) {
+        // A transfer past the cap is dropped whole, and its remaining chunks are
+        // ignored until the next begin.
+        _receiving = false;
+        _incoming.clear();
+        _notify(l10n.couldNotSave('the download is too large'));
+        return;
+      }
+      _incoming.add(chunk);
     } else if (kind == 'end') {
+      if (!_receiving) return;
+      _receiving = false;
       final bytes = _incoming.takeBytes();
       try {
         await _files.invokeMethod<String>('save', {
@@ -259,6 +300,7 @@ class _StudioPageState extends State<StudioPage> {
 
   @override
   void dispose() {
+    _epoch++;
     _inputs.dispose();
     _heartbeat?.cancel();
     _progress?.cancel();
@@ -283,9 +325,26 @@ class _StudioPageState extends State<StudioPage> {
               if (_loading) const Center(child: CircularProgressIndicator()),
               if (_error != null)
                 Center(
-                  child: Text(
-                    _error!,
-                    style: Theme.of(context).textTheme.bodyLarge,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            _loading = true;
+                            _error = null;
+                          });
+                          unawaited(_open());
+                        },
+                        child: Text(AppLocalizations.of(context).retry),
+                      ),
+                    ],
                   ),
                 ),
             ],

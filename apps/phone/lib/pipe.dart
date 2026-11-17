@@ -99,6 +99,9 @@ class FFIPipeTransport implements PipeTransport {
       await _waitForPort(port, generation);
     } catch (error) {
       if (generation != _generation) return;
+      // The listener is ours and it is already up; leaving it running holds the port
+      // and makes the next attempt bind over something this object cannot name.
+      _stopCurrent();
       _running = false;
       _error = '$error';
       rethrow;
