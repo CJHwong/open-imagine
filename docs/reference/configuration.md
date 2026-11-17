@@ -35,7 +35,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[connect].enabled` | `true`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
 | `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
 | `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |
-| `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
+| `[connect].dumbpipe_path` | Blank runs the precompiled `openimagine-pipe` build for this platform in `studio/l4_frameworks_and_drivers/bin`. Set a path to use another build. |
 | `[connect].identity_path` | `~/.config/open-imagine/dumbpipe-identity`. The stable dumbpipe identity, created with mode 0600. |
 | Image backend `quantize` | Weight quantization; 0 is the default. |
 | `[qwen21_cuda].model`, `quantize` | The NVIDIA backends, `qwen21_cuda` and `qwen21_turbo_cuda`. `model` is a Hub repo id or a local folder; `quantize` is `bf16`, which the NVIDIA config file sets, or `nvfp4`, which quantizes the transformer as it loads. They need an NVIDIA driver and `uv`, and they run in a child process with its own pinned packages. `nvfp4` saves 9% of the time and 4.7 GiB, and leaves a faint grain that `bf16` does not; the two builds measure 11.0 s and 12.0 s warm at 1024 and 8 steps. Generate and Edit run the same checkpoint: the diffusers pipeline conditions on reference images itself, through its Qwen3-VL text encoder and the vae, so an edit needs no second checkpoint and pays no second load. |

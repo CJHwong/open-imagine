@@ -8,6 +8,7 @@ makes the ticket stable, so it is created with owner-only access and never logge
 import io
 import json
 import os
+import platform
 import re
 import secrets
 import subprocess
@@ -25,7 +26,24 @@ from studio.l1_entities.errors import StudioError
 TICKET = re.compile(r"\b(?:endpoint|node)[A-Za-z0-9]+")
 TICKET_MIN_LENGTH = 40
 PAIR_SCHEME = "openimagine"
-BUNDLED_BINARY = Path(__file__).with_name("bin") / "openimagine-pipe"
+BUNDLED_DIRECTORY = Path(__file__).with_name("bin")
+PLAIN_BINARY_NAME = "openimagine-pipe"
+BUNDLED_BINARY = BUNDLED_DIRECTORY / PLAIN_BINARY_NAME
+
+
+def bundled_binary() -> Path:
+    """The build for this machine, else the plain name a local cargo build leaves.
+
+    The tree carries one build per platform that runs the studio. A binary from another
+    platform fails with "Exec format error", which reads as a broken transport rather
+    than as a build that is not here.
+    """
+    here = f"{PLAIN_BINARY_NAME}-{platform.system().lower()}-{platform.machine().lower()}"
+    for name in (here, PLAIN_BINARY_NAME):
+        candidate = BUNDLED_DIRECTORY / name
+        if candidate.is_file():
+            return candidate
+    return BUNDLED_DIRECTORY / PLAIN_BINARY_NAME
 
 
 @dataclass(frozen=True)
@@ -61,7 +79,7 @@ class DumbpipeTransport:
         settle: float = 0.3,
         wait: float = 5.0,
     ):
-        self._binary = str(binary or BUNDLED_BINARY)
+        self._binary = str(binary or bundled_binary())
         self._identity_path = identity_path
         self._studio_port = studio_port
         self._settle = settle
