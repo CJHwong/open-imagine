@@ -39,6 +39,17 @@ SIZES = {
     "ref-4032x3024.png": (4032, 3024),
     "ref-768x512.png": (768, 512),
 }
+# Every name this script writes. A build removes them first, so a file it does not
+# produce cannot survive from an earlier generation into the manifest it writes.
+GENERATED = (
+    "picture-1024.png",
+    "voice-short.wav",
+    "voice-long.wav",
+    "music-10s.wav",
+    "music-15s.wav",
+    "scripts.json",
+    *SIZES,
+)
 
 
 def post(base: str, body: dict) -> dict:
@@ -64,6 +75,20 @@ def wait(base: str, operation: str, deadline: float) -> dict:
         if state["status"] in ("succeeded", "failed", "cancelled"):
             return state
         time.sleep(1.0)
+
+
+def clear_generated(assets: Path, manifest: Path) -> None:
+    """Remove the whole previous set before a build replaces it.
+
+    Writing over an old directory leaves every name the new run does not produce, and
+    the manifest then hashes a file from another generation: a forced build without
+    `--audio-source` would keep music from the build before it. The manifest goes first,
+    so a build that dies halfway leaves a directory the runner refuses instead of a
+    mixed one it trusts.
+    """
+    manifest.unlink(missing_ok=True)
+    for name in GENERATED:
+        (assets / name).unlink(missing_ok=True)
 
 
 def write_manifest(assets: Path) -> Path:
@@ -115,6 +140,7 @@ def main() -> int:
             "those bytes, so copying the directory beats building it again. Pass --force to rebuild."
         )
     assets.mkdir(parents=True, exist_ok=True)
+    clear_generated(assets, manifest)
     print("picture", flush=True)
     source = run(
         arguments.base,
