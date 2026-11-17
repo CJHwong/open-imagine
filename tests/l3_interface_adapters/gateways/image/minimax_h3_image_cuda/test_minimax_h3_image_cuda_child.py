@@ -639,11 +639,20 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
     monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    files = {}
     for name in child.PACK_COMPONENTS:
         (tmp_path / f"{name}.safetensors").write_text("")
+        files[f"{name}.safetensors"] = 0
     (tmp_path / "pack.json").write_text(
         json.dumps(
-            {"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+            {
+                "format": 1,
+                "model": "me/pack",
+                "quantize": "fp8",
+                "versions": {"torch": "2.15.0"},
+                "source": "abc123",
+                "files": files,
+            }
         )
     )
 
@@ -770,6 +779,7 @@ def test_write_pack_releases_host_copies_before_the_cache_on_success_or_failure(
         references.extend(weakref.ref(tensor) for tensor in tensors.values())
         if save_fails:
             raise OSError("disk full")
+        Path(path).write_bytes(b"")
 
     def release():
         assert not captured[-1]
@@ -1148,3 +1158,145 @@ def test_the_first_pack_is_published_into_a_folder_that_does_not_exist_yet(tmp_p
 
     assert (tmp_path / "pack" / "pack.json").is_file()
     assert not staging.exists()
+
+
+def test_the_source_is_the_snapshot_the_cache_points_at(monkeypatch, tmp_path):
+    """Two cached snapshots used to report `unknown`, so a pack built from one revision
+    could serve the other. The cache names the revision it resolves to."""
+    root = tmp_path / "models--me--pack"
+    for commit in ("aaa111", "bbb222"):
+        (root / "snapshots" / commit).mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("bbb222\n")
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("me/pack") == "bbb222"
+
+
+def test_a_local_model_is_named_by_its_files_and_times(tmp_path):
+    folder = tmp_path / "checkpoint"
+    folder.mkdir()
+    weight = folder / "model.safetensors"
+    weight.write_bytes(b"1234")
+    first = child.source_revision(str(folder))
+    weight.write_bytes(b"4321")  # the same length, so a size alone would miss it
+
+    assert first.startswith("local:")
+    assert child.source_revision(str(folder)) != first
+
+
+def test_a_manifest_that_is_not_an_object_reads_as_no_pack(tmp_path, capsys):
+    (tmp_path / "pack.json").write_text("[]", encoding="utf-8")
+
+    assert child.read_manifest(tmp_path) is None
+    assert "not a pack manifest" in capsys.readouterr().err
+
+
+def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    files = {}
+    for name in child.PACK_COMPONENTS:
+        (tmp_path / f"{name}.safetensors").write_text("")
+        files[f"{name}.safetensors"] = 0
+    (tmp_path / "pack.json").write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "model": "me/pack",
+                "quantize": "fp8",
+                "versions": {"torch": "2.15.0"},
+                "source": "abc123",
+                "files": files,
+            }
+        )
+    )
+    (tmp_path / "transformer.safetensors").write_text("truncated")
+
+    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert built == ["fp8"]
+
+
+def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    files = {}
+    for name in child.PACK_COMPONENTS:
+        (tmp_path / f"{name}.safetensors").write_text("")
+        files[f"{name}.safetensors"] = 0
+    (tmp_path / "pack.json").write_text(
+        json.dumps(
+            {
+                "format": 1,
+                "model": "me/pack",
+                "quantize": "fp8",
+                "versions": {"torch": "2.15.0"},
+                "source": "abc123",
+                "files": files,
+            }
+        )
+    )
+
+    def refuse(model, directory, manifest):
+        raise ValueError("the weights are truncated")
+
+    monkeypatch.setattr(child, "load_packed", refuse)
+
+    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert built == ["fp8"]
+    assert not tmp_path.exists()
+    assert list(tmp_path.parent.glob(f"{tmp_path.name}.corrupt-*")), "the bad pack is kept out of the way"
+
+
+def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    for name in child.PACK_COMPONENTS:
+        (tmp_path / f"{name}.safetensors").write_text("")
+    (tmp_path / "pack.json").write_text(
+        json.dumps(
+            {"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+        )
+    )
+
+    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert built == ["fp8"]
+
+
+def test_a_cache_that_names_no_snapshot_is_unknown(monkeypatch, tmp_path):
+    root = tmp_path / "models--me--pack"
+    for commit in ("aaa111", "bbb222"):
+        (root / "snapshots" / commit).mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "refs" / "main").write_text("gone\n")
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("me/pack") == "unknown"
+
+
+def test_quarantine_leaves_a_missing_pack_alone(tmp_path):
+    child.quarantine(tmp_path / "absent")
+
+    assert not (tmp_path / "absent").exists()

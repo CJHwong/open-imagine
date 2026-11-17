@@ -161,27 +161,37 @@ def expected_manifest(model: str, quantize: str) -> dict:
 def source_revision(model: str) -> str:
     """The committed snapshot this model resolves to, when this machine can name one.
 
-    A repository id can point at a branch that moves, so the id alone does not say which
-    weights a pack holds. `huggingface_hub` caches a repo under
-    `models--org--name/snapshots/<commit>/`, and that commit is the identity to record. A
-    local directory is named by its file list and sizes, which catches another snapshot but
-    not a same-size change inside one. Anything else reports unknown.
+    The cache writes `refs/main`, and that is the commit `local_snapshot` hands the
+    pipeline. Counting snapshot directories answered `unknown` as soon as a second one was
+    cached, which let a pack built from one revision serve another.
+
+    A local folder is named by each file's path, size and modification time. Rewriting a
+    shard changes the identity even at the same length, and hashing every shard on every
+    start would cost minutes on a machine that keeps its weights locally.
     """
     try:
         from huggingface_hub.constants import HF_HUB_CACHE
     except ImportError:  # the unit tests run without the engine's packages
         HF_HUB_CACHE = ""
-    cache = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
-    if HF_HUB_CACHE and cache.is_dir():
-        commits = sorted(one.name for one in cache.iterdir() if one.is_dir())
-        if len(commits) == 1:
-            return commits[0]
+    if HF_HUB_CACHE:
+        root = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
+        reference = root / "refs" / "main"
+        if reference.is_file():
+            commit = reference.read_text().strip()
+            if (root / "snapshots" / commit).is_dir():
+                return commit
+        snapshots = root / "snapshots"
+        if snapshots.is_dir():
+            commits = sorted(one.name for one in snapshots.iterdir() if one.is_dir())
+            if len(commits) == 1:
+                return commits[0]
     local = Path(model).expanduser()
     if local.is_dir():
         digest = hashlib.sha256()
         for path in sorted(local.rglob("*")):
             if path.is_file():
-                digest.update(f"{path.relative_to(local)}:{path.stat().st_size}".encode())
+                stat = path.stat()
+                digest.update(f"{path.relative_to(local)}:{stat.st_size}:{stat.st_mtime_ns}".encode())
         return "local:" + digest.hexdigest()[:16]
     return "unknown"
 
@@ -209,11 +219,43 @@ def read_manifest(directory: Path) -> dict | None:
     if not path.is_file():
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        manifest = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         # Half a manifest is an interrupted write, not a pack. Absent means build one.
         say(f"{path} cannot be read, so the pack is built again")
         return None
+    if not isinstance(manifest, dict):
+        # `[]` or `"text"` parses, and then fails inside the first lookup.
+        say(f"{path} is not a pack manifest, so the pack is built again")
+        return None
+    return manifest
+
+
+def pack_state(directory: Path, expected: dict) -> str | None:
+    """Why this pack cannot be used, or None when it can."""
+    manifest = read_manifest(directory)
+    if manifest is None:
+        return "there is no readable pack"
+    if not manifest_matches(manifest, expected):
+        return "the pack was made for another model, version or revision"
+    files = manifest.get("files")
+    if not isinstance(files, dict):
+        return "the pack does not name its files"
+    for name in PACK_COMPONENTS:
+        path = directory / f"{name}.safetensors"
+        if not path.is_file() or path.stat().st_size != files.get(f"{name}.safetensors"):
+            return f"{path.name} is missing or the wrong size"
+    return None
+
+
+def quarantine(directory: Path) -> None:
+    """Move a pack that will not load out of the way, so a new one can be built."""
+    aside = directory.with_name(f"{directory.name}.corrupt-{int(time.time())}")
+    try:
+        directory.rename(aside)
+        say(f"moved the pack that would not load to {aside.name}")
+    except OSError:
+        pass
 
 
 def manifest_matches(manifest: dict, expected: dict) -> bool:
@@ -296,6 +338,11 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             tensors.clear()
             torch.accelerator.memory.empty_host_cache()
     manifest["tensors"] = entries
+    # The sizes are what a later start can check cheaply. A truncated or replaced file is
+    # a different size, and a pack that fails to load is moved aside and built again.
+    manifest["files"] = {
+        f"{name}.safetensors": (staging / f"{name}.safetensors").stat().st_size for name in PACK_COMPONENTS
+    }
     (staging / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
     publish(staging, directory)
 
@@ -379,20 +426,32 @@ def load(model: str, quantize: str, root: Path | None = None):
     if quantize == "bf16" or root is None:
         return build(model, quantize)
     directory = pack_directory(root, model)
-    manifest = read_manifest(directory)
     expected = expected_manifest(model, quantize)
-    files = [directory / f"{name}.safetensors" for name in PACK_COMPONENTS]
-    if manifest is None or not manifest_matches(manifest, expected) or not all(path.is_file() for path in files):
-        pipe = build(model, quantize)
-        started = time.time()
-        try:
-            write_pack(pipe, directory, expected)
-            say(f"wrote the pack in {time.time() - started:.1f}s")
-        except OSError as error:
-            # A full or read-only disk costs the next start a rebuild, not this run.
-            say(f"could not write the pack: {error}")
-        return pipe
-    return load_packed(model, directory, manifest)
+    manifest = read_manifest(directory)
+    reason = pack_state(directory, expected)
+    if reason is not None:
+        say(f"{reason}, so the pack is built again")
+        return build_and_write(model, quantize, directory, expected)
+    try:
+        return load_packed(model, directory, manifest)
+    except Exception as error:
+        # A pack that will not load is a cache fault, not a reason to stop. Move it aside
+        # and build once; a second failure raises with nothing left to try.
+        say(f"the pack did not load ({error}), so it is built again")
+        quarantine(directory)
+        return build_and_write(model, quantize, directory, expected)
+
+
+def build_and_write(model: str, quantize: str, directory: Path, expected: dict):
+    pipe = build(model, quantize)
+    started = time.time()
+    try:
+        write_pack(pipe, directory, expected)
+        say(f"wrote the pack in {time.time() - started:.1f}s")
+    except OSError as error:
+        # A full or read-only disk costs the next start a rebuild, not this run.
+        say(f"could not write the pack: {error}")
+    return pipe
 
 
 def build(model: str, quantize: str):
