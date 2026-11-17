@@ -81,6 +81,13 @@ studio is busy. A stale cancellation also returns `409` and cannot stop a newer 
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+`GET /api/v1/state` carries two read-only occupancy readings.
+`queue` holds `queued`, `pending_admissions`, `queued_bytes`, `max_queued` and `max_queued_bytes`.
+`uploads` holds `limit_bytes`, `held_bytes` and `readers` for the request bodies being read at that moment.
+The server reads request bodies against one byte budget, `[queue] max_in_flight_megabytes`.
+A body that finds no room within ten seconds returns `429`, the same answer a full queue gives.
+The budget bounds the read, not the body: a body as large as the whole budget is read alone.
+
 ## Private operations
 
 Send `X-Studio-Private-Key` when another person or program must not see your work.
@@ -108,6 +115,7 @@ MiniMax H3-Image refuses it, because its engine reads the prompt and the referen
 | Batch item result | Encrypted on disk. Each item supports repeated downloads |
 | Expiry | One hour after completion. Downloads do not extend it |
 | Server restart | Completed private results remain available with the same key |
+| Disk budget | 512 MB by default, `[private] max_megabytes`. The oldest result goes first, and its caller reads "no retained result" |
 | Delete | `DELETE /api/v1/operations/{id}` with the same key removes the operation and every result |
 | The page | Never shows it, because the page has no key |
 

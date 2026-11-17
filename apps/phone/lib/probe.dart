@@ -129,3 +129,60 @@ Future<bool> probeStudio(
     socket?.destroy();
   }
 }
+
+/// The newest operation the studio reports, for a completion notice.
+///
+/// A finished run leaves the progress route as `running: false`, which says nothing
+/// about how it ended. The state route carries the newest operation and its terminal
+/// status, so a notice can say "succeeded" or "failed" instead of "finished" for both.
+class RunOutcome {
+  const RunOutcome({required this.id, required this.status});
+
+  static RunOutcome? fromState(String body) {
+    final data = jsonDecode(body);
+    if (data is! Map<String, dynamic>) return null;
+    final operations = data['operations'];
+    if (operations is! List || operations.isEmpty) return null;
+    final newest = operations.first;
+    if (newest is! Map<String, dynamic>) return null;
+    final id = newest['id'];
+    final status = newest['status'];
+    if (id is! String || id.isEmpty || status is! String) return null;
+    return RunOutcome(id: id, status: status);
+  }
+
+  final String id;
+  final String status;
+
+  /// The first eight characters, which is how the page names an operation.
+  String get shortId => id.length <= 8 ? id : id.substring(0, 8);
+}
+
+/// Read the newest operation through the pipe. Null when there is none to read.
+Future<RunOutcome?> readOutcome(
+  int port, {
+  Duration timeout = const Duration(seconds: 3),
+}) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 2);
+  try {
+    final request = await client
+        .getUrl(Uri.parse('http://127.0.0.1:$port/api/v1/state'))
+        .timeout(timeout);
+    request.headers.set(HttpHeaders.connectionHeader, 'close');
+    final response = await request.close().timeout(timeout);
+    if (response.statusCode != HttpStatus.ok) {
+      await response.drain<void>();
+      return null;
+    }
+    final body = await response
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(timeout);
+    return RunOutcome.fromState(body);
+  } on Object catch (error) {
+    if (kDebugMode) debugPrint('Outcome read failed: $error');
+    return null;
+  } finally {
+    client.close(force: true);
+  }
+}

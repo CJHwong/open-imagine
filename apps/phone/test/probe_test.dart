@@ -41,4 +41,39 @@ void main() {
 
     expect(await probeStudio(port), isFalse);
   });
+
+  outcomeTests();
+}
+
+void outcomeTests() {
+  test('the newest operation and its terminal status are read', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        '{"active": null, "busy": false, "operations": ['
+        '{"id": "3f2a1b07c9", "status": "failed"},'
+        '{"id": "older", "status": "succeeded"}], "queue": {}, "studio": {}}',
+      );
+      await request.response.close();
+    });
+
+    final outcome = await readOutcome(server.port);
+
+    expect(outcome?.id, '3f2a1b07c9');
+    expect(outcome?.status, 'failed');
+    expect(outcome?.shortId, '3f2a1b07');
+  });
+
+  test('a state with no operation reads as nothing to name', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      request.response.write('{"active": null, "operations": []}');
+      await request.response.close();
+    });
+
+    expect(await readOutcome(server.port), isNull);
+  });
 }

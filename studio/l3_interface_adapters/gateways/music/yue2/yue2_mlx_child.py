@@ -437,15 +437,18 @@ def main():
     log("ready")
     try:
         for line in sys.stdin:
+            job = {}
             try:
+                job = json.loads(line)
                 with contextlib.redirect_stdout(sys.stderr):
-                    reply = answer(engine, json.loads(line))
+                    reply = answer(engine, job)
             except (ValueError, ImportError, FileNotFoundError) as error:
                 log(f"{type(error).__name__}: {error}")
                 reply = {"error": str(error), "kind": "input"}
             except Exception as error:
                 log(f"{type(error).__name__}: {error}")
                 reply = {"error": "YuE2 MLX generation failed; check the engine installation and try again."}
+            reply["request_id"] = job.get("request_id", "")
             print(json.dumps(reply), flush=True)
     finally:
         engine.release()

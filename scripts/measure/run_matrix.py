@@ -345,6 +345,25 @@ def live_configuration(state: dict, capabilities) -> dict:
     }
 
 
+def engine_pins() -> dict[str, str]:
+    """Every pinned engine script, and the studio's own dependency lock.
+
+    A child script's PEP 723 header pins the packages that engine runs with, so the
+    script's digest is that engine's lock. `uv.lock` holds the studio's own. A trial that
+    ran under different pins is a different trial, and the campaign identity refuses to
+    compare across the change.
+    """
+    root = Path(__file__).resolve().parents[2]
+    pins = {
+        str(path.relative_to(root)): sha256(path.read_bytes())
+        for path in sorted(root.glob("studio/l3_interface_adapters/gateways/**/*_child.py"))
+    }
+    lock = root / "uv.lock"
+    if lock.is_file():
+        pins["uv.lock"] = sha256(lock.read_bytes())
+    return pins
+
+
 def campaign_manifest(machine: str, digests: dict[str, str], live: dict | None = None) -> dict:
     """Everything a result depends on that is not the payload itself."""
     return {
@@ -355,6 +374,7 @@ def campaign_manifest(machine: str, digests: dict[str, str], live: dict | None =
         "platform": platform.platform(),
         "python": platform.python_version(),
         "assets": digests,
+        "pins": engine_pins(),
         "studio": live or {},
     }
 
@@ -687,6 +707,11 @@ def run_case(
             deadline,
             force,
         )
+    except Exception as error:
+        # One case's HTTP failure is one row, not the end of the campaign. The row says
+        # what happened, and a failed row is not a finished one, so the next run retries
+        # this case and skips the cases that did finish.
+        record = {"status": "case_failed", "error": f"{type(error).__name__}: {error}"[:300]}
     finally:
         # A download that throws must not leave this sampler running until the process
         # ends, and must not hide the exception that stopped the case.

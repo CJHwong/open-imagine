@@ -450,7 +450,13 @@ class JsonApi:
         recent = [one for one in self._operations.recent() if visible(one, viewer)]
         operations = [self._operation_document(one, viewer) for one in recent]
         active = next((one for one in operations if one["status"] in ("running", "stopping")), None)
-        return {"active": active, "busy": self._operations.busy(), "operations": operations, "studio": self.studio()}
+        return {
+            "active": active,
+            "busy": self._operations.busy(),
+            "operations": operations,
+            "queue": self._operations.pressure(),
+            "studio": self.studio(),
+        }
 
     def cancel_operation(self, operation_id: str, viewer: str = "") -> None:
         self._readable(operation_id, viewer)

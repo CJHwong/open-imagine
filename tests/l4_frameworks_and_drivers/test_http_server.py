@@ -2426,3 +2426,176 @@ def test_a_form_with_too_many_fields_is_refused(served):
 
     assert status == 400
     assert "more than" in answer
+
+
+# ---- The read budget --------------------------------------------------------
+# A near-limit clip body is about 93 MB while it arrives, and the JSON decode makes
+# more copies from it. The queue's byte cap counts what waits for the GPU, after
+# parsing, so the read itself is bounded.
+
+
+def test_upload_budget_reads_one_large_body_alone():
+    budget = http_server.UploadBudget(100)
+    assert budget.acquire(60, timeout=0.01)
+    started = time.monotonic()
+    assert budget.acquire(60, timeout=0.05) is False
+    assert time.monotonic() - started >= 0.04
+    assert budget.status() == {"limit_bytes": 100, "held_bytes": 60, "readers": 1}
+
+
+def test_upload_budget_gives_a_waiter_the_room_a_reader_releases():
+    budget = http_server.UploadBudget(100)
+    assert budget.acquire(80, timeout=0.01)
+    release = threading.Timer(0.05, budget.release, args=(80,))
+    release.start()
+    assert budget.acquire(80, timeout=2) is True
+    assert budget.status()["readers"] == 1
+    release.join()
+
+
+def test_upload_budget_admits_a_body_as_large_as_the_whole_budget():
+    """A 64 MB clip must not be refused for being big: the budget bounds what waits
+    beside it, not what one body may be."""
+    budget = http_server.UploadBudget(10)
+    assert budget.acquire(10, timeout=0.01)
+    budget.release(10)
+    assert budget.status() == {"limit_bytes": 10, "held_bytes": 0, "readers": 0}
+
+
+def test_upload_budget_of_zero_reads_every_body_as_it_arrives():
+    """`0` removes the budget, the way it removes the queue's byte cap."""
+    budget = http_server.UploadBudget(0)
+    assert budget.acquire(1 << 30, timeout=0.01) is True
+    budget.release(1 << 30)
+    assert budget.status() == {"limit_bytes": 0, "held_bytes": 0, "readers": 0}
+
+
+def test_upload_budget_refuses_a_negative_limit():
+    with pytest.raises(ValueError, match="zero or more"):
+        http_server.UploadBudget(-1)
+
+
+@pytest.fixture
+def small_budget():
+    """A real server whose read budget holds 8 bytes, so an ordinary body cannot start."""
+    backends = {"fake": FakeBackendGateway()}
+    rewriters = {name: fast(StubPromptRewriterGateway()) for name in backends}
+    studio = assemble_studio(
+        backends,
+        rewriters,
+        "fake",
+        ("fake",),
+        video_backends={"video-fake": FakeVideoBackend()},
+        default_video_id="video-fake",
+        visible_video_ids=("video-fake",),
+        upload_max_bytes=8,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield studio, server
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def held_budget(small_budget):
+    """The read budget held by one body, the way a slow upload holds it."""
+    budget = small_budget[0].handler.read_budget
+    assert budget.acquire(20, timeout=0.01)
+    yield budget
+    budget.release(20)
+
+
+@pytest.mark.parametrize(
+    ("path", "headers"),
+    [
+        ("/generate", {"Content-Type": "application/x-www-form-urlencoded"}),
+        ("/image/normalize", {"Content-Type": "image/png"}),
+        ("/video/generate", {"Content-Type": "application/json"}),
+    ],
+)
+def test_a_body_with_no_room_to_be_read_answers_429(small_budget, held_budget, path, headers):
+    status, content_type, body = call(small_budget[1], path, b'{"prompt": "a kite"}', **headers)
+
+    assert status == 429
+    assert content_type.startswith("application/json")
+    assert "Try again in a moment" in json.loads(body)["error"]
+
+
+def test_a_refused_body_leaves_the_budget_as_it_found_it(small_budget, held_budget):
+    """The refusal comes before a byte is read, so nothing is added and the state,
+    which the page polls, still answers."""
+    assert call(small_budget[1], "/generate", b"prompt=abcdefghij")[0] == 429
+
+    status, _, body = call(small_budget[1], "/api/v1/state")
+
+    assert status == 200
+    document = json.loads(body)
+    assert document["uploads"] == {"limit_bytes": 8, "held_bytes": 20, "readers": 1}
+
+
+def test_a_body_that_fails_mid_read_still_returns_its_room(served, monkeypatch):
+    """A client that stops sending raises out of the read. The budget sees the release
+    in its `finally`, so a failed upload never holds the room another one needs."""
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.05, raising=False)
+    port = served[1].server_address[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
+        connection.sendall(
+            f"POST /generate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 100\r\n\r\nprompt=".encode()
+        )
+        assert connection.recv(4096).startswith(b"HTTP/1.1 400")
+
+    assert served[0].handler.read_budget.status() == {
+        "limit_bytes": 128 * 1024 * 1024,
+        "held_bytes": 0,
+        "readers": 0,
+    }
+
+
+class Discard:
+    """The handler's own fields, for the body a refused upload drops."""
+
+    def __init__(self, reads):
+        self.reads = list(reads)
+        self.close_connection = False
+        self.connection = SimpleNamespace(gettimeout=lambda: 30.0, settimeout=lambda _: None)
+        self.rfile = SimpleNamespace(read1=self.read1)
+
+    def read1(self, size):
+        outcome = self.reads.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def discard_with(reads, length):
+    handler = cast(Any, http_server.make_handler(cast(Any, None), cast(Any, None)))
+    target = Discard(reads)
+    handler._discard_body(target, length)
+    return target
+
+
+def test_a_refused_body_is_dropped_a_chunk_at_a_time():
+    target = discard_with([b"a" * 2048, b"b" * 1024], 3072)
+
+    assert target.close_connection is False  # the body ended, and the answer is written
+
+
+def test_a_refused_body_that_stops_early_closes_the_connection():
+    target = discard_with([b"a" * 10, b""], 20)
+
+    assert target.close_connection is True
+
+
+def test_a_refused_body_that_fails_mid_read_closes_the_connection():
+    target = discard_with([OSError("connection reset")], 10)
+
+    assert target.close_connection is True
+
+
+def test_a_refused_body_that_outlives_its_deadline_closes_the_connection(monkeypatch):
+    monkeypatch.setattr(http_server, "body_read_seconds", lambda length: 0.0)
+
+    target = discard_with([b"a" * 10], 10)
+
+    assert target.close_connection is True

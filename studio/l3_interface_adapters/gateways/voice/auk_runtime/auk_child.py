@@ -227,10 +227,13 @@ def serve(variant: str) -> None:
     for line in sys.stdin.buffer:
         if not line.strip():
             continue
+        job = {}
         try:
-            reply = answer(engine, json.loads(line))
+            job = json.loads(line)
+            reply = answer(engine, job)
         except Exception as error:  # the server shows it; the engine stays up for the next call
             reply = {"error": f"{type(error).__name__}: {error}"}
+        reply["request_id"] = job.get("request_id", "")
         print(json.dumps(reply), file=replies, flush=True)
 
 

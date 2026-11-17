@@ -239,10 +239,12 @@ def main() -> int:
         line = line.strip()
         if not line:
             continue
+        job = {}
         try:
-            answer(generate(processor, model, json.loads(line), prompt_dir))
+            job = json.loads(line)
+            answer({**generate(processor, model, job, prompt_dir), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
-            answer({"error": f"{type(error).__name__}: {error}"})
+            answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
     return 0
 
 

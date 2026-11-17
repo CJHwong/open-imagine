@@ -40,6 +40,10 @@ class OperationGateway(ABC):
     def active(self) -> dict[str, Any] | None: ...
 
     @abstractmethod
+    def pressure(self) -> dict[str, int]:
+        """What waits for the one slot, and how much media it holds. Read-only."""
+
+    @abstractmethod
     def get(self, operation_id: str) -> dict[str, Any]: ...
 
     @abstractmethod

@@ -120,15 +120,18 @@ def main():
         enhancer.load()
     try:
         for line in sys.stdin:
+            job = {}
             try:
+                job = json.loads(line)
                 with contextlib.redirect_stdout(sys.stderr):
-                    reply = enhancer.answer(json.loads(line))
+                    reply = enhancer.answer(job)
             except (ValueError, FileNotFoundError) as error:
                 log(f"{type(error).__name__}: {error}")
                 reply = {"error": str(error), "kind": "input"}
             except Exception as error:
                 log(f"{type(error).__name__}: {error}")
                 reply = {"error": "The H3-Image prompt enhancer failed; check its pack and try again."}
+            reply["request_id"] = job.get("request_id", "")
             print(json.dumps(reply), flush=True)
     finally:
         enhancer.model = None

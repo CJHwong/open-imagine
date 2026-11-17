@@ -15,6 +15,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+
     private lateinit var studioInputs: StudioInputs
     private external fun nativeInit(context: Context)
     // A saved clip can be hundreds of megabytes. Writing it on the platform thread stalls
@@ -85,7 +86,18 @@ class MainActivity : FlutterActivity() {
         return leaf
     }
 
+    private fun requireSpace(bytes: ByteArray) {
+        // A clip can be hundreds of megabytes. A write that runs out of space fails halfway
+        // and leaves a pending row to clean up, so the room is checked before it starts.
+        val directory = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+        val free = directory.usableSpace
+        if (free in 1 until bytes.size.toLong() + SPACE_MARGIN_BYTES) {
+            throw IOException("Not enough free storage to save this file. ${bytes.size} bytes are needed.")
+        }
+    }
+
     private fun saveFile(name: String, mime: String, bytes: ByteArray): String {
+        requireSpace(bytes)
         val leaf = safeName(name)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
@@ -128,6 +140,10 @@ class MainActivity : FlutterActivity() {
     }
 
     companion object {
+        // What the filesystem needs beyond the file itself: allocation blocks and the
+        // directory entry, with room to spare.
+        private const val SPACE_MARGIN_BYTES = 8L * 1024 * 1024
+
         init {
             System.loadLibrary("openimagine_pipe")
         }

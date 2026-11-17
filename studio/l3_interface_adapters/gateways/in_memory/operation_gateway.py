@@ -31,6 +31,7 @@ class InMemoryOperationGateway(OperationGateway):
         private_directory: Path | None = None,
         max_queue: int = 0,
         max_queue_bytes: int = 0,
+        private_max_bytes: int = 0,
     ):
         if max_queue < 0:
             raise ValueError("max_queue must be zero or more")
@@ -53,7 +54,7 @@ class InMemoryOperationGateway(OperationGateway):
         self._max_count = max_count
         self._max_bytes = max_bytes
         self._max_age = max_age
-        self._private_results = EncryptedResultGateway(private_directory)
+        self._private_results = EncryptedResultGateway(private_directory, max_bytes=private_max_bytes)
         self._private_keys: dict[str, bytes] = {}
         for record in self._private_results.records():
             operation_id = record["id"]
@@ -232,6 +233,22 @@ class InMemoryOperationGateway(OperationGateway):
         with self._lock:
             self._prune()
             return self.get(self._active) if self._active else None
+
+    def pressure(self) -> dict[str, int]:
+        """The queue's occupancy, for an operator reading the state.
+
+        Read-only: no record changes and no waiter wakes. The bytes counted here are
+        the media the waiting requests hold, which the queue's own budget also counts.
+        """
+        with self._lock:
+            queued = [self._records[one] for one in self._queue]
+            return {
+                "queued": len(queued),
+                "pending_admissions": sum(1 for one in queued if one.get("pending_admission")),
+                "queued_bytes": sum(one.get("payload_bytes", 0) for one in queued),
+                "max_queued": self._max_queue,
+                "max_queued_bytes": self._max_queue_bytes,
+            }
 
     def get(self, operation_id: str) -> dict[str, Any]:
         with self._lock:

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +9,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import 'l10n/app_localizations.dart';
 import 'notifications.dart';
+import 'incoming_download.dart';
 import 'probe.dart';
 import 'studio_inputs.dart';
 
@@ -87,11 +87,7 @@ class _StudioPageState extends State<StudioPage> {
 
   late final WebViewController _controller;
   late final StudioInputs _inputs;
-  final BytesBuilder _incoming = BytesBuilder(copy: false);
-  bool _receiving = false;
-  int _incomingBytes = 0;
-  String _savingName = 'download';
-  String _savingMime = 'application/octet-stream';
+  IncomingDownload? _download;
   bool _loading = true;
   bool _checking = false;
   bool _reading = false;
@@ -222,7 +218,14 @@ class _StudioPageState extends State<StudioPage> {
       // A read started before dispose() finishes after it, and observing then would
       // bring the foreground notification back.
       if (!mounted || epoch != _epoch) return;
-      await RunNotifications.observe(progress);
+      // The progress route says a run ended, not how it ended. One more read names the
+      // operation and its terminal status, so the notice does not call a failure
+      // "finished".
+      final outcome = progress.progress?.running == false
+          ? await readOutcome(widget.port)
+          : null;
+      if (!mounted || epoch != _epoch) return;
+      await RunNotifications.observe(progress, outcome: outcome);
     } finally {
       _reading = false;
     }
@@ -249,44 +252,37 @@ class _StudioPageState extends State<StudioPage> {
     }
   }
 
-  /// The largest download this page accepts. A result is a generated clip, not a
-  /// library, and the whole thing is held in memory until it is saved.
-  static const int maxDownloadBytes = 1024 * 1024 * 1024;
-
   Future<void> _receive(String message) async {
     final payload = jsonDecode(message) as Map<String, dynamic>;
     final l10n = AppLocalizations.of(context);
     final kind = payload['kind'];
     if (kind == 'begin') {
-      _incoming.clear();
-      _incomingBytes = 0;
-      _receiving = true;
-      _savingName = (payload['name'] as String?) ?? 'download';
-      _savingMime = (payload['mime'] as String?) ?? 'application/octet-stream';
+      _download = IncomingDownload.begin(payload);
     } else if (kind == 'chunk') {
-      if (!_receiving) return;
-      final chunk = base64Decode(payload['data'] as String);
-      _incomingBytes += chunk.length;
-      if (_incomingBytes > maxDownloadBytes) {
-        // A transfer past the cap is dropped whole, and its remaining chunks are
-        // ignored until the next begin.
-        _receiving = false;
-        _incoming.clear();
+      final download = _download;
+      if (download == null || !download.owns(payload['id'])) return;
+      if (!download.add(base64Decode(payload['data'] as String))) {
+        // The transfer is dropped whole, and its remaining chunks are ignored until
+        // the next begin.
+        _download = null;
         _notify(l10n.couldNotSave('the download is too large'));
+      }
+    } else if (kind == 'end') {
+      final download = _download;
+      if (download == null || !download.owns(payload['id'])) return;
+      _download = null;
+      final bytes = download.finish();
+      if (bytes == null) {
+        _notify(l10n.couldNotSave('the download did not arrive whole'));
         return;
       }
-      _incoming.add(chunk);
-    } else if (kind == 'end') {
-      if (!_receiving) return;
-      _receiving = false;
-      final bytes = _incoming.takeBytes();
       try {
         await _files.invokeMethod<String>('save', {
-          'name': _savingName,
-          'mime': _savingMime,
+          'name': download.name,
+          'mime': download.mime,
           'bytes': bytes,
         });
-        _notify(l10n.saved(_savingName));
+        _notify(l10n.saved(download.name));
       } on PlatformException catch (error) {
         _notify(l10n.couldNotSave(error.message ?? ''));
       }

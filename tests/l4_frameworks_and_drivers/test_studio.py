@@ -147,3 +147,28 @@ def test_shutdown_gives_up_waiting_at_the_bound_and_still_closes(monkeypatch):
 
     operations.stopping.assert_called_once_with("op")
     operations.close.assert_called_once()
+
+
+def test_a_second_shutdown_does_nothing_after_a_partial_cleanup_failure():
+    """The first call names what failed, and the second must not touch the handles the
+    first one closed or hide the original reason."""
+    failure = RuntimeError("model release failed")
+    operations = Mock(active=Mock(return_value=None))
+    closer = Mock()
+    studio = Studio(
+        handler=Mock(),
+        catalog=Mock(),
+        video_catalog=None,
+        cancel=Mock(),
+        operations=operations,
+        residency=Mock(release=Mock(side_effect=failure)),
+        close_gpu=closer,
+    )
+
+    with pytest.raises(RuntimeError) as failed:
+        studio.shutdown()
+
+    assert failed.value is failure
+    studio.shutdown()  # no exception, and nothing runs twice
+    operations.close.assert_called_once()
+    closer.assert_called_once()

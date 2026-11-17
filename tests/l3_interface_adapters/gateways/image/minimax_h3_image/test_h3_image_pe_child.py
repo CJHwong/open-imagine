@@ -115,14 +115,16 @@ def test_the_worker_answers_one_json_job_per_line(tmp_path, monkeypatch, capsys)
         side_effect=[{"prompt": "long", "ratio": "1:1"}, ValueError("bad job"), RuntimeError("engine died")]
     )
     monkeypatch.setattr(sys, "argv", ["worker", "--model-dir", str(tmp_path)])
-    monkeypatch.setattr(sys, "stdin", io.StringIO("{}\n{}\n{}\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"request_id": "r1"}\n{"request_id": "r2"}\n{"request_id": "r3"}\n'))
     instance.load = Mock()
     monkeypatch.setattr(child, "Enhancer", Mock(return_value=instance))
     child.main()
     replies = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert replies[0] == {"prompt": "long", "ratio": "1:1"}
-    assert replies[1] == {"error": "bad job", "kind": "input"}
-    assert "check its pack" in replies[2]["error"]
+    # Every answer carries the id of the job that asked, so a log line cannot be mistaken
+    # for it by the parent.
+    assert replies[0] == {"prompt": "long", "ratio": "1:1", "request_id": "r1"}
+    assert replies[1] == {"error": "bad job", "kind": "input", "request_id": "r2"}
+    assert "check its pack" in replies[2]["error"] and replies[2]["request_id"] == "r3"
 
 
 def test_the_model_is_loaded_once_and_reports_ready(monkeypatch, tmp_path, capsys):

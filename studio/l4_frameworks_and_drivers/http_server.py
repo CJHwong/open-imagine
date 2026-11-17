@@ -18,6 +18,7 @@ from studio.l1_entities.errors import (
     QueueFull,
     StudioError,
     UnreadableImage,
+    UploadBusy,
 )
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.video_capabilities import MAX_CLIP_MEGABYTES
@@ -71,6 +72,62 @@ MAXIMUM_BODY_READ_SECONDS = 300.0
 # The most fields one form may carry. A body under the byte cap can still hold
 # hundreds of thousands of tiny ones, and parsing them costs more than the bytes.
 MAX_FORM_FIELDS = 500
+# How long a body waits for room to be read. Every request body is read against one
+# budget, because a near-limit clip is about 93 MB while it arrives and the JSON decode
+# makes more copies from it. The queue's byte cap counts only what waits for the GPU,
+# after parsing, so it cannot bound the read. A client that waits this long and still
+# finds the budget full is told to come back, rather than held on a socket.
+UPLOAD_WAIT_SECONDS = 10.0
+
+
+class UploadBudget:
+    """The request bodies that may be read at one time, counted in bytes.
+
+    `acquire` adds a body's length when the budget has room, and waits a bounded time
+    while it does not. A body larger than the whole budget is read alone, when nothing
+    else holds it: a 64 MB clip must not be refused for being big.
+
+    A body waits here only while it is read. Its parsed form is the queue's to count,
+    and the queue's byte cap already does. A limit of `0` removes the budget, the way
+    `0` removes the queue's byte cap.
+    """
+
+    def __init__(self, limit: int):
+        if limit < 0:
+            raise ValueError("an upload budget must be zero or more bytes")
+        self._limit = limit
+        self._held = 0
+        self._readers = 0
+        self._lock = threading.Condition()
+
+    def acquire(self, size: int, timeout: float = UPLOAD_WAIT_SECONDS) -> bool:
+        if not self._limit:
+            return True
+        deadline = time.monotonic() + timeout
+        with self._lock:
+            while self._held and self._held + size > self._limit:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return False
+                self._lock.wait(left)
+            self._held += size
+            self._readers += 1
+            return True
+
+    def release(self, size: int) -> None:
+        if not self._limit:
+            return
+        with self._lock:
+            self._held = max(0, self._held - size)
+            self._readers = max(0, self._readers - 1)
+            self._lock.notify_all()
+
+    def status(self) -> dict[str, int]:
+        """What an operator needs to see about reads in flight. Read-only."""
+        with self._lock:
+            return {"limit_bytes": self._limit, "held_bytes": self._held, "readers": self._readers}
+
+
 # A caller that sends this header owns private operations. The routes below are the
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
@@ -109,11 +166,18 @@ def make_handler(
     api: JsonApi | None = None,
     allowed_origins: tuple[str, ...] = (),
     connect: ConnectTransport | None = None,
+    upload_budget: UploadBudget | None = None,
 ) -> type[BaseHTTPRequestHandler]:
     """`allowed_origins` are pages at another address that may post here, such as
-    a Tailscale serve URL that proxies to this port."""
+    a Tailscale serve URL that proxies to this port. `upload_budget` bounds the request
+    bodies read at one time; without one, every body is read as it arrives."""
+    budget = upload_budget if upload_budget is not None else UploadBudget(0)
 
     class StudioHandler(BaseHTTPRequestHandler):
+        # The budget the class was built with, for a test that reads what a failed
+        # body released.
+        read_budget = budget
+
         # One connection carries many requests. A phone reaches the studio through a pipe
         # that pays a fresh handshake for every connection, so a page that opened one per
         # file and per poll crawled: 66 new connections for one page load, measured.
@@ -237,6 +301,9 @@ def make_handler(
             except InvalidJob as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
+            except UploadBusy as error:
+                self._send_busy(error)
+                return
             if path == "/generate":
                 self._send(self._outcome(lambda: self._run_image_form(form)))
             elif path == "/cancel":
@@ -331,6 +398,14 @@ def make_handler(
                 return
             self._send("", status=204, content_type="text/plain")
 
+        def _state_document(self, viewer: str) -> dict[str, Any]:
+            """The API's state, with the bodies being read added here: that is this
+            transport's own fact, and the queue's occupancy is the API's."""
+            assert api is not None
+            document = api.state(viewer)
+            document["uploads"] = budget.status()
+            return document
+
         def _run_image_form(self, form) -> str:
             if api is None:
                 return presenter.run(controller.run(form))
@@ -358,7 +433,7 @@ def make_handler(
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": lambda: api.progress(viewer),
-                "/api/v1/state": lambda: api.state(viewer),
+                "/api/v1/state": lambda: self._state_document(viewer),
                 "/api/v1/rewrite/state": lambda: api.rewrite_state(viewer),
             }
             if (
@@ -696,6 +771,9 @@ def make_handler(
             except Cancelled:
                 self._send_json({"cancelled": True})
                 return
+            except UploadBusy as error:
+                self._send_busy(error)
+                return
             except (InvalidJob, UnreadableImage) as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
@@ -780,6 +858,9 @@ def make_handler(
             try:
                 contents = self._read_body(MAX_IMAGE_IMPORT_BYTES, "The image size must be between 1 byte and 64 MB.")
                 image = ImageImportController().normalize(contents)
+            except UploadBusy as error:
+                self._send_busy(error)
+                return
             except StudioError as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
@@ -835,7 +916,43 @@ def make_handler(
             minimum = 0 if allow_empty else 1
             if not minimum <= length <= maximum:
                 raise InvalidJob(size_error)
-            return self._read_body_bytes(length)
+            if not budget.acquire(length):
+                # A client that is refused mid-send cannot read the answer: its body is
+                # still going out, and closing the socket under it is a broken pipe, not
+                # a `429`. The body is read and dropped, one chunk at a time, so the
+                # memory stays small and the client gets the sentence it needs.
+                self._discard_body(length)
+                raise UploadBusy("The studio is reading other uploads. Try again in a moment.")
+            try:
+                return self._read_body_bytes(length)
+            finally:
+                budget.release(length)
+
+        def _discard_body(self, length: int) -> None:
+            """Read a body that will not be kept, under the same deadline as a kept one.
+
+            A refused upload costs its network time and nothing else: one 64 KB chunk is
+            held, never the body. The client that stops sending ends the discard.
+            """
+            deadline = time.monotonic() + body_read_seconds(length)
+            previous_timeout = self.connection.gettimeout()
+            left = length
+            try:
+                while left > 0:
+                    slice = deadline - time.monotonic()
+                    if slice <= 0:
+                        self.close_connection = True
+                        return
+                    self.connection.settimeout(min(slice, REQUEST_READ_TIMEOUT_SECONDS))
+                    chunk = self.rfile.read1(min(left, 64 * 1024))
+                    if not chunk:
+                        self.close_connection = True
+                        return
+                    left -= len(chunk)
+            except (TimeoutError, OSError):
+                self.close_connection = True
+            finally:
+                self.connection.settimeout(previous_timeout)
 
         def _read_body_bytes(self, length: int) -> bytes:
             deadline = time.monotonic() + body_read_seconds(length)
@@ -882,6 +999,11 @@ def make_handler(
 
         def _send(self, body: str, status: int = 200, content_type: str = "text/html; charset=utf-8"):
             self._send_bytes(body.encode("utf-8"), status, content_type)
+
+        def _send_busy(self, error: UploadBusy) -> None:
+            """A body refused for room to be read. It is the answer a full queue gets, so
+            a client treats both the same way: wait for the studio, then ask again."""
+            self._send_json({"error": str(error)}, status=429)
 
         def _send_json(self, payload: dict, status: int = 200, headers: dict[str, str] | None = None) -> None:
             self._send_bytes(

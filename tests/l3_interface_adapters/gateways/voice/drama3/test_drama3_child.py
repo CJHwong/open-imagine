@@ -156,13 +156,13 @@ def test_resident_loop_isolates_errors_and_keeps_stdout_json(monkeypatch, runtim
     monkeypatch.setattr(
         child, "answer", Mock(side_effect=[ValueError("bad job"), RuntimeError("engine failed"), {"wav": "ok"}])
     )
-    monkeypatch.setattr(sys, "stdin", io.StringIO("{}\n{}\n{}\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"request_id": "r1"}\n{"request_id": "r2"}\n{"request_id": "r3"}\n'))
     child.serve()
     output = capsys.readouterr()
     assert [json.loads(line) for line in output.out.splitlines()] == [
-        {"error": "bad job", "kind": "input"},
-        {"error": "engine failed"},
-        {"wav": "ok"},
+        {"error": "bad job", "kind": "input", "request_id": "r1"},
+        {"error": "engine failed", "request_id": "r2"},
+        {"wav": "ok", "request_id": "r3"},
     ]
     assert "ready" in output.err
 

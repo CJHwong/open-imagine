@@ -44,6 +44,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from collections import deque
 from collections.abc import Callable
 
@@ -54,6 +55,15 @@ SAID_LINES = 20  # how much of the child's stderr to hold for a failure message
 SAID_IN_MESSAGE = 3
 READY_LINE = b"ready"
 SCRATCH_ENV = "SPEECH_GEN_SCRATCH"
+
+
+def _answers(line: bytes, request_id: str) -> bool:
+    """Whether this line is the answer to the request that carried `request_id`."""
+    try:
+        reply = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(reply, dict) and reply.get("request_id") == request_id
 
 
 class StdioChild:
@@ -219,13 +229,10 @@ class StdioChild:
             self.stop()
             self._drain()
             raise RuntimeError("the engine stopped answering" + self._last_words())
-        try:
-            reply = json.loads(answer)
-        except ValueError:
-            # The real reply may still be in the pipe, and the next job would read it.
-            self.stop()
-            self._drain()
-            raise RuntimeError("the engine sent a reply that is not JSON" + self._last_words()) from None
+        # `_read_reply` returns only a line that parsed as a JSON object answering this
+        # request, so this parse cannot fail. A line that is not an answer is kept for the
+        # failure message instead, and the reply behind it is still the one read.
+        reply = json.loads(answer)
         if "error" in reply:
             if reply.get("kind") == "input":
                 raise InvalidJob(reply["error"])
@@ -236,23 +243,28 @@ class StdioChild:
         proc = self._proc
         if proc is None or proc.stdin is None or proc.stdout is None:
             return b""  # the same answer as a dead child
+        request_id = uuid.uuid4().hex
         try:
-            proc.stdin.write(json.dumps(payload).encode() + b"\n")
+            proc.stdin.write(json.dumps({**payload, "request_id": request_id}).encode() + b"\n")
             proc.stdin.flush()
-            return self._read_reply(proc.stdout)
+            return self._read_reply(proc.stdout, request_id)
         except (BrokenPipeError, OSError):
             return b""
 
-    def _read_reply(self, stdout) -> bytes:
-        """The first line that is a JSON object, or b"" when the child is gone.
+    def _read_reply(self, stdout, request_id: str) -> bytes:
+        """The line that answers this request, or b"" when the child is gone.
 
-        An engine library may print on stdout: mlx-audio prints its load notes
-        there. Taken as the reply, such a line failed the job and put every later
-        reply one job out of step. It is kept for a failure message instead.
+        A child echoes the id it was sent, and only that line is an answer. An engine
+        library may print on stdout: mlx-audio prints its load notes there, and a log
+        line that happened to be JSON was taken as the reply, which failed the job and
+        put every later reply one job out of step. Anything else is kept for a failure
+        message instead.
         """
         while True:
             line = stdout.readline()
-            if not line or line.lstrip().startswith(b"{"):
+            if not line:
+                return line
+            if _answers(line, request_id):
                 return line
             self._said.append(line.decode("utf-8", "replace").strip())
 

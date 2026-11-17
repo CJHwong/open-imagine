@@ -158,15 +158,16 @@ def main() -> int:
         line = line.strip()
         if not line:
             continue
+        job = {}
         try:
             job = json.loads(line)
             role = job["role"]
             if role not in models:
                 raise ValueError(f"the rewriter does not serve {role}")
             state = resident(state, role, models)
-            answer(generate(state, job))
+            answer({**generate(state, job), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
-            answer({"error": f"{type(error).__name__}: {error}"})
+            answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
     return 0
 
 
