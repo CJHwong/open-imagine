@@ -111,9 +111,13 @@ def make_handler(
     a Tailscale serve URL that proxies to this port."""
 
     class StudioHandler(BaseHTTPRequestHandler):
+        # One connection carries many requests. A phone reaches the studio through a pipe
+        # that pays a fresh handshake for every connection, so a page that opened one per
+        # file and per poll crawled: 66 new connections for one page load, measured.
+        protocol_version = "HTTP/1.1"
+
         def setup(self) -> None:
             super().setup()
-            self._response_timeout = self.connection.gettimeout()
             self.connection.settimeout(REQUEST_READ_TIMEOUT_SECONDS)
 
         def log_message(self, format: str, *args) -> None:
@@ -887,17 +891,23 @@ def make_handler(
             content_type: str = "application/octet-stream",
             headers: dict[str, str] | None = None,
         ):
-            self.connection.settimeout(self._response_timeout)
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(payload)))
-            # The studio serves files that change between restarts, and it sent no cache
-            # header at all, so a browser was free to keep an old page.css or module and show
-            # a form the server no longer had. Nothing here is worth caching.
-            self.send_header("Cache-Control", "no-store")
-            for name, value in (headers or {}).items():
-                self.send_header(name, value)
-            self.end_headers()
-            self.wfile.write(payload)
+            # A response can be large, so the write has no deadline. The socket goes back
+            # to the read deadline afterwards, so an idle keep-alive connection ends
+            # instead of holding a thread open for ever.
+            self.connection.settimeout(None)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(payload)))
+                # The studio serves files that change between restarts, and it sent no cache
+                # header at all, so a browser was free to keep an old page.css or module and
+                # show a form the server no longer had. Nothing here is worth caching.
+                self.send_header("Cache-Control", "no-store")
+                for name, value in (headers or {}).items():
+                    self.send_header(name, value)
+                self.end_headers()
+                self.wfile.write(payload)
+            finally:
+                self.connection.settimeout(REQUEST_READ_TIMEOUT_SECONDS)
 
     return StudioHandler
