@@ -16,9 +16,16 @@ from pathlib import Path
 
 from PIL import Image
 
+# The same sentence parity_matrix.py sends. The references must show what the cases ask for,
+# or an edit case cites a picture that does not hold the thing its prompt names.
 PICTURE = (
-    "A weathered fisherman mends a net on a harbour wall at dawn, warm low light, calm water "
-    "and open sky behind him, fine rope detail, a painted sign reading HARBOUR"
+    "A close still life of two red enamel coffee pots on a pale stone windowsill, looking out to "
+    "sea. The tall pot stands on the left third, the short one a hand's width to its right, both "
+    "dented and lightly dusty, handles turned to the right. Beyond the sill the sea is flat and "
+    "deep blue under a pale morning sky, out of focus. Low sun comes from the left, warm on the "
+    "enamel and casting long shadows across the stone. Shot at eye level with a 50 mm lens at "
+    "f/2, shallow depth of field, the pots sharp against the soft sea behind. Nothing else "
+    "shares the sill."
 )
 SHORT = "The tide is low and the boats are still, and the wall is quiet."
 LONG = (
