@@ -64,7 +64,7 @@ def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_
         return real_signal(number, handler)
 
     monkeypatch.setattr(entry.signal, "signal", record)
-    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8933")
+    argv(monkeypatch, "--stub", "--connect=off", "--config", str(settings_file(tmp_path)), "--port", "8933")
 
     entry.main()
 
@@ -87,7 +87,7 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     server.serve_forever.side_effect = serve
     server_class = Mock(return_value=server)
     monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
-    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8931")
+    argv(monkeypatch, "--stub", "--connect=off", "--config", str(settings_file(tmp_path)), "--port", "8931")
 
     assert entry.main() is None
 
@@ -110,6 +110,7 @@ def test_an_allowed_origin_reaches_the_handler_in_the_browser_form(tmp_path, mon
     argv(
         monkeypatch,
         "--stub",
+        "--connect=off",
         "--config",
         str(settings_file(tmp_path)),
         "--allow-origin",
@@ -225,7 +226,15 @@ def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeyp
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
-    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)), "--port", "8932")
+    argv(
+        monkeypatch,
+        "--stub",
+        "--connect=off",
+        "--config",
+        str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)),
+        "--port",
+        "8932",
+    )
 
     assert entry.main() is None
 
