@@ -19,12 +19,13 @@ in a scratch directory.
 3. Two runs of one case give a cold row and a warm row. The first case of a workspace carries
    that workspace's load, so the warm-up pass at the end repeats it and the warm figure is the
    one to compare.
-4. Free memory is `MemAvailable` sampled five times a second for the whole run. The figure is
-   the start minus the lowest sample, in GiB, with the start and the end recorded beside it.
-   A negative figure means the run evicted more page cache than it allocated, which happens on
-   unified memory. The two ends of a job are not a peak, and a job that allocates and frees
-   inside itself shows nothing at its ends. A macOS host has no `/proc/meminfo`, so it
-   reports no figure.
+4. Free memory is `MemAvailable` sampled five times a second from the submit to the end of
+   the case, and the download is inside that window. The figure is the start minus the lowest
+   sample, in GiB, with the start and the end recorded beside it. Read it as end-to-end host
+   pressure, not model memory: other processes share the machine, and the download's own
+   buffers are counted. The peak drop cannot go negative, because the minimum starts at the
+   start value; the end value can sit above the start, which means the run evicted more page
+   cache than it allocated. A macOS host has no `/proc/meminfo`, so it reports no figure.
 5. Every successful result is recorded with its SHA-256 and with the facts its own bytes
    carry: the width and height of a whole PNG, the sample rate, channels and seconds of a
    WAV read from its chunks, and whether an MP4 holds a track whose handler names sound.
@@ -42,21 +43,28 @@ the resident list are left out, because they move while a campaign runs. The fir
   file it names still hashes to the digest in the row. A results file copied without its
   media, or a truncated artifact, is scheduled again. If the checkpoint still names the
   operation, the rerun fetches the result instead of generating it.
+- Each artifact is named by the digest of its own media, so a repeat trial with different
+  bytes is a second file, and the earlier row keeps the bytes it hashed.
 - `--reuse-compatible` keeps the manifest on disk when this tree differs from it. Use it to
   add cases to a campaign that is already running, not to mix two revisions.
 - `--force` runs a case this campaign already finished. Use it for a deliberate repeat.
+- `--strict` makes a run exit nonzero unless every selected case ended as a success of this
+  campaign with its artifact present. The default stays exploratory, because a partial
+  campaign is still worth reading.
 - `--deadline` caps one case in seconds, 1800 by default. On a breach the runner asks the
   studio to cancel and records `timeout` with the reason. A stuck operation costs one row,
   not the night. A download that fails after a success records `fetch_failed` with its
   operation, and the next run fetches it.
 - A case that finished but whose result never arrived is fetched on the next run, not
   generated again.
+- A results file that ends in half a line loses that line and keeps the rest. A bad line
+  anywhere else stops the run, because that is corruption and not an interrupted append.
 
 ## The four parts
 
 | File | What it does |
 |---|---|
-| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. It writes `assets.sha256` beside the directory, and it refuses to build over assets another machine already owns. A build replaces the whole set: it removes the names it writes, plus the manifest, before it starts. |
+| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. It writes `assets.sha256` beside the directory, and it refuses to build over assets another machine already owns. A build assembles the whole set in `assets.new` and swaps it in, so a build that dies leaves the previous set and its manifest untouched. |
 | `parity_matrix.py` | Writes `matrix.jsonl`: one JSON line per case, carrying a payload for each engine. Same prompt, same seed, same reference; only the backend id and the field each engine names differently change. |
 | `run_matrix.py` | Runs the manifest against one studio, appends one JSON line per run, and skips a case this campaign already succeeded on. |
 | `report.py` | Prints both columns side by side and names every case that is missing or did not succeed. It also prints the manifest of each machine and marks a figure that came from another campaign. That last part is the point: it is how a case stops being forgotten and how a stale figure stops being compared. |

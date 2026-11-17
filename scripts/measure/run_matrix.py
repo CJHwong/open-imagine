@@ -23,6 +23,7 @@ import hashlib
 import http.client
 import json
 import math
+import os
 import platform
 import subprocess
 import threading
@@ -334,13 +335,35 @@ def fingerprint(case: dict, manifest: dict) -> str:
     return sha256(json.dumps({"manifest": manifest, "case": case}, sort_keys=True).encode())[:16]
 
 
+def rows(path: Path) -> list[dict]:
+    """Every record in a JSONL file, or every record but an interrupted last line.
+
+    The runner appends one line per trial, so a process that dies mid-append leaves half
+    a line. Refusing the whole file would throw away every completed row with it, which is
+    what the resume is for. Only the final line is forgiven: a bad line anywhere else is
+    corruption, and it has to be seen.
+    """
+    if not path.is_file():
+        return []
+    lines = path.read_text().splitlines()
+    records = []
+    for index, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            if index == len(lines) - 1:
+                print(f"  {path.name}: the last line is incomplete, so it is ignored", flush=True)
+                break
+            raise SystemExit(f"{path.name} line {index + 1} is not a record: {line[:80]}") from None
+    return records
+
+
 def records(path: Path) -> dict[str, dict]:
     """Every record in the file, with the last line for a case winning."""
-    if not path.is_file():
-        return {}
     picked = {}
-    for line in path.read_text().splitlines():
-        record = json.loads(line)
+    for record in rows(path):
         picked[record["id"]] = record
     return picked
 
@@ -380,15 +403,21 @@ def done(path: Path, fingerprints: dict[str, str], work: Path) -> set[str]:
 
 
 def checkpoint_path(work: Path, machine: str, case_id: str) -> Path:
+    """One file per case, and two ids that read alike after slugging are still two files."""
     directory = work / f"phases-{machine}"
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / (slug(case_id) + ".json")
+    return directory / f"{slug(case_id)}-{sha256(case_id.encode())[:12]}.json"
 
 
 def read_checkpoint(path: Path, expected: str) -> dict:
     if not path.is_file():
         return {}
-    record = json.loads(path.read_text())
+    try:
+        record = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        # A damaged file costs the case a second run, not the campaign.
+        print(f"  {path.name} is not a checkpoint, so the case runs again", flush=True)
+        return {}
     return record if record.get("fingerprint") == expected else {}
 
 
@@ -563,10 +592,14 @@ def _drive(
             write_checkpoint(phase_path, {**record, "accepted_at": accepted_at, "fingerprint": fingerprint_value})
             return record
         record["fetch"] = round(time.time() - fetched_at, 1)
-        record.update(output_facts(body, case["kind"]))
+        facts = output_facts(body, case["kind"])
+        record.update(facts)
         results = out.parent / "results" / machine
         results.mkdir(parents=True, exist_ok=True)
-        name = f"{slug(case['id'])}-{fingerprint_value[:8]}.bin"
+        # Two parts of the name, for two different collisions. The case-id digest keeps two
+        # ids that read alike after slugging apart, and the media digest keeps a repeat
+        # trial with different bytes a second file, so the earlier row keeps its own.
+        name = f"{slug(case['id'])}-{sha256(case['id'].encode())[:8]}-{facts['sha256'][:16]}.bin"
         (results / name).write_bytes(body)
         record["file"] = f"results/{machine}/{name}"
         write_checkpoint(
@@ -631,6 +664,11 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--deadline", type=float, default=1800.0, help="seconds one case may take, 0 for no limit")
     parser.add_argument("--force", action="store_true", help="run a case this campaign already finished")
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit nonzero when a case did not succeed or none of the selected cases were run",
+    )
     parser.add_argument("--list-cases", action="store_true", help="print the selected case ids and exit")
     parser.add_argument(
         "--reuse-compatible",
@@ -667,6 +705,13 @@ def main() -> int:
         )
     except (urllib.error.URLError, OSError) as failure:
         raise SystemExit(f"No studio at {arguments.base}: {failure}. Start one first.") from None
+    recorded_build = (live["studio"].get("build") or {}).get("commit")
+    runner_commit = git_sha()
+    if recorded_build and "unknown" not in (recorded_build, runner_commit) and recorded_build != runner_commit:
+        raise SystemExit(
+            f"The studio at {arguments.base} runs {recorded_build}, and this runner is at {runner_commit}. "
+            "A figure from one would be attributed to the other. Restart the studio from this checkout."
+        )
     manifest = campaign_manifest(arguments.machine, digests, live)
     if manifest_path.is_file():
         recorded = json.loads(manifest_path.read_text())
@@ -704,10 +749,15 @@ def main() -> int:
         print(f"{case['id']}: {record['status']} {record['seconds']} s {record.get('error', '')}", flush=True)
         with out.open("a") as handle:
             handle.write(json.dumps(record) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         ran += 1
         failed += record["status"] != "succeeded"
     print(f"{arguments.machine}: ran {ran}, skipped {skipped}, did not succeed {failed}", flush=True)
-    return 0
+    if not arguments.strict:
+        return 0
+    complete = done(out, fingerprints, work)
+    return 0 if all(case["id"] in complete for case in cases) else 1
 
 
 if __name__ == "__main__":
