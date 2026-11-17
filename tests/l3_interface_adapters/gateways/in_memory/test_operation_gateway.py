@@ -5,6 +5,7 @@ import pytest
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, OperationMissing, QueueFull
 from studio.l1_entities.video_job import VideoResult
+from studio.l1_entities.voice_job import SpeechResult
 from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway as Operations
 
 
@@ -809,3 +810,25 @@ def test_the_queue_pressure_reads_what_waits_without_moving_it():
         "max_queued_bytes": 1000,
     }
     assert operations.queue_position(waiting["id"]) == 1
+
+
+def test_private_results_are_bounded_by_the_disk_budget(tmp_path):
+    """The gateway hands the budget to the encrypted store, so the oldest private result
+    goes before the disk fills. The record stays, and its result reads as missing."""
+    key = "a private random caller key of at least 32 characters"
+    operations = Operations(private_directory=tmp_path, private_max_bytes=4096)
+    ids = []
+    for _ in range(3):
+        operation = operations.begin({"kind": "voice", "owner": "digest", "prompt": ""}, private_key=key)
+        operations.finish(
+            operation["id"],
+            SpeechResult(wav=b"x" * 1600, seconds=1.0, sample_rate=16000, seed=1, steps=1),
+        )
+        ids.append(operation["id"])
+
+    assert operations._private_results.total_size() <= 4096
+    assert operations.get(ids[0])["result_retained"] is True  # the record stays
+    with pytest.raises(OperationMissing):
+        operations.result(ids[0], key)
+    assert operations.result(ids[-1], key).wav
+    operations.close()

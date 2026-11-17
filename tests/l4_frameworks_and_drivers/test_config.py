@@ -370,3 +370,20 @@ def test_the_read_budget_defaults_to_128_megabytes_and_loads_from_the_file(tmp_p
 def test_a_read_budget_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
     with pytest.raises(ConfigError, match=r"queue\.max_in_flight_megabytes"):
         load_config(write(tmp_path, SETTINGS + f"\n[queue]\nmax_in_flight_megabytes = {value}\n"))
+
+
+def test_the_private_disk_budget_defaults_to_512_megabytes_and_loads_from_the_file(tmp_path):
+    assert load_config(write(tmp_path, SETTINGS)).private_results_max_bytes == 512 * 1024 * 1024
+    config = load_config(write(tmp_path, SETTINGS + "\n[private]\nmax_megabytes = 32\n"))
+    assert config.private_results_max_bytes == 32 * 1024 * 1024
+
+
+@pytest.mark.parametrize("value", ["-1", '"8"', "true"])
+def test_a_private_budget_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"private\.max_megabytes"):
+        load_config(write(tmp_path, SETTINGS + f"\n[private]\nmax_megabytes = {value}\n"))
+
+
+def test_the_private_table_must_be_a_table(tmp_path):
+    with pytest.raises(ConfigError, match=r"\[private\]"):
+        load_config(write(tmp_path, 'private = "512"\n' + SETTINGS))

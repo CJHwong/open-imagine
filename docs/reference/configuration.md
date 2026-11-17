@@ -34,6 +34,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
 | `[queue].max_megabytes` | `256`. The media the waiting operations may hold together. A request that would pass it answers `429`. `0` removes the budget. |
 | `[queue].max_in_flight_megabytes` | `128`. The request bodies read at one time, in total. A 64 MB clip is about 93 MB of base64 while it arrives, which the queue's byte cap counts only after parsing. A body that finds no room answers `429`. `0` removes the budget. |
+| `[private].max_megabytes` | `512`. The encrypted bytes private results may hold on disk. The oldest goes first, and a caller whose result went reads "no retained result". `0` removes the budget. |
 | `[connect].enabled` | `true`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
 | `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
 | `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |

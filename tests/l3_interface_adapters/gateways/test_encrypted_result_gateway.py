@@ -172,3 +172,61 @@ def test_a_connection_failure_releases_storage_ownership(tmp_path, monkeypatch, 
             EncryptedResultGateway(directory)
     recovered = EncryptedResultGateway(directory)
     recovered.close()
+
+
+def test_private_results_evict_the_oldest_when_the_byte_budget_passes(tmp_path):
+    """Private results are age-pruned, and the oldest goes first when the disk budget
+    is passed, so one caller cannot fill the disk before the hour is up."""
+    vault = EncryptedResultGateway(tmp_path, max_bytes=4096)
+    for index, name in enumerate(("one", "two", "three")):
+        vault.save_record(
+            {
+                "id": name,
+                "owner": "digest",
+                "status": "succeeded",
+                "started_at": index,
+                "finished_at": index,
+                "error": None,
+                "result_retained": True,
+            }
+        )
+        vault.write(
+            name,
+            0,
+            SpeechResult(wav=b"x" * 1600, seconds=1.0, sample_rate=16000, seed=1, steps=1),
+            encryption_key(KEY, name),
+        )
+
+    assert vault.total_size() <= 4096
+    assert vault.records()[0]["id"] == "one"  # the lifecycle record stays
+    with pytest.raises(OperationMissing):
+        vault.read("one", 0, encryption_key(KEY, "one"))
+    assert vault.read("three", 0, encryption_key(KEY, "three")).wav
+    vault.close()
+
+
+def test_the_private_result_just_written_stays_when_it_alone_passes_the_budget(tmp_path):
+    """The studio already told its caller the operation succeeded. Retention may not
+    contradict that, the same rule the public store keeps for its newest result."""
+    vault = EncryptedResultGateway(tmp_path, max_bytes=64)
+    vault.save_record(
+        {
+            "id": "large",
+            "owner": "digest",
+            "status": "succeeded",
+            "started_at": 1,
+            "finished_at": 1,
+            "error": None,
+            "result_retained": True,
+        }
+    )
+    vault.write(
+        "large",
+        0,
+        SpeechResult(wav=b"x" * 4096, seconds=1.0, sample_rate=16000, seed=1, steps=1),
+        encryption_key(KEY, "large"),
+    )
+
+    assert vault.read("large", 0, encryption_key(KEY, "large")).wav == b"x" * 4096
+    assert vault.total_size() > 64
+    vault.close()

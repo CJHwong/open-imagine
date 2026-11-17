@@ -56,7 +56,7 @@ def encryption_key(private_key: str, operation_id: str) -> bytes:
 
 
 class EncryptedResultGateway:
-    def __init__(self, directory: Path | None = None):
+    def __init__(self, directory: Path | None = None, max_bytes: int = 0):
         filename = ":memory:"
         storage_lock = None
         if directory is not None:
@@ -83,6 +83,10 @@ class EncryptedResultGateway:
                 os.close(storage_lock)
             raise
         self._finalizer = weakref.finalize(self, close_storage, self._connection, storage_lock)
+        # The encrypted bytes this store may hold. Private results are age-pruned, and
+        # a caller that keeps writing large ones would otherwise fill the disk before
+        # the hour passed. `0` removes the budget.
+        self._max_bytes = max_bytes
         with self._connection:
             self._connection.execute("PRAGMA secure_delete=ON")
             self._connection.execute(
@@ -119,6 +123,46 @@ class EncryptedResultGateway:
             self._connection.execute(
                 "INSERT OR REPLACE INTO results VALUES (?, ?, ?)", (operation_id, index, ciphertext)
             )
+        self._enforce_quota(operation_id)
+
+    def total_size(self) -> int:
+        """The encrypted bytes on disk, as SQLite counts them."""
+        return self._connection.execute("SELECT COALESCE(SUM(length(ciphertext)), 0) FROM results").fetchone()[0]
+
+    def _enforce_quota(self, keep: str) -> None:
+        """Keep the store under its byte budget, oldest result first.
+
+        The result just written stays, even alone above the budget: the studio already
+        told its caller the operation succeeded, and retention may not contradict that.
+        A caller whose result was evicted reads `OperationMissing`, the same answer an
+        expired one gives. The operation's lifecycle record stays, so the state poll
+        still lists it.
+
+        The free pages are compacted after an eviction, because otherwise the file keeps
+        its high-water mark while the encrypted bytes it holds fall.
+        """
+        if not self._max_bytes or self.total_size() <= self._max_bytes:
+            return
+        rows = self._connection.execute(
+            "SELECT r.operation_id, SUM(length(r.ciphertext)) FROM results r "
+            "JOIN operations o ON o.id = r.operation_id "
+            "GROUP BY r.operation_id ORDER BY o.rowid"
+        ).fetchall()
+        total = self.total_size()
+        evicted = False
+        for operation_id, size in rows:
+            if total <= self._max_bytes:
+                break
+            if operation_id == keep:
+                continue
+            with self._connection:
+                self._connection.execute("DELETE FROM results WHERE operation_id=?", (operation_id,))
+            total -= size
+            evicted = True
+        if evicted:
+            # The ciphertext is already zeroed by `secure_delete`; this returns its pages
+            # too, so the file on disk falls with the bytes it holds.
+            self._connection.execute("VACUUM")
 
     def read(self, operation_id: str, index: int, key: bytes) -> Any:
         row = self._connection.execute(

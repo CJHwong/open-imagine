@@ -321,6 +321,7 @@ def create_studio(
         video_rewriters=video_rewriters,
         allowed_origins=allowed_origins,
         private_results_dir=private_results_dir,
+        private_max_bytes=config.private_results_max_bytes,
         resource_memory_headroom=None if stub else memory_headroom,
         memory_estimates=build_memory_estimates(config),
         model_storage=None
@@ -380,6 +381,7 @@ def assemble_studio(
     queue_max_size: int = 0,
     queue_max_bytes: int = 256 * 1024 * 1024,
     upload_max_bytes: int = 128 * 1024 * 1024,
+    private_max_bytes: int = 0,
     connect=None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
@@ -493,7 +495,10 @@ def assemble_studio(
             SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
         )
     operations = InMemoryOperationGateway(
-        private_directory=private_results_dir, max_queue=queue_max_size, max_queue_bytes=queue_max_bytes
+        private_directory=private_results_dir,
+        max_queue=queue_max_size,
+        max_queue_bytes=queue_max_bytes,
+        private_max_bytes=private_max_bytes,
     )
     api = JsonApi(
         controller,

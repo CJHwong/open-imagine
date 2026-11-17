@@ -31,6 +31,9 @@ class Config:
     # How many request bodies may be read at one time, in bytes. A near-limit clip is
     # about 93 MB while it arrives, before the queue counts anything.
     upload_max_bytes: int = 128 * 1024 * 1024
+    # The encrypted bytes private results may hold on disk. They are age-pruned, and a
+    # caller that keeps writing large ones would otherwise fill the disk first.
+    private_results_max_bytes: int = 512 * 1024 * 1024
     # load_config supplies the connection default and its identity path together.
     connect_enabled: bool = False
     connect_transport: str = "dumbpipe"
@@ -100,6 +103,12 @@ def load_config(
     max_read_megabytes = queue.get("max_in_flight_megabytes", 128)
     if type(max_read_megabytes) is not int or max_read_megabytes < 0:
         raise ConfigError("queue.max_in_flight_megabytes in studio.toml must be a whole number of zero or more")
+    private = raw.get("private", {})
+    if not isinstance(private, dict):
+        raise ConfigError("[private] in studio.toml must be a table")
+    private_megabytes = private.get("max_megabytes", 512)
+    if type(private_megabytes) is not int or private_megabytes < 0:
+        raise ConfigError("private.max_megabytes in studio.toml must be a whole number of zero or more")
     connect = raw.get("connect", {})
     if not isinstance(connect, dict):
         raise ConfigError("[connect] in studio.toml must be a table")
@@ -137,6 +146,7 @@ def load_config(
         queue_max_size=max_queue,
         queue_max_bytes=max_queue_megabytes * 1024 * 1024,
         upload_max_bytes=max_read_megabytes * 1024 * 1024,
+        private_results_max_bytes=private_megabytes * 1024 * 1024,
         connect_enabled=enabled_in_file,
         connect_transport=transport,
         connect_studio_port=connect_port,

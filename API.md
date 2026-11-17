@@ -115,6 +115,7 @@ MiniMax H3-Image refuses it, because its engine reads the prompt and the referen
 | Batch item result | Encrypted on disk. Each item supports repeated downloads |
 | Expiry | One hour after completion. Downloads do not extend it |
 | Server restart | Completed private results remain available with the same key |
+| Disk budget | 512 MB by default, `[private] max_megabytes`. The oldest result goes first, and its caller reads "no retained result" |
 | Delete | `DELETE /api/v1/operations/{id}` with the same key removes the operation and every result |
 | The page | Never shows it, because the page has no key |
 
