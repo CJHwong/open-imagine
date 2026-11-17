@@ -1,9 +1,11 @@
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -372,3 +374,74 @@ def test_a_child_that_died_alone_has_its_folder_removed_at_the_next_start(child)
         child.request({"crash": True}, lambda s, t: None, lambda: False)
     child.ensure()
     assert not folder.exists() and scratch_of(child) != folder
+
+
+def test_a_progress_callback_that_raises_fails_the_request_with_its_own_error():
+    """The callback is the caller's code, and it must not take down the only reader of the
+    child's stderr. A chatty engine then fills that pipe and blocks, and the job waits out
+    its deadline with no reason to show."""
+    command = (
+        "import json, sys, time\n"
+        "print('ready', file=sys.stderr, flush=True)\n"
+        "sys.stdin.readline()\n"
+        "print('step 1/3', file=sys.stderr, flush=True)\n"
+        "print('step 2/3', file=sys.stderr, flush=True)\n"
+        "print(json.dumps({'ok': True}), flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    runner = StdioChild([sys.executable, "-c", command])
+
+    def explode(*_):
+        raise ValueError("progress exploded")
+
+    try:
+        runner.wait_ready()
+        started = time.monotonic()
+        with pytest.raises(ValueError, match="progress exploded"):
+            runner.request({}, explode, never)
+        assert time.monotonic() - started < 5
+        assert not runner.running()
+    finally:
+        runner.stop()
+
+
+def test_a_child_that_will_not_be_reaped_still_loses_its_scratch_folder(tmp_path):
+    """A wait that raises is a process that did not go. The folder still has to go, and
+    the cancel still has to look like a cancel."""
+    runner = StdioChild([sys.executable, "-c", "import time; time.sleep(60)"])
+    folder = tmp_path / "scratch"
+    folder.mkdir()
+    runner._proc = Mock()
+    runner._proc.wait.side_effect = subprocess.TimeoutExpired("child", 5)
+    runner._pgid = 2**22  # no such group: the fallback kill is the path taken
+    runner._scratch = str(folder)
+
+    runner._kill()
+
+    assert not folder.exists()
+
+
+def test_the_stderr_reader_keeps_draining_and_keeps_the_first_callback_error():
+    """A second raising callback must not replace the first error, which is the cause, and
+    the reader has to reach the end of the pipe either way."""
+
+    class CountingChild(StdioChild):
+        kills = 0
+
+        def _kill(self) -> None:
+            self.kills += 1
+
+    runner = CountingChild([sys.executable, "-c", "pass"])
+    reported = []
+
+    def explode(step, total):
+        reported.append(step)
+        raise ValueError(f"progress {step}")
+
+    runner._on_step = explode
+
+    runner._watch_steps(SimpleNamespace(stderr=[b"step 1/2\n", b"step 2/2\n"]), threading.Event())
+
+    assert reported == [1, 2]  # the reader kept reading after the first raise
+    assert str(runner._step_error) == "progress 1"
+    assert runner.kills == 2
