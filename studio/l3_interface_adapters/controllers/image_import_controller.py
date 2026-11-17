@@ -31,9 +31,18 @@ class ImageImportController:
 
     @staticmethod
     def _pixels(source: Image.Image, convert_profile: bool) -> Image.Image:
-        upright = ImageOps.exif_transpose(source)
-        image = upright.convert("RGBA" if upright.has_transparency_data else "RGB")
-        profile = upright.info.get("icc_profile")
+        # Three full-size pictures must not be alive at once: a 64 megapixel source is
+        # 192 MB in RGB and 256 MB in RGBA. Convert first, close the source (the caller's
+        # `with` closes it again, which is nothing), and transpose the converted image,
+        # which carries the EXIF the rotation reads. The peak is then two pictures, not
+        # three, and the second one is the one that leaves here.
+        profile = source.info.get("icc_profile")
+        converted = source.convert("RGBA" if source.has_transparency_data else "RGB")
+        source.close()
+        # `exif_transpose` returns a copy, the documentation says so, so the converted
+        # picture can go as soon as the upright one exists.
+        image = ImageOps.exif_transpose(converted)
+        converted.close()
         if profile and convert_profile:
             ImageCms.profileToProfile(
                 image,
