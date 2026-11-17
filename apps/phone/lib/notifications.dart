@@ -8,8 +8,9 @@ import 'probe.dart';
 /// hands every answer here. A running run becomes one progress notice backed by
 /// a foreground service; the end of it becomes one completion notice.
 ///
-/// Nothing about the operation goes in a notice. The title names the media and
-/// the body names the stage and the percentage.
+/// A running notice names only the media, the stage and the percentage. The
+/// completion notice names the media, how the run ended, and the operation's short
+/// id: a phone that queued several runs has to say which one ended.
 class RunNotifications {
   RunNotifications._();
 
@@ -87,7 +88,10 @@ class RunNotifications {
 
   /// One poll's answer. A hidden run leaves nothing in the shade. A failed read
   /// leaves the last notice alone, because a slow pipe is not the end of a run.
-  static Future<void> observe(ProgressReply reply) async {
+  static Future<void> observe(
+    ProgressReply reply, {
+    RunOutcome? outcome,
+  }) async {
     if (reply.hidden) {
       await clear();
       return;
@@ -95,7 +99,7 @@ class RunNotifications {
     final progress = reply.progress;
     if (progress == null) return;
     if (!progress.running) {
-      if (_runSeen) await _finish();
+      if (_runSeen) await _finish(progress.kind, outcome);
       return;
     }
     _runSeen = true;
@@ -171,14 +175,14 @@ class RunNotifications {
     );
   }
 
-  static Future<void> _finish() async {
+  static Future<void> _finish(String kind, RunOutcome? outcome) async {
     _runSeen = false;
     await _plugin.cancel(id: _progressId);
     await _stopService();
     await _plugin.show(
       id: _doneId,
-      title: 'Generation finished',
-      body: 'Tap to return to the studio.',
+      title: completionTitle(kind, outcome?.status ?? ''),
+      body: completionBody(outcome),
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           _doneChannel,
@@ -190,6 +194,33 @@ class RunNotifications {
         ),
       ),
     );
+  }
+
+  /// How the notice names the end of a run. Pure, so a test reads it without a plugin.
+  static String completionTitle(String kind, String status) {
+    final media = switch (kind) {
+      'image' => 'Image',
+      'video' => 'Video',
+      'music' || 'voice' => 'Audio',
+      _ => 'Generation',
+    };
+    return switch (status) {
+      'succeeded' => '$media finished',
+      'failed' => '$media failed',
+      'cancelled' => '$media stopped',
+      _ => '$media finished',
+    };
+  }
+
+  static String completionBody(RunOutcome? outcome) {
+    if (outcome == null) return 'Tap to return to the studio.';
+    final status = switch (outcome.status) {
+      'succeeded' => 'succeeded',
+      'failed' => 'failed',
+      'cancelled' => 'was stopped',
+      _ => 'ended',
+    };
+    return 'Operation ${outcome.shortId} $status. Tap to return to the studio.';
   }
 
   static String _title(String kind) => switch (kind) {

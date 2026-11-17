@@ -222,7 +222,14 @@ class _StudioPageState extends State<StudioPage> {
       // A read started before dispose() finishes after it, and observing then would
       // bring the foreground notification back.
       if (!mounted || epoch != _epoch) return;
-      await RunNotifications.observe(progress);
+      // The progress route says a run ended, not how it ended. One more read names the
+      // operation and its terminal status, so the notice does not call a failure
+      // "finished".
+      final outcome = progress.progress?.running == false
+          ? await readOutcome(widget.port)
+          : null;
+      if (!mounted || epoch != _epoch) return;
+      await RunNotifications.observe(progress, outcome: outcome);
     } finally {
       _reading = false;
     }
