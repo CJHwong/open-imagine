@@ -7,7 +7,6 @@ on the base model's config, which turns the resolution shift on.
 """
 
 import pytest
-from mflux.models.common.config.config import Config
 
 from studio.l3_interface_adapters.gateways.image.shared.mflux_runtime import base_model_config
 from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (
@@ -19,8 +18,11 @@ from studio.l3_interface_adapters.gateways.image.shared.qwen_schedules import (
     sigma_nodes,
 )
 
+# The CUDA machine has no MLX and no mflux. These imports stop at collection there, which
+# is how a whole run on that machine reads as a broken tree rather than as skipped tests.
 mx = pytest.importorskip("mlx.core")
-pytest.importorskip("mflux")
+mflux = pytest.importorskip("mflux")
+Config = pytest.importorskip("mflux.models.common.config.config").Config
 
 
 @pytest.fixture(autouse=True)

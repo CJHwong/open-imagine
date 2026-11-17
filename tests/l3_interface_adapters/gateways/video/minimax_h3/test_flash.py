@@ -8,13 +8,16 @@ import json
 import sys
 from types import ModuleType, SimpleNamespace
 
-import mlx.core as mx
-import mlx.nn as nn
 import numpy as np
 import pytest
 
 from studio.l3_interface_adapters.gateways.video.minimax_h3 import flash
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import FLASH_FORWARDS
+
+# The CUDA machine has no MLX. These imports stop at collection there, which is how a
+# whole run on that machine reads as a broken tree rather than as skipped tests.
+mx = pytest.importorskip("mlx.core")
+nn = pytest.importorskip("mlx.nn")
 
 # The plan is in float32, so the test names the keyframe time as float32 reads it.
 KEYFRAME = float(np.float32(0.999))

@@ -19,7 +19,13 @@ def validate_reference_aspect(width: int, height: int) -> None:
 
 
 def match_size(width: int, height: int) -> tuple[int, int]:
-    """Keep the first reference's output size within the model's supported limits."""
+    """Keep the first reference's output size within the model's supported limits.
+
+    The size is not rounded to the 32-pixel grid the explicit canvases use. The CUDA
+    pipeline pads to its own grid internally and returns the size it was asked for:
+    a 1001 by 701 reference produced a 1001 by 701 picture on 2026-11-17. Rounding here
+    would quietly change the output size of every reference that is not on the grid.
+    """
     if not (256 <= width <= 4096 and 256 <= height <= 4096):
         raise InvalidJob("Match requires a first reference with each side between 256 and 4096 pixels.")
     if width * height > MAX_MATCH_PIXELS:
