@@ -68,6 +68,9 @@ REQUEST_READ_TIMEOUT_SECONDS = 30.0
 # timeout above.
 MINIMUM_BODY_BYTES_PER_SECOND = 1024 * 1024
 MAXIMUM_BODY_READ_SECONDS = 300.0
+# The most fields one form may carry. A body under the byte cap can still hold
+# hundreds of thousands of tiny ones, and parsing them costs more than the bytes.
+MAX_FORM_FIELDS = 500
 # A caller that sends this header owns private operations. The routes below are the
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
@@ -791,7 +794,11 @@ def make_handler(
                 ).decode("utf-8")
             except UnicodeDecodeError:
                 raise InvalidJob("The form request must contain valid UTF-8") from None
-            form = {key: values[0] for key, values in parse_qs(body, keep_blank_values=True).items()}
+            try:
+                fields = parse_qs(body, keep_blank_values=True, max_num_fields=MAX_FORM_FIELDS)
+            except ValueError:
+                raise InvalidJob(f"The form has more than {MAX_FORM_FIELDS} fields.") from None
+            form = {key: values[0] for key, values in fields.items()}
             form["client_id"] = self.headers.get("X-Studio-Client", "")
             form["library_id"] = self.headers.get("X-Studio-Library", "")
             return form

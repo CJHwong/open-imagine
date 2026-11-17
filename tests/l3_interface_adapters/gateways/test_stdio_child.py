@@ -493,3 +493,24 @@ def test_the_reader_of_a_replaced_child_reports_nothing_to_the_next_job():
     runner._watch_steps(SimpleNamespace(stderr=io.BytesIO(b"step 7/9\n")), threading.Event(), 1)
 
     assert seen == []
+
+
+def test_a_spawn_that_fails_removes_its_scratch_folder(monkeypatch, tmp_path):
+    """A Popen that raises leaves a folder nothing owns, and repeated attempts pile up."""
+    runner = StdioChild(["engine"])
+    created = []
+
+    def make(*_args, **_options):
+        folder = tmp_path / f"scratch-{len(created)}"
+        folder.mkdir()
+        created.append(folder)
+        return folder
+
+    monkeypatch.setattr("tempfile.mkdtemp", make)
+    monkeypatch.setattr(subprocess, "Popen", Mock(side_effect=FileNotFoundError("no engine")))
+
+    with pytest.raises(FileNotFoundError, match="no engine"):
+        runner.ensure()
+
+    assert created and not created[0].exists()
+    assert runner._scratch is None

@@ -76,6 +76,9 @@ class StdioChild:
         # Bumped for each child this instance starts. A watcher can outlive its job by
         # up to a second, and the generation is what keeps it off the next engine.
         self._generation = 0
+        # Generation and process ownership move together, so a stale watcher can never
+        # check the generation and then capture the child that replaced it.
+        self._lifecycle = threading.RLock()
 
     def running(self) -> bool:
         """Whether the engine is still there, its group included.
@@ -99,30 +102,36 @@ class StdioChild:
         return True
 
     def ensure(self) -> None:
-        if self.running():
-            return
-        self._remove_scratch()  # a child that died alone left its folder
-        self._generation += 1
-        self._scratch = tempfile.mkdtemp(prefix="speech-gen-")
-        self._proc = subprocess.Popen(
-            self._command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            env={**os.environ, SCRATCH_ENV: self._scratch},
-        )
-        # Taken while the leader is alive: start_new_session makes it the group
-        # leader, so the id is its pid. Looking it up at kill time fails when the
-        # leader died first, and then a wrapper that outlived it is never killed.
-        # Set before the watcher starts, so no other thread reads a stale id.
-        self._pgid = self._proc.pid
-        self._ready = threading.Event()
-        self._loaded = False
-        self._steps = threading.Thread(
-            target=self._watch_steps, args=(self._proc, self._ready, self._generation), daemon=True
-        )
-        self._steps.start()
+        with self._lifecycle:
+            if self.running():
+                return
+            self._remove_scratch()  # a child that died alone left its folder
+            self._generation += 1
+            self._scratch = tempfile.mkdtemp(prefix="speech-gen-")
+            try:
+                self._proc = subprocess.Popen(
+                    self._command,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                    env={**os.environ, SCRATCH_ENV: self._scratch},
+                )
+            except BaseException:
+                # A spawn that failed leaves a folder nothing owns.
+                self._remove_scratch()
+                raise
+            # Taken while the leader is alive: start_new_session makes it the group
+            # leader, so the id is its pid. Looking it up at kill time fails when the
+            # leader died first, and then a wrapper that outlived it is never killed.
+            # Set before the watcher starts, so no other thread reads a stale id.
+            self._pgid = self._proc.pid
+            self._ready = threading.Event()
+            self._loaded = False
+            self._steps = threading.Thread(
+                target=self._watch_steps, args=(self._proc, self._ready, self._generation), daemon=True
+            )
+            self._steps.start()
 
     def wait_ready(self) -> None:
         """Start the child if it is not running, and block until its engine is loaded.
@@ -333,9 +342,10 @@ class StdioChild:
         names an older generation is a no-op, so it can neither signal the engine that
         replaced its child nor remove that engine's scratch folder.
         """
-        if generation is not None and generation != self._generation:
-            return
-        proc, pgid, scratch = self._proc, self._pgid, self._scratch
+        with self._lifecycle:
+            if generation is not None and generation != self._generation:
+                return
+            proc, pgid, scratch = self._proc, self._pgid, self._scratch
         if proc is None or pgid is None:
             return
         try:

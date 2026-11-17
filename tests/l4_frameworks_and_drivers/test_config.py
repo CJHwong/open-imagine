@@ -349,3 +349,11 @@ def test_the_shipping_config_bounds_what_the_queue_holds(tmp_path):
 def test_a_queue_byte_budget_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
     with pytest.raises(ConfigError, match=r"queue\.max_megabytes"):
         load_config(write(tmp_path, SETTINGS + f"\n[queue]\nmax_megabytes = {value}\n"))
+
+
+@pytest.mark.parametrize("value", ['"qwen21_turbo"', '["qwen21", ""]', '["qwen21", 7]', "{}"])
+def test_a_visible_backend_list_that_is_not_a_list_of_model_ids_is_refused(tmp_path, value):
+    """A scalar used to become a tuple of letters, and the studio then failed with an
+    unknown model instead of naming the line."""
+    with pytest.raises(ConfigError, match="array of model ids"):
+        load_config(write(tmp_path, f'default_backend = "qwen21"\nvisible_backends = {value}\n'))

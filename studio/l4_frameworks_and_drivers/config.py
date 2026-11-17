@@ -154,7 +154,12 @@ def _offered(given, raw: dict, key: str, default: str) -> tuple[str, ...]:
     if given is not None:
         chosen = tuple(given)
     elif key in raw:
-        chosen = tuple(raw[key])
+        value = raw[key]
+        # `visible_backends = "qwen21_turbo"` used to become a tuple of letters and fail
+        # later as an unknown model. A list of model ids is the only shape this takes.
+        if not isinstance(value, list) or not all(isinstance(one, str) and one.strip() for one in value):
+            raise ConfigError(f"{key} in studio.toml must be an array of model ids")
+        chosen = tuple(dict.fromkeys(value))
     else:
         chosen = (default,)
     if chosen and default not in chosen:

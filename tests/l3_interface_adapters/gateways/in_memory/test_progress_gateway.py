@@ -99,3 +99,17 @@ def test_operation_cancel_survives_a_fresh_progress_begin():
     gateway.clear_cancel()
     gateway.begin("")
     assert gateway.cancel_requested()
+
+
+def test_a_snapshot_reports_stopping_when_the_operation_was_cancelled():
+    """A queued or API-owned operation shows `stopping` on its record. The progress
+    beside it has to agree, or a client draws a run that is still going."""
+    cancelled = {"on": False}
+    gateway = InMemoryProgressGateway(external_cancel=lambda: cancelled["on"])
+    gateway.begin("a run", kind="image")
+    assert gateway.snapshot().stopping is False
+
+    cancelled["on"] = True
+
+    assert gateway.snapshot().stopping is True
+    assert gateway.cancel_requested() is True
