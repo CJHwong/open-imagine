@@ -965,12 +965,14 @@ def test_the_child_loop_retains_only_one_worker_cache(monkeypatch, capsys):
     transcriber = Mock(return_value=("X:1\n", {}))
     monkeypatch.setattr(child, "transcribe", transcriber)
     monkeypatch.setattr(sys, "argv", ["child"])
-    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join([json.dumps(transcription_job())] * 2)))
+    jobs = [{**transcription_job(), "request_id": f"r{index}"} for index in range(2)]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(json.dumps(job) for job in jobs)))
 
     assert child.main() == 0
 
     replies = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     transcriber.assert_called_once()
+    assert [reply.pop("request_id") for reply in replies] == ["r0", "r1"]
     assert replies[0] == replies[1] == {"wav": "", "score": "X:1\n", "metadata": {"mode": "transcribe"}}
 
 

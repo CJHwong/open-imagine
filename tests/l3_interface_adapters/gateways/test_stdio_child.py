@@ -335,11 +335,23 @@ def test_a_child_that_dies_after_printing_on_stdout_says_what_it_printed(child):
         child.request({"noise": "Loading weights...", "crash": True}, lambda s, t: None, lambda: False)
 
 
-def test_a_reply_that_is_not_json_restarts_the_child_rather_than_desync_it(child):
-    # The real reply may follow in the pipe; read by the next job, it would hand back the wrong clip.
-    with pytest.raises(RuntimeError, match="not JSON"):
-        child.request({"noise": "{half a reply", "echo": 1}, lambda s, t: None, lambda: False)
+def test_a_line_that_only_looks_like_a_reply_is_not_taken_as_one(child):
+    """A child answers the id it was sent. A library's log line that happens to be JSON,
+    or half a reply, is kept for a failure message, and the job stays in step."""
+    reply = child.request({"noise": "{half a reply", "echo": 1}, lambda s, t: None, lambda: False)
+
+    assert reply["echo"] == 1
+    assert list(child._said)[-1] == "{half a reply"
     assert child.request({"echo": 2}, lambda s, t: None, lambda: False)["echo"] == 2
+
+
+def test_a_json_line_carrying_another_request_id_is_not_the_reply(child):
+    reply = child.request(
+        {"noise": '{"request_id": "someone-else", "echo": "wrong"}', "echo": 3}, lambda s, t: None, lambda: False
+    )
+
+    assert reply["echo"] == 3
+    assert child.request({"echo": 4}, lambda s, t: None, lambda: False)["echo"] == 4
 
 
 def test_an_error_the_job_caused_is_a_refused_request(child):

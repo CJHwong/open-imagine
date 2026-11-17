@@ -205,10 +205,12 @@ def test_an_engine_error_is_answered_and_the_loop_goes_on(engines, monkeypatch):
     engine = child.load_engine("flash")
     engine.fail = ValueError("reference audio must be given as audio_path")
     monkeypatch.setattr(child, "load_engine", lambda variant: engine)
-    answers, _ = drive(monkeypatch, child, [job(), "", "not json"])
+    answers, _ = drive(monkeypatch, child, [job(request_id="r1"), "", "not json"])
     assert answers == [
-        {"error": "ValueError: reference audio must be given as audio_path"},
-        {"error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"},
+        {"error": "ValueError: reference audio must be given as audio_path", "request_id": "r1"},
+        # A line the child cannot parse carries no id, so the parent ignores it rather
+        # than taking it as its answer.
+        {"error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)", "request_id": ""},
     ]
 
 

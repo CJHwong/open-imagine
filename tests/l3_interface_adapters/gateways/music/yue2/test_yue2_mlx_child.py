@@ -486,7 +486,7 @@ def test_instrumental_generation_transfers_melody_before_rendering(monkeypatch, 
 
 def test_worker_protocol_reports_engine_crashes_and_releases_engine_on_eof(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["worker", "--model-dir", "model", "--vae-dir", "vae"])
-    monkeypatch.setattr(sys, "stdin", io.StringIO("{}\n{}\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"request_id": "r1"}\n{"request_id": "r2"}\n'))
     engine = Mock()
     monkeypatch.setattr(child, "Worker", Mock(return_value=engine))
     monkeypatch.setattr(
@@ -495,8 +495,8 @@ def test_worker_protocol_reports_engine_crashes_and_releases_engine_on_eof(monke
     child.main()
     captured = capsys.readouterr()
     replies = [json.loads(line) for line in captured.out.splitlines()]
-    assert "check the engine installation" in replies[0]["error"]
-    assert replies[1] == {"error": "install extras", "kind": "input"}
+    assert "check the engine installation" in replies[0]["error"] and replies[0]["request_id"] == "r1"
+    assert replies[1] == {"error": "install extras", "kind": "input", "request_id": "r2"}
     engine.release.assert_called_once()
 
 

@@ -668,10 +668,12 @@ def main() -> int:
         line = line.strip()
         if not line:
             continue
+        job = {}
         try:
-            answer(worker.run(json.loads(line)))
+            job = json.loads(line)
+            answer({**worker.run(job), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
-            answer({"error": f"{type(error).__name__}: {error}"})
+            answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
     return 0
 
 

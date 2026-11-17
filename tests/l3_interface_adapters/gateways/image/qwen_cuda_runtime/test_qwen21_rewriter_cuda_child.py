@@ -213,19 +213,19 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     fake_transformers(monkeypatch, processor, model)
     monkeypatch.setattr(sys, "argv", ["child"])
     jobs = [
-        json.dumps({"role": "generate", "system": "s", "user": "u"}),
+        json.dumps({"role": "generate", "system": "s", "user": "u", "request_id": "r1"}),
         "",
-        json.dumps({"role": "music", "system": "s", "user": "u"}),
-        json.dumps({"role": "generate"}),
+        json.dumps({"role": "music", "system": "s", "user": "u", "request_id": "r2"}),
+        json.dumps({"role": "generate", "request_id": "r3"}),
     ]
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(jobs)))
 
     assert child.main() == 0
 
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert lines[0] == {"text": "the answer"}
-    assert lines[1]["error"].startswith("ValueError")
-    assert lines[2]["error"].startswith("KeyError")
+    assert lines[0] == {"text": "the answer", "request_id": "r1"}
+    assert lines[1]["error"].startswith("ValueError") and lines[1]["request_id"] == "r2"
+    assert lines[2]["error"].startswith("KeyError") and lines[2]["request_id"] == "r3"
 
 
 def test_local_snapshot_prefers_the_cached_directory(monkeypatch, tmp_path):

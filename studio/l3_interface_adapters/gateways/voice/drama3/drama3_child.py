@@ -132,6 +132,7 @@ def serve():
         engine = load_engine()
     log("ready")
     for line in sys.stdin:
+        job = {}
         try:
             job = json.loads(line)
             with contextlib.redirect_stdout(sys.stderr):
@@ -140,6 +141,7 @@ def serve():
             response = {"error": str(error), "kind": "input"}
         except Exception as error:
             response = {"error": str(error)}
+        response["request_id"] = job.get("request_id", "")
         print(json.dumps(response), flush=True)
 
 

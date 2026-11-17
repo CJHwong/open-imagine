@@ -24,10 +24,17 @@ for line in sys.stdin:
     if job.get("crash"):
         sys.exit(3)
     if job.get("error"):
-        print(json.dumps({"error": job["error"], "kind": job.get("kind", "engine")}), flush=True)
+        print(
+            json.dumps(
+                {"error": job["error"], "kind": job.get("kind", "engine"), "request_id": job.get("request_id", "")}
+            ),
+            flush=True,
+        )
         continue
     if job.get("write_scratch"):  # a clip on disk, where the protocol says to put it
         (Path(os.environ["SPEECH_GEN_SCRATCH"]) / "ref.wav").write_bytes(b"voice")
-    print(json.dumps({"echo": job.get("echo"), "pid": os.getpid()}), flush=True)
+    print(
+        json.dumps({"echo": job.get("echo"), "pid": os.getpid(), "request_id": job.get("request_id", "")}), flush=True
+    )
     if job.get("exit"):
         sys.exit(0)  # the engine goes, and a survivor may keep its pipes
