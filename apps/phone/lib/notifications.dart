@@ -23,6 +23,9 @@ class RunNotifications {
       FlutterLocalNotificationsPlugin();
   static bool _serviceRunning = false;
   static bool _runSeen = false;
+  // The kind of the run being watched. The progress answer for a finished run has no
+  // kind, so the completion notice would otherwise have nothing to name.
+  static String _kind = '';
   static DateTime _updatedAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   static Future<void> initialize() async {
@@ -99,10 +102,11 @@ class RunNotifications {
     final progress = reply.progress;
     if (progress == null) return;
     if (!progress.running) {
-      if (_runSeen) await _finish(progress.kind, outcome);
+      if (_runSeen) await _finish(_kind, outcome);
       return;
     }
     _runSeen = true;
+    _kind = progress.kind;
     final now = DateTime.now();
     if (now.difference(_updatedAt) < const Duration(seconds: 1)) return;
     _updatedAt = now;
