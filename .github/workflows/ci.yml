@@ -68,25 +68,18 @@ jobs:
       - name: Install the browser
         run: uv run --with playwright python -m playwright install chromium
 
-      - name: Start the stub studio
+      # One step, one shell: the studio, both checks and the stop belong together. A
+      # background process started in one step is not guaranteed to outlive it.
+      - name: The page in a real browser
         run: |
           uv run studio --stub --port 8801 --all-backends > /tmp/studio.log 2>&1 &
+          trap 'pkill -f "studio --stub --port 8801" || true' EXIT
           for _ in $(seq 1 60); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8801/; then exit 0; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:8801/; then break; fi
             sleep 1
           done
-          cat /tmp/studio.log
-          exit 1
-
-      - name: The gallery keeps what it is given, and restores a backup over it
-        run: uv run --with playwright python tests/e2e/verify_gallery_transfer.py 8801
-
-      - name: The page's controls answer a real click
-        run: uv run --with playwright python tests/e2e/verify_ui.py 8801
-
-      - name: Stop the studio
-        if: always()
-        run: pkill -f "studio --stub --port 8801" || true
+          uv run --with playwright python tests/e2e/verify_gallery_transfer.py 8801
+          uv run --with playwright python tests/e2e/verify_ui.py 8801
 
   plugin:
     name: agent plugin
