@@ -620,11 +620,21 @@ function writeCounted(write, count) {
 // The image database and the video database are two transactions, and neither can
 // roll the other back. Each one settles on its own, and the counts say which records
 // landed and which did not. The refused items are counted apart from a failed write,
-// because only a failed write is worth another try.
+// because only a failed write is worth another try. A record whose id is already
+// stored is replaced, and that count is reported: a `put` that overwrites in silence
+// is a conflict the user never saw.
 async function restoreBundle(items) {
   const plan = planRestore(items);
   const total = plan.images.length + plan.videos.length;
-  if (!page.keeping()) return {imported: 0, skipped: total + plan.refused, failed: 0};
+  if (!page.keeping()) return {imported: 0, skipped: total + plan.refused, failed: 0, replaced: 0};
+  // Keys only, never the records: the ids cost a few bytes each, and the media stays
+  // where it is until a put moves it.
+  const [imageKeys, videoKeys] = await Promise.all([
+    plan.images.length ? inStore('readonly', store => store.getAllKeys()) : [],
+    plan.videos.length ? inVideoStore('readonly', store => store.getAllKeys()) : [],
+  ]);
+  const replaced = plan.images.filter(record => imageKeys.includes(record.id)).length
+    + plan.videos.filter(record => videoKeys.includes(record.id)).length;
   const [images, videos] = await Promise.all([
     writeCounted(() => inStore('readwrite', store => { plan.images.forEach(record => store.put(record)); }), plan.images.length),
     writeCounted(() => inVideoStore('readwrite', store => { plan.videos.forEach(record => store.put(record)); }), plan.videos.length),
@@ -639,6 +649,7 @@ async function restoreBundle(items) {
     imported: images.written + videos.written,
     skipped: plan.refused,
     failed: images.failed + videos.failed,
+    replaced,
   };
 }
 

@@ -287,7 +287,8 @@ def main():
         import_file(target, saved.path(), "1 failed")
         target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 0")
         target.evaluate("() => { IDBObjectStore.prototype.put = window.__put; }")
-        import_file(target, saved.path(), "Imported")
+        # The image landed before the clip store failed, so this retry replaces it.
+        import_file(target, saved.path(), "replaced")
         target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 1")
         print("PASS a partial import reports its counts and imports again clean.", flush=True)
 

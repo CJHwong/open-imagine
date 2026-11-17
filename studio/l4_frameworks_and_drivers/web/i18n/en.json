@@ -138,6 +138,7 @@
   "gallery.import.title": "Restore a gallery ZIP created with Export.",
   "gallery.imported": "Imported {count} items, skipped {skipped}.",
   "gallery.importPartial": "Imported {count} items. Skipped {skipped}. {failed} failed. Import the file again to retry the failed ones.",
+  "gallery.importReplaced": "Imported {count} items, replaced {replaced}, skipped {skipped}.",
   "gallery.importFailed": "The gallery file could not be read: {message}",
   "gallery.results": "Gallery results",
   "gallery.search": "Search gallery",

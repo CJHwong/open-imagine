@@ -3562,8 +3562,9 @@
   };
   window.restoreStudioBundle = async function (items) {
     const media = items.filter(item => item.workspace === 'image' || item.workspace === 'video');
-    const result = kept ? await kept.restoreBundle(media) : {imported: 0, skipped: media.length, failed: 0};
+    const result = kept ? await kept.restoreBundle(media) : {imported: 0, skipped: media.length, failed: 0, replaced: 0};
     let imported = result.imported, skipped = result.skipped, failed = result.failed || 0;
+    let replaced = result.replaced || 0;
     for (const [studio, workspace] of [[voiceStudio, 'voice'], [musicStudio, 'music']]) {
       const own = items.filter(item => item.workspace === workspace);
       if (!own.length || typeof studio.restoreBundle !== 'function') continue;
@@ -3571,18 +3572,24 @@
       imported += count.imported;
       skipped += count.skipped;
       failed += count.failed || 0;
+      replaced += count.replaced || 0;
     }
     // An item naming a workspace Studio does not own is refused here, and counted:
     // an import that quietly loses it reports success for a record it dropped.
     const known = new Set(['image', 'video', 'voice', 'music']);
     skipped += items.filter(item => !item || !known.has(item.workspace)).length;
-    return {imported, skipped, failed};
+    return {imported, skipped, failed, replaced};
   };
   // A refused item is counted, but only a write that failed is worth another try.
   function importedMessage(result) {
     if (result.failed) {
       return t('gallery.importPartial', {
         count: result.imported, skipped: result.skipped, failed: result.failed,
+      });
+    }
+    if (result.replaced) {
+      return t('gallery.importReplaced', {
+        count: result.imported, replaced: result.replaced, skipped: result.skipped,
       });
     }
     return t('gallery.imported', {count: result.imported, skipped: result.skipped});
