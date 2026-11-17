@@ -78,11 +78,16 @@ def main() -> int:
             page.goto(URL + "/import-retry-check")
             page.wait_for_function("window.retryCheckReady === true", timeout=10000)
             page.wait_for_function("window.importedImages.length === 1", timeout=90000)
+            # The notice is the proof that a failure names its operation. It runs here,
+            # on the success path, because a version that sat after the timeout's return
+            # could never run.
+            notices = page.evaluate("window.notices")
+            if not any("retry-ch" in text for text in notices):
+                print(f"FAIL the failure did not name the operation: {notices}")
+                return 1
         except BrowserTimeout:
             print(f"FAIL the result never arrived after {len(failures)} failed reads")
             return 1
-            notices = page.evaluate("window.notices")
-            assert any("retry-ch" in text for text in notices), f"the failure did not name the operation: {notices}"
         finally:
             browser.close()
     print(f"PASS imported after {len(failures)} failed reads")

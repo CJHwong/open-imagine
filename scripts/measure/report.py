@@ -46,13 +46,15 @@ def valid_success(record: dict | None, expected: str) -> bool:
     return record is not None and record.get("status") == "succeeded" and record.get("fingerprint") == expected
 
 
-def pick(base: dict | None, warm: dict | None, expected: str) -> dict | None:
-    """The warm row when it is this campaign's success, and the base row otherwise.
+def pick(base: dict | None, warm: dict | None, expected: str, media=None) -> dict | None:
+    """The warm row when it is this campaign's success and its media is still there.
 
     The warm file holds a second run of the same case, and it can come from an older
-    campaign or have failed. Either way it must not replace a good base row.
+    campaign, have failed, or have lost its artifact. None of those may replace a sound
+    cold row. `media` says whether a row's file is still readable; without it, the status
+    and the fingerprint decide.
     """
-    if valid_success(warm, expected):
+    if valid_success(warm, expected) and (media is None or media(warm)):
         return warm
     return base
 
@@ -77,7 +79,33 @@ def cell(record: dict | None, expected: str, archived: bool = True) -> str:
     return f"{seconds:.1f}" if isinstance(seconds, (int, float)) else "no time"
 
 
-def provenance(work: Path, manifests: dict) -> list[str]:
+def models_used(matrix: list[dict], machine: str, manifest: dict) -> list[str]:
+    """The backends this machine ran, with the precision each was built at.
+
+    Two columns can share a commit and differ in quantization. Naming the build beside
+    each backend is what lets a reader see that, instead of reading the table as one
+    model measured twice.
+    """
+    offered = (manifest.get("studio") or {}).get("offered") or {}
+    workspaces = ("video", "image", "voice", "music")
+    used = sorted({case.get("machines", {}).get(machine, {}).get("backend", "") for case in matrix} - {""})
+    lines = []
+    for backend in used:
+        capabilities = None
+        for workspace in workspaces:
+            found = offered.get(f"{workspace}/{backend}")
+            if isinstance(found, dict):
+                capabilities = found
+                break
+        if capabilities is None:
+            lines.append(backend)
+            continue
+        badge = capabilities.get("precision") or capabilities.get("badge") or ""
+        lines.append(f"{backend} {badge}".strip())
+    return lines
+
+
+def provenance(work: Path, manifests: dict, matrix: list[dict] | None = None) -> list[str]:
     """The lines that say whether the two columns describe the same thing."""
     lines = []
     for machine in MACHINES:
@@ -86,6 +114,15 @@ def provenance(work: Path, manifests: dict) -> list[str]:
             lines.append(f"- {machine}: no campaign manifest. Its figures carry no revision.")
             continue
         lines.append(f"- {machine}: {manifest.get('git', 'unknown')} on {manifest.get('platform', 'unknown')}")
+    if matrix:
+        for machine in MACHINES:
+            built = models_used(matrix, machine, manifests[machine]) if manifests[machine] else []
+            if built:
+                lines.append(f"- {machine} models: {', '.join(sorted(set(built)))}")
+        lines.append(
+            "- Precision is part of the build. Where the two columns name different precisions, "
+            "they compare hardware, not identical weights."
+        )
     for field in SHARED:
         values = {
             machine: json.dumps(manifest.get(field), sort_keys=True)
@@ -142,12 +179,12 @@ def main() -> int:
         if key not in picked:
             base, warm = sides[machine]
             value = expected(by_id[case_id], machine) if case_id in by_id else ""
-            record = pick(base.get(case_id), warm.get(case_id), value)
+            record = pick(base.get(case_id), warm.get(case_id), value, lambda one: saved(work, one))
             picked[key] = (record, record is not None and valid_success(record, value) and saved(work, record))
         return picked[key]
 
     print("### Provenance\n")
-    print("\n".join(provenance(work, manifests)))
+    print("\n".join(provenance(work, manifests, matrix)))
 
     for title, prefixes in GROUPS:
         cases = [case["id"] for case in matrix if case["id"].split("/")[0] in prefixes]
