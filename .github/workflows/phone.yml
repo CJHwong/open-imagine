@@ -14,6 +14,11 @@ on:
       - .github/workflows/phone.yml
       - studio/l4_frameworks_and_drivers/http_server.py
       - studio/l4_frameworks_and_drivers/connect.py
+      # The phone reads these routes' answers: a schema change here is a change to
+      # the contract it holds, even when no route moved.
+      - studio/l3_interface_adapters/api/json_api.py
+      - studio/l3_interface_adapters/api/openapi.py
+      - studio/l3_interface_adapters/presenters/json_presenter.py
   push:
     branches: [main]
     paths:
@@ -21,6 +26,11 @@ on:
       - .github/workflows/phone.yml
       - studio/l4_frameworks_and_drivers/http_server.py
       - studio/l4_frameworks_and_drivers/connect.py
+      # The phone reads these routes' answers: a schema change here is a change to
+      # the contract it holds, even when no route moved.
+      - studio/l3_interface_adapters/api/json_api.py
+      - studio/l3_interface_adapters/api/openapi.py
+      - studio/l3_interface_adapters/presenters/json_presenter.py
   workflow_dispatch:
 
 concurrency:
