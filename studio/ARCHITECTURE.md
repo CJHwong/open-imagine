@@ -411,6 +411,7 @@ notation and scrolls only when the score is longer than the pane. A width change
 ### Private result storage
 
 `InMemoryOperationGateway` keeps public results in memory for ten minutes after completion.
+The count and byte limits never evict the newest finished public result, so a caller that just watched a run succeed can still fetch it; age still ends it.
 It delegates private media to `EncryptedResultGateway`, which stores authenticated ciphertext in a local SQLite database.
 The composition root supplies the private storage folder. An exclusive file lock prevents concurrent recovery or deletion.
 The `--private-results-dir` option selects another folder. Stub servers and tests use isolated storage by default.

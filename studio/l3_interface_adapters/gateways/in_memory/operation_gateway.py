@@ -18,6 +18,10 @@ from studio.l3_interface_adapters.gateways.encrypted_result_gateway import Encry
 
 
 class InMemoryOperationGateway(OperationGateway):
+    # The longest a queued operation may sleep before it looks at the clock again. A
+    # continuation lease has to end on time even when nothing else touches the queue.
+    WAIT_SLICE_SECONDS = 1.0
+
     def __init__(
         self,
         max_count: int = 32,
@@ -121,7 +125,20 @@ class InMemoryOperationGateway(OperationGateway):
                     record.update(status="running", started_at=self._clock())
                     self._active = operation_id
                     return
-                self._condition.wait()
+                self._condition.wait(self._wait_slice())
+
+    def _wait_slice(self) -> float:
+        """How long a waiting thread may sleep: the next continuation lease, at most.
+
+        `pause()` promises thirty seconds and nothing else wakes this queue when they
+        run out. A waiter that slept indefinitely sat past the lease until an unrelated
+        request happened to arrive, which is what the old HTTP-side timer did every
+        sixty seconds.
+        """
+        if self._active not in self._continuations:
+            return self.WAIT_SLICE_SECONDS
+        remaining = self._continuations[self._active][1] - self._clock()
+        return max(0.01, min(self.WAIT_SLICE_SECONDS, remaining))
 
     def queue_position(self, operation_id: str) -> int | None:
         with self._lock:
@@ -376,6 +393,15 @@ class InMemoryOperationGateway(OperationGateway):
         public_ids = [identifier for identifier, record in self._records.items() if not record.get("owner")]
         public_count = len(public_ids)
         public_bytes = sum(self._sizes[identifier] for identifier in public_ids)
+        # The newest finished public result survives the size and count limits. A caller
+        # that just watched a large job succeed has to be able to fetch it: retention may
+        # not contradict a success the studio already reported. Age still ends it. One
+        # operation runs at a time, so the finished records complete in the order they were
+        # added, and the last one with a finish time is the newest.
+        newest = None
+        for identifier in public_ids:
+            if self._records[identifier]["finished_at"] is not None:
+                newest = identifier
         for operation_id in list(self._records):
             if operation_id == self._active:
                 continue
@@ -386,7 +412,7 @@ class InMemoryOperationGateway(OperationGateway):
             max_age = 3600 if private else self._max_age
             expired = self._clock() - record["finished_at"] > max_age
             over_limit = not private and (public_count > self._max_count or public_bytes > self._max_bytes)
-            if expired or over_limit:
+            if expired or (over_limit and operation_id != newest):
                 if not private:
                     public_count -= 1
                     public_bytes -= self._sizes[operation_id]
