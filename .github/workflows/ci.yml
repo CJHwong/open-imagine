@@ -86,7 +86,7 @@ jobs:
 
       - name: Stop the studio
         if: always()
-        run: kill %1 2>/dev/null || pkill -f "studio --stub --port 8801" || true
+        run: pkill -f "studio --stub --port 8801" || true
 
   plugin:
     name: agent plugin
