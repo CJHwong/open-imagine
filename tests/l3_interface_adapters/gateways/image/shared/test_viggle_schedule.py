@@ -37,7 +37,8 @@ class FakeConfig:
 
 def edit_variant_source() -> str:
     spec = importlib.util.find_spec("mflux")
-    assert spec is not None and spec.origin is not None, "mflux is not installed"
+    if spec is None or spec.origin is None:
+        pytest.skip("needs the MLX stack, which installs on macOS only")
     return (Path(spec.origin).parent / EDIT_VARIANT).read_text(encoding="utf-8")
 
 

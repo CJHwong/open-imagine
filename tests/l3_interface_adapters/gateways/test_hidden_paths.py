@@ -159,7 +159,9 @@ def test_an_inner_block_leaves_the_last_word_to_the_outer_one(capsys):
 
 
 def test_a_file_past_the_limit_is_not_let_through(tmp_path, monkeypatch):
-    monkeypatch.setattr("studio.l3_interface_adapters.gateways.hidden_paths.MAX_FILES", 1)
+    # No file is listed, so the named one cannot be in the map. A limit of one would let
+    # the walk's own order decide which of the two files got a public name.
+    monkeypatch.setattr("studio.l3_interface_adapters.gateways.hidden_paths.MAX_FILES", 0)
     folder = tmp_path / "example-folder"
     (folder / "transformer").mkdir(parents=True)
     for name in ("a.json", "example-private-variant.safetensors"):

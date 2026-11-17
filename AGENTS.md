@@ -88,6 +88,7 @@ Run this flow when you add a backend. Also run it when you change one: its capab
 8. **Pass the gates.**
    - Run `prek run --all-files`. It runs ruff, ty, import-linter and the secret scan. `--all-files` skips untracked files; while files are untracked, pass `--files $(git ls-files -co --exclude-standard)` instead.
    - Run `uv run pytest`, then `uv run pytest -m live -k <id>`. The first one fails when the statement or branch coverage of `studio/` drops below 100%.
+   - On a machine without the MLX stack (the CUDA server), `tests/conftest.py` turns a missing `mlx`, `mlx_vlm` or `mflux` into a skip, because those engines install on macOS only. The gate there takes `--cov-config coverage.cuda.toml`, which keeps 100% over the lines that host can load and omits the eight engine modules that cannot be imported. `uv run pytest --cov-config coverage.cuda.toml`. A module that joins that set fails the CUDA run until it is listed in that file, so the omission is a decision, not a drift.
 9. **Prove it with real runs.** A green test is a gate, not proof.
    - `tests/e2e/verify_capabilities.py`, which needs no GPU. It also reads the page's geometry, so run it after a page change and not only after a backend change: a sentence added to the Look note took the closed section past the height it guards, and nothing else noticed.
    - `tests/e2e/verify_backends.py`, against `uv run studio --port <port> --backend <id>`.

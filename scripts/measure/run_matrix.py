@@ -20,7 +20,9 @@ import argparse
 import base64
 import contextlib
 import hashlib
+import http.client
 import json
+import math
 import platform
 import subprocess
 import threading
@@ -33,6 +35,11 @@ from pathlib import Path
 SAMPLE_SECONDS = 0.2
 # How long to wait between two reads of a running operation's status.
 POLL_SECONDS = 1.0
+# The longest a status read or a result download may take. Neither may outlive the
+# case's own deadline, and a result that lands on the deadline still gets a minute.
+FETCH_SECONDS = 600.0
+FETCH_FLOOR_SECONDS = 60.0
+POLL_LONGEST_SECONDS = 180.0
 
 
 def sha256(data: bytes) -> str:
@@ -47,6 +54,95 @@ def media_bytes(body: bytes, kind: str) -> bytes:
     return base64.b64decode(json.loads(body)["images"][0]["png_base64"])
 
 
+def png_facts(media: bytes) -> dict:
+    """Width and height from a whole PNG, not from four bytes that might be one.
+
+    A truncated download still succeeds at the API. The end marker is what tells a whole
+    file from the first chunk of one.
+    """
+    if media[:8] != b"\x89PNG\r\n\x1a\n" or media[12:16] != b"IHDR" or media[-8:-4] != b"IEND":
+        return {}
+    return {"width": int.from_bytes(media[16:20], "big"), "height": int.from_bytes(media[20:24], "big")}
+
+
+def wav_facts(media: bytes) -> dict:
+    """Rate, channels and seconds from the RIFF chunks themselves.
+
+    A search for `data` finds the word in any metadata block before it, and a float file
+    has a wider format block. Walking the chunks reads the header the file means.
+    """
+    if media[:4] != b"RIFF" or media[8:12] != b"WAVE":
+        return {}
+    facts = {}
+    frames = None
+    position = 12
+    while position + 8 <= len(media):
+        name = media[position : position + 4]
+        size = int.from_bytes(media[position + 4 : position + 8], "little")
+        start = position + 8
+        if name == b"fmt " and size >= 16 and start + 16 <= len(media):
+            facts["channels"] = int.from_bytes(media[start + 2 : start + 4], "little")
+            facts["sample_rate"] = int.from_bytes(media[start + 4 : start + 8], "little")
+            facts["_width"] = int.from_bytes(media[start + 14 : start + 16], "little")
+        elif name == b"data":
+            # A declared size the file does not hold is a truncated download, and the
+            # seconds it claims are not seconds the machine produced.
+            frames = size if start + size <= len(media) else 0
+            break
+        position = start + size + (size & 1)
+    if frames is None or "_width" not in facts:
+        return {}
+    width = facts.pop("_width")
+    stride = facts["sample_rate"] * facts["channels"] * width // 8
+    facts["seconds"] = round(frames / stride, 2) if stride else 0
+    return facts
+
+
+def mp4_boxes(media: bytes, start: int, end: int):
+    """The boxes in one range, as (kind, first byte of the body, end of the box).
+
+    A size below the header, or one past the range, ends the walk: a truncated file says
+    nothing about the tracks it meant to hold.
+    """
+    position = start
+    while position + 8 <= end:
+        size = int.from_bytes(media[position : position + 4], "big")
+        kind = media[position + 4 : position + 8]
+        header = 8
+        if size == 1:
+            if position + 16 > end:
+                return
+            size = int.from_bytes(media[position + 8 : position + 16], "big")
+            header = 16
+        elif size == 0:
+            size = end - position
+        if size < header or position + size > end:
+            return
+        yield kind, position + header, position + size
+        position += size
+
+
+MP4_CONTAINERS = (b"moov", b"trak", b"mdia")
+
+
+def mp4_audio_track(media: bytes, start: int = 0, end: int | None = None, depth: int = 0) -> bool:
+    """Whether a track names an audio handler, read from the box structure.
+
+    A search for `soun` anywhere in the file finds it in metadata, in a thumbnail or in a
+    payload, and says yes to a video with no sound at all.
+    """
+    if end is None:
+        end = len(media)
+    if depth > 3:
+        return False
+    for kind, body_start, body_end in mp4_boxes(media, start, end):
+        if kind == b"hdlr" and media[body_start + 8 : body_start + 12] == b"soun":
+            return True
+        if kind in MP4_CONTAINERS and mp4_audio_track(media, body_start, body_end, depth + 1):
+            return True
+    return False
+
+
 def output_facts(body: bytes, kind: str) -> dict:
     """What the bytes say about themselves.
 
@@ -56,19 +152,12 @@ def output_facts(body: bytes, kind: str) -> dict:
     """
     media = media_bytes(body, kind)
     facts = {"sha256": sha256(media), "bytes": len(media)}
-    if kind == "image" and media[:8] == b"\x89PNG\r\n\x1a\n":
-        facts.update(width=int.from_bytes(media[16:20], "big"), height=int.from_bytes(media[20:24], "big"))
-    elif kind in ("voice", "music") and media[:4] == b"RIFF":
-        rate = int.from_bytes(media[24:28], "little")
-        channels = int.from_bytes(media[22:24], "little")
-        widths = int.from_bytes(media[34:36], "little")
-        marker = media.find(b"data")
-        frames = int.from_bytes(media[marker + 4 : marker + 8], "little") if marker >= 0 else 0
-        stride = rate * channels * widths // 8
-        facts.update(sample_rate=rate, channels=channels, seconds=round(frames / stride, 2) if stride else 0)
+    if kind == "image":
+        facts.update(png_facts(media))
+    elif kind in ("voice", "music"):
+        facts.update(wav_facts(media))
     elif kind == "video":
-        # The handler atom names its track. A missing one means the encode dropped the audio.
-        facts["audio_track"] = b"soun" in media
+        facts["audio_track"] = mp4_audio_track(media)
     return facts
 
 
@@ -117,7 +206,7 @@ def resolve(value, assets: Path, digests: dict[str, str]):
     return value
 
 
-def call(base: str, path: str, body: dict | None = None, method: str = "GET", timeout: int = 120):
+def call(base: str, path: str, body: dict | None = None, method: str = "GET", timeout: float = 120):
     data = None if body is None else json.dumps(body).encode()
     request = urllib.request.Request(
         base + path, data=data, headers={"Content-Type": "application/json"}, method=method
@@ -183,14 +272,61 @@ def git_sha() -> str:
         return "unknown"
 
 
-def campaign_manifest(machine: str, digests: dict[str, str]) -> dict:
+def git_dirty() -> bool | str:
+    """Whether the tree under test carries changes its commit does not name.
+
+    A result from a modified tree belongs to a revision nobody can check out.
+    """
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True, timeout=10
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return "unknown"
+    return bool(status.stdout.strip())
+
+
+WORKSPACE_ROUTES = {"image": "images", "video": "videos", "voice": "voice", "music": "music"}
+
+
+def live_configuration(state: dict, capabilities) -> dict:
+    """What the running studio can prove about itself, with the parts that move dropped.
+
+    The active selection is left out: it moves as a campaign runs, and every case names its
+    own backend. A fingerprint that held it would refuse a campaign its own resume. Each
+    offered backend's capabilities take its place, because they carry the sizes a model
+    accepts and the precision its weights were built at, which a model id does not. The
+    resident list is left out too, since it changes with every job.
+    """
+    studio = json.loads(json.dumps(state.get("studio") or {}))
+    memory = studio.pop("memory", None) or {}
+    offered = {}
+    for workspace, section in studio.items():
+        if not isinstance(section, dict) or "backends" not in section:
+            continue
+        section.pop("active", None)
+        section.pop("capabilities", None)
+        for backend in section["backends"]:
+            backend_id = backend["id"] if isinstance(backend, dict) else backend
+            offered[f"{workspace}/{backend_id}"] = capabilities(workspace, backend_id)
+    return {
+        "studio": studio,
+        "offered": offered,
+        "memory_policy": memory.get("policy"),
+        "memory_boundary_gib": memory.get("boundary_gib"),
+    }
+
+
+def campaign_manifest(machine: str, digests: dict[str, str], live: dict | None = None) -> dict:
     """Everything a result depends on that is not the payload itself."""
     return {
         "machine": machine,
         "git": git_sha(),
+        "dirty": git_dirty(),
         "platform": platform.platform(),
         "python": platform.python_version(),
         "assets": digests,
+        "studio": live or {},
     }
 
 
@@ -209,12 +345,37 @@ def records(path: Path) -> dict[str, dict]:
     return picked
 
 
-def done(path: Path, fingerprints: dict[str, str]) -> set[str]:
-    """The cases this campaign already finished, and only those."""
+def saved(work: Path, record: dict) -> bool:
+    """Whether the artifact this row names is still the bytes it hashed.
+
+    An image crosses as JSON with the PNG inside it, so the hash in the row is the hash
+    of the decoded picture. Both forms are accepted for a row written before the kind
+    was recorded.
+    """
+    relative = record.get("file")
+    expected = record.get("sha256")
+    if not relative or expected is None:
+        return False
+    path = work / relative
+    if not path.is_file():
+        return False
+    body = path.read_bytes()
+    return expected in (sha256(body), sha256(media_bytes(body, record.get("kind", "image"))))
+
+
+def done(path: Path, fingerprints: dict[str, str], work: Path) -> set[str]:
+    """The cases this campaign already finished, and only those.
+
+    A row is a claim. The file it names is the evidence, and a campaign copied between
+    machines can carry one without the other: a lost or truncated artifact would
+    otherwise count as a finished case that nobody can look at.
+    """
     return {
         case_id
         for case_id, record in records(path).items()
-        if record.get("status") == "succeeded" and record.get("fingerprint") == fingerprints.get(case_id)
+        if record.get("status") == "succeeded"
+        and record.get("fingerprint") == fingerprints.get(case_id)
+        and saved(work, record)
     }
 
 
@@ -242,6 +403,45 @@ class OperationGone(Exception):
     """The studio no longer holds this operation, so its record cannot be trusted."""
 
 
+def remaining(deadline: float, since: float) -> float | None:
+    """The seconds left of one case's budget, or None when the caller set no limit."""
+    return None if not deadline else deadline - (time.time() - since)
+
+
+def poll_timeout(deadline: float, accepted_at: float) -> float:
+    """A status read may not outlive the deadline it is checking against."""
+    left = remaining(deadline, accepted_at)
+    return POLL_LONGEST_SECONDS if left is None else max(1.0, min(POLL_LONGEST_SECONDS, left))
+
+
+def fetch_timeout(deadline: float, accepted_at: float) -> float:
+    """A download gets the rest of the budget, but never less than a minute.
+
+    A render that lands on the deadline still has a result to collect, and a stalled
+    download has to end soon after the budget does.
+    """
+    left = remaining(deadline, accepted_at)
+    return FETCH_SECONDS if left is None else min(FETCH_SECONDS, max(FETCH_FLOOR_SECONDS, left))
+
+
+def durations(terminal: dict, accepted_at: float, observed_at: float) -> dict:
+    """The job's own span, and its wait for the slot.
+
+    `accepted_at` is when the POST returned, which for a queued job is when it started
+    waiting. The studio's own timestamps say when the job actually began, so a figure
+    taken beside another run does not quietly include a queue.
+    """
+    started_at = terminal.get("started_at")
+    finished_at = terminal.get("finished_at")
+    if not isinstance(started_at, (int, float)):
+        return {"active": round(observed_at - accepted_at, 1)}
+    end = finished_at if isinstance(finished_at, (int, float)) else observed_at
+    return {
+        "queue_wait": round(max(0.0, started_at - accepted_at), 1),
+        "active": round(max(0.0, end - started_at), 1),
+    }
+
+
 def await_terminal(base: str, operation: str, deadline: float, accepted_at: float) -> dict | None:
     """Poll until the operation ends, then return its state. None means the deadline.
 
@@ -253,7 +453,7 @@ def await_terminal(base: str, operation: str, deadline: float, accepted_at: floa
         if deadline and time.time() - accepted_at > deadline:
             return None
         try:
-            state = call(base, f"/api/v1/operations/{operation}", timeout=180)
+            state = call(base, f"/api/v1/operations/{operation}", timeout=poll_timeout(deadline, accepted_at))
         except urllib.error.HTTPError as failure:
             if failure.code == 404:
                 raise OperationGone(operation) from None
@@ -340,17 +540,28 @@ def _drive(
         }
 
     terminal_at = time.time()
-    record = {"status": terminal["status"], "operation": operation, "error": (terminal.get("error") or "")[:300]}
+    record = {"status": terminal["status"], "kind": case["kind"], "operation": operation}
+    record["error"] = (terminal.get("error") or "")[:300]
     if accepted_at:
-        record["active"] = round(terminal_at - accepted_at, 1)
+        record.update(durations(terminal, accepted_at, terminal_at))
     if submitted_now and accepted_at is not None:
         record["submit_to_accept"] = round(accepted_at - started, 1)
     write_checkpoint(phase_path, {**record, "accepted_at": accepted_at, "fingerprint": fingerprint_value})
 
     if terminal["status"] == "succeeded":
         fetched_at = time.time()
-        with urllib.request.urlopen(f"{base}/api/v1/operations/{operation}/result", timeout=600) as answer:
-            body = answer.read()
+        try:
+            with urllib.request.urlopen(
+                f"{base}/api/v1/operations/{operation}/result",
+                timeout=fetch_timeout(deadline, accepted_at or started),
+            ) as answer:
+                body = answer.read()
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as failure:
+            # The row keeps the operation, so the next run fetches this result instead of
+            # generating it again. A lost download must not read as a lost result.
+            record.update(status="fetch_failed", error=f"the result did not arrive: {failure}"[:300])
+            write_checkpoint(phase_path, {**record, "accepted_at": accepted_at, "fingerprint": fingerprint_value})
+            return record
         record["fetch"] = round(time.time() - fetched_at, 1)
         record.update(output_facts(body, case["kind"]))
         results = out.parent / "results" / machine
@@ -386,20 +597,25 @@ def run_case(
     sampler = MemorySampler()
     sampler.start()
     started = time.time()
-    record = _drive(
-        base,
-        case,
-        machine,
-        payload,
-        fingerprint_value,
-        checkpoint_path(work, machine, case["id"]),
-        out,
-        started,
-        deadline,
-        force,
-    )
+    try:
+        record = _drive(
+            base,
+            case,
+            machine,
+            payload,
+            fingerprint_value,
+            checkpoint_path(work, machine, case["id"]),
+            out,
+            started,
+            deadline,
+            force,
+        )
+    finally:
+        # A download that throws must not leave this sampler running until the process
+        # ends, and must not hide the exception that stopped the case.
+        memory = sampler.finish()
     record.update({"id": case["id"], "fingerprint": fingerprint_value, "seconds": round(time.time() - started, 1)})
-    record.update(sampler.finish())
+    record.update(memory)
     return record
 
 
@@ -422,6 +638,8 @@ def main() -> int:
         help="reuse the campaign.json on disk even when this tree differs from it",
     )
     arguments = parser.parse_args()
+    if not math.isfinite(arguments.deadline) or arguments.deadline < 0:
+        raise SystemExit("--deadline must be zero or more seconds")
 
     work = Path(arguments.work)
     out = Path(arguments.out or work / f"results-{arguments.machine}.jsonl")
@@ -439,7 +657,17 @@ def main() -> int:
 
     digests = load_assets(work)
     manifest_path = work / f"campaign-{arguments.machine}.json"
-    manifest = campaign_manifest(arguments.machine, digests)
+    try:
+        live = live_configuration(
+            call(arguments.base, "/api/v1/state"),
+            lambda workspace, backend_id: call(
+                arguments.base,
+                f"/api/v1/{WORKSPACE_ROUTES[workspace]}/backends/{backend_id}",
+            ),
+        )
+    except (urllib.error.URLError, OSError) as failure:
+        raise SystemExit(f"No studio at {arguments.base}: {failure}. Start one first.") from None
+    manifest = campaign_manifest(arguments.machine, digests, live)
     if manifest_path.is_file():
         recorded = json.loads(manifest_path.read_text())
         differing = sorted(key for key, value in manifest.items() if recorded.get(key) != value)
@@ -453,7 +681,7 @@ def main() -> int:
         manifest_path.write_text(json.dumps(manifest, indent=1) + "\n")
 
     fingerprints = {case["id"]: fingerprint(case, manifest) for case in cases}
-    finished = set() if arguments.force else done(out, fingerprints)
+    finished = set() if arguments.force else done(out, fingerprints, work)
     print(f"{arguments.machine}: {len(cases)} cases, {len(finished)} already done", flush=True)
 
     ran = skipped = failed = 0

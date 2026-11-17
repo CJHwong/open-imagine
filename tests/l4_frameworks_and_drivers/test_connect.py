@@ -3,9 +3,11 @@ from typing import Any, cast
 
 import pytest
 
+from studio.l4_frameworks_and_drivers import connect
 from studio.l4_frameworks_and_drivers.connect import (
     ConnectStatus,
     DumbpipeTransport,
+    bundled_binary,
     pair_url,
 )
 
@@ -17,6 +19,28 @@ def fake_binary(tmp_path, body: str):
     path.write_text("#!/bin/sh\n" + body)
     path.chmod(0o755)
     return path
+
+
+def test_the_bundled_binary_is_the_build_for_this_machine(tmp_path, monkeypatch):
+    """A build from another platform starts nothing and reports "Exec format error",
+    which reads as a broken transport rather than as a build that is not here."""
+    (tmp_path / "openimagine-pipe").write_text("a local cargo build")
+    (tmp_path / "openimagine-pipe-linux-aarch64").write_text("the Linux build")
+    monkeypatch.setattr(connect, "BUNDLED_DIRECTORY", tmp_path)
+    monkeypatch.setattr(connect.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(connect.platform, "machine", lambda: "aarch64")
+
+    assert bundled_binary() == tmp_path / "openimagine-pipe-linux-aarch64"
+
+
+def test_a_machine_with_no_build_falls_back_to_the_plain_name(tmp_path, monkeypatch):
+    """The plain name is where a developer's own cargo build lands, and preflight then
+    names that path when it is missing."""
+    monkeypatch.setattr(connect, "BUNDLED_DIRECTORY", tmp_path)
+    monkeypatch.setattr(connect.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(connect.platform, "machine", lambda: "AMD64")
+
+    assert bundled_binary() == tmp_path / "openimagine-pipe"
 
 
 def scripted(tmp_path, listener_exit: int = 0) -> DumbpipeTransport:

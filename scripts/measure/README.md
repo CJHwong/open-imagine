@@ -11,10 +11,11 @@ in a scratch directory.
 
 1. One studio, one operation at a time. A second GPU job makes every number wrong.
 2. The runner records four spans, because one number hides where the time went.
-   `submit_to_accept` is the POST and the response. `active` is the accept to the terminal
-   status, which is the job itself. `fetch` is the download of the result. `seconds` is the
-   whole thing end to end, and it is the only number that includes the queue wait and the
-   load. Two machines compare on `active`.
+   `submit_to_accept` is the POST and the response. `active` is the studio's own start to
+   terminal status, which is the job itself. `queue_wait` is the accept to that start, and
+   it is zero unless another operation held the slot. `fetch` is the download of the
+   result. `seconds` is the whole thing end to end, and it is the only number that includes
+   the queue wait and the load. Two machines compare on `active`.
 3. Two runs of one case give a cold row and a warm row. The first case of a workspace carries
    that workspace's load, so the warm-up pass at the end repeats it and the warm figure is the
    one to compare.
@@ -25,24 +26,29 @@ in a scratch directory.
    inside itself shows nothing at its ends. A macOS host has no `/proc/meminfo`, so it
    reports no figure.
 5. Every successful result is recorded with its SHA-256 and with the facts its own bytes
-   carry: the width and height of a PNG, the sample rate, channels and seconds of a WAV, and
-   whether an MP4 names an audio track. A success says the API answered. These say what it
-   answered with.
+   carry: the width and height of a whole PNG, the sample rate, channels and seconds of a
+   WAV read from its chunks, and whether an MP4 holds a track whose handler names sound.
+   A success says the API answered. These say what it answered with.
 
 ## A campaign
 
-A campaign is a commit, a platform, an interpreter and a set of asset bytes. The first
-`run_matrix.py` writes them to `campaign-<machine>.json` and every later run must match.
+A campaign is a commit, its dirty state, a platform, an interpreter, a set of asset bytes,
+and what the studio says it serves: the backend each workspace offers, and that backend's
+own capabilities, which carry the sizes and the weight precision. The active selection and
+the resident list are left out, because they move while a campaign runs. The first
+`run_matrix.py` writes all of it to `campaign-<machine>.json` and every later run must match.
 
-- A case is skipped only when a result of this campaign already succeeded on it. The skip
-  tests a fingerprint of the manifest and the case, so a changed commit, a changed asset or a
-  changed payload schedules the work again.
+- A case is skipped only when a result of this campaign already succeeded on it and the
+  file it names still hashes to the digest in the row. A results file copied without its
+  media, or a truncated artifact, is scheduled again. If the checkpoint still names the
+  operation, the rerun fetches the result instead of generating it.
 - `--reuse-compatible` keeps the manifest on disk when this tree differs from it. Use it to
   add cases to a campaign that is already running, not to mix two revisions.
 - `--force` runs a case this campaign already finished. Use it for a deliberate repeat.
 - `--deadline` caps one case in seconds, 1800 by default. On a breach the runner asks the
   studio to cancel and records `timeout` with the reason. A stuck operation costs one row,
-  not the night.
+  not the night. A download that fails after a success records `fetch_failed` with its
+  operation, and the next run fetches it.
 - A case that finished but whose result never arrived is fetched on the next run, not
   generated again.
 
@@ -50,7 +56,7 @@ A campaign is a commit, a platform, an interpreter and a set of asset bytes. The
 
 | File | What it does |
 |---|---|
-| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. It writes `assets.sha256` beside the directory, and it refuses to build over assets another machine already owns. |
+| `build_assets.py` | Makes the references once: one picture from the image backend, two speeches from the voice backend, and slices of an audio file. It writes `assets.sha256` beside the directory, and it refuses to build over assets another machine already owns. A build replaces the whole set: it removes the names it writes, plus the manifest, before it starts. |
 | `parity_matrix.py` | Writes `matrix.jsonl`: one JSON line per case, carrying a payload for each engine. Same prompt, same seed, same reference; only the backend id and the field each engine names differently change. |
 | `run_matrix.py` | Runs the manifest against one studio, appends one JSON line per run, and skips a case this campaign already succeeded on. |
 | `report.py` | Prints both columns side by side and names every case that is missing or did not succeed. It also prints the manifest of each machine and marks a figure that came from another campaign. That last part is the point: it is how a case stops being forgotten and how a stale figure stops being compared. |
@@ -87,8 +93,10 @@ Finally, collect both result files, both `campaign-<machine>.json` files and the
 uv run python scripts/measure/report.py --work /tmp/parity
 ```
 
-`report.py` reads `results-<machine>.jsonl` and, when present, `warm-<machine>.jsonl`, which it
-prefers.
+`report.py` reads `results-<machine>.jsonl` and, when present, `warm-<machine>.jsonl`. It
+shows the warm row when that row belongs to this campaign and succeeded, and the base row
+otherwise. A warm row from an older campaign or a failed one must not hide a good cold row,
+and a table cell and the coverage count use one definition of a valid success.
 
 ## What the assets are
 

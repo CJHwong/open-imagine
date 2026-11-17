@@ -380,13 +380,13 @@ def test_a_progress_callback_that_raises_fails_the_request_with_its_own_error():
     """The callback is the caller's code, and it must not take down the only reader of the
     child's stderr. A chatty engine then fills that pipe and blocks, and the job waits out
     its deadline with no reason to show."""
+    # The child sends no answer. A step line and an answer travel on two pipes, so the
+    # answer can be read first, and this test would then pass or fail by scheduling.
     command = (
-        "import json, sys, time\n"
+        "import sys, time\n"
         "print('ready', file=sys.stderr, flush=True)\n"
         "sys.stdin.readline()\n"
         "print('step 1/3', file=sys.stderr, flush=True)\n"
-        "print('step 2/3', file=sys.stderr, flush=True)\n"
-        "print(json.dumps({'ok': True}), flush=True)\n"
         "time.sleep(60)\n"
     )
     runner = StdioChild([sys.executable, "-c", command])

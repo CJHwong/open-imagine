@@ -6,6 +6,7 @@ written in it would not run. The test lives here instead.
 """
 
 import runpy
+import signal
 import sys
 import warnings
 from http.client import HTTPMessage
@@ -42,6 +43,38 @@ def exit_message(exits) -> str:
     return str(exits.value.code)
 
 
+def test_a_termination_signal_takes_the_orderly_stop():
+    """SIGTERM ends Python at once by default. Each engine child sits in its own session,
+    so nothing forwards the signal to it, and the GPU stays busy behind a dead server."""
+    with pytest.raises(KeyboardInterrupt):
+        entry.stop_on_signal(signal.SIGTERM, None)
+
+
+def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_path, monkeypatch):
+    """A server that leaves its own handler behind changes how the process dies for
+    whoever started it."""
+    seen = []
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    real_signal = signal.signal
+
+    def record(number, handler):
+        seen.append((number, handler))
+        return real_signal(number, handler)
+
+    monkeypatch.setattr(entry.signal, "signal", record)
+    argv(monkeypatch, "--stub", "--connect=off", "--config", str(settings_file(tmp_path)), "--port", "8933")
+
+    entry.main()
+
+    assert seen[0] == (signal.SIGTERM, entry.stop_on_signal)
+    assert seen[1] == (signal.SIGHUP, entry.stop_on_signal)
+    # The last thing installed for each number is what was there before this start.
+    assert [number for number, _ in seen[2:]] == [signal.SIGTERM, signal.SIGHUP]
+    assert all(handler is not entry.stop_on_signal for _, handler in seen[2:])
+
+
 def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypatch, capsys):
     """Ctrl-C is the documented way to stop, so it has to return the model and
     close the socket before the process ends."""
@@ -54,7 +87,7 @@ def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypa
     server.serve_forever.side_effect = serve
     server_class = Mock(return_value=server)
     monkeypatch.setattr(entry, "StudioHTTPServer", server_class)
-    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path)), "--port", "8931")
+    argv(monkeypatch, "--stub", "--connect=off", "--config", str(settings_file(tmp_path)), "--port", "8931")
 
     assert entry.main() is None
 
@@ -77,6 +110,7 @@ def test_an_allowed_origin_reaches_the_handler_in_the_browser_form(tmp_path, mon
     argv(
         monkeypatch,
         "--stub",
+        "--connect=off",
         "--config",
         str(settings_file(tmp_path)),
         "--allow-origin",
@@ -192,7 +226,15 @@ def test_the_startup_line_names_the_rewriters_before_the_click(tmp_path, monkeyp
     server = Mock()
     server.serve_forever.side_effect = KeyboardInterrupt
     monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
-    argv(monkeypatch, "--stub", "--config", str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)), "--port", "8932")
+    argv(
+        monkeypatch,
+        "--stub",
+        "--connect=off",
+        "--config",
+        str(settings_file(tmp_path, SETTINGS_WITH_REWRITERS)),
+        "--port",
+        "8932",
+    )
 
     assert entry.main() is None
 

@@ -2,6 +2,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from studio.l1_entities.errors import BackendBusy
+from studio.l4_frameworks_and_drivers import studio as studio_module
 from studio.l4_frameworks_and_drivers.studio import Studio
 
 
@@ -65,7 +67,7 @@ def test_shutdown_attempts_all_cleanups_and_preserves_multiple_failures():
 def test_shutdown_preserves_one_original_cleanup_failure():
     failure = RuntimeError("model release failed")
     closer = Mock()
-    operations = Mock()
+    operations = Mock(active=Mock(return_value=None))
     studio = Studio(
         handler=Mock(),
         catalog=Mock(),
@@ -82,3 +84,49 @@ def test_shutdown_preserves_one_original_cleanup_failure():
     assert failed.value is failure
     operations.close.assert_called_once()
     closer.assert_called_once()
+
+
+def test_shutdown_stops_the_run_in_flight_and_waits_for_it_to_end():
+    """A video run reads the cancel through the operation's own status, and its MLX
+    release frees nothing. Without the stop and the wait, the child outlives the server."""
+    operations = Mock()
+    operations.active.side_effect = [
+        {"id": "op", "status": "running"},
+        {"id": "op", "status": "stopping"},
+        None,
+    ]
+    studio = Studio(
+        handler=Mock(), catalog=Mock(), video_catalog=None, residency=Mock(), cancel=Mock(), operations=operations
+    )
+
+    studio.shutdown()
+
+    operations.stopping.assert_called_once_with("op")
+    operations.close.assert_called_once()
+
+
+def test_shutdown_tolerates_a_run_that_ends_before_it_can_be_stopped():
+    operations = Mock()
+    operations.active.return_value = {"id": "op", "status": "running"}
+    operations.stopping.side_effect = BackendBusy("This operation is no longer active.")
+    studio = Studio(
+        handler=Mock(), catalog=Mock(), video_catalog=None, residency=Mock(), cancel=Mock(), operations=operations
+    )
+
+    studio.shutdown()
+
+    operations.close.assert_called_once()
+
+
+def test_shutdown_gives_up_waiting_at_the_bound_and_still_closes(monkeypatch):
+    monkeypatch.setattr(studio_module, "SHUTDOWN_WAIT_SECONDS", 0.0)
+    operations = Mock()
+    operations.active.return_value = {"id": "op", "status": "running"}
+    studio = Studio(
+        handler=Mock(), catalog=Mock(), video_catalog=None, residency=Mock(), cancel=Mock(), operations=operations
+    )
+
+    studio.shutdown()
+
+    operations.stopping.assert_called_once_with("op")
+    operations.close.assert_called_once()

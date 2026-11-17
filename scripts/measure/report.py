@@ -34,10 +34,24 @@ def load(path: Path) -> dict:
     return picked
 
 
-def records_for(work: Path, machine: str) -> dict:
-    """The run's results, with the warm-up pass overriding where it exists."""
-    base = load(work / f"results-{machine}.jsonl")
-    base.update(load(work / f"warm-{machine}.jsonl"))
+def records_for(work: Path, machine: str) -> tuple[dict, dict]:
+    """The main run and the warm-up pass, kept apart so neither can hide the other."""
+    return load(work / f"results-{machine}.jsonl"), load(work / f"warm-{machine}.jsonl")
+
+
+def valid_success(record: dict | None, expected: str) -> bool:
+    """A success this campaign produced. One definition, for the table and the coverage."""
+    return record is not None and record.get("status") == "succeeded" and record.get("fingerprint") == expected
+
+
+def pick(base: dict | None, warm: dict | None, expected: str) -> dict | None:
+    """The warm row when it is this campaign's success, and the base row otherwise.
+
+    The warm file holds a second run of the same case, and it can come from an older
+    campaign or have failed. Either way it must not replace a good base row.
+    """
+    if valid_success(warm, expected):
+        return warm
     return base
 
 
@@ -53,8 +67,10 @@ def cell(record: dict | None, expected: str) -> str:
         return record["status"]
     if record.get("fingerprint") != expected:
         return "other campaign"
-    seconds = record.get("active", record["seconds"])
-    return f"{seconds:.1f}"
+    seconds = record.get("active")
+    if seconds is None:
+        seconds = record.get("seconds")
+    return f"{seconds:.1f}" if isinstance(seconds, (int, float)) else "no time"
 
 
 def provenance(work: Path, manifests: dict) -> list[str]:
@@ -91,6 +107,14 @@ def main() -> int:
         return fingerprint(case, manifest) if manifest else ""
 
     by_id = {case["id"]: case for case in matrix}
+
+    def picked(machine: str, case_id: str) -> tuple[dict | None, bool]:
+        """The row a table cell shows, and whether it counts as this campaign's success."""
+        base, warm = sides[machine]
+        value = expected(by_id[case_id], machine) if case_id in by_id else ""
+        record = pick(base.get(case_id), warm.get(case_id), value)
+        return record, valid_success(record, value)
+
     print("### Provenance\n")
     print("\n".join(provenance(work, manifests)))
 
@@ -103,23 +127,29 @@ def main() -> int:
         print("|---|---|---|")
         for case in cases:
             print(
-                f"| `{case}` | {cell(sides['mlx'].get(case), expected(by_id[case], 'mlx'))} "
-                f"| {cell(sides['cuda'].get(case), expected(by_id[case], 'cuda'))} |"
+                f"| `{case}` | {cell(picked('mlx', case)[0], expected(by_id[case], 'mlx'))} "
+                f"| {cell(picked('cuda', case)[0], expected(by_id[case], 'cuda'))} |"
             )
 
     print("\n### Coverage\n")
     missing = 0
     for case in by_id:
-        absent = [machine for machine in MACHINES if sides[machine].get(case, {}).get("status") != "succeeded"]
+        absent = [machine for machine in MACHINES if not picked(machine, case)[1]]
         if absent:
             missing += 1
             print(f"- `{case}`: {', '.join(absent)}")
     print(f"\n{len(by_id) - missing} of {len(by_id)} cases succeeded on both engines")
     for machine in MACHINES:
-        failed = [case for case, record in sides[machine].items() if record["status"] != "succeeded"]
+        base, warm = sides[machine]
+        rows = {**base, **warm}
+        failed = [case for case in rows if not picked(machine, case)[1]]
         print(f"{machine}: {len(failed)} did not succeed")
         for case in sorted(failed):
-            print(f"   {case}: {sides[machine][case]['status']} {sides[machine][case].get('error', '')[:80]}")
+            record, _ = picked(machine, case)
+            reason = "not run" if record is None else record.get("status")
+            if reason == "succeeded":
+                reason = "other campaign"
+            print(f"   {case}: {reason} {(record or {}).get('error', '')[:80]}")
     return 0
 
 
