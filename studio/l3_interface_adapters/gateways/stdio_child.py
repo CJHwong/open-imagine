@@ -179,7 +179,10 @@ class StdioChild:
             raise watcher_errors[0]
         if self._step_error is not None:
             # The callback that reports progress raised. That is the request's failure,
-            # not a dead engine: the kill it caused must not hide the original error.
+            # not a dead engine: the kill it caused must not hide the original error. A
+            # callback that raises after the child has answered cannot fail that answer,
+            # because the two pipes are read by different threads and the answer is whole
+            # by the time it is read.
             error, self._step_error = self._step_error, None
             self.stop()
             self._drain()
