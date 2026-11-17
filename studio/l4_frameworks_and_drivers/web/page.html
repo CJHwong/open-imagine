@@ -3601,11 +3601,16 @@
   // desktop browser has no bridge and keeps the normal download.
   (() => {
     const channel = () => window.StudioBridge || null;
+    // Every transfer is named and its size is declared, so the app can refuse a chunk
+    // from another transfer and a file that arrives short.
+    const transferName = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
     const send = async (blob, name) => {
       const bridge = channel();
       if (!bridge) return false;
-      bridge.postMessage(JSON.stringify({kind: 'begin', name, mime: blob.type || 'application/octet-stream'}));
+      const id = transferName();
       const bytes = new Uint8Array(await blob.arrayBuffer());
+      bridge.postMessage(JSON.stringify({kind: 'begin', id, name, bytes: bytes.length,
+        mime: blob.type || 'application/octet-stream'}));
       const step = 512 * 1024;
       for (let offset = 0; offset < bytes.length; offset += step) {
         const slice = bytes.subarray(offset, offset + step);
@@ -3613,9 +3618,9 @@
         for (let index = 0; index < slice.length; index += 0x8000) {
           binary += String.fromCharCode(...slice.subarray(index, index + 0x8000));
         }
-        bridge.postMessage(JSON.stringify({kind: 'chunk', data: btoa(binary)}));
+        bridge.postMessage(JSON.stringify({kind: 'chunk', id, data: btoa(binary)}));
       }
-      bridge.postMessage(JSON.stringify({kind: 'end'}));
+      bridge.postMessage(JSON.stringify({kind: 'end', id}));
       return true;
     };
     const nativeClick = HTMLAnchorElement.prototype.click;
