@@ -133,6 +133,7 @@
   "gallery.import": "匯入",
   "gallery.import.title": "還原以「匯出」建立的媒體庫 ZIP。",
   "gallery.imported": "已匯入 {count} 個項目，略過 {skipped} 個。",
+  "gallery.importPartial": "已匯入 {count} 個項目。略過 {skipped} 個。{failed} 個失敗。再匯入一次以重試失敗的項目。",
   "gallery.importFailed": "無法讀取媒體庫備份：{message}",
   "gallery.results": "媒體庫結果",
   "gallery.search": "搜尋媒體庫",

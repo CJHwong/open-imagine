@@ -95,6 +95,51 @@ def open_menu(page):
     open_settings(page, "library")
 
 
+def import_file(page, path, text):
+    page.evaluate("document.getElementById('toasts').clear()")
+    open_menu(page)
+    with page.expect_file_chooser() as chooser:
+        page.get_by_role("button", name="Import", exact=True).click()
+        page.keyboard.press("Escape")
+    chooser.value.set_files(path)
+    expect(page.locator("#toasts")).to_contain_text(text)
+
+
+def remove_selected(page, workspace, empty):
+    page.locator(f"#media-{workspace}-mode").click()
+    gallery = page.locator(f'gallery-browser[workspace="{workspace}"]')
+    # The page keeps each workspace's open panel across a reload, so the toggle is
+    # pressed only when it is closed and the mode is cleared only when it is on.
+    if not gallery.evaluate("el => el.expanded"):
+        gallery.locator(".gallery-browse-toggle").click()
+    if gallery.evaluate("el => el.selecting"):
+        gallery.get_by_role("button", name="Deselect", exact=True).click()
+    gallery.get_by_role("button", name="Select", exact=True).click()
+    gallery.locator(".gallery-check input").first.check()
+    page.once("dialog", lambda dialog: dialog.accept())
+    gallery.get_by_role("button", name="Remove 1", exact=True).click()
+    page.wait_for_function(empty)
+    page.keyboard.press("Escape")
+
+
+def broken_bundle(path, png, cases):
+    """A version 3 archive whose manifest items break one rule each."""
+    items = []
+    with zipfile.ZipFile(path, "w") as archive:
+        for index, case in enumerate(cases):
+            item = dict(case["item"])
+            if case["role"] is None:
+                item["media"] = []
+            else:
+                name = f"media/{index}.png"
+                archive.writestr(name, png)
+                item["media"] = [{"role": case["role"], "mime": case["mime"], "file": name, "size": len(png)}]
+            items.append(item)
+        archive.writestr(
+            "gallery.json", json.dumps({"format": "studio-gallery", "version": 3, "exportedAt": 0, "items": items})
+        )
+
+
 def main():
     blobs = {
         "png": base64.b64encode(png_bytes()).decode(),
@@ -184,6 +229,88 @@ def main():
         )
         print("PASS gallery import survives a reload from the stores.", flush=True)
 
+        # An explicit Import is the user's own choice. The tombstones that hide a deleted
+        # item from another tab must not hide it here, and they go with the import.
+        remove_selected(target, "image", "gallery.length === 0")
+        remove_selected(target, "video", "videoStudio.clips.length === 0")
+        # The voice studio skips a take it already holds, so only the image and the clip
+        # count as imported here. Its own rule is not this check's subject.
+        import_file(target, saved.path(), "Imported")
+        target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 1")
+        target.reload()
+        target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 1")
+        print("PASS an explicit import brings back what this browser deleted.", flush=True)
+
+        # A malformed record must change nothing: every item is refused before a store
+        # is opened, and the toast names the count.
+        fuzz = Path(tempfile.mkdtemp()) / "fuzz.zip"
+        broken_bundle(
+            fuzz,
+            png_bytes(),
+            [
+                {"item": {"workspace": "image", "id": 1001, "at": 0}, "role": "png", "mime": "image/png"},
+                {
+                    "item": {"workspace": "image", "id": 1002, "at": 0, "record": {"id": 9999}},
+                    "role": "png",
+                    "mime": "image/png",
+                },
+                {
+                    "item": {"workspace": "unknown", "id": 1003, "at": 0, "record": {"id": 1003}},
+                    "role": "png",
+                    "mime": "image/png",
+                },
+                {
+                    "item": {"workspace": "image", "id": 1004, "at": 0, "record": {"id": 1004}},
+                    "role": "mp4",
+                    "mime": "video/mp4",
+                },
+                {"item": {"workspace": "image", "id": 1005, "at": 0, "record": {"id": 1005}}, "role": None, "mime": ""},
+            ],
+        )
+        import_file(target, fuzz, "Imported 0 items, skipped 5")
+        assert target.evaluate("gallery.length") == 1, "a malformed item reached the image store"
+        assert target.evaluate("videoStudio.clips.length") == 1, "a malformed item reached the clip store"
+        print("PASS a malformed manifest is refused before any store is touched.", flush=True)
+
+        # The image store and the clip store are separate transactions, so one can fail
+        # while the other lands. The toast says how many landed, how many did not, and the
+        # same file imported again is the retry.
+        remove_selected(target, "image", "gallery.length === 0")
+        remove_selected(target, "video", "videoStudio.clips.length === 0")
+        target.evaluate("""() => {
+          window.__put = IDBObjectStore.prototype.put;
+          IDBObjectStore.prototype.put = function (value, key) {
+            if (this.name === 'clips') throw new DOMException('Injected write failure', 'QuotaExceededError');
+            return window.__put.call(this, value, key);
+          };
+        }""")
+        import_file(target, saved.path(), "1 failed")
+        target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 0")
+        target.evaluate("() => { IDBObjectStore.prototype.put = window.__put; }")
+        import_file(target, saved.path(), "Imported")
+        target.wait_for_function("gallery.length === 1 && videoStudio.clips.length === 1")
+        print("PASS a partial import reports its counts and imports again clean.", flush=True)
+
+        # The export pages the two gallery stores. A getAll over either one is made to
+        # fail while the gallery leaves, and the archive still arrives whole.
+        target.evaluate("""() => {
+          window.__getAll = IDBObjectStore.prototype.getAll;
+          IDBObjectStore.prototype.getAll = function () {
+            if (this.name === 'images' || this.name === 'clips') throw new Error('the export must page');
+            return window.__getAll.call(this);
+          };
+        }""")
+        open_menu(target)
+        with target.expect_download(timeout=60000) as paged:
+            target.get_by_role("button", name="Export", exact=True).click()
+            target.keyboard.press("Escape")
+        target.evaluate("() => { IDBObjectStore.prototype.getAll = window.__getAll; }")
+        with zipfile.ZipFile(paged.value.path()) as archive:
+            packed = archive.namelist()
+        assert "gallery.json" in packed, packed
+        assert len([name for name in packed if name.startswith("media/")]) == 4, packed
+        print("PASS the export pages both stores instead of one getAll.", flush=True)
+
         # Version 1 wrote one JSON object. A file from that build must still land.
         legacy = Path(tempfile.mkdtemp()) / "legacy-v1.json.gz"
         legacy.write_bytes(
@@ -261,6 +388,45 @@ def main():
         chooser.value.set_files(version2)
         reader.wait_for_function("gallery.length === 2")
         print("PASS a version 2 bundle still imports.", flush=True)
+
+        # A scan of many records reads the tombstone list once, not once per record:
+        # another tab's write arrives as a storage event and re-reads it a single time.
+        target.evaluate("""async () => {
+          const open = () => new Promise((resolve, reject) => {
+            const request = indexedDB.open('studio', 1);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const database = await open();
+          await new Promise((resolve, reject) => {
+            const transaction = database.transaction('images', 'readwrite');
+            const png = new Blob([new Uint8Array(8)], {type: 'image/png'});
+            for (let id = 5000; id < 5064; id++) {
+              transaction.objectStore('images').put({id, number: id, at: 1, png});
+            }
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+          });
+          database.close();
+          localStorage.setItem('studio-removed-images',
+            JSON.stringify(Array.from({length: 2048}, (_, index) => 'gone-' + index)));
+          localStorage.setItem('studio-images-cleared-at', '0');
+          window.dispatchEvent(new StorageEvent('storage', {key: 'studio-removed-images'}));
+          window.__tombstoneReads = 0;
+          const getItem = Storage.prototype.getItem;
+          Storage.prototype.getItem = function (key) {
+            const name = String(key);
+            if (name.startsWith('studio-removed-') || name.startsWith('studio-restored-')
+              || name.endsWith('-cleared-at')) window.__tombstoneReads += 1;
+            return getItem.call(this, key);
+          };
+          try { await kept.load(); } finally { Storage.prototype.getItem = getItem; }
+          localStorage.removeItem('studio-removed-images');
+          localStorage.removeItem('studio-images-cleared-at');
+        }""")
+        reads = target.evaluate("window.__tombstoneReads")
+        assert reads <= 6, f"the tombstone list was read {reads} times for 64 records"
+        print(f"PASS a 64 record scan reads the tombstones {reads} times, not 64.", flush=True)
         assert errors == [], errors
         older.close()
         fresh.close()

@@ -36,42 +36,92 @@ let page = null;
 // reachable at that first moment.
 let database = null;
 let videoDatabase = null;
+// The tombstones that hide a deleted item from another tab. They are read once and
+// kept: a scan asks about every record, and parsing the same list for each one is
+// work the page pays for nothing. A write from another tab arrives as a channel
+// message or a storage event, and either way the cache is read once more.
 function mediaRemovals(kind) {
   const removedIds = new Set();
+  // An item an archive brought back stays back, even when the delete-all time would
+  // otherwise hide it. The exception is saved beside the tombstones, so a reload and
+  // every other tab agree about it.
+  const restoredIds = new Set();
   let clearedAt = 0;
-  function remember(id) {
-    removedIds.add(id);
-    if (removedIds.size > 2048) removedIds.delete(removedIds.values().next().value);
+  let loaded = false;
+  const removedKey = 'studio-removed-' + kind;
+  const restoredKey = 'studio-restored-' + kind;
+  const clearedKey = 'studio-' + kind + '-cleared-at';
+  function remember(set, id) {
+    set.delete(id);
+    set.add(id);
+    if (set.size > 2048) set.delete(set.values().next().value);
   }
-  function wasRemoved(entry) {
+  function read() {
+    if (loaded) return;
+    loaded = true;
     try {
-      JSON.parse(localStorage.getItem('studio-removed-' + kind) || '[]').forEach(remember);
-      clearedAt = Math.max(clearedAt, Number(localStorage.getItem('studio-' + kind + '-cleared-at')) || 0);
+      JSON.parse(localStorage.getItem(removedKey) || '[]').forEach(id => remember(removedIds, String(id)));
+      JSON.parse(localStorage.getItem(restoredKey) || '[]').forEach(id => remember(restoredIds, String(id)));
+      clearedAt = Math.max(clearedAt, Number(localStorage.getItem(clearedKey)) || 0);
     } catch (error) {
       console.warn('Media removals were not read:', error);
     }
-    const completedAt = entry.at || entry.createdAt;
-    return removedIds.has(String(entry.id)) || Boolean(clearedAt && (!completedAt || completedAt <= clearedAt));
   }
-  function markRemoved(message) {
-    wasRemoved({});
-    if (message.kind.endsWith('remove')) remember(String(message.id));
-    if (message.kind.endsWith('clear')) {
-      (message.ids || []).forEach(id => remember(String(id)));
-      message.clearedAt = message.clearedAt || Date.now();
-      clearedAt = Math.max(clearedAt, message.clearedAt);
-    }
+  function save() {
     try {
-      localStorage.setItem('studio-removed-' + kind, JSON.stringify(Array.from(removedIds)));
-      localStorage.setItem('studio-' + kind + '-cleared-at', String(clearedAt));
+      localStorage.setItem(removedKey, JSON.stringify(Array.from(removedIds)));
+      localStorage.setItem(restoredKey, JSON.stringify(Array.from(restoredIds)));
+      localStorage.setItem(clearedKey, String(clearedAt));
     } catch (error) {
       console.warn('Media removals were not saved:', error);
     }
   }
-  return {wasRemoved, markRemoved};
+  // Another tab wrote one of these keys. The next question re-reads them, and only
+  // that one question pays for the parse.
+  window.addEventListener('storage', function (event) {
+    if (event.key === null || event.key === removedKey || event.key === restoredKey || event.key === clearedKey) {
+      loaded = false;
+    }
+  });
+  function wasRemoved(entry) {
+    read();
+    const id = String(entry.id);
+    if (restoredIds.has(id)) return false;
+    const completedAt = entry.at || entry.createdAt;
+    return removedIds.has(id) || Boolean(clearedAt && (!completedAt || completedAt <= clearedAt));
+  }
+  function markRemoved(message) {
+    read();
+    if (message.kind.endsWith('remove')) {
+      const id = String(message.id);
+      restoredIds.delete(id);
+      remember(removedIds, id);
+    }
+    if (message.kind.endsWith('clear')) {
+      (message.ids || []).forEach(id => {
+        const key = String(id);
+        restoredIds.delete(key);
+        remember(removedIds, key);
+      });
+      message.clearedAt = message.clearedAt || Date.now();
+      clearedAt = Math.max(clearedAt, message.clearedAt);
+    }
+    save();
+  }
+  // An imported archive is the user's own choice, so it clears the tombstone of each
+  // item it brings back. Cross-tab replication keeps asking `wasRemoved`; an explicit
+  // restore is the one caller that answers for the item itself.
+  function forget(id) {
+    read();
+    const key = String(id);
+    removedIds.delete(key);
+    remember(restoredIds, key);
+    save();
+  }
+  return {wasRemoved, markRemoved, forget};
 }
-const {wasRemoved, markRemoved} = mediaRemovals('images');
-const {wasRemoved: videoWasRemoved, markRemoved: markVideoRemoved} = mediaRemovals('videos');
+const {wasRemoved, markRemoved, forget: forgetImage} = mediaRemovals('images');
+const {wasRemoved: videoWasRemoved, markRemoved: markVideoRemoved, forget: forgetVideo} = mediaRemovals('videos');
 
 function keepPreferred(media, record, removed) {
   if (!page.keeping() || removed(record)) return;
@@ -502,28 +552,94 @@ function videoItem(record) {
     media: [{role: 'mp4', blob: record.mp4}, ...(record.thumbnail ? [{role: 'thumbnail', blob: record.thumbnail}] : [])]};
 }
 
-function collectBundle() {
-  return Promise.all([
-    inStore('readonly', images => images.getAll()),
-    inVideoStore('readonly', clips => clips.getAll()),
-  ]).then(function ([images, clips]) {
-    return images.map(imageItem).concat(clips.map(videoItem));
-  });
+// The export walks the same bounded pages the gallery loader takes. `getAll()` asks
+// one database for every record in a single result, and a gallery of large clips
+// stalls the page there before the archive exists. A page is 32 records, and the
+// media stays a Blob handle until the writer reads it, not bytes held here.
+async function collectBundle() {
+  const items = [];
+  await scanRecords(openStore, 'images', record => items.push(imageItem(record)));
+  await scanRecords(openVideoStore, 'clips', record => items.push(videoItem(record)));
+  return items;
 }
 
-function restoreBundle(items) {
-  if (!page.keeping()) return Promise.resolve({imported: 0, skipped: items.length});
-  const images = items.filter(item => item.workspace === 'image').map(rebuildImage).filter(record => !wasRemoved(record));
-  const clips = items.filter(item => item.workspace === 'video').map(rebuildVideo).filter(record => !videoWasRemoved(record));
-  return Promise.all([
-    inStore('readwrite', store => { images.forEach(record => store.put(record)); }),
-    inVideoStore('readwrite', store => { clips.forEach(record => store.put(record)); }),
-  ]).then(function () {
-    return load();
-  }).then(function () {
-    if (clips.length) page.heard({kind: 'video-add'});
-    return {imported: images.length + clips.length, skipped: items.length - images.length - clips.length};
-  });
+// What each workspace's record must carry to be drawn and deleted as one.
+const IMPORT_MEDIA = {image: 'png', video: 'mp4'};
+
+function validImport(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const role = IMPORT_MEDIA[item.workspace];
+  if (!role) return false;
+  // An image carries its number, a clip its uuid, so the id is a number or a string.
+  const named = typeof item.id === 'string' ? item.id.length > 0
+    : typeof item.id === 'number' && Number.isFinite(item.id);
+  if (!named) return false;
+  const record = item.record;
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return false;
+  // The record's own key path has to match the item that carries it, or the store
+  // keeps a row the gallery cannot open by the id it shows.
+  if (record.id !== item.id) return false;
+  const media = Array.isArray(item.media) ? item.media : [];
+  const entry = media.find(one => one && one.role === role && one.blob instanceof Blob);
+  if (!entry) return false;
+  const type = String(entry.blob.type || entry.mime || '').toLowerCase();
+  // A bundle older than version 3 stored no type; it is taken as it stands.
+  return !type || type.startsWith(item.workspace === 'image' ? 'image/' : 'video/');
+}
+
+// Everything is checked before one store is touched, so a malformed file changes
+// nothing. A record put twice under the same id is one write, which makes a retried
+// import the same as the first one.
+function planRestore(items) {
+  const plan = {images: [], videos: [], refused: 0};
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!validImport(item)) {
+      plan.refused += 1;
+      continue;
+    }
+    const key = item.workspace + '/' + item.id;
+    if (seen.has(key)) {
+      plan.refused += 1;
+      continue;
+    }
+    seen.add(key);
+    if (item.workspace === 'image') plan.images.push(rebuildImage(item));
+    else plan.videos.push(rebuildVideo(item));
+  }
+  return plan;
+}
+
+function writeCounted(write, count) {
+  return write().then(
+    () => ({written: count, failed: 0}),
+    error => ({written: 0, failed: count, error}),
+  );
+}
+
+// The image database and the video database are two transactions, and neither can
+// roll the other back. Each one settles on its own, and the counts say which records
+// landed and which did not. The refused items are counted apart from a failed write,
+// because only a failed write is worth another try.
+async function restoreBundle(items) {
+  const plan = planRestore(items);
+  const total = plan.images.length + plan.videos.length;
+  if (!page.keeping()) return {imported: 0, skipped: total + plan.refused, failed: 0};
+  const [images, videos] = await Promise.all([
+    writeCounted(() => inStore('readwrite', store => { plan.images.forEach(record => store.put(record)); }), plan.images.length),
+    writeCounted(() => inVideoStore('readwrite', store => { plan.videos.forEach(record => store.put(record)); }), plan.videos.length),
+  ]);
+  // The tombstones go for what landed, so a later cross-tab write cannot delete what
+  // the user just chose to bring back.
+  if (images.written) plan.images.forEach(record => forgetImage(record.id));
+  if (videos.written) plan.videos.forEach(record => forgetVideo(record.id));
+  await load();
+  if (videos.written) page.heard({kind: 'video-add'});
+  return {
+    imported: images.written + videos.written,
+    skipped: plan.refused,
+    failed: images.failed + videos.failed,
+  };
 }
 
 function withoutMedia(record, fields) {
