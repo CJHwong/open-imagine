@@ -867,7 +867,10 @@
   }
 
   function setWorkspaceControlsDisabled() {
-    const disabled = workspaceSwitchPending || Boolean(sharedOperation) || busy() || videoRunState !== 'idle' || Boolean(voiceStudio.busy) || Boolean(musicStudio.busy);
+    // A model switch owns the slot until it finishes. A tab pressed during it would
+    // reach the studio, be refused as busy, and leave the tab where it was.
+    const disabled = workspaceSwitchPending || backendSwitchPending || Boolean(sharedOperation) || busy()
+      || videoRunState !== 'idle' || Boolean(voiceStudio.busy) || Boolean(musicStudio.busy);
     document.getElementById('media-image-mode').disabled = disabled;
     document.getElementById('media-video-mode').disabled = disabled;
     document.getElementById('media-voice-mode').disabled = disabled;
@@ -1029,7 +1032,8 @@
       applyMediaMode(next);
       return;
     }
-    if (workspaceSwitchPending || sharedOperation || busy() || videoRunState !== 'idle' || voiceStudio.busy || musicStudio.busy) return;
+    if (workspaceSwitchPending || backendSwitchPending || sharedOperation || busy() || videoRunState !== 'idle'
+      || voiceStudio.busy || musicStudio.busy) return;
     workspaceSwitchPending = true;
     // The switch frees the model that is loaded, which takes seconds on a busy
     // machine. The pressed tab says so, instead of taking the press in silence.
@@ -3437,6 +3441,7 @@
     if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', t('page.backend.wait'));
     toggle.disabled = true;
     backendSwitchPending = true;
+    setWorkspaceControlsDisabled();
     showToast('info', t('page.backend.selecting', {name: name}));
     fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
       .then(function (answer) { return answer.text(); })
@@ -3449,11 +3454,13 @@
         }
         toggle.disabled = false;
         backendSwitchPending = false;
+        setWorkspaceControlsDisabled();
         showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
       })
       .catch(function (error) {
         toggle.disabled = false;
         backendSwitchPending = false;
+        setWorkspaceControlsDisabled();
         showToast('error', t('page.backend.switchFailed', {message: error.message}));
       });
   }

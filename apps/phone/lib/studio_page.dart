@@ -62,6 +62,15 @@ const _safeAreaStyle =
     " + ':root{--safe-top:0px;--safe-right:0px;--safe-bottom:0px;--safe-left:0px;}';"
     "document.head.appendChild(style); })()";
 
+/// How many probes in a row without an answer mark the studio gone.
+///
+/// The probe is the only liveness check, so this is also how long a phone tolerates a
+/// studio that is slow to answer. Three was too few: freeing a large model, or a radio
+/// that stalls for a moment, cut a connection that would have recovered.
+const int missesBeforeLost = 10;
+
+bool studioIsGone(int misses) => misses >= missesBeforeLost;
+
 class StudioPage extends StatefulWidget {
   const StudioPage({super.key, required this.port, this.onLost});
 
@@ -206,8 +215,10 @@ class _StudioPageState extends State<StudioPage> {
         return;
       }
       _misses++;
-      // One slow reply is not the end. Three in a row is.
-      if (_misses < 3) return;
+      // A probe that misses is not a studio that is gone. The studio frees a model
+      // while a workspace switch runs, and the phone's own radio can stall too, so a
+      // few misses are normal. Only a minute of them ends the connection.
+      if (!studioIsGone(_misses)) return;
       _heartbeat?.cancel();
       widget.onLost?.call();
       if (mounted) Navigator.of(context).pop();

@@ -1,3 +1,6 @@
+import threading
+import time
+
 import pytest
 
 from studio.l1_entities.errors import UnknownBackend
@@ -295,3 +298,53 @@ def test_status_reports_the_policy_boundary_and_resident_models():
     residency.claim("small")
 
     assert residency.status() == {"policy": "boundary", "boundary_gib": 50.0, "resident": ["small"]}
+
+
+def test_a_reader_does_not_wait_for_a_model_to_be_freed():
+    """The phone's heartbeat reads this gateway while a workspace switch frees a model.
+    A free that takes seconds must not hold the reader with it."""
+    freed = threading.Event()
+    started_release = threading.Event()
+
+    class SlowRuntime(ModelLifecycleGateway):
+        def load(self) -> None:
+            pass
+
+        def release(self) -> None:
+            started_release.set()
+            freed.wait(5)
+
+    residency = InMemoryModelResidencyGateway({"slow": SlowRuntime()}, policy="immediate")
+    residency.claim("slow")
+    worker = threading.Thread(target=residency.release)
+    worker.start()
+    assert started_release.wait(2)
+
+    began = time.monotonic()
+    assert residency.status()["resident"] == []
+    assert residency.active_id() is None
+    assert time.monotonic() - began < 0.5
+
+    freed.set()
+    worker.join(5)
+
+
+def test_a_model_that_will_not_free_stays_recorded():
+    """A failed free leaves the model in memory, so the next claim has to free it before
+    it loads another one beside it."""
+
+    class StuckRuntime(ModelLifecycleGateway):
+        def load(self) -> None:
+            pass
+
+        def release(self) -> None:
+            raise RuntimeError("the runtime will not free")
+
+    residency = InMemoryModelResidencyGateway({"stuck": StuckRuntime()}, policy="immediate")
+    residency.claim("stuck")
+
+    with pytest.raises(RuntimeError, match="will not free"):
+        residency.release()
+
+    assert residency.resident_ids() == ("stuck",)
+    assert residency.active_id() is None
