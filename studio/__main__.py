@@ -15,6 +15,7 @@ USAGE:
 """
 
 import argparse
+import signal
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -175,6 +176,16 @@ def parse_args():
     return parser.parse_args()
 
 
+def stop_on_signal(signum, frame):
+    """Turn a termination request into the orderly stop Ctrl-C gets.
+
+    SIGTERM's default ends the process at once, so the engine children, each in its own
+    session, keep the GPU. Raising here lands in the handler that shuts down and closes
+    the socket. SIGHUP is the same story when a terminal window closes.
+    """
+    raise KeyboardInterrupt
+
+
 def main():
     args = parse_args()
     try:
@@ -247,6 +258,7 @@ def main():
         "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
         flush=True,
     )
+    previous = [(number, signal.signal(number, stop_on_signal)) for number in (signal.SIGTERM, signal.SIGHUP)]
     try:
         server.expire = studio.expire
         server.serve_forever()
@@ -255,6 +267,8 @@ def main():
     finally:
         studio.shutdown()
         server.server_close()
+        for number, handler in previous:
+            signal.signal(number, handler)
 
 
 if __name__ == "__main__":

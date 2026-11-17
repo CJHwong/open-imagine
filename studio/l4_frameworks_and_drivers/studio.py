@@ -1,8 +1,10 @@
 """The assembled Studio application and its owned lifecycle."""
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from studio.l1_entities.errors import BackendBusy
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l3_interface_adapters.gateways.in_memory.backend_catalog_gateway import InMemoryBackendCatalogGateway
@@ -12,6 +14,11 @@ from studio.l3_interface_adapters.gateways.in_memory.video_backend_catalog_gatew
     InMemoryVideoBackendCatalogGateway,
 )
 from studio.l4_frameworks_and_drivers.connect import ConnectStatus, ConnectTransport
+
+# How long a shutdown waits for the run it stopped to report its end. The video runner
+# looks at the cancel flag four times a second, and a child killed on it returns at once.
+SHUTDOWN_WAIT_SECONDS = 5.0
+SHUTDOWN_POLL_SECONDS = 0.05
 
 
 @dataclass(frozen=True)
@@ -47,12 +54,12 @@ class Studio:
         self.operations.expire()
 
     def shutdown(self) -> None:
-        """Free the one resident model and the prompt rewriter.
+        """Stop the run in flight, free the one resident model, and close the server.
 
         The frees wait in line on the GPU thread, behind any run, so the run is
         cancelled first. Without that, Ctrl-C waited for the image to finish.
         """
-        cleanups = [self.cancel.execute, self.residency.release]
+        cleanups = [self._stop_run, self.cancel.execute, self.residency.release]
         cleanups.extend(model.release for model in (self.rewriter, self.video_rewriter) if model is not None)
         if self.connect is not None:
             cleanups.append(self.connect.stop)
@@ -69,3 +76,25 @@ class Studio:
             raise failures[0]
         if failures:
             raise ExceptionGroup("Studio shutdown failed", failures)
+
+    def _stop_run(self) -> None:
+        """Mark the run in flight stopping, and give it a moment to end.
+
+        `cancel.execute` sets the flag the image and voice engines read, and refuses a
+        video on purpose: a public caller has to name its own render. Shutdown is not a
+        caller, so it moves the active operation to stopping, which every kind reads. The
+        wait is what stops an MLX video child outliving this process: its release is a
+        no-op, and nothing else would wait for the kill to land.
+        """
+        active = self.operations.active()
+        if active is None or active.get("status") not in ("running", "stopping"):
+            return
+        try:
+            self.operations.stopping(active["id"])
+        except BackendBusy:
+            return  # it ended between the read and the stop
+        end = time.monotonic() + SHUTDOWN_WAIT_SECONDS
+        while self.operations.active() is not None:
+            if time.monotonic() >= end:
+                return
+            time.sleep(SHUTDOWN_POLL_SECONDS)
