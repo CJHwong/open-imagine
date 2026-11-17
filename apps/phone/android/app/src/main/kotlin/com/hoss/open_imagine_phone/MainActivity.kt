@@ -116,8 +116,11 @@ class MainActivity : FlutterActivity() {
         val folder = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
         folder.mkdirs()
         val file = File(folder, leaf)
+        // `toPath` needs API 26 and this app runs on 24. The canonical path with its
+        // separator is the same test and works there.
         val root = folder.canonicalFile
-        if (!file.canonicalFile.toPath().startsWith(root.toPath())) {
+        val target = file.canonicalFile
+        if (target != root && !target.path.startsWith(root.path + File.separator)) {
             throw IOException("The download name points outside the downloads folder")
         }
         file.writeBytes(bytes)
