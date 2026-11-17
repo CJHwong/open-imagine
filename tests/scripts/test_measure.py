@@ -810,3 +810,24 @@ def test_a_studio_running_another_commit_is_refused(work, monkeypatch):
 
         with pytest.raises(SystemExit, match="would be attributed"):
             run_matrix.main()
+
+
+def test_the_report_names_its_columns(tmp_path, monkeypatch, capsys):
+    """Two machines produced the reference page. The runner is generic, so a column can be
+    named without editing the script before another machine's campaign is printed."""
+    report_work(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["report.py", "--work", str(tmp_path), "--label", "mlx=MacBook", "--label", "cuda=Spark"]
+    )
+
+    report.main()
+
+    assert "| Case | MacBook (s) | Spark (s) |" in capsys.readouterr().out
+
+
+def test_a_label_that_names_no_machine_is_refused(tmp_path, monkeypatch):
+    report_work(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path), "--label", "mac=MacBook"])
+
+    with pytest.raises(SystemExit, match="MACHINE=TEXT"):
+        report.main()

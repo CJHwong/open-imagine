@@ -25,6 +25,9 @@ GROUPS = (
     ("Music", ("yue2",)),
 )
 MACHINES = ("cuda", "mlx")
+# Two machines produced the reference page. The runner is generic, so a column can be
+# renamed without editing the script.
+DEFAULT_LABELS = {"mlx": "M5 Pro", "cuda": "DGX Spark"}
 # The fields two machines must agree on before their figures describe the same thing.
 SHARED = ("git", "assets")
 
@@ -97,7 +100,20 @@ def provenance(work: Path, manifests: dict) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--work", default="/tmp/parity")
+    parser.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        metavar="MACHINE=TEXT",
+        help="name a column, such as mlx=M5 Pro; the default names the two machines this was written on",
+    )
     arguments = parser.parse_args()
+    labels = dict(DEFAULT_LABELS)
+    for entry in arguments.label:
+        machine, _, text = entry.partition("=")
+        if machine not in MACHINES or not text:
+            raise SystemExit("--label takes MACHINE=TEXT, where MACHINE is cuda or mlx")
+        labels[machine] = text
     work = Path(arguments.work)
     matrix = rows(work / "matrix.jsonl")
     manifests = {machine: manifest_for(work, machine) for machine in MACHINES}
@@ -138,7 +154,7 @@ def main() -> int:
         if not cases:
             continue
         print(f"\n### {title}\n")
-        print("| Case | M5 Pro (s) | DGX Spark (s) |")
+        print(f"| Case | {labels['mlx']} (s) | {labels['cuda']} (s) |")
         print("|---|---|---|")
         for case in cases:
             left, left_media = chosen("mlx", case)
