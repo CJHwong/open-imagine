@@ -39,10 +39,12 @@ window.studioI18n = {t: key => key, plural: (count, forms) => (typeof forms === 
   number: value => String(value), date: value => String(value), locale: () => 'en',
   label: (kind, id, english) => english};
 window.importedImages = [];
+window.notices = [];
 document.addEventListener('operations-ready', event => {
   event.detail.configure({
     clientId: 'retry-check', libraryId: 'retry-check',
-    notify() {}, setActive() {}, changingModel: () => false, observeDrafts() {},
+    notify(kind, text) { window.notices.push(text); },
+    setActive() {}, changingModel: () => false, observeDrafts() {},
     finishImageOperation() {},
     addImages(operation, images) { window.importedImages.push(...images.map(() => operation.id)); }
   });
@@ -79,6 +81,8 @@ def main() -> int:
         except BrowserTimeout:
             print(f"FAIL the result never arrived after {len(failures)} failed reads")
             return 1
+            notices = page.evaluate("window.notices")
+            assert any("retry-ch" in text for text in notices), f"the failure did not name the operation: {notices}"
         finally:
             browser.close()
     print(f"PASS imported after {len(failures)} failed reads")

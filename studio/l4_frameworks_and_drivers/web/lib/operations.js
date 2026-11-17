@@ -338,8 +338,11 @@ async function poll() {
         importRetryAt.set(operation.id, Date.now() + Math.min(60000, 2000 * 2 ** Math.min(failures, 5)));
         const message = error instanceof SyntaxError ? t('operation.error.result')
           : (error.message || t('operation.error.result'));
-        importFailure = message;
-        if (lastFailure !== message) page.notify('error', message);
+        // Which operation failed matters when several tabs and a phone share one studio.
+        // A private operation keeps its id to itself.
+        const where = operation.private ? '' : ` (${operation.kind} ${String(operation.id).slice(0, 8)})`;
+        importFailure = message + where;
+        if (lastFailure !== message) page.notify('error', message + where);
         lastFailure = message;
       }
       page.finishImageOperation(operation);

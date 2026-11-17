@@ -28,6 +28,40 @@ PlatformWebViewWidgetCreationParams studioWebViewParameters(
 
 /// The studio fills the screen. The page is the only chrome: no address, no
 /// back button and no reload button. The system back gesture leaves the app.
+/// Install what the page needs from this view, and say whether it worked.
+///
+/// The input bridge is a native capability: without it the page cannot attach a file or
+/// take a recording, and a page that looks loaded and silently cannot is worse than one
+/// that reports the failure. It is retried once, because the navigation can land a moment
+/// before the document is ready. The style is presentation only, so it is best effort.
+Future<bool> installPage({
+  required Future<void> Function() inputs,
+  required Future<void> Function() style,
+}) async {
+  for (var attempt = 0; attempt < 2; attempt++) {
+    try {
+      await inputs();
+      break;
+    } catch (_) {
+      if (attempt == 1) return true;
+    }
+  }
+  try {
+    await style();
+  } catch (_) {
+    // The page still works without the insets.
+  }
+  return false;
+}
+
+// SafeArea keeps this view off the system bars, so the page must not inset them a second
+// time.
+const _safeAreaStyle =
+    "(() => { const style = document.createElement('style');"
+    "style.textContent = '*{-webkit-tap-highlight-color: transparent !important;}'"
+    " + ':root{--safe-top:0px;--safe-right:0px;--safe-bottom:0px;--safe-left:0px;}';"
+    "document.head.appendChild(style); })()";
+
 class StudioPage extends StatefulWidget {
   const StudioPage({super.key, required this.port, this.onLost});
 
@@ -103,19 +137,16 @@ class _StudioPageState extends State<StudioPage> {
                   });
                 }
               },
-              onPageFinished: (_) {
-                unawaited(_inputs.install());
-                unawaited(
-                  _controller.runJavaScript(
-                    "(() => { const style = document.createElement('style');"
-                    // SafeArea keeps this view off the system bars, so the page
-                    // must not inset them a second time.
-                    "style.textContent = '*{-webkit-tap-highlight-color: transparent !important;}'"
-                    " + ':root{--safe-top:0px;--safe-right:0px;--safe-bottom:0px;--safe-left:0px;}';"
-                    "document.head.appendChild(style); })()",
-                  ),
+              onPageFinished: (_) async {
+                final failed = await installPage(
+                  inputs: _inputs.install,
+                  style: () => _controller.runJavaScript(_safeAreaStyle),
                 );
-                if (mounted) setState(() => _loading = false);
+                if (!mounted) return;
+                setState(() {
+                  _loading = false;
+                  _error = failed ? AppLocalizations.of(context).pageSetupFailed : null;
+                });
               },
               onWebResourceError: (error) {
                 if (error.isForMainFrame ?? true) {
