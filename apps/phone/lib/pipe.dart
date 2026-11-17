@@ -23,6 +23,11 @@ class PipeRefused implements Exception {
 
   final int code;
 
+  /// Whether the stored pairing itself is unusable. A port already in use, or an
+  /// endpoint that could not start, is this attempt's failure, and the pairing is worth
+  /// keeping for the next one.
+  bool get permanent => code == -1 || code == -2 || code == -3 || code == -6;
+
   @override
   String toString() => 'The pipe refused the ticket (code $code).';
 }

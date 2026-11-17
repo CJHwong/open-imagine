@@ -89,7 +89,7 @@ class _HomePageState extends State<HomePage> {
       if (!_current(version)) return;
       // A slow studio must not cost the pairing. Only a ticket this process
       // cannot use at all is worth deleting.
-      final refused = error is PipeRefused;
+      final refused = error is PipeRefused && error.permanent;
       if (refused) await _storage.delete(key: _key);
       if (_current(version)) {
         setState(() {
