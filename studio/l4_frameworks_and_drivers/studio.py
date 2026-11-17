@@ -1,8 +1,9 @@
 """The assembled Studio application and its owned lifecycle."""
 
+import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from studio.l1_entities.errors import BackendBusy
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -35,6 +36,10 @@ class Studio:
 
     connect: ConnectTransport | None = None
     close_gpu: Callable[[], None] | None = None
+    # A second shutdown is a no-op. The first one closed the store and freed the models,
+    # and running the cleanups again would touch a closed handle and hide the first
+    # reason they failed.
+    shutdown_done: threading.Event = field(default_factory=threading.Event, compare=False, repr=False)
 
     def active_capabilities(self):
         return self.catalog.get(self.catalog.active_id()).capabilities()
@@ -57,8 +62,12 @@ class Studio:
         """Stop the run in flight, free the one resident model, and close the server.
 
         The frees wait in line on the GPU thread, behind any run, so the run is
-        cancelled first. Without that, Ctrl-C waited for the image to finish.
+        cancelled first. Without that, Ctrl-C waited for the image to finish. A second
+        call does nothing: the handles the first call closed stay closed.
         """
+        if self.shutdown_done.is_set():
+            return
+        self.shutdown_done.set()
         cleanups = [
             self.operations.close_admission,
             self._stop_run,

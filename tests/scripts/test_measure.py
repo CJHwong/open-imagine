@@ -580,7 +580,7 @@ def test_a_tree_whose_state_cannot_be_read_is_not_called_clean(monkeypatch):
     assert run_matrix.git_dirty() == "unknown"
 
 
-def test_a_case_that_throws_always_stops_its_memory_sampler(work, monkeypatch):
+def test_a_case_that_throws_stops_its_memory_sampler_and_becomes_a_failed_row(work, monkeypatch):
     stopped = []
 
     class Sampler:
@@ -596,10 +596,11 @@ def test_a_case_that_throws_always_stops_its_memory_sampler(work, monkeypatch):
 
     monkeypatch.setattr(run_matrix, "MemorySampler", Sampler)
     monkeypatch.setattr(run_matrix, "_drive", explode)
-    with served() as studio, pytest.raises(RuntimeError, match="the studio went away"):
-        run(studio, work, one_case(), monkeypatch)
+    with served() as studio:
+        record = run(studio, work, one_case(), monkeypatch)
 
     assert stopped == [True]
+    assert record["status"] == "case_failed" and "the studio went away" in record["error"]
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-1"])
@@ -975,3 +976,40 @@ def test_the_report_names_the_precision_each_backend_was_built_at(tmp_path, monk
     printed = capsys.readouterr().out
     assert "mlx models: minimax_h3_image bf16" in printed
     assert "compare hardware, not identical weights" in printed
+
+
+def test_one_case_that_raises_is_one_failed_row_and_the_campaign_goes_on(work, monkeypatch):
+    """An HTTP call that throws used to end the whole campaign. The row names it, the
+    sampler still reports, and the next run retries this case because it is not finished."""
+
+    def explode(*_args, **_kwargs):
+        raise OSError("the studio went away")
+
+    monkeypatch.setattr(run_matrix, "_drive", explode)
+    case = one_case()
+    record = run_matrix.run_case(
+        "http://127.0.0.1:1",
+        case,
+        "mlx",
+        run_matrix.fingerprint(case, {"machine": "mlx"}),
+        work / "assets",
+        {},
+        work,
+        work / "results-mlx.jsonl",
+        5.0,
+    )
+
+    assert record["status"] == "case_failed"
+    assert "the studio went away" in record["error"]
+    assert record["id"] == case["id"]
+
+
+def test_the_campaign_records_every_engine_pin_and_the_studio_lock():
+    """A child's PEP 723 header pins its engine's packages, so its digest is that lock.
+    A trial that ran under different pins is a different trial."""
+    manifest = run_matrix.campaign_manifest("mlx", {})
+
+    pins = manifest["pins"]
+    assert "uv.lock" in pins
+    assert any(name.endswith("qwen21_cuda_child.py") for name in pins), sorted(pins)
+    assert all(len(digest) == 64 for digest in pins.values())

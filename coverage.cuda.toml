@@ -9,6 +9,11 @@
 # partial branches, so omitting them leaves exactly 100% over the rest. A module that
 # joins that set stops the CUDA run until it is listed here, which is the reminder to
 # decide it deliberately.
+#
+# What this gate proves: the code this host can import runs every line with the engines
+# faked. What it does not prove: that a CUDA kernel ran, that the browser drew the page,
+# or that the phone saved a file. `pytest -m live` and `tests/e2e` are the evidence for
+# those, and they are run by hand.
 
 [tool.coverage.run]
 branch = true

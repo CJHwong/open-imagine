@@ -18,6 +18,12 @@ jobs:
     name: lint and tests
     # macOS on Apple Silicon, because mflux and mlx-vlm install only there. The suite mocks every
     # engine, so it needs no weights and no GPU; the `live` tests and tests/e2e stay manual.
+    #
+    # What a green run here proves: the studio's Python reaches every statement and branch, with
+    # the engines faked. What it does not prove: that a CUDA kernel ran, that MLX allocated what
+    # the estimate says, that the browser drew the page, or that the Android app saved a file.
+    # Those are proven by the live tests on each machine and by tests/e2e, run by hand. Do not
+    # read this gate as evidence for them.
     runs-on: macos-15
     timeout-minutes: 30
     steps:
