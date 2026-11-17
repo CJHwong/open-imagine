@@ -3,6 +3,7 @@
 import base64
 import io
 import json
+import logging
 import threading
 import urllib.error
 import urllib.request
@@ -377,7 +378,12 @@ def test_video_route_rejects_invalid_json_and_wrong_content_type(served):
 @pytest.mark.parametrize(
     ("body", "headers", "length", "message"),
     [
-        (b"", {"Content-Type": "application/json"}, None, "between 1 byte and 64 MB"),
+        (
+            b"",
+            {"Content-Type": "application/json"},
+            None,
+            f"between 1 byte and {http_server.MAX_VIDEO_REQUEST_MEGABYTES} MB",
+        ),
         (b"\xff", {"Content-Type": "application/json"}, None, "valid JSON"),
         (b"[]", {"Content-Type": "application/json"}, None, "JSON object"),
         (b"{}", {}, None, "application/json"),
@@ -393,10 +399,29 @@ def test_video_route_rejects_invalid_request_shapes(served, body, headers, lengt
 
 
 def test_video_route_rejects_an_oversized_body_before_reading_it(served):
-    response = post_video_with_length(served[1], b"x", 64 * 1024 * 1024 + 1)
+    response = post_video_with_length(served[1], b"x", http_server.MAX_VIDEO_REQUEST_BYTES + 1)
 
     assert response[0] == 400
-    assert "between 1 byte and 64 MB" in json.loads(response[2])["error"]
+    assert f"between 1 byte and {http_server.MAX_VIDEO_REQUEST_MEGABYTES} MB" in json.loads(response[2])["error"]
+
+
+def test_the_body_cap_clears_the_largest_clip_at_base64_cost():
+    """A clip crosses as base64 inside JSON: four bytes for every three. A cap sized to the
+    clip itself refuses a clip the validator would accept."""
+    encoded = (http_server.MAX_CLIP_BYTES + 2) // 3 * 4
+
+    assert encoded <= http_server.MAX_VIDEO_REQUEST_BYTES
+
+
+def test_a_body_above_the_old_64_mb_cap_reaches_the_controller(served):
+    """This body used to be refused by the reader before anything looked inside it."""
+    payload = {**json.loads(video_request()), "prompt": "x" * (70 * 1024 * 1024)}
+    body = json.dumps(payload).encode()
+
+    status, _, answer = call(served[1], "/api/v1/videos/generate", body, **{"Content-Type": "application/json"})
+
+    assert "between 1 byte and" not in answer
+    assert status in (200, 201), answer[:200]
 
 
 @pytest.mark.parametrize(
@@ -809,13 +834,17 @@ def test_the_api_reports_a_pipeline_error_as_unavailable(served):
     assert json.loads(body)["error"] == "the engine is missing"
 
 
-def test_the_api_reports_an_unexpected_error_as_a_server_error(served):
+def test_the_api_reports_an_unexpected_error_as_a_server_error(served, caplog):
     served[0].video_catalog.get("video-fake").failure = ValueError("boom")
 
-    status, _, body = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
+    with caplog.at_level(logging.ERROR, logger="studio.http"):
+        status, _, body = post_json(served[1], "/api/v1/videos/generate", json.loads(video_request()))
 
     assert status == 500
-    assert json.loads(body)["error"] == "ValueError: boom"
+    # The caller gets a sentence that names no internals, and this machine keeps the cause.
+    assert json.loads(body)["error"] == "The studio hit an unexpected error. Its log names the cause."
+    assert "boom" not in body
+    assert "boom" in caplog.text
 
 
 def test_an_unknown_api_post_is_a_json_not_found(served):
@@ -840,7 +869,23 @@ def test_the_api_reports_an_unexpected_image_error_as_a_server_error(served):
     status, _, body = post_json(served[1], "/api/v1/images/generate", {"prompt": "a pear"})
 
     assert status == 500
-    assert json.loads(body)["error"] == "ValueError: boom"
+    assert json.loads(body)["error"] == "The studio hit an unexpected error. Its log names the cause."
+    assert "boom" not in body
+
+
+def test_a_shared_route_keeps_an_unexpected_cause_out_of_the_body(served, monkeypatch, caplog):
+    """The page routes that answer through the shared path hide the cause the same way."""
+    from unittest.mock import Mock
+
+    monkeypatch.setattr(served[0].operations, "active", Mock(side_effect=ValueError("boom")))
+
+    with caplog.at_level(logging.ERROR, logger="studio.http"):
+        status, _, body = call(served[1], "/progress")
+
+    assert status == 500
+    assert json.loads(body)["error"] == "The studio hit an unexpected error. Its log names the cause."
+    assert "boom" not in body
+    assert "boom" in caplog.text
 
 
 def test_a_server_built_without_the_api_says_so_on_both_methods():
@@ -1060,7 +1105,10 @@ def test_operation_sources_distinguish_native_and_api_requests(served):
     assert all(one["source"] == "api" for one in api_operations)
 
 
-def test_native_video_timestamp_survives_immediate_result_eviction(served, monkeypatch):
+def test_the_native_video_timestamp_arrives_in_a_header_and_matches_the_record(served, monkeypatch):
+    """The page reads the completion time from the answer's header, not only from the
+    operation list. A one-byte cap cannot evict the newest finished result any more, so the
+    record stays and the two sources of the same number have to agree."""
     from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway as Operations
 
     retain = Operations.retain
@@ -1075,9 +1123,12 @@ def test_native_video_timestamp_survives_immediate_result_eviction(served, monke
     with urllib.request.urlopen(request, timeout=30) as answer:
         assert answer.status == 200
         assert answer.read() == b"fake mp4 bytes"
-        assert float(answer.headers["X-Studio-Completed"]) > 0
+        completed = float(answer.headers["X-Studio-Completed"])
     _, _, state = call(served[1], "/api/v1/state")
-    assert json.loads(state)["operations"] == []
+    operations = json.loads(state)["operations"]
+
+    assert completed > 0
+    assert [one["finished_at"] for one in operations] == [completed]
 
 
 @pytest.fixture
@@ -2022,7 +2073,7 @@ def test_get_accepts_query_strings_on_existing_resources(served, path):
 
 
 @pytest.mark.parametrize("path", ["/generate", "/api/v1/images/generate", "/video/generate", "/image/normalize"])
-@pytest.mark.parametrize("length", ["invalid", "-1", "67108865", "+2"])
+@pytest.mark.parametrize("length", ["invalid", "-1", str(http_server.MAX_VIDEO_REQUEST_BYTES + 1), "+2"])
 def test_request_lengths_fail_before_body_read_or_model_work(served, path, length):
     status, _, _ = call(served[1], path, b"", **{"Content-Type": "application/json", "Content-Length": length})
     assert status == 400
