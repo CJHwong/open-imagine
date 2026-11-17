@@ -40,6 +40,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -250,6 +251,7 @@ def expected_manifest(model_name: str) -> dict:
         "format": PACK_FORMAT,
         "model": model_name,
         "versions": versions(),
+        "source": source_revision(model_name),
         "block_size": 16,
         "orig_dtype": "torch.bfloat16",
         "is_swizzled_scales": True,
@@ -271,11 +273,62 @@ def pack_path(root: Path, model_name: str) -> Path:
     return Path(root) / model_name.replace("/", "--")
 
 
+def source_revision(model: str) -> str:
+    """The committed snapshot this model resolves to, when this machine can name one.
+
+    A repository id can point at a branch that moves, so the id alone does not say which
+    weights a pack holds. `huggingface_hub` caches a repo under
+    `models--org--name/snapshots/<commit>/`, and that commit is the identity to record. A
+    local directory is named by its file list and sizes, which catches another snapshot but
+    not a same-size change inside one. Anything else reports unknown.
+    """
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:  # the unit tests run without the engine's packages
+        HF_HUB_CACHE = ""
+    cache = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
+    if HF_HUB_CACHE and cache.is_dir():
+        commits = sorted(one.name for one in cache.iterdir() if one.is_dir())
+        if len(commits) == 1:
+            return commits[0]
+    local = Path(model).expanduser()
+    if local.is_dir():
+        digest = hashlib.sha256()
+        for path in sorted(local.rglob("*")):
+            if path.is_file():
+                digest.update(f"{path.relative_to(local)}:{path.stat().st_size}".encode())
+        return "local:" + digest.hexdigest()[:16]
+    return "unknown"
+
+
+def staging_directory(directory: Path) -> Path:
+    """An empty folder beside the pack in use, where a new one is assembled."""
+    staging = directory.with_name(directory.name + ".building")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    return staging
+
+
+def publish(staging: Path, directory: Path) -> None:
+    """Swap a finished pack in, and never leave half of one under the published name."""
+    previous = directory.with_name(directory.name + ".old")
+    shutil.rmtree(previous, ignore_errors=True)
+    if directory.exists():
+        directory.rename(previous)
+    staging.rename(directory)
+    shutil.rmtree(previous, ignore_errors=True)
+
+
 def read_manifest(directory: Path) -> dict | None:
     path = directory / "pack.json"
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Half a manifest is an interrupted write, not a pack. Absent means build one.
+        say(f"{path} cannot be read, so the pack is built again")
+        return None
 
 
 def write_pack(model, directory, manifest: dict) -> None:
@@ -295,9 +348,10 @@ def write_pack(model, directory, manifest: dict) -> None:
                 weight.per_tensor_scale.detach().clone().float().reshape(1).contiguous()
             )
     manifest = {**manifest, "has_per_tensor_scale": has_scale}
-    directory.mkdir(parents=True, exist_ok=True)
-    save_file(tensors, str(directory / "weights.safetensors"))
-    (directory / "pack.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    staging = staging_directory(directory)
+    save_file(tensors, str(staging / "weights.safetensors"))
+    (staging / "pack.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    publish(staging, directory)
 
 
 def empty_model(model_dir) -> "object":
@@ -365,7 +419,8 @@ def load_packed(model_name: str, root: Path):
     pipe.__enter__()
     directory = pack_path(root, model_name)
     manifest = read_manifest(directory)
-    if manifest is None or not manifest_matches(manifest, expected_manifest(model_name)):
+    weights = directory / "weights.safetensors"
+    if manifest is None or not manifest_matches(manifest, expected_manifest(model_name)) or not weights.is_file():
         started = time.time()
         model = pipe._load_model()
         quantize_ar(model)
@@ -378,7 +433,7 @@ def load_packed(model_name: str, root: Path):
     loaded = load_unpacked(model, pipe.model_dir, set(manifest["layers"]))
     attach_pack(
         model,
-        {key: value.to("cuda") for key, value in load_file(str(directory / "weights.safetensors")).items()},
+        {key: value.to("cuda") for key, value in load_file(str(weights)).items()},
         manifest,
     )
     model.eval()

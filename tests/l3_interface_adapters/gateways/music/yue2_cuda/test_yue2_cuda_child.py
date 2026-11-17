@@ -511,6 +511,7 @@ def test_a_matching_pack_is_served_without_touching_the_checkpoint_weights(monke
     shard = tmp_path / "checkpoint" / "model.safetensors"
     shard.parent.mkdir()
     shard.write_bytes(b"")
+    (directory / "weights.safetensors").write_bytes(b"")
     monkeypatch.setattr(child, "empty_model", lambda model_dir: model)
     monkeypatch.setattr(child, "load_unpacked", lambda model, model_dir, packed: 3)
     recorded["pack_tensors"] = {"layer.qdata": StubTensor("q"), "layer.scale": StubTensor("s")}
@@ -1000,3 +1001,127 @@ def test_the_reference_extension_follows_its_bytes():
     assert child.audio_suffix(b"OggS....") == ".ogg"
     assert child.audio_suffix(b"fLaC....") == ".flac"
     assert child.audio_suffix(b"????") == ".bin"
+
+
+def test_a_half_written_manifest_reads_as_no_pack(tmp_path, capsys):
+    """An interrupted write leaves half a JSON file. Reading it as absent rebuilds, which
+    is what the owner wanted; reading it as a pack fails every start after it."""
+    (tmp_path / "pack.json").write_text('{"format": 1, "layers": [', encoding="utf-8")
+
+    assert child.read_manifest(tmp_path) is None
+    assert "built again" in capsys.readouterr().err
+
+
+def test_a_pack_that_dies_while_it_is_written_is_not_published(monkeypatch, tmp_path):
+    fake_modules(monkeypatch)
+    model = FakeModel(quantized_linears())
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "pack.json").write_text('{"format": 1, "old": true}', encoding="utf-8")
+
+    def explode(tensors, path):
+        raise OSError("the disk went away")
+
+    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", explode, raising=False)
+
+    with pytest.raises(OSError, match="the disk went away"):
+        child.write_pack(model, directory, {"layers": ["model.layers.0.mlp.gate_proj"], "block_size": 16})
+
+    assert json.loads((directory / "pack.json").read_text(encoding="utf-8"))["old"] is True
+
+
+def test_the_pack_names_the_snapshot_the_model_resolves_to(monkeypatch, tmp_path):
+    snapshot = tmp_path / "models--m-a-p--YuE2-3B" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("m-a-p/YuE2-3B") == "abc123"
+
+
+def test_a_local_checkpoint_is_named_by_its_file_list(tmp_path):
+    folder = tmp_path / "checkpoint"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"1234")
+    first = child.source_revision(str(folder))
+    (folder / "model.safetensors").write_bytes(b"12345")
+
+    assert first.startswith("local:")
+    assert child.source_revision(str(folder)) != first
+
+
+def test_a_model_this_machine_cannot_name_reports_unknown():
+    assert child.source_revision("org/model-that-is-not-cached") == "unknown"
+
+
+def test_a_cache_with_two_snapshots_is_not_named_after_one(monkeypatch, tmp_path):
+    for commit in ("abc123", "def456"):
+        (tmp_path / "models--m-a-p--YuE2-3B" / "snapshots" / commit).mkdir(parents=True)
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("m-a-p/YuE2-3B") == "unknown"
+
+
+def test_a_machine_without_the_cache_still_names_a_local_folder(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", None)
+    folder = tmp_path / "checkpoint"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"1234")
+    (folder / "sub").mkdir()  # a folder is not part of the identity
+
+    assert child.source_revision(str(folder)).startswith("local:")
+
+
+def test_the_first_pack_is_published_into_a_folder_that_does_not_exist_yet(tmp_path):
+    staging = child.staging_directory(tmp_path / "pack")
+    (staging / "pack.json").write_text("{}")
+
+    child.publish(staging, tmp_path / "pack")
+
+    assert (tmp_path / "pack" / "pack.json").is_file()
+    assert not staging.exists()
+
+
+def test_a_matching_manifest_without_its_weights_is_rebuilt(monkeypatch, tmp_path):
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    manifest = {**child.expected_manifest("m-a-p/YuE2-3B"), "layers": ["layer"]}
+    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1, "a manifest without weights is not a pack"
+
+
+def test_a_pack_from_another_snapshot_is_rebuilt(monkeypatch, tmp_path):
+    """The repository id can point at a branch that moved. A pack built from the snapshot
+    that is here now must not be served for weights that changed under the same name."""
+    model = FakeModel(quantized_linears())
+    pipe = FakePipe(model=model)
+    recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
+    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
+    monkeypatch.setattr(child, "source_revision", lambda model_name: "abc123")
+    directory = tmp_path / "m-a-p--YuE2-3B"
+    directory.mkdir()
+    (directory / "weights.safetensors").write_bytes(b"")
+    (directory / "pack.json").write_text(
+        json.dumps({**child.expected_manifest("m-a-p/YuE2-3B"), "source": "def456", "layers": ["layer"]}),
+        encoding="utf-8",
+    )
+
+    child.load_packed("m-a-p/YuE2-3B", tmp_path)
+
+    assert len(recorded["quantized"]) == 1, "a pack from another snapshot is not this model's"
