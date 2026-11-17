@@ -191,6 +191,8 @@ A change to an endpoint's route or JSON shape should not require a change to a m
 
 ## One request
 
+The body is read before the form is parsed. The read has two limits: an idle timeout for a client that stops sending, and a deadline that follows the body's size at the slowest supported rate, bounded at five minutes. A fixed deadline refused a legitimate clip from a slow link while accepting it from a fast one. The size cap is enforced first, so a deadline never admits more bytes than the cap allows.
+
 1. The HTTP server hands the form to `FormController`.
 2. The controller turns it into a `RunImageRequest` and calls `RunImageUseCase`.
 3. The use case checks the form against the selected image backend's `ModeSpec` and claims the shared model-memory slot.
@@ -247,6 +249,8 @@ jobs retain their existing profiles. The page persists the local choice and temp
 observed operation's choice while controls are locked, then restores the local choice.
 Voice batches retain the selected engine. AuK reuses a neutral designed voice; Drama-3 reuses encoded reference audio and prompt-prefix caches. Every workspace still runs only one GPU job at a time.
 See the measured comparisons in the README before extending an optimization to another engine or output shape.
+
+H3-Image on CUDA and YuE2 on CUDA build a quantized pack on the first start and reuse it. The pack is assembled in a folder beside the one in use and swapped in when it is whole, so an interrupted build leaves the previous pack or none, never half of one. The manifest names the model, the quantizer versions and the snapshot the model resolves to, so a moving repository under the same name does not reuse the old weights. A manifest that cannot be parsed, or a pack whose weights file is missing, is rebuilt once.
 
 ## Add a backend
 
@@ -344,6 +348,8 @@ The HTTP driver creates a worker thread only for the optional asynchronous route
 `[queue] max_size` gives asynchronous operations a FIFO waiting list. A queued operation reports its position, and its memory admission runs when its turn comes. A full queue answers `429`. Zero disables the queue and restores the single-slot refusal.
 The slot goes to the oldest waiting operation. A request that arrives while the previous one is handing the slot over lines up behind the queue, so it cannot take the turn the head was waiting for. Model control takes the same test: a model switch, release or asset deletion waits while a queue is non-empty, because deleting weights the head is about to load would fail a run the studio already accepted.
 A queued operation runs the model the studio recorded when it accepted the request. Another operation that switches the workspace model while this one waits changes neither the run nor the recorded model.
+Shutdown closes admission before it stops the run in flight: new requests are refused, queued ones are cancelled, and their waiters end. Without that, the finishing run's wake would hand the slot to the queue while models and storage are being released.
+A request is reserved before its worker thread exists. When that thread cannot start, the operation ends as failed and answers `503`, so the slot does not stay taken.
 The operation store retains bounded metadata and results. It keeps completed items after cancellation or failure. Active batches expose their manifest and completed item URLs.
 A browser batch carries its operation ID in each continuation. A 30-second lease applies only between requests.
 An active engine call never expires through that lease. API batches need no continuation requests.

@@ -9,8 +9,10 @@ const owners = new Set();
 const observed = new Set();
 const batchItems = new Set();
 const batchCounts = new Map();
-// A result that fails to load gets two more polls before it is set aside.
+// A result that fails to load is retried with a widening gap. The server keeps it for
+// minutes, and marking it imported hid a result the person could still have had.
 const importFailures = new Map();
+const importRetryAt = new Map();
 const openedAt = performance.timeOrigin / 1000;
 try {
   JSON.parse(sessionStorage.getItem('studio-seen-operations') || '[]').forEach(id => imported.add(id));
@@ -187,6 +189,7 @@ async function importBatch(operation, answer) {
 }
 
 async function importResult(operation) {
+  if (Date.now() < (importRetryAt.get(operation.id) || 0)) return;
   // A rewrite this tab made before this page opened is already in the box and the draft.
   // A refresh gives the page a new client id, so the tab's saved owners carry it.
   const appliedRewrite = operation.kind === 'rewrite' && operation.source === 'ui'
@@ -325,16 +328,21 @@ async function poll() {
       try {
         await importResult(operation);
         importFailures.delete(operation.id);
+        importRetryAt.delete(operation.id);
       } catch (error) {
         // One result that will not load must not hold the page on "Cancel" or hide the
-        // results behind it. It gets two more polls, then the poll moves on.
+        // results behind it. It is not imported though, so it stays visible and the page
+        // tries again after a widening gap instead of hiding it for the session.
         const failures = (importFailures.get(operation.id) || 0) + 1;
         importFailures.set(operation.id, failures);
-        if (failures >= 3) { remember(operation.id); importFailures.delete(operation.id); }
+        importRetryAt.set(operation.id, Date.now() + Math.min(60000, 2000 * 2 ** Math.min(failures, 5)));
         const message = error instanceof SyntaxError ? t('operation.error.result')
           : (error.message || t('operation.error.result'));
-        importFailure = message;
-        if (lastFailure !== message) page.notify('error', message);
+        // Which operation failed matters when several tabs and a phone share one studio.
+        // A private operation keeps its id to itself.
+        const where = operation.private ? '' : ` (${operation.kind} ${String(operation.id).slice(0, 8)})`;
+        importFailure = message + where;
+        if (lastFailure !== message) page.notify('error', message + where);
         lastFailure = message;
       }
       page.finishImageOperation(operation);

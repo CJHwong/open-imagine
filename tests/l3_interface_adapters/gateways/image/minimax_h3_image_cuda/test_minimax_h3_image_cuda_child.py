@@ -4,6 +4,7 @@ import sys
 import types
 import weakref
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -417,9 +418,14 @@ def fake_safetensors(monkeypatch, store):
 
     module = types.ModuleType("safetensors")
     torch_part = types.ModuleType("safetensors.torch")
-    monkeypatch.setattr(
-        torch_part, "save_file", lambda tensors, path: store.update({str(path): dict(tensors)}), raising=False
-    )
+
+    def save_file(tensors, path):
+        # The pack is assembled beside the published one and swapped in, so the store is
+        # keyed by name and the file it stands for exists where the swap looks.
+        Path(path).write_bytes(b"")
+        store[Path(path).name] = dict(tensors)
+
+    monkeypatch.setattr(torch_part, "save_file", save_file, raising=False)
 
     @contextlib.contextmanager
     def safe_open(path, framework="pt"):
@@ -517,7 +523,7 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
 
     child.write_pack(pack_pipe(transformer, encoder), tmp_path, manifest)
 
-    stored = store[str(tmp_path / "transformer.safetensors")]
+    stored = store["transformer.safetensors"]
     assert set(stored) == {
         "transformer.block.weight.qdata",
         "transformer.block.weight.scale",
@@ -632,10 +638,13 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "load_packed", lambda model, directory, manifest: "packed")
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
     monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     for name in child.PACK_COMPONENTS:
         (tmp_path / f"{name}.safetensors").write_text("")
     (tmp_path / "pack.json").write_text(
-        json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}})
+        json.dumps(
+            {"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+        )
     )
 
     assert child.load("me/pack", "fp8", tmp_path) == "packed"
@@ -730,7 +739,7 @@ def test_write_pack_leaves_out_a_missing_scalar(monkeypatch, tmp_path):
 
     child.write_pack(pack_pipe(module), tmp_path, manifest)
 
-    stored = store[str(tmp_path / "transformer.safetensors")]
+    stored = store["transformer.safetensors"]
     assert set(stored) == {"transformer.proj.weight.qdata", "transformer.proj.weight.scale"}
     assert manifest["tensors"]["transformer.proj.weight"]["per_tensor_scale"] is False
 
@@ -1053,3 +1062,89 @@ def test_generate_and_edit_use_the_selected_canvas_without_an_area_floor(monkeyp
         )
         assert pipe.calls[-1]["min_generation_area"] == 1024
         assert (pipe.calls[-1]["height"], pipe.calls[-1]["width"]) == (576, 1024)
+
+
+def test_a_half_written_manifest_reads_as_no_pack(tmp_path, capsys):
+    (tmp_path / "pack.json").write_text('{"format": 1, "tensors": {', encoding="utf-8")
+
+    assert child.read_manifest(tmp_path) is None
+    assert "built again" in capsys.readouterr().err
+
+
+def test_a_pack_that_dies_while_it_is_written_is_not_published(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    store = {}
+    fake_safetensors(monkeypatch, store)
+    directory = tmp_path / "pack"
+    directory.mkdir()
+    (directory / "pack.json").write_text('{"format": 1, "old": true}', encoding="utf-8")
+
+    written = []
+
+    def half_then_die(tensors, path):
+        Path(path).write_bytes(b"")
+        written.append(path)
+        if len(written) == 2:
+            raise OSError("the disk went away")
+
+    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", half_then_die, raising=False)
+    transformer = PackModule({"norm.weight": Part("plain")})
+
+    with pytest.raises(OSError, match="the disk went away"):
+        child.write_pack(pack_pipe(transformer, PackModule({})), directory, {"format": 1})
+
+    assert [one.name for one in directory.iterdir()] == ["pack.json"]
+    assert json.loads((directory / "pack.json").read_text(encoding="utf-8"))["old"] is True
+
+
+def test_the_pack_names_the_snapshot_the_model_resolves_to(monkeypatch, tmp_path):
+    snapshot = tmp_path / "models--me--pack" / "snapshots" / "abc123"
+    snapshot.mkdir(parents=True)
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("me/pack") == "abc123"
+
+
+def test_a_model_this_machine_cannot_name_reports_unknown():
+    assert child.source_revision("org/not-cached") == "unknown"
+
+
+def test_a_cache_with_two_snapshots_is_not_named_after_one(monkeypatch, tmp_path):
+    """Two snapshots under one repository id is an ambiguous cache: neither commit is the
+    identity of the weights, so the pack records what it can and no more."""
+    for commit in ("abc123", "def456"):
+        (tmp_path / "models--me--pack" / "snapshots" / commit).mkdir(parents=True)
+    constants = types.ModuleType("huggingface_hub.constants")
+    monkeypatch.setattr(constants, "HF_HUB_CACHE", str(tmp_path), raising=False)
+    package = types.ModuleType("huggingface_hub")
+    monkeypatch.setattr(package, "constants", constants, raising=False)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", package)
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", constants)
+
+    assert child.source_revision("me/pack") == "unknown"
+
+
+def test_a_machine_without_the_cache_names_a_local_folder(monkeypatch, tmp_path):
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", None)
+    folder = tmp_path / "checkpoint"
+    folder.mkdir()
+    (folder / "model.safetensors").write_bytes(b"1234")
+    (folder / "sub").mkdir()  # a folder is not part of the identity
+
+    assert child.source_revision(str(folder)).startswith("local:")
+
+
+def test_the_first_pack_is_published_into_a_folder_that_does_not_exist_yet(tmp_path):
+    staging = child.staging_directory(tmp_path / "pack")
+    (staging / "pack.json").write_text("{}")
+
+    child.publish(staging, tmp_path / "pack")
+
+    assert (tmp_path / "pack" / "pack.json").is_file()
+    assert not staging.exists()

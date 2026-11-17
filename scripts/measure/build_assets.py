@@ -9,6 +9,7 @@ import argparse
 import base64
 import hashlib
 import json
+import shutil
 import time
 import urllib.request
 import wave
@@ -39,17 +40,7 @@ SIZES = {
     "ref-4032x3024.png": (4032, 3024),
     "ref-768x512.png": (768, 512),
 }
-# Every name this script writes. A build removes them first, so a file it does not
-# produce cannot survive from an earlier generation into the manifest it writes.
-GENERATED = (
-    "picture-1024.png",
-    "voice-short.wav",
-    "voice-long.wav",
-    "music-10s.wav",
-    "music-15s.wav",
-    "scripts.json",
-    *SIZES,
-)
+MANIFEST_NAME = "assets.sha256"
 
 
 def post(base: str, body: dict) -> dict:
@@ -77,31 +68,34 @@ def wait(base: str, operation: str, deadline: float) -> dict:
         time.sleep(1.0)
 
 
-def clear_generated(assets: Path, manifest: Path) -> None:
-    """Remove the whole previous set before a build replaces it.
-
-    Writing over an old directory leaves every name the new run does not produce, and
-    the manifest then hashes a file from another generation: a forced build without
-    `--audio-source` would keep music from the build before it. The manifest goes first,
-    so a build that dies halfway leaves a directory the runner refuses instead of a
-    mixed one it trusts.
-    """
-    manifest.unlink(missing_ok=True)
-    for name in GENERATED:
-        (assets / name).unlink(missing_ok=True)
-
-
-def write_manifest(assets: Path) -> Path:
+def write_manifest(directory: Path, manifest: Path) -> Path:
     """One line per asset, so a machine that did not build them can prove it reads the
     same bytes. This is the file the runner checks before it sends anything."""
     lines = [
         f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}"
-        for path in sorted(assets.iterdir())
+        for path in sorted(directory.iterdir())
         if path.is_file()
     ]
-    manifest = assets.parent / "assets.sha256"
-    manifest.write_text("\n".join(lines) + "\n")
+    scratch = manifest.with_suffix(".tmp")
+    scratch.write_text("\n".join(lines) + "\n")
+    scratch.replace(manifest)
     return manifest
+
+
+def publish(staging: Path, assets: Path, manifest: Path) -> None:
+    """Put the new set in place, and only then the manifest that describes it.
+
+    The set is assembled beside the one in use, so a build that dies costs time and not the
+    fixtures. A crash between the two renames leaves no assets folder rather than a mixed
+    one, and the runner refuses that loudly.
+    """
+    previous = assets.with_name(assets.name + ".old")
+    shutil.rmtree(previous, ignore_errors=True)
+    if assets.exists():
+        assets.rename(previous)
+    staging.rename(assets)
+    (assets / MANIFEST_NAME).replace(manifest)
+    shutil.rmtree(previous, ignore_errors=True)
 
 
 def run(base: str, body: dict, name: str, assets: Path, deadline: float) -> Path:
@@ -133,14 +127,15 @@ def main() -> int:
     arguments = parser.parse_args()
 
     assets = Path(arguments.work) / "assets"
-    manifest = assets.parent / "assets.sha256"
+    manifest = assets.parent / MANIFEST_NAME
     if manifest.is_file() and not arguments.force:
         raise SystemExit(
             f"{manifest} exists, so these assets already have an owner. Every machine must read "
             "those bytes, so copying the directory beats building it again. Pass --force to rebuild."
         )
-    assets.mkdir(parents=True, exist_ok=True)
-    clear_generated(assets, manifest)
+    staging = assets.parent / "assets.new"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
     print("picture", flush=True)
     source = run(
         arguments.base,
@@ -155,26 +150,26 @@ def main() -> int:
             "seed": 7,
         },
         "picture-1024.png",
-        assets,
+        staging,
         arguments.deadline,
     )
     with Image.open(source) as picture:
         for name, size in SIZES.items():
-            picture.convert("RGB").resize(size, Image.Resampling.LANCZOS).save(assets / name)
+            picture.convert("RGB").resize(size, Image.Resampling.LANCZOS).save(staging / name)
             print(name, size, flush=True)
 
     run(
         arguments.base,
         {"kind": "voice", "backend": arguments.voice_backend, "mode": "generate", "text": SHORT, "seed": 7},
         "voice-short.wav",
-        assets,
+        staging,
         arguments.deadline,
     )
     run(
         arguments.base,
         {"kind": "voice", "backend": arguments.voice_backend, "mode": "generate", "text": LONG, "seed": 7},
         "voice-long.wav",
-        assets,
+        staging,
         arguments.deadline,
     )
 
@@ -184,17 +179,18 @@ def main() -> int:
             for name, length in (("music-10s.wav", 10.0), ("music-15s.wav", 15.0)):
                 handle.setpos(0)
                 frames = handle.readframes(int(length * rate))
-                with wave.open(str(assets / name), "wb") as target:
+                with wave.open(str(staging / name), "wb") as target:
                     target.setframerate(rate)
                     target.setnchannels(channels)
                     target.setsampwidth(width)
                     target.writeframes(frames)
                 print(name, length, flush=True)
 
-    (assets / "scripts.json").write_text(
+    (staging / "scripts.json").write_text(
         json.dumps({"short": SHORT, "long": LONG, "picture": PICTURE}, indent=1) + "\n"
     )
-    manifest = write_manifest(assets)
+    write_manifest(staging, staging / MANIFEST_NAME)
+    publish(staging, assets, manifest)
     print("assets ready in", assets, "listed in", manifest)
     return 0
 

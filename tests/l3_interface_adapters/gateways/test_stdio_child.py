@@ -1,3 +1,4 @@
+import io
 import os
 import signal
 import subprocess
@@ -428,7 +429,7 @@ def test_the_stderr_reader_keeps_draining_and_keeps_the_first_callback_error():
     class CountingChild(StdioChild):
         kills = 0
 
-        def _kill(self) -> None:
+        def _kill(self, generation: int | None = None) -> None:
             self.kills += 1
 
     runner = CountingChild([sys.executable, "-c", "pass"])
@@ -445,3 +446,50 @@ def test_the_stderr_reader_keeps_draining_and_keeps_the_first_callback_error():
     assert reported == [1, 2]  # the reader kept reading after the first raise
     assert str(runner._step_error) == "progress 1"
     assert runner.kills == 2
+
+
+def test_a_late_kill_does_not_signal_the_engine_that_replaced_its_child(monkeypatch):
+    """A cancel watcher can outlive its job by a second. By then the instance may have
+    started another child, and the old watcher must not kill that one."""
+    runner = StdioChild(["engine"])
+    first = Mock()
+    first.wait.return_value = 0
+    runner._proc, runner._pgid, runner._generation = first, 4242, 1
+    signalled = []
+    monkeypatch.setattr(os, "killpg", lambda pgid, _number: signalled.append(pgid))
+
+    runner._generation = 2  # a new child is now the one this instance runs
+    runner._kill(1)
+
+    assert signalled == []
+    assert first.kill.call_count == 0
+
+
+def test_a_late_cleanup_removes_only_its_own_child_folder(tmp_path):
+    """The folder is captured with the process, so a late kill cannot delete the folder
+    the engine in use reads its clips from."""
+    runner = StdioChild(["engine"])
+    old = tmp_path / "old"
+    new = tmp_path / "new"
+    old.mkdir()
+    new.mkdir()
+    runner._scratch = str(new)
+
+    runner._remove_scratch(str(old))
+
+    assert not old.exists()
+    assert new.is_dir()
+    assert runner._scratch == str(new)
+
+
+def test_the_reader_of_a_replaced_child_reports_nothing_to_the_next_job():
+    """A step reader outlives its child by a moment. Its lines belong to the job that
+    started it, and must not reach the handler the next job installed."""
+    runner = StdioChild(["engine"])
+    runner._generation = 2
+    seen = []
+    runner._on_step = lambda step, total: seen.append(step)
+
+    runner._watch_steps(SimpleNamespace(stderr=io.BytesIO(b"step 7/9\n")), threading.Event(), 1)
+
+    assert seen == []

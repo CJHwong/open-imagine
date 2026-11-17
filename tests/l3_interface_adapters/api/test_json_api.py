@@ -1767,3 +1767,24 @@ def test_a_queued_batch_is_admitted_with_its_items_when_its_turn_comes():
 
     assert len(admission.payloads[-1]["items"]) == 2
     assert api.operation(second["id"])["status"] == "succeeded"
+
+
+def test_the_state_document_names_the_running_build():
+    """A benchmark reads its own checkout. The studio it measured can be another one, so
+    the state carries the commit the studio is actually running."""
+    api = api_for(FakeController(), build={"commit": "abc123", "dirty": False})
+
+    assert api.state()["studio"]["build"] == {"commit": "abc123", "dirty": False}
+
+
+def test_a_queued_request_records_the_media_it_holds():
+    """The gateway bounds the queue by the bytes its waiting requests hold, so the size
+    has to travel with the reservation. It is not part of the document a caller reads."""
+    api = api_for(FakeController(), max_queue=1)
+    api.reserve({"kind": "image", "prompt": "pear"})
+
+    queued = api.reserve({"kind": "image", "prompt": "pear", "references": ["x" * 100]}, queued=True)
+
+    assert queued["queue_position"] == 1
+    assert "payload_bytes" not in queued
+    assert api._operations.get(queued["id"])["payload_bytes"] > 100

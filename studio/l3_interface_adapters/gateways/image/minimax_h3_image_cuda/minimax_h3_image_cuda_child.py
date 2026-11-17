@@ -30,8 +30,10 @@ the packed copy, so the order is encoder first, transformer second, quantize thi
 
 import argparse
 import base64
+import hashlib
 import io
 import json
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -147,14 +149,71 @@ def pack_directory(root: Path, model: str) -> Path:
 
 
 def expected_manifest(model: str, quantize: str) -> dict:
-    return {"format": PACK_FORMAT, "model": model, "quantize": quantize, "versions": versions()}
+    return {
+        "format": PACK_FORMAT,
+        "model": model,
+        "quantize": quantize,
+        "versions": versions(),
+        "source": source_revision(model),
+    }
+
+
+def source_revision(model: str) -> str:
+    """The committed snapshot this model resolves to, when this machine can name one.
+
+    A repository id can point at a branch that moves, so the id alone does not say which
+    weights a pack holds. `huggingface_hub` caches a repo under
+    `models--org--name/snapshots/<commit>/`, and that commit is the identity to record. A
+    local directory is named by its file list and sizes, which catches another snapshot but
+    not a same-size change inside one. Anything else reports unknown.
+    """
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:  # the unit tests run without the engine's packages
+        HF_HUB_CACHE = ""
+    cache = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots"
+    if HF_HUB_CACHE and cache.is_dir():
+        commits = sorted(one.name for one in cache.iterdir() if one.is_dir())
+        if len(commits) == 1:
+            return commits[0]
+    local = Path(model).expanduser()
+    if local.is_dir():
+        digest = hashlib.sha256()
+        for path in sorted(local.rglob("*")):
+            if path.is_file():
+                digest.update(f"{path.relative_to(local)}:{path.stat().st_size}".encode())
+        return "local:" + digest.hexdigest()[:16]
+    return "unknown"
+
+
+def staging_directory(directory: Path) -> Path:
+    """An empty folder beside the pack in use, where a new one is assembled."""
+    staging = directory.with_name(directory.name + ".building")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    return staging
+
+
+def publish(staging: Path, directory: Path) -> None:
+    """Swap a finished pack in, and never leave half of one under the published name."""
+    previous = directory.with_name(directory.name + ".old")
+    shutil.rmtree(previous, ignore_errors=True)
+    if directory.exists():
+        directory.rename(previous)
+    staging.rename(directory)
+    shutil.rmtree(previous, ignore_errors=True)
 
 
 def read_manifest(directory: Path) -> dict | None:
     path = directory / "pack.json"
     if not path.is_file():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Half a manifest is an interrupted write, not a pack. Absent means build one.
+        say(f"{path} cannot be read, so the pack is built again")
+        return None
 
 
 def manifest_matches(manifest: dict, expected: dict) -> bool:
@@ -194,11 +253,11 @@ def copy_to_host(tensor):
 
 
 def write_pack(pipe, directory: Path, manifest: dict) -> None:
-    """One safetensors file per component, written from the CPU copies of the parts."""
+    """One safetensors file per component, assembled beside the pack in use and swapped in."""
     import torch
     from safetensors.torch import save_file
 
-    directory.mkdir(parents=True, exist_ok=True)
+    staging = staging_directory(directory)
     torch.cuda.empty_cache()
     entries = {}
     for component_name in PACK_COMPONENTS:
@@ -232,12 +291,13 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
                 tensors[key] = copy_to_host(weight)
             entries[key] = entry
         try:
-            save_file(tensors, str(directory / f"{component_name}.safetensors"))
+            save_file(tensors, str(staging / f"{component_name}.safetensors"))
         finally:
             tensors.clear()
             torch.accelerator.memory.empty_host_cache()
     manifest["tensors"] = entries
-    (directory / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (staging / "pack.json").write_text(json.dumps(manifest), encoding="utf-8")
+    publish(staging, directory)
 
 
 def rebuild(entry: dict, key: str, handle, device: str):

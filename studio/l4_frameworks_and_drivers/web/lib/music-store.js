@@ -121,6 +121,11 @@ export const deleteMusicLink = id => transaction('links', 'readwrite', store => 
 // The same bytes always get the same id, so one recording is one record. crypto.subtle
 // needs a secure context, which localhost and HTTPS have; outside one the id is random
 // and identical recordings keep separate copies.
+//
+// WebCrypto hashes in one shot, so `arrayBuffer()` holds a second copy of the recording
+// while the digest runs. Measured in Chrome at 2026-11-17: 8 MB costs 8 ms to copy and
+// 7 ms to hash, 32 MB 16 and 20, 64 MB 32 and 44. That is one transient buffer the size
+// of the recording, which is the trade this id makes for deduplication.
 export async function sourceIdFor(blob) {
   if (globalThis.crypto?.subtle) {
     const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());

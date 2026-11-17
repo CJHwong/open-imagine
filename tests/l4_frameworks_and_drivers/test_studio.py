@@ -86,6 +86,23 @@ def test_shutdown_preserves_one_original_cleanup_failure():
     closer.assert_called_once()
 
 
+def test_shutdown_closes_admission_before_it_stops_the_run(monkeypatch):
+    """A queued request wakes when the run in flight finishes. Admission has to be closed
+    first, or that wake takes the slot while models and storage are being released."""
+    events = []
+    operations = Mock()
+    operations.active.side_effect = [{"id": "op", "status": "running"}, None]
+    operations.close_admission = lambda: events.append("closed")
+    operations.stopping = lambda operation_id: events.append(f"stopped {operation_id}")
+    studio = Studio(
+        handler=Mock(), catalog=Mock(), video_catalog=None, residency=Mock(), cancel=Mock(), operations=operations
+    )
+
+    studio.shutdown()
+
+    assert events == ["closed", "stopped op"]
+
+
 def test_shutdown_stops_the_run_in_flight_and_waits_for_it_to_end():
     """A video run reads the cancel through the operation's own status, and its MLX
     release frees nothing. Without the stop and the wait, the child outlives the server."""

@@ -331,3 +331,21 @@ def test_a_flag_offers_exactly_what_it_names(tmp_path):
 
     assert load_config(path, visible_video=()).visible_video_backends == ()
     assert load_config(path, visible=("qwen21_turbo",)).visible_backends == ("qwen21", "qwen21_turbo")
+
+
+def test_the_queue_byte_budget_loads_from_the_file(tmp_path):
+    config = load_config(write(tmp_path, SETTINGS + "\n[queue]\nmax_size = 3\nmax_megabytes = 32\n"))
+
+    assert config.queue_max_bytes == 32 * 1024 * 1024
+
+
+def test_the_shipping_config_bounds_what_the_queue_holds(tmp_path):
+    config = load_config(Path(__file__).parents[2] / "studio.toml")
+
+    assert config.queue_max_bytes >= 64 * 1024 * 1024
+
+
+@pytest.mark.parametrize("value", ["-1", '"8"', "true"])
+def test_a_queue_byte_budget_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"queue\.max_megabytes"):
+        load_config(write(tmp_path, SETTINGS + f"\n[queue]\nmax_megabytes = {value}\n"))

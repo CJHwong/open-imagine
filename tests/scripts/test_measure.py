@@ -50,6 +50,8 @@ class Studio:
         self.base = ""
         self.known = True
         self.result_failures = 0
+        self.bodies = []
+        self.build = {}
 
     def forget(self):
         """What a restart does: the operation it accepted is no longer anywhere."""
@@ -104,10 +106,13 @@ def handler_for(studio):
                     studio.result_failures -= 1
                     self._send({"error": "the result is not ready"}, 500)
                     return
+                body = studio.bodies.pop(0) if studio.bodies else b"bytes"
                 self.send_response(200)
-                self.send_header("Content-Length", "5")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(b"bytes")
+                self.wfile.write(body)
+            elif self.path == "/api/v1/state":
+                self._send({"studio": {"build": studio.build}})
             else:
                 self._send({"error": "no route"}, 404)
 
@@ -479,8 +484,21 @@ def test_a_row_from_another_campaign_is_not_counted_as_coverage(tmp_path, monkey
         "fingerprint": run_matrix.fingerprint(case, manifest),
         "active": 1.0,
     }
-    (tmp_path / "results-mlx.jsonl").write_text(json.dumps(row) + "\n")
-    (tmp_path / "results-cuda.jsonl").write_text(json.dumps({**row, "fingerprint": "old"}) + "\n")
+    for machine in ("mlx", "cuda"):
+        folder = tmp_path / "results" / machine
+        folder.mkdir(parents=True)
+        (folder / "one.bin").write_bytes(f"{machine} bytes".encode())
+        row.update(file=f"results/{machine}/one.bin", sha256=run_matrix.sha256(f"{machine} bytes".encode()))
+        (tmp_path / f"results-{machine}.jsonl").write_text(json.dumps(row) + "\n")
+    stale = {
+        "id": case["id"],
+        "status": "succeeded",
+        "fingerprint": "old",
+        "active": 1.0,
+        "file": "results/cuda/one.bin",
+        "sha256": run_matrix.sha256(b"cuda bytes"),
+    }
+    (tmp_path / "results-cuda.jsonl").write_text(json.dumps(stale) + "\n")
     monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path)])
 
     assert report.main() == 0
@@ -594,36 +612,19 @@ def test_a_deadline_that_is_not_finite_and_positive_stops_the_run(tmp_path, monk
         run_matrix.main()
 
 
-def test_a_build_removes_the_names_it_does_not_write(tmp_path):
-    """A forced build without `--audio-source` used to leave the music from the build
-    before it, under a manifest that hashed it as if this run had made it."""
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / "music-10s.wav").write_bytes(b"old")
-    (assets / "keep.txt").write_bytes(b"fine")
-    manifest = tmp_path / "assets.sha256"
-    manifest.write_text("0  keep.txt\n")
-
-    build_assets.clear_generated(assets, manifest)
-
-    assert not (assets / "music-10s.wav").exists()
-    assert not manifest.exists()
-    assert (assets / "keep.txt").is_file()
-
-
-def test_a_forced_build_clears_the_old_set_before_it_generates_anything(tmp_path, monkeypatch):
-    """The removal has to happen before the first asset is generated, or a build that
-    dies leaves the old music beside the new work under no manifest at all."""
+def test_a_build_that_dies_leaves_the_old_assets_and_manifest_alone(tmp_path, monkeypatch):
+    """Assembling beside the set in use is what makes a failed build cheap: the previous
+    fixtures and the manifest that describes them are still there, and nothing else is."""
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "music-10s.wav").write_bytes(b"old")
     (tmp_path / "assets.sha256").write_text("0  music-10s.wav\n")
-    seen = []
+    before = (tmp_path / "assets.sha256").read_text()
 
-    def stop(*_):
-        seen.append((tmp_path / "assets" / "music-10s.wav").exists())
+    def half_a_build(_base, _body, name, target, _deadline):
+        (target / name).write_bytes(b"new")
         raise SystemExit("stop here")
 
-    monkeypatch.setattr(build_assets, "run", stop)
+    monkeypatch.setattr(build_assets, "run", half_a_build)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -633,4 +634,200 @@ def test_a_forced_build_clears_the_old_set_before_it_generates_anything(tmp_path
     with pytest.raises(SystemExit, match="stop here"):
         build_assets.main()
 
-    assert seen == [False]
+    assert (tmp_path / "assets" / "music-10s.wav").read_bytes() == b"old"
+    assert [one.name for one in (tmp_path / "assets").iterdir()] == ["music-10s.wav"]
+    assert (tmp_path / "assets.sha256").read_text() == before
+
+
+def test_a_build_swaps_in_the_whole_new_set(tmp_path, monkeypatch):
+    """The new set replaces the old one only once it is complete, and the manifest that
+    names it goes in with it."""
+    from PIL import Image
+
+    def fake_run(_base, _body, name, target, _deadline):
+        if name == "picture-1024.png":
+            Image.new("RGB", (1024, 1024), (10, 20, 30)).save(target / name)
+        else:
+            (target / name).write_bytes(name.encode())
+        return target / name
+
+    monkeypatch.setattr(build_assets, "run", fake_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["build_assets.py", "--work", str(tmp_path), "--image-backend", "a", "--voice-backend", "b"],
+    )
+
+    assert build_assets.main() == 0
+
+    assets = tmp_path / "assets"
+    assert (assets / "picture-1024.png").is_file()
+    assert (assets / "voice-short.wav").read_bytes() == b"voice-short.wav"
+    assert (assets / "scripts.json").is_file()
+    assert not (tmp_path / "assets.new").exists()
+    listed = (tmp_path / "assets.sha256").read_text().splitlines()
+    assert len(listed) == len(list(assets.iterdir()))
+    assert all(line.split("  ")[1] in {one.name for one in assets.iterdir()} for line in listed)
+
+
+def test_a_torn_last_line_keeps_the_rows_before_it(work):
+    """The runner appends one line per trial. A process that dies mid-append must not cost
+    the campaign every completed row it had."""
+    path = work / "results-mlx.jsonl"
+    path.write_text(json.dumps({"id": "a"}) + "\n" + json.dumps({"id": "b"}) + "\n" + '{"id": "c"')
+
+    assert [record["id"] for record in run_matrix.rows(path)] == ["a", "b"]
+
+
+def test_a_bad_line_before_the_end_stops_the_run(work):
+    path = work / "results-mlx.jsonl"
+    path.write_text(json.dumps({"id": "a"}) + "\n{broken\n" + json.dumps({"id": "c"}) + "\n")
+
+    with pytest.raises(SystemExit, match="is not a record"):
+        run_matrix.rows(path)
+
+
+def test_two_case_ids_that_slug_alike_keep_two_checkpoints(work):
+    first = run_matrix.checkpoint_path(work, "mlx", "a/b")
+    second = run_matrix.checkpoint_path(work, "mlx", "a_b")
+
+    assert first != second
+    assert first.name.startswith("a_b-") and second.name.startswith("a_b-")
+
+
+def test_a_corrupt_checkpoint_costs_a_rerun_not_the_campaign(work, capsys):
+    path = work / "phases-mlx" / "one.json"
+    path.parent.mkdir()
+    path.write_text("{not json")
+
+    assert run_matrix.read_checkpoint(path, "fp") == {}
+    assert "runs again" in capsys.readouterr().out
+
+
+def test_a_repeat_trial_keeps_both_artifacts(work, monkeypatch):
+    """The same case and fingerprint, two runs, two sets of bytes. The second must not
+    overwrite the first, or the earlier row points at media it never produced."""
+    case = one_case()
+    with served() as studio:
+        studio.bodies = [b"first", b"second"]
+        first = run(studio, work, case, monkeypatch, force=True)
+        second = run(studio, work, case, monkeypatch, force=True)
+
+    assert first["file"] != second["file"]
+    assert (work / first["file"]).read_bytes() == b"first"
+    assert (work / second["file"]).read_bytes() == b"second"
+    assert run_matrix.saved(work, first) and run_matrix.saved(work, second)
+
+
+def report_work(tmp_path, row_overrides=None, warm=None):
+    """A work directory the report can read: one image case, one campaign, two machines."""
+    case = {"id": "qwen21_turbo/generate/one", "kind": "image", "machines": {"mlx": {}, "cuda": {}}}
+    (tmp_path / "matrix.jsonl").write_text(json.dumps(case) + "\n")
+    manifest = {"git": "abc", "assets": {}}
+    for machine in ("mlx", "cuda"):
+        (tmp_path / f"campaign-{machine}.json").write_text(json.dumps(manifest))
+    expected = run_matrix.fingerprint(case, manifest)
+    for machine in ("mlx", "cuda"):
+        folder = tmp_path / "results" / machine
+        folder.mkdir(parents=True)
+        (folder / "one.bin").write_bytes(f"{machine} bytes".encode())
+        row = {
+            "id": case["id"],
+            "status": "succeeded",
+            "fingerprint": expected,
+            "active": 1.0,
+            "file": f"results/{machine}/one.bin",
+            "sha256": run_matrix.sha256(f"{machine} bytes".encode()),
+        }
+        row.update(row_overrides or {})
+        (tmp_path / f"results-{machine}.jsonl").write_text(json.dumps(row) + "\n")
+        if warm is not None:
+            warm_row = {**row, **warm}
+            (tmp_path / f"warm-{machine}.jsonl").write_text(json.dumps(warm_row) + "\n")
+    return expected
+
+
+def test_a_case_whose_media_is_gone_is_not_counted_as_coverage(tmp_path, monkeypatch, capsys):
+    """The runner will not skip a case whose artifact is missing. The report must not count
+    one either, or a copied campaign prints a full table nobody can inspect."""
+    report_work(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path)])
+
+    assert report.main() == 0
+    assert "1 of 1 cases succeeded on both engines with their media" in capsys.readouterr().out
+
+    (tmp_path / "results" / "mlx" / "one.bin").unlink()
+
+    assert report.main() == 0
+    printed = capsys.readouterr().out
+    assert "0 of 1 cases succeeded on both engines with their media" in printed
+    assert "mlx (no media)" in printed
+    assert "1 of 1 succeeded by status alone" in printed
+    assert "| no media |" in printed
+
+
+def test_a_failed_warm_trial_is_listed_even_when_the_cold_row_succeeded(tmp_path, monkeypatch, capsys):
+    """Survivorship bias hides the trial that went wrong, which is the one worth seeing."""
+    report_work(tmp_path, warm={"status": "failed", "error": "the engine stopped"})
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path)])
+
+    assert report.main() == 0
+
+    printed = capsys.readouterr().out
+    assert "warm trials did not succeed" in printed
+    assert "the engine stopped" in printed
+    assert "1 of 1 cases succeeded on both engines with their media" in printed
+
+
+def test_strict_reports_a_failed_case_in_its_exit_status(work, monkeypatch):
+    (work / "matrix.jsonl").write_text(json.dumps(one_case()) + "\n")
+    with served(final="failed") as studio:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_matrix.py", "--machine", "mlx", "--base", studio.base, "--work", str(work), "--strict"],
+        )
+        assert run_matrix.main() == 1
+    with served(final="failed") as studio:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["run_matrix.py", "--machine", "mlx", "--base", studio.base, "--work", str(work)],
+        )
+        assert run_matrix.main() == 0
+
+
+def test_a_studio_running_another_commit_is_refused(work, monkeypatch):
+    """The runner reads its own checkout. If the studio serves another commit, a figure
+    from it would be attributed to code nobody measured."""
+    (work / "matrix.jsonl").write_text(json.dumps(one_case()) + "\n")
+    monkeypatch.setattr(run_matrix, "git_sha", lambda: "runner-sha")
+    with served() as studio:
+        studio.build = {"commit": "another-sha", "dirty": False}
+        monkeypatch.setattr(
+            sys, "argv", ["run_matrix.py", "--machine", "mlx", "--base", studio.base, "--work", str(work)]
+        )
+
+        with pytest.raises(SystemExit, match="would be attributed"):
+            run_matrix.main()
+
+
+def test_the_report_names_its_columns(tmp_path, monkeypatch, capsys):
+    """Two machines produced the reference page. The runner is generic, so a column can be
+    named without editing the script before another machine's campaign is printed."""
+    report_work(tmp_path)
+    monkeypatch.setattr(
+        sys, "argv", ["report.py", "--work", str(tmp_path), "--label", "mlx=MacBook", "--label", "cuda=Spark"]
+    )
+
+    report.main()
+
+    assert "| Case | MacBook (s) | Spark (s) |" in capsys.readouterr().out
+
+
+def test_a_label_that_names_no_machine_is_refused(tmp_path, monkeypatch):
+    report_work(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["report.py", "--work", str(tmp_path), "--label", "mac=MacBook"])
+
+    with pytest.raises(SystemExit, match="MACHINE=TEXT"):
+        report.main()

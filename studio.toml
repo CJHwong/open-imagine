@@ -31,8 +31,11 @@ boundary_percent = 84
 # Asynchronous operations wait their turn instead of returning 409 while another one
 # runs. max_size counts the requests waiting behind the running one. 0 keeps the old
 # behavior, where a busy studio refuses every new operation. A full queue answers 429.
+# Waiting requests hold their media. The byte budget is what stops a series of pushed
+# clips from filling memory before the GPU starts on the first one.
 [queue]
 max_size = 8
+max_megabytes = 256
 
 # Share this studio with the phone app over a dumbpipe ticket. The listener binds
 # 127.0.0.1 and the server prints a QR code at startup. The ticket is a credential:

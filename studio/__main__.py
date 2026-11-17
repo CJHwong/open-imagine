@@ -228,45 +228,47 @@ def main():
         sys.exit(f"Cannot run here: {error}")
     except StudioError as error:
         sys.exit(f"Cannot start the studio: {error}")
-    # Bind before loading. The weights take a minute, and a busy port found
-    # after that minute is a waste. Anything that connects during the load
-    # waits in the listen backlog.
-    try:
-        server = StudioHTTPServer((args.host, args.port), studio.handler)
-    except OSError as error:
-        sys.exit(f"Cannot bind {args.host}:{args.port} ({error}). Pass --port for a free one.")
-    rewriters = rewriter_cache_line(config)
-    if rewriters:
-        print(rewriters, flush=True)
-    print(f"\nReady on http://{args.host}:{args.port}", flush=True)
-    try:
-        connection = studio.start_connect()
-    except StudioError as error:
-        server.server_close()
-        studio.shutdown()
-        sys.exit(f"The phone connection is enabled, but it cannot start: {error}")
-    if connection is not None and not connection.running:
-        server.server_close()
-        studio.shutdown()
-        sys.exit(f"The phone connection is enabled, but it cannot start: {connection.error}")
-    if connection is not None:
-        print("\nScan this code with the Open Imagine phone app:\n", flush=True)
-        print(qr_terminal(pair_url(connection)), flush=True)
-    if args.allow_origin:
-        print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
-    print(
-        "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
-        flush=True,
-    )
+    # From here on a Studio exists and owns things. A termination signal raises the same
+    # interrupt Ctrl-C does, and the one finally below closes both, whether the start
+    # failed at the port, at the phone listener or after serving for hours.
+    server = None
     previous = [(number, signal.signal(number, stop_on_signal)) for number in (signal.SIGTERM, signal.SIGHUP)]
     try:
+        # Bind before loading. The weights take a minute, and a busy port found
+        # after that minute is a waste. Anything that connects during the load
+        # waits in the listen backlog.
+        try:
+            server = StudioHTTPServer((args.host, args.port), studio.handler)
+        except OSError as error:
+            sys.exit(f"Cannot bind {args.host}:{args.port} ({error}). Pass --port for a free one.")
+        rewriters = rewriter_cache_line(config)
+        if rewriters:
+            print(rewriters, flush=True)
+        print(f"\nReady on http://{args.host}:{args.port}", flush=True)
+        try:
+            connection = studio.start_connect()
+        except StudioError as error:
+            sys.exit(f"The phone connection is enabled, but it cannot start: {error}")
+        if connection is not None and not connection.running:
+            sys.exit(f"The phone connection is enabled, but it cannot start: {connection.error}")
+        if connection is not None:
+            print("\nScan this code with the Open Imagine phone app:\n", flush=True)
+            print(qr_terminal(pair_url(connection)), flush=True)
+        if args.allow_origin:
+            print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
+        print(
+            "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
+            flush=True,
+        )
         server.expire = studio.expire
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nStopped.")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopped.")
     finally:
         studio.shutdown()
-        server.server_close()
+        if server is not None:
+            server.server_close()
         for number, handler in previous:
             signal.signal(number, handler)
 

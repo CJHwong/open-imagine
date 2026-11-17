@@ -73,6 +73,9 @@ class StdioChild:
         self._ready = threading.Event()
         self._loaded = False
         self._scratch = None
+        # Bumped for each child this instance starts. A watcher can outlive its job by
+        # up to a second, and the generation is what keeps it off the next engine.
+        self._generation = 0
 
     def running(self) -> bool:
         """Whether the engine is still there, its group included.
@@ -99,6 +102,7 @@ class StdioChild:
         if self.running():
             return
         self._remove_scratch()  # a child that died alone left its folder
+        self._generation += 1
         self._scratch = tempfile.mkdtemp(prefix="speech-gen-")
         self._proc = subprocess.Popen(
             self._command,
@@ -115,7 +119,9 @@ class StdioChild:
         self._pgid = self._proc.pid
         self._ready = threading.Event()
         self._loaded = False
-        self._steps = threading.Thread(target=self._watch_steps, args=(self._proc, self._ready), daemon=True)
+        self._steps = threading.Thread(
+            target=self._watch_steps, args=(self._proc, self._ready, self._generation), daemon=True
+        )
         self._steps.start()
 
     def wait_ready(self) -> None:
@@ -154,6 +160,7 @@ class StdioChild:
         self._said.clear()  # a job's reason is what the child says about that job
         self._step_error = None
         self.ensure()
+        generation = self._generation
         self._on_step = on_step
         self._last_step = 0
         killed = threading.Event()
@@ -161,7 +168,9 @@ class StdioChild:
         timed_out = threading.Event()
         watcher_errors = []
         watcher = threading.Thread(
-            target=self._watch_cancel, args=(should_stop, killed, answered, timed_out, watcher_errors), daemon=True
+            target=self._watch_cancel,
+            args=(should_stop, killed, answered, timed_out, watcher_errors, generation),
+            daemon=True,
         )
         watcher.start()
         try:
@@ -238,13 +247,15 @@ class StdioChild:
                 return line
             self._said.append(line.decode("utf-8", "replace").strip())
 
-    def _watch_steps(self, proc, ready: threading.Event) -> None:
+    def _watch_steps(self, proc, ready: threading.Event, generation: int | None = None) -> None:
         """Turn the child's step lines into progress, for the child's whole life.
 
         Everything else it prints is kept for the moment a job goes unanswered,
         because that is where the child says what went wrong.
         """
         for line in proc.stderr:
+            if generation is not None and generation != self._generation:
+                return  # this child was replaced; its lines are not this job's
             if line.strip() == READY_LINE:
                 self._loaded = True
                 ready.set()
@@ -262,7 +273,7 @@ class StdioChild:
                         # reading, stop the child, and let the request raise this error.
                         if self._step_error is None:
                             self._step_error = error
-                        self._kill()
+                        self._kill(generation)
                 continue
             self._said.append(line.decode("utf-8", "replace").strip())
         ready.set()  # the child has gone: a wait for it to load ends here
@@ -286,7 +297,7 @@ class StdioChild:
             return ""
         return ". It last said: " + " | ".join(said[-SAID_IN_MESSAGE:])
 
-    def _watch_cancel(self, should_stop, killed, answered, timed_out, errors) -> None:
+    def _watch_cancel(self, should_stop, killed, answered, timed_out, errors, generation: int | None = None) -> None:
         """Cancel means kill. There is no polite way to interrupt the engine.
 
         The watch ends with the job. The child outlives it, and a watcher left
@@ -300,24 +311,31 @@ class StdioChild:
                 if answered.is_set():
                     return
                 errors.append(error)
-                self._kill()
+                self._kill(generation)
                 return
             if answered.is_set():
                 return
             if cancel_requested:
                 killed.set()
-                self._kill()
+                self._kill(generation)
                 return
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out.set()
-                self._kill()
+                self._kill(generation)
                 return
             answered.wait(min(0.4, remaining))
 
-    def _kill(self) -> None:
-        """Kill the child and anything it started, by the group id taken at spawn."""
-        proc, pgid = self._proc, self._pgid
+    def _kill(self, generation: int | None = None) -> None:
+        """Kill the child and anything it started, by the group id taken at spawn.
+
+        A watcher can outlive the job that started it by up to a second. A kill that
+        names an older generation is a no-op, so it can neither signal the engine that
+        replaced its child nor remove that engine's scratch folder.
+        """
+        if generation is not None and generation != self._generation:
+            return
+        proc, pgid, scratch = self._proc, self._pgid, self._scratch
         if proc is None or pgid is None:
             return
         try:
@@ -330,12 +348,18 @@ class StdioChild:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=5)
         finally:
-            self._remove_scratch()
+            self._remove_scratch(scratch)
 
-    def _remove_scratch(self) -> None:
-        """Remove the child's folder, and any clip in it. The child is gone, or about to start."""
-        if self._scratch is None:
+    def _remove_scratch(self, scratch: str | None = None) -> None:
+        """Remove one child's folder, and any clip in it. The child is gone, or about to start.
+
+        The folder is named by the caller when it belongs to a child that may already
+        have been replaced, so removing it cannot touch the engine in use.
+        """
+        folder = self._scratch if scratch is None else scratch
+        if folder is None:
             return
         with contextlib.suppress(FileNotFoundError):  # already gone meets the goal
-            shutil.rmtree(self._scratch)
-        self._scratch = None
+            shutil.rmtree(folder)
+        if self._scratch == folder:
+            self._scratch = None

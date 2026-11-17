@@ -651,3 +651,33 @@ def test_prepare_does_not_serve(tmp_path, monkeypatch):
     assert entry.main() == 0
 
     server_class.assert_not_called()
+
+
+def test_termination_signals_are_handled_before_the_phone_listener_starts(tmp_path, monkeypatch):
+    """The listener can take seconds, and a Studio already owns models and storage by
+    then. A termination in that window must take the same orderly path."""
+    from studio.l1_entities.errors import StudioError
+
+    seen = []
+    real_signal = signal.signal
+
+    def record(number, handler):
+        seen.append((number, handler))
+        return real_signal(number, handler)
+
+    monkeypatch.setattr(entry.signal, "signal", record)
+    studio = SimpleNamespace(
+        handler=Mock(), shutdown=Mock(), expire=Mock(), start_connect=Mock(side_effect=StudioError("no pipe"))
+    )
+    server = Mock()
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    with pytest.raises(SystemExit) as exits:
+        entry.main()
+
+    assert "cannot start: no pipe" in exit_message(exits)
+    assert seen[0] == (signal.SIGTERM, entry.stop_on_signal)
+    studio.shutdown.assert_called_once_with()
+    server.server_close.assert_called_once_with()

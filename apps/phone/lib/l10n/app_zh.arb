@@ -19,5 +19,6 @@
   "saved": "已儲存 {name}",
   "couldNotSave": "無法儲存：{error}",
   "inputUnavailable": "無法開啟此輸入。請再試一次。",
-  "microphoneDenied": "無法使用麥克風。請在 Android 設定中允許存取，再試一次。"
+  "microphoneDenied": "無法使用麥克風。請在 Android 設定中允許存取，再試一次。",
+  "pageSetupFailed": "頁面設定未完成，請重新載入再試。"
 }
