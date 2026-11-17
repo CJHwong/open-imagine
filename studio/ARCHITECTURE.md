@@ -191,6 +191,8 @@ A change to an endpoint's route or JSON shape should not require a change to a m
 
 ## One request
 
+The server speaks HTTP/1.1 and keeps the connection, so one TCP connection carries the whole page. A phone reaches the studio through a pipe that pays a fresh handshake for every connection, and a page that opened one per file and per poll crawled: one page load measured 66 new connections before this, and 5 after.
+
 The body is read before the form is parsed. The read has two limits: an idle timeout for a client that stops sending, and a deadline that follows the body's size at the slowest supported rate, bounded at five minutes. A fixed deadline refused a legitimate clip from a slow link while accepting it from a fast one. The size cap is enforced first, so a deadline never admits more bytes than the cap allows.
 
 1. The HTTP server hands the form to `FormController`.

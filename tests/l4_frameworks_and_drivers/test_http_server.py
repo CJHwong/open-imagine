@@ -2121,7 +2121,7 @@ def test_request_body_read_has_a_deadline(served, monkeypatch):
             f"POST /generate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Length: 100\r\n\r\nprompt=".encode()
         )
         response = connection.recv(4096)
-    assert response.startswith(b"HTTP/1.0 400")
+    assert response.startswith(b"HTTP/1.1 400")
     assert served[2].jobs == []
 
 
@@ -2175,7 +2175,7 @@ def test_body_rejects_duplicate_lengths_and_truncated_bytes(served):
         with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
             connection.sendall(f"POST /generate HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{headers}\r\n\r\nx".encode())
             connection.shutdown(socket.SHUT_WR)
-            assert connection.recv(4096).startswith(b"HTTP/1.0 400")
+            assert connection.recv(4096).startswith(b"HTTP/1.1 400")
 
 
 def test_get_rejects_duplicate_hosts(served):
@@ -2186,7 +2186,7 @@ def test_get_rejects_duplicate_hosts(served):
         connection.sendall(
             f"GET /api/v1/state HTTP/1.1\r\nHost: localhost:{port}\r\nHost: foreign.example\r\n\r\n".encode()
         )
-        assert connection.recv(4096).startswith(b"HTTP/1.0 403")
+        assert connection.recv(4096).startswith(b"HTTP/1.1 403")
 
 
 def test_the_phone_probe_reads_the_studio_only_when_its_host_names_the_port(served):
@@ -2201,8 +2201,8 @@ def test_the_phone_probe_reads_the_studio_only_when_its_host_names_the_port(serv
             connection.sendall(f"GET /api/v1/studio HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n".encode())
             return connection.recv(4096)
 
-    assert probe(f"127.0.0.1:{port}").startswith(b"HTTP/1.0 200")
-    assert probe("127.0.0.1").startswith(b"HTTP/1.0 403")
+    assert probe(f"127.0.0.1:{port}").startswith(b"HTTP/1.1 200")
+    assert probe("127.0.0.1").startswith(b"HTTP/1.1 403")
 
 
 def test_body_deadline_also_stops_a_client_that_keeps_sending(monkeypatch):
@@ -2241,7 +2241,7 @@ def test_missing_length_keeps_empty_form_actions_but_refuses_json(served, path, 
         connection.sendall(
             f"POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n\r\n".encode()
         )
-        assert connection.recv(4096).startswith(f"HTTP/1.0 {status}".encode())
+        assert connection.recv(4096).startswith(f"HTTP/1.1 {status}".encode())
 
 
 def test_get_requires_a_tcp_listener():
@@ -2397,3 +2397,23 @@ def test_the_body_deadline_follows_the_size_and_stops_at_a_bound(monkeypatch):
     assert http_server.body_read_seconds(1) == pytest.approx(30.0)
     assert http_server.body_read_seconds(10 * 1024 * 1024) == pytest.approx(40.0)
     assert http_server.body_read_seconds(10**12) == 300.0
+
+
+def test_one_connection_carries_more_than_one_request(served):
+    """A phone reaches the studio through a pipe that pays a fresh handshake for every
+    connection. A page that opened one per file and per poll crawled, so the studio keeps
+    the connection and answers the next request on it."""
+    port = served[1].server_address[1]
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as connection:
+        for _ in range(3):
+            connection.sendall(f"GET /api/v1/studio HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+            answer = b""
+            while b"\r\n\r\n" not in answer:
+                answer += connection.recv(65536)
+            head, _, body = answer.partition(b"\r\n\r\n")
+            length = int(
+                next(line for line in head.split(b"\r\n") if line.lower().startswith(b"content-length")).split(b":")[1]
+            )
+            while len(body) < length:
+                body += connection.recv(65536)
+            assert head.startswith(b"HTTP/1.1 200")
