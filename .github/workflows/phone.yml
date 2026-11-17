@@ -4,16 +4,23 @@ permissions:
   contents: read
 
 on:
+  # The phone holds a contract with the studio's HTTP routes and its pairing
+  # ticket. A change on either side runs this workflow, because a change on one
+  # side alone already broke the other one.
   pull_request:
     branches: [main]
     paths:
       - apps/phone/**
       - .github/workflows/phone.yml
+      - studio/l4_frameworks_and_drivers/http_server.py
+      - studio/l4_frameworks_and_drivers/connect.py
   push:
     branches: [main]
     paths:
       - apps/phone/**
       - .github/workflows/phone.yml
+      - studio/l4_frameworks_and_drivers/http_server.py
+      - studio/l4_frameworks_and_drivers/connect.py
   workflow_dispatch:
 
 concurrency:

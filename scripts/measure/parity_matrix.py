@@ -9,10 +9,34 @@ import json
 from pathlib import Path
 
 PICTURE = (
-    "A weathered fisherman mends a net on a harbour wall at dawn, warm low light, calm water "
-    "and open sky behind him, fine rope detail, a painted sign reading HARBOUR"
+    "A close still life of two red enamel coffee pots on a pale stone windowsill, looking out to "
+    "sea. The tall pot stands on the left third, the short one a hand's width to its right, both "
+    "dented and lightly dusty, handles turned to the right. Beyond the sill the sea is flat and "
+    "deep blue under a pale morning sky, out of focus. Low sun comes from the left, warm on the "
+    "enamel and casting long shadows across the stone. Shot at eye level with a 50 mm lens at "
+    "f/2, shallow depth of field, the pots sharp against the soft sea behind. Nothing else "
+    "shares the sill."
 )
-HARBOUR = "A harbour wall at midday, a fisherman mends a net, gulls overhead, clear sky"
+HARBOUR = (
+    "Wide establishing shot of a stone harbour wall at low tide in the early morning. A woman in "
+    "a dark wool coat walks along the top of the wall from right to left, one hand on the "
+    "railing, the wind pulling at her coat. Behind her the water is flat and grey green, and a "
+    "line of small boats sits at anchor. The camera tracks slowly left beside her at walking "
+    "pace, keeping her in the right third, then settles as she stops at the end of the wall and "
+    "looks out at the water. Low warm sunlight comes from the left, with long shadows on the wet "
+    "stone. Ambient sound of water against stone and wind, and gulls far off."
+)
+EDIT = (
+    "Make the scene night. Warm light from a lamp inside the room now falls on the two red pots, "
+    "the sea beyond the glass turns deep blue black, and the sill keeps its shape and the "
+    "framing stays as it is."
+)
+EDIT_H3 = (
+    "Make <Picture 1> a night scene: warm lamp light from inside the room falls across the two "
+    "red pots, and the sea beyond the glass turns deep blue black. Keep the sill, the pots and "
+    "the framing as they are."
+)
+MANY = "Place one red pot from each picture in a row along a plain wooden table, evenly spaced, lit from the left."
 SENTENCE = "Hello, the harbour is quiet."
 PARAGRAPH = (
     "Every morning the fisherman walked the same wall. He knew the tide by the sound it made "
@@ -43,7 +67,7 @@ def ref(name: str) -> dict:
 def cases() -> list[dict]:
     rows: list[dict] = []
 
-    def image(case_id: str, mode: str, spark: dict, office: dict) -> None:
+    def image(case_id: str, spark: dict, office: dict) -> None:
         rows.append(
             {
                 "id": case_id,
@@ -84,15 +108,14 @@ def cases() -> list[dict]:
 
     for size in ("512x512", "768x768", "1024x1024", "1328x1328"):
         body = {"mode": "generate", "prompt": PICTURE, "size": size, "steps": 8, "guidance": 1.0, "seed": 7}
-        image(f"qwen21_turbo/generate/text/{size.split('x')[0]}", "generate", body, body)
+        image(f"qwen21_turbo/generate/text/{size.split('x')[0]}", body, body)
 
     for out in ("512", "768", "1024", "1344"):
         image(
             f"qwen21_turbo/edit/one-ref/out{out}",
-            "edit",
             {
                 "mode": "edit",
-                "prompt": "Make it night, lit by the window.",
+                "prompt": EDIT,
                 "resolution": out,
                 "steps": 8,
                 "guidance": 1.0,
@@ -101,7 +124,7 @@ def cases() -> list[dict]:
             },
             {
                 "mode": "edit",
-                "prompt": "Make it night, lit by the window.",
+                "prompt": EDIT,
                 "resolution": out,
                 "steps": 8,
                 "cfg": 1.0,
@@ -113,10 +136,9 @@ def cases() -> list[dict]:
     for count in (2, 4, 8, 10):
         image(
             f"qwen21_turbo/edit/{count}-refs/out1024",
-            "edit",
             {
                 "mode": "edit",
-                "prompt": "Put the objects from the pictures on one table.",
+                "prompt": MANY,
                 "resolution": "1024",
                 "steps": 8,
                 "guidance": 1.0,
@@ -125,7 +147,7 @@ def cases() -> list[dict]:
             },
             {
                 "mode": "edit",
-                "prompt": "Put the objects from the pictures on one table.",
+                "prompt": MANY,
                 "resolution": "1024",
                 "steps": 8,
                 "cfg": 1.0,
@@ -137,10 +159,9 @@ def cases() -> list[dict]:
     for name in ("512", "1600x900", "2048", "4032x3024"):
         image(
             f"qwen21_turbo/edit/one-ref/in{name}",
-            "edit",
             {
                 "mode": "edit",
-                "prompt": "Make it night, lit by the window.",
+                "prompt": EDIT,
                 "resolution": "1024",
                 "steps": 8,
                 "guidance": 1.0,
@@ -149,7 +170,7 @@ def cases() -> list[dict]:
             },
             {
                 "mode": "edit",
-                "prompt": "Make it night, lit by the window.",
+                "prompt": EDIT,
                 "resolution": "1024",
                 "steps": 8,
                 "cfg": 1.0,
@@ -160,16 +181,16 @@ def cases() -> list[dict]:
 
     for size in ("1024x1024", "2048x2048"):
         body = {"mode": "generate", "prompt": PICTURE, "size": size, "steps": 6, "seed": 7}
-        image(f"minimax_h3_image/generate/{size.split('x')[0]}", "generate", body, body)
+        image(f"minimax_h3_image/generate/{size.split('x')[0]}", body, body)
     edit = {
         "mode": "edit",
-        "prompt": "Make <Picture 1> night time, lit by the window.",
+        "prompt": EDIT_H3,
         "size": "match",
         "steps": 6,
         "seed": 7,
         "references": [ref("ref-2048.png")],
     }
-    image("minimax_h3_image/edit/one-ref-2048", "edit", edit, edit)
+    image("minimax_h3_image/edit/one-ref-2048", edit, edit)
 
     for width, height, frames in ((768, 768, 97), (1280, 704, 97), (1920, 1088, 97), (384, 384, 25)):
         video(

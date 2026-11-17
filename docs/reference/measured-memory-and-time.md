@@ -1,10 +1,15 @@
 # Measured memory and time
 
-The latest measurements ran on 16 November 2026, after the gateway performance changes.
+The 16 November 2026 measurements follow the gateway performance changes. The 17 November
+2026 run repeated every case on both machines with the harness in the tree, which samples free
+memory during the run and separates the phases: all 46 cases, across image, video, voice and
+music. The 17 November figures are in [the 17 November comparison](#the-17-november-comparison).
+
 They use the Studio API and public fixtures. Each row is one request unless it says otherwise.
 
 - [Apple M5 Pro](#apple-m5-pro)
 - [DGX Spark](#dgx-spark)
+- [The 17 November comparison](#the-17-november-comparison)
 - [Mac and Spark comparison](#mac-and-spark-comparison)
 - [Component measurements](#current-component-measurements)
 
@@ -13,12 +18,18 @@ They use the Studio API and public fixtures. Each row is one request unless it s
 GiB means gibibytes.
 
 - **Time** runs from submission to terminal status. It excludes queue wait and weight downloads.
+  An empty queue makes the two definitions the same figure. The 17 November rows print the
+  operation's own span, from the studio accepting the request to its terminal status, and the
+  runner recorded the submit, the fetch and the end-to-end total beside it.
 - **Free drop** is the change from baseline to the lowest sampled available memory. A negative value means available memory rose during the run. Background activity affects this value.
-- **Peak footprint** is the sampled peak across the process tree. On the Mac it sums physical footprints. Shared pages can be counted more than once. On Spark it sums resident memory and can omit GPU allocations. Do not compare the two directly.
+  The 17 November runner samples five times a second, from before the submit to the terminal
+  status. A model that stays resident between cases shows a small drop on every case after the
+  one that loaded it.
+- **Peak footprint** is the sampled peak across the process tree. On the Mac it sums physical footprints. Shared pages can be counted more than once. On Spark it sums resident memory and can omit GPU allocations. Do not compare the two directly. The 17 November run did not measure it.
 - Measurements use one-second samples. fps means frames per second. Mac footprint values use rounded `footprint` output. A missing peak is shown as `not sampled`.
 - A decoded result confirms the output can be read. It does not prove prompt fidelity or equal quality.
 
-Source identifies the frozen code used for each measurement. Sources 1 and 2 precede the final H3 prompt-encoder fix. Sources 4 and 5 hold the native-size H3 studies. Later page and validation changes do not change the measured model path.
+Source identifies the frozen code used for each measurement. Sources 1 and 2 precede the final H3 prompt-encoder fix. Sources 4 and 5 hold the native-size H3 studies. Source 6 is the 17 November campaign. Later page and validation changes do not change the measured model path.
 
 | Source | Snapshot SHA-256 |
 | --- | --- |
@@ -27,8 +38,116 @@ Source identifies the frozen code used for each measurement. Sources 1 and 2 pre
 | 3 | `aac6350dd097528822befd61c7fec45bfbe0118ac806bcabcb5c5e8e3e795a53` |
 | 4 | `e97c6075aa44a376118109e9829892f2e2f78e5cf5887bff4ea525533b15cbeb` (SHA-256 of the 1,018-file source manifest) |
 | 5 | `a922b0a3a95448944e7c742789726f73e3821457cb16a5f70b99a0e7e56ff82a` (SHA-256 of the 1,018-file source manifest) |
+| 6 | `18c45f92f60e8c312396cf5119ddc6fb5c78ffb5` (the tree the runner recorded; the case payloads changed in `b9e0f87` before this campaign ran, and no measured engine changed) |
 
-The [model setup guide](../how-to/set-up-models.md) lists weights and licenses. The [measurement scripts](../../scripts/measure/README.md) describe the earlier harness; the latest run used the retained V3/V5 drivers.
+The [model setup guide](../how-to/set-up-models.md) lists weights and licenses. The [measurement scripts](../../scripts/measure/README.md) hold the harness, and the 17 November run used them.
+
+## The 17 November comparison
+
+One campaign ran on both machines from the same case list, the same asset bytes and the same
+seed. It covers all 46 cases that `parity_matrix.py` writes, across image, video, voice and
+music. Source 6 records it. The records, the media and the CSV sit outside this repository.
+
+The campaign changed its prompt before it ran. An earlier pass used a harbour scene that both
+image engines rendered badly: the painted sign came out garbled, the hands were mush, and a
+backlit subject against open haze left a flat frame with no separation. The payload now asks for
+a still life of two red enamel pots on a stone sill, and it names the light direction, the lens
+and the depth of field. A row-for-row comparison with that earlier 19-case pass does not hold,
+because the text changed: the 1328 generation reads 52.8 s here against 45.3 s there.
+
+`active` is the operation's own span, from the studio accepting the request to its terminal
+status. The Mac reports no free-memory figure, because it has no `/proc/meminfo`.
+
+The first case of a workspace pays that workspace's model load. Each of those five cases ran
+twice, and the second figure is the one below.
+
+| Case | Mac active (s) | Spark active (s) | Spark peak free drop (GiB) |
+| --- | ---: | ---: | ---: |
+| `drama3/clone/ref12s` | 5.0 | 8.1 | 0.42 |
+| `drama3/clone/ref5s` | 14.1 | 8.1 | 0.38 |
+| `drama3/generate/paragraph700` | 21.2 | 45.1 | 1.14 |
+| `drama3/generate/sentence50` | 2.0 | 8.1 | 0.4 |
+| `drama3/generate/text1000` | 47.3 | 105.3 | 1.92 |
+| `drama3/generate/text4000` | failed | 434.2 | 3.46 |
+| `drama3/generate/text50-seed11` | 3.0 | 6.0 | 0.29 |
+| `ltx25/generate/1-keyframes/768x768x97` | 112.8 | 85.5 | 0.61 |
+| `ltx25/generate/2-keyframes/768x768x97` | 119.9 | 81.3 | 0.62 |
+| `ltx25/generate/4-keyframes/768x768x97` | 135.0 | 85.5 | 0.62 |
+| `ltx25/generate/8-keyframes/768x768x97` | 172.3 | 88.5 | 0.62 |
+| `ltx25/generate/fast/768x768x121` | 108.8 | rejected | rejected |
+| `ltx25/generate/frames/121` | 139.0 | 128.7 | 0.37 |
+| `ltx25/generate/frames/25` | 44.3 | 31.2 | 0.34 |
+| `ltx25/generate/frames/49` | 64.4 | 51.2 | 0.36 |
+| `ltx25/generate/no-enhance/768x768x97` | 105.8 | 85.7 | 0.62 |
+| `ltx25/generate/text/1280x704x97` | 197.5 | 120.5 | 9.06 |
+| `ltx25/generate/text/1920x1088x97` | 550.1 | 413.9 | 20.19 |
+| `ltx25/generate/text/384x384x25` | 26.2 | 19.1 | 0.26 |
+| `ltx25/generate/text/768x768x97` | 114.9 | 78.3 | 0.63 |
+| `minimax_h3_image/edit/one-ref-2048` | 152.2 | 90.4 | 0.39 |
+| `minimax_h3_image/generate/1024` | 20.1 | 41.2 | 0.02 |
+| `minimax_h3_image/generate/2048` | 56.5 | 57.4 | 0.07 |
+| `qwen21_turbo/edit/10-refs/out1024` | 192.6 | 52.2 | 9.1 |
+| `qwen21_turbo/edit/2-refs/out1024` | 52.4 | 18.1 | 0.12 |
+| `qwen21_turbo/edit/4-refs/out1024` | 76.6 | 25.1 | 0.18 |
+| `qwen21_turbo/edit/8-refs/out1024` | 136.1 | 41.1 | 8.76 |
+| `qwen21_turbo/edit/one-ref/in1600x900` | 44.3 | 15.1 | 0.1 |
+| `qwen21_turbo/edit/one-ref/in2048` | 43.3 | 16.1 | 0.13 |
+| `qwen21_turbo/edit/one-ref/in4032x3024` | 45.3 | 17.1 | 0.32 |
+| `qwen21_turbo/edit/one-ref/in512` | 42.4 | 15.0 | 0.03 |
+| `qwen21_turbo/edit/one-ref/out1024` | 41.3 | 15.0 | 0.06 |
+| `qwen21_turbo/edit/one-ref/out1344` | 86.7 | 27.1 | 4.43 |
+| `qwen21_turbo/edit/one-ref/out512` | 12.3 | 4.0 | 0.28 |
+| `qwen21_turbo/edit/one-ref/out768` | 21.3 | 9.1 | 0.06 |
+| `qwen21_turbo/generate/text/1024` | 28.3 | 12.1 | 0.02 |
+| `qwen21_turbo/generate/text/1328` | 52.8 | 20.1 | 6.5 |
+| `qwen21_turbo/generate/text/512` | 5.0 | 3.0 | 0.02 |
+| `qwen21_turbo/generate/text/768` | 14.1 | 7.1 | 0.02 |
+| `yue2/cover/speech10s` | 64.5 | 199.4 | 6.43 |
+| `yue2/generate/instrumental` | 138.0 | 193.5 | 7.54 |
+| `yue2/generate/long` | 140.0 | 188.5 | 7.03 |
+| `yue2/generate/short` | 118.9 | 115.3 | 6.44 |
+| `yue2/plan/short` | 14.1 | 16.0 | 1.77 |
+| `yue2/transcribe/speech10s` | 7.1 | 27.1 | 5.8 |
+| `yue2/transcribe/speech15s` | 5.1 | 21.1 | 5.51 |
+
+The Qwen columns are both bf16. Spark is faster on every row, from 1.7 times at 512 text
+generation (5.0 s against 3.0 s) to 3.7 times at ten references (192.6 s against 52.2 s). The
+gap grows with the output size and with the reference count.
+
+The H3 columns are not one weight format: the Mac runs the int8 pack and the Spark runs fp8.
+The Mac is twice as fast at 1024 (20.1 s against 41.2 s), the two are level at 2048 (56.5 s
+against 57.4 s), and the Spark is faster on the edit of a 2048 reference (90.4 s against
+152.2 s).
+
+Spark is faster on all twelve video rows it ran. A 768 square clip is 78.3 s against 114.9 s,
+and a 1920 by 1088 clip is 413.9 s against 550.1 s. The Spark also holds its figure as keyframes
+are added, 85.5 s at one and 88.5 s at eight, where the Mac grows from 112.8 s to 172.3 s.
+
+The Fast mode row reads `rejected` on Spark because `ltx25_cuda` declares no Fast mode, and the
+gateway refuses the request with that reason. The Mac ran 121 frames in 108.8 s; the same 121
+frames without Fast mode took 139.0 s.
+
+Drama-3 generation is faster on the Mac: 50 words in 2.0 s against 8.1 s, and 1000 words in
+47.3 s against 105.3 s. The 800-word request reached the token limit on the Mac and failed,
+where the Spark completed it in 434.2 s. That is the `max_tokens` limit recorded in the earlier
+Drama rows, not a machine fault.
+
+YuE2 is mixed. The Mac is three times faster on a ten-second cover (64.5 s against 199.4 s) and
+faster on a long song and on an instrumental, and the two are level on the short song (118.9 s
+against 115.3 s).
+
+The Spark memory column is the transient pressure of one job, not a model footprint. Most rows
+read near zero because the model stays resident between cases. The large ones follow the work
+size: 20.19 GiB at 1920 by 1088, 9.06 GiB at 1280 by 704, 9.1 GiB for ten references, and
+8.76 GiB for eight.
+
+This campaign did not repeat the out-of-memory failures recorded in the earlier image pass. The
+H3 cases ran in the same studio after the Qwen cases, and both succeeded. The studio still
+leaves its engine children alive after it exits; that fault was observed here and is not fixed.
+
+The Mac completes the 1344 edit in 86.7 s. Source 1 recorded that request as a failure at the
+expected memory limit. The engine code changed between the two sources; this run changed neither
+the engine nor the page.
 
 ## Apple M5 Pro
 
@@ -520,15 +639,19 @@ The driver did not retain the full request time or its host memory samples. The 
 
 ## Coverage and limits
 
-The matrix accounts for 183 planned case IDs. Of these, 178 reached their expected outcome.
+The 16 November campaign accounts for 183 planned case IDs. Of these, 178 reached their expected outcome.
 Four use replacement reference fixtures. One Drama request unexpectedly reached `max_tokens`.
 Expected outcomes include expected errors and limits. They do not all represent successful media generation.
 Warmups, retries, comparison requests, and component checks are separate from that count.
+The 17 November campaign ran all 46 case IDs that `parity_matrix.py` writes, on both machines.
+45 succeeded on each. One row is a refusal, and one is a documented limit.
 
 | Check | Coverage and result |
 | --- | --- |
 | Mac and Spark comparison | 15 matched rows. Public inputs and seed match; precision and some output geometry differ. |
-| macOS CPU suite | 3,587 tests passed after the H3 and YuE2 fixes. Statement and branch coverage reached 100%. |
+| 17 November parity run | 46 cases on each machine. 45 succeeded on each. Spark refused Fast mode, which `ltx25_cuda` does not offer. The Mac reached `max_tokens` on the 800-word Drama request. The Mac reports no free-memory figure. |
+| macOS CPU suite | 3,601 tests passed with the 17 November changes. Statement and branch coverage reached 100%. |
+| macOS CPU suite, 16 November | 3,587 tests passed after the H3 and YuE2 fixes. Statement and branch coverage reached 100%. |
 | MLX product checks | Page: 181 checks passed. Batch: 12 passed. Backend switch: 19 passed. |
 | H3 MLX video | Both real model tests passed. |
 | Spark targeted suite | 690 tests passed. Real CUDA checks covered generation, edit, cancellation, and a backend switch. |

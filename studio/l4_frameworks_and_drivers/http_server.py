@@ -1,6 +1,7 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
 import json
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -19,6 +20,7 @@ from studio.l1_entities.errors import (
     UnreadableImage,
 )
 from studio.l1_entities.music_job import MusicResult
+from studio.l1_entities.video_capabilities import MAX_CLIP_MEGABYTES
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
 from studio.l3_interface_adapters.api.json_api import JsonApi
@@ -39,12 +41,31 @@ WEB = Path(__file__).with_name("web").resolve()
 # Only what a browser loads as code. The documents that sit beside them, this
 # design among them, are not served.
 PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
-MAX_VIDEO_REQUEST_BYTES = 64 * 1024 * 1024
+# A clip crosses as base64 inside JSON, which costs four bytes for every three. A body cap
+# below the encoded size refuses a clip the validator would accept, so this follows the
+# advertised limit instead of being picked by hand. The margin holds the audio track, the
+# prompt and the rest of the request.
+MAX_CLIP_BYTES = int(MAX_CLIP_MEGABYTES * 1024 * 1024)
+MAX_VIDEO_REQUEST_BYTES = (MAX_CLIP_BYTES + 2) // 3 * 4 + 8 * 1024 * 1024
+MAX_VIDEO_REQUEST_MEGABYTES = MAX_VIDEO_REQUEST_BYTES // (1024 * 1024)
 REQUEST_READ_TIMEOUT_SECONDS = 30.0
 # A caller that sends this header owns private operations. The routes below are the
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
 PRIVATE_KEY_ELSEWHERE = f"{PRIVATE_KEY_HEADER} works only with POST /api/v1/operations."
+
+LOGGER = logging.getLogger("studio.http")
+
+
+def unexpected_answer(path: str) -> dict[str, str]:
+    """The sentence an unexpected failure gets, and the log line that keeps the cause.
+
+    An upstream exception can carry a filesystem path, an account name or a library's own
+    words. The caller gets one request-scoped sentence that names none of them. The cause
+    goes to this machine's log, where an operator can read it.
+    """
+    LOGGER.exception("unexpected error while answering %s", path)
+    return {"error": "The studio hit an unexpected error. Its log names the cause."}
 
 
 class StudioHTTPServer(ThreadingHTTPServer):
@@ -611,8 +632,8 @@ def make_handler(
                 return {"error": str(error)}, 429
             except StudioError as error:
                 return {"error": str(error)}, 503
-            except Exception as error:
-                return {"error": f"{type(error).__name__}: {error}"}, 500
+            except Exception:
+                return unexpected_answer(self.path), 500
 
         def _run_video(self, mode: str | None = None) -> None:
             if video_controller is None:
@@ -650,8 +671,8 @@ def make_handler(
             except StudioError as error:
                 self._send_json({"error": str(error)}, status=503)
                 return
-            except Exception as error:
-                self._send_json({"error": f"{type(error).__name__}: {error}"}, status=500)
+            except Exception:
+                self._send_json(unexpected_answer(self.path), status=500)
                 return
             headers = {"X-Studio-Operation": operation["id"]} if operation else None
             if headers is not None and operation is not None and operation.get("finished_at") is not None:
@@ -733,7 +754,9 @@ def make_handler(
         def _read_form(self) -> dict[str, str]:
             try:
                 body = self._read_body(
-                    MAX_VIDEO_REQUEST_BYTES, "The form request size must be between 0 bytes and 64 MB", allow_empty=True
+                    MAX_VIDEO_REQUEST_BYTES,
+                    f"The form request size must be between 0 bytes and {MAX_VIDEO_REQUEST_MEGABYTES} MB",
+                    allow_empty=True,
                 ).decode("utf-8")
             except UnicodeDecodeError:
                 raise InvalidJob("The form request must contain valid UTF-8") from None
@@ -745,7 +768,10 @@ def make_handler(
         def _read_json(self, *, include_identity: bool = True) -> dict:
             if not self.headers.get("Content-Type", "").startswith("application/json"):
                 raise InvalidJob("The request must use application/json")
-            contents = self._read_body(MAX_VIDEO_REQUEST_BYTES, "The request size must be between 1 byte and 64 MB")
+            contents = self._read_body(
+                MAX_VIDEO_REQUEST_BYTES,
+                f"The request size must be between 1 byte and {MAX_VIDEO_REQUEST_MEGABYTES} MB",
+            )
             try:
                 payload = json.loads(contents.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):

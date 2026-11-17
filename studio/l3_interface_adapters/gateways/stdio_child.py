@@ -67,6 +67,7 @@ class StdioChild:
         self._pgid = None
         self._on_step = None
         self._last_step = 0
+        self._step_error = None
         self._said = deque(maxlen=SAID_LINES)
         self._steps = None
         self._ready = threading.Event()
@@ -151,6 +152,7 @@ class StdioChild:
         and RuntimeError when the child reports an error or dies.
         """
         self._said.clear()  # a job's reason is what the child says about that job
+        self._step_error = None
         self.ensure()
         self._on_step = on_step
         self._last_step = 0
@@ -175,6 +177,13 @@ class StdioChild:
             self.stop()
             self._drain()
             raise watcher_errors[0]
+        if self._step_error is not None:
+            # The callback that reports progress raised. That is the request's failure,
+            # not a dead engine: the kill it caused must not hide the original error.
+            error, self._step_error = self._step_error, None
+            self.stop()
+            self._drain()
+            raise error
         if timed_out.is_set():
             self.stop()
             self._drain()
@@ -241,7 +250,16 @@ class StdioChild:
             if match:
                 if self._on_step is not None:
                     self._last_step = int(match.group(1))
-                    self._on_step(self._last_step, int(match.group(2)))
+                    try:
+                        self._on_step(self._last_step, int(match.group(2)))
+                    except BaseException as error:
+                        # A callback that raises must not take down the only reader of the
+                        # child's stderr. A chatty engine then fills that pipe and blocks,
+                        # and the job waits out its deadline with no reason to show. Keep
+                        # reading, stop the child, and let the request raise this error.
+                        if self._step_error is None:
+                            self._step_error = error
+                        self._kill()
                 continue
             self._said.append(line.decode("utf-8", "replace").strip())
         ready.set()  # the child has gone: a wait for it to load ends here
@@ -300,11 +318,16 @@ class StdioChild:
         if proc is None or pgid is None:
             return
         try:
-            os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            proc.kill()  # the group is already gone
-        proc.wait(timeout=5)
-        self._remove_scratch()
+            try:
+                os.killpg(pgid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.kill()  # the group is already gone
+            # A process that will not be reaped must not turn a cancel into an exception
+            # of its own, and its scratch folder has to go whether or not it is reaped.
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=5)
+        finally:
+            self._remove_scratch()
 
     def _remove_scratch(self) -> None:
         """Remove the child's folder, and any clip in it. The child is gone, or about to start."""

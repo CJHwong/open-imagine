@@ -1,8 +1,10 @@
 import threading
+import time
 
 import pytest
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, OperationMissing, QueueFull
+from studio.l1_entities.video_job import VideoResult
 from studio.l3_interface_adapters.gateways.in_memory.operation_gateway import InMemoryOperationGateway as Operations
 
 
@@ -94,21 +96,29 @@ def test_count_time_and_bytes_bound_retention_without_evicting_active_work():
     operations.finish(first["id"], {})
     second = operations.begin({"kind": "image"})
     assert active_id(operations) == second["id"]
-    with pytest.raises(OperationMissing):
-        operations.get(first["id"])
+    # The count is over its limit, and the one finished record is the newest. A caller that
+    # has not fetched it yet still gets it.
+    assert operations.get(first["id"])["status"] == "succeeded"
     now[0] = 20
     assert active_id(operations) == second["id"]
     operations.finish(second["id"], {})
     assert operations.get(second["id"])["status"] == "succeeded"
+    # The newest moved, so the older result gives way to the count limit now.
+    with pytest.raises(OperationMissing):
+        operations.get(first["id"])
     now[0] = 31
     with pytest.raises(OperationMissing):
         operations.get(second["id"])
     third = operations.begin({"kind": "video"})
     operations.finish(third["id"], VideoResult(b"x" * 2048, 8, 8, 9, 24, 7))
-    assert operations.recent() == []
+    # Over the byte limit, and still here: it is the newest finished result, which its
+    # caller has not fetched yet.
+    assert [one["id"] for one in operations.recent()] == [third["id"]]
     fourth = operations.begin({"kind": "video"})
     operations.finish(fourth["id"], VideoResult(None, 8, 8, 9, 24, None, stub=True))
     assert operations.result(fourth["id"]).stub
+    with pytest.raises(OperationMissing):
+        operations.result(third["id"])
 
 
 def test_voice_retention_counts_the_effective_instruction_in_its_byte_limit():
@@ -117,7 +127,11 @@ def test_voice_retention_counts_the_effective_instruction_in_its_byte_limit():
     operations = Operations(max_bytes=1024)
     operation = operations.begin({"kind": "voice"})
     operations.finish(operation["id"], SpeechResult(b"wav", 1, 16000, 7, 4, text="word " * 1000))
-    assert operations.recent() == []
+
+    # The words the backend spoke are part of what this record holds. It is over the byte
+    # limit, and it stays because it is the newest one.
+    assert operations._sizes[operation["id"]] > 1024
+    assert operations.result(operation["id"]).wav == b"wav"
 
 
 def test_continuation_expires_only_between_engine_calls():
@@ -422,6 +436,59 @@ def test_wait_for_turn_claims_the_first_queued_operation_when_the_active_one_end
     assert operations.queue_position(second["id"]) is None
 
 
+def test_a_new_request_queues_behind_the_operation_that_is_next_in_line():
+    """The slot is free while the head of the queue wakes up. A request that arrives in
+    that window must line up behind it, not take its place."""
+    operations = Operations(max_queue=2)
+    first = operations.begin({"kind": "image"})
+    second = operations.begin({"kind": "image"}, queued=True)
+    operations.finish(first["id"], {})
+
+    third = operations.begin({"kind": "image"}, queued=True)
+
+    assert operations.active() is None
+    assert operations.get(third["id"])["status"] == "queued"
+    assert operations.queue_position(second["id"]) == 1
+    assert operations.queue_position(third["id"]) == 2
+
+    operations.wait_for_turn(second["id"])
+
+    assert active_id(operations) == second["id"]
+
+
+def test_queued_work_runs_one_operation_at_a_time_and_leaves_none_behind():
+    operations = Operations(max_queue=8)
+    first = operations.begin({"kind": "image"})
+    guard = threading.Lock()
+    state = {"running": 0, "peak": 0}
+    finished = []
+
+    def work(index):
+        operation = operations.begin({"kind": "image", "index": index}, queued=True)
+        operations.wait_for_turn(operation["id"])
+        with guard:
+            state["running"] += 1
+            state["peak"] = max(state["peak"], state["running"])
+        time.sleep(0.005)
+        with guard:
+            state["running"] -= 1
+            finished.append(index)
+        operations.finish(operation["id"], {"index": index})
+
+    threads = [threading.Thread(target=work, args=(index,)) for index in range(8)]
+    for thread in threads:
+        thread.start()
+    operations.finish(first["id"], {})
+    for thread in threads:
+        thread.join(5)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(finished) == 8
+    assert state["peak"] == 1
+    assert operations.active() is None
+    assert operations.busy() is False
+
+
 def test_a_direct_reservation_does_not_wait_for_a_turn():
     operations = Operations()
     operation = operations.begin({"kind": "image"})
@@ -544,3 +611,42 @@ def test_prune_reads_each_public_size_once():
 def test_a_negative_queue_size_is_refused():
     with pytest.raises(ValueError, match="max_queue"):
         Operations(max_queue=-1)
+
+
+def test_a_queued_operation_notices_a_lease_that_ran_out_on_its_own():
+    """`pause()` promises thirty seconds. Nothing else touches the queue when they end, so
+    the operation next in line has to look at the clock by itself. It waited forever until
+    the server's sixty-second timer happened to fire."""
+    now = [0.0]
+    operations = Operations(clock=lambda: now[0], max_queue=2)
+    first = operations.begin({"kind": "video"})
+    second = operations.begin({"kind": "video"}, queued=True)
+    operations.pause(first["id"], 1)
+    woken = threading.Event()
+
+    threading.Thread(target=lambda: (operations.wait_for_turn(second["id"]), woken.set()), daemon=True).start()
+    time.sleep(0.1)
+    now[0] = 31.0  # the lease has run out; no expire() call, no other request
+
+    assert woken.wait(3.0), "the queued operation did not notice the ended lease"
+    assert active_id(operations) == second["id"]
+
+
+def test_the_newest_finished_result_survives_the_size_limit():
+    """A caller that just watched a large job succeed is about to fetch it. Pruning the
+    record on the way out of `finish()` turned that success into a missing artifact."""
+    operations = Operations(max_bytes=1024)
+
+    newest = operations.begin({"kind": "video"})
+    operations.finish(newest["id"], VideoResult(b"x" * 4096, 8, 8, 1, 24, 7))
+
+    assert operations.get(newest["id"])["status"] == "succeeded"
+    assert operations.result(newest["id"]).mp4 == b"x" * 4096
+
+    older = operations.begin({"kind": "video"})
+    operations.finish(older["id"], VideoResult(b"y" * 4096, 8, 8, 1, 24, 7))
+
+    # The newest one moved: the older result now gives way, and the newer one stays.
+    assert operations.result(older["id"]).mp4 == b"y" * 4096
+    with pytest.raises(OperationMissing):
+        operations.result(newest["id"])

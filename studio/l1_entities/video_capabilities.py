@@ -6,6 +6,11 @@ from studio.l1_entities.capabilities import LookRow, Template
 from studio.l1_entities.errors import UnsupportedMode
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
 
+# The largest clip an edit takes. The request reader sizes its body cap from this number,
+# because a clip crosses as base64 inside JSON: a cap below the encoded size would refuse a
+# clip this limit accepts. One home for the number keeps the two from drifting apart.
+MAX_CLIP_MEGABYTES = 64.0
+
 
 @dataclass(frozen=True)
 class VideoShape:
@@ -178,7 +183,7 @@ class VideoCapabilities:
     # no mode switch, no adapter picker.
     modes: tuple[VideoMode, ...] = ()
     adapters: tuple[VideoAdapter, ...] = ()
-    max_clip_megabytes: float = 64.0
+    max_clip_megabytes: float = MAX_CLIP_MEGABYTES
     """The largest clip an edit will take. A conditioning clip is decoded whole, so the form
     refuses one past this rather than letting a run die in the pipeline."""
     # The weights' precision, recorded with every saved clip: a file that does not say whether
@@ -186,7 +191,8 @@ class VideoCapabilities:
     precision: str = "bf16"
     max_audio_megabytes: float = 32.0
     """The largest audio track a run will take. The track crosses the request as base64, so
-    the cap leaves room under the request's own 64 MB ceiling."""
+    it sits well under the request's own ceiling, which the HTTP server sizes from the clip
+    limit and the base64 cost of sending one."""
     fast_mode: bool = False
     """Whether this backend accepts the optional faster render path."""
     fast_mode_note: str = ""
