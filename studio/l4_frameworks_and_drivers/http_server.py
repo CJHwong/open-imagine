@@ -472,7 +472,15 @@ def make_handler(
             if status != 200:
                 self._send_json(operation, status=status)
                 return
-            threading.Thread(target=self._perform_operation, args=(operation, payload), daemon=True).start()
+            try:
+                worker = threading.Thread(target=self._perform_operation, args=(operation, payload), daemon=True)
+                worker.start()
+            except RuntimeError as error:
+                # The reservation is recorded and no worker exists to finish it. Ending the
+                # operation here is what keeps the studio from staying busy for ever.
+                api.abandon_operation(operation["id"], error)
+                self._send_json({"error": "The studio could not start this operation."}, status=503)
+                return
             self._send_json(operation, status=202, headers={"Location": operation["status_url"]})
 
         @staticmethod

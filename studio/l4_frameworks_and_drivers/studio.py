@@ -59,7 +59,12 @@ class Studio:
         The frees wait in line on the GPU thread, behind any run, so the run is
         cancelled first. Without that, Ctrl-C waited for the image to finish.
         """
-        cleanups = [self._stop_run, self.cancel.execute, self.residency.release]
+        cleanups = [
+            self.operations.close_admission,
+            self._stop_run,
+            self.cancel.execute,
+            self.residency.release,
+        ]
         cleanups.extend(model.release for model in (self.rewriter, self.video_rewriter) if model is not None)
         if self.connect is not None:
             cleanups.append(self.connect.stop)

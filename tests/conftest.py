@@ -17,11 +17,10 @@ MLX_INSTALLED = all(importlib.util.find_spec(name) is not None for name in MLX_S
 MISSING_REASON = "needs the MLX stack, which installs on macOS only"
 
 
-@pytest.hookimpl(hookwrapper=True)
+@pytest.hookimpl(wrapper=True)
 def pytest_runtest_call(item):
-    outcome = yield
     try:
-        outcome.get_result()
+        return (yield)
     except ModuleNotFoundError as error:
         package = (error.name or "").partition(".")[0]
         if MLX_INSTALLED or package not in MLX_STACK:

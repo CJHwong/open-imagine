@@ -1081,6 +1081,26 @@ def test_an_async_start_returns_its_status_location(served):
         assert answer.headers["Location"] == operation["status_url"] == "/api/v1/operations/" + operation["id"]
 
 
+def test_a_worker_that_cannot_start_fails_the_operation_and_frees_the_slot(served, monkeypatch):
+    """The reservation is recorded before the thread exists. A thread that cannot start
+    leaves no worker to finish the operation, and the one slot would stay taken."""
+    studio = served[0]
+
+    class NoThreads:
+        @staticmethod
+        def Thread(*_args, **_options):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(http_server, "threading", NoThreads)
+
+    status, _, body = post_json(served[1], "/api/v1/operations", {"kind": "image", "prompt": "pear"})
+
+    assert status == 503 and "could not start" in body
+    assert studio.operations.active() is None
+    [record] = [one for one in studio.operations.recent() if one["status"] == "failed"]
+    assert "can't start new thread" in record["error"]
+
+
 def test_operation_sources_distinguish_native_and_api_requests(served):
     server = served[1]
     call(server, "/generate", b"prompt=pear", **{"Content-Type": "application/x-www-form-urlencoded"})

@@ -78,6 +78,7 @@ from studio.l3_interface_adapters.gateways.stub.voice_backend_gateway import Stu
 from studio.l3_interface_adapters.gateways.thread_confined_prompt_rewriter import ThreadConfinedPromptRewriter
 from studio.l3_interface_adapters.presenters.html_presenter import HtmlPresenter
 from studio.l3_interface_adapters.presenters.locale import LocaleCatalog
+from studio.l4_frameworks_and_drivers.build_identity import build_identity
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.connect import DumbpipeTransport
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable, available_engines, require_engines
@@ -501,6 +502,7 @@ def assemble_studio(
         inspect_storage=InspectModelStorageUseCase(model_storage) if model_storage else None,
         remove_assets=RemoveModelAssetsUseCase(model_storage, engine_lock, residency) if model_storage else None,
         memory_status=residency.status,
+        build=build_identity(),
     )
     return Studio(
         handler=make_handler(controller, presenter, video_controller, api, allowed_origins, connect),

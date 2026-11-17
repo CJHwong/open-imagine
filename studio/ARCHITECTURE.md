@@ -344,6 +344,8 @@ The HTTP driver creates a worker thread only for the optional asynchronous route
 `[queue] max_size` gives asynchronous operations a FIFO waiting list. A queued operation reports its position, and its memory admission runs when its turn comes. A full queue answers `429`. Zero disables the queue and restores the single-slot refusal.
 The slot goes to the oldest waiting operation. A request that arrives while the previous one is handing the slot over lines up behind the queue, so it cannot take the turn the head was waiting for. Model control takes the same test: a model switch, release or asset deletion waits while a queue is non-empty, because deleting weights the head is about to load would fail a run the studio already accepted.
 A queued operation runs the model the studio recorded when it accepted the request. Another operation that switches the workspace model while this one waits changes neither the run nor the recorded model.
+Shutdown closes admission before it stops the run in flight: new requests are refused, queued ones are cancelled, and their waiters end. Without that, the finishing run's wake would hand the slot to the queue while models and storage are being released.
+A request is reserved before its worker thread exists. When that thread cannot start, the operation ends as failed and answers `503`, so the slot does not stay taken.
 The operation store retains bounded metadata and results. It keeps completed items after cancellation or failure. Active batches expose their manifest and completed item URLs.
 A browser batch carries its operation ID in each continuation. A 30-second lease applies only between requests.
 An active engine call never expires through that lease. API batches need no continuation requests.

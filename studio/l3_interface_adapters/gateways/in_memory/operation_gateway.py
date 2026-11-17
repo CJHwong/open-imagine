@@ -43,6 +43,7 @@ class InMemoryOperationGateway(OperationGateway):
         self._sizes: dict[str, int] = {}
         self._active: str | None = None
         self._reservation: str | None = None
+        self._closing = False
         self._continuations: dict[str, tuple[int, float]] = {}
         self._clock = clock
         self._max_count = max_count
@@ -65,6 +66,8 @@ class InMemoryOperationGateway(OperationGateway):
     def begin(self, description: dict[str, Any], private_key: str = "", *, queued: bool = False) -> dict[str, Any]:
         with self._lock:
             self._prune()
+            if self._closing:
+                raise BackendBusy("The studio is stopping.")
             if description.get("owner") and not private_key:
                 raise InvalidJob("A private operation requires its original key.")
             # A queue with no active operation is a handoff in progress: the head of the
@@ -148,7 +151,7 @@ class InMemoryOperationGateway(OperationGateway):
             return self._queue.index(operation_id) + 1
 
     def busy(self) -> bool:
-        """Whether the one slot is taken, promised, or about to be handed over.
+        """Whether the one slot is taken, promised, about to be handed over, or shut.
 
         A queue with no active operation is a handoff in progress: the head is about to
         claim the slot. Model control goes through `exclusive()`, and one running in that
@@ -156,7 +159,37 @@ class InMemoryOperationGateway(OperationGateway):
         """
         with self._lock:
             self._prune()
-            return self._active is not None or self._reservation is not None or bool(self._queue)
+            return self._closing or self._active is not None or self._reservation is not None or bool(self._queue)
+
+    def close_admission(self) -> None:
+        """Refuse new work and end every queued request, so only the run in flight is left.
+
+        Shutdown stops the operation that is running, but that run's `finish()` wakes the
+        head of the queue, and the wake would take the slot while models and storage are
+        being released. Marking the queued records cancelled ends their waits before that
+        handoff can happen.
+        """
+        with self._lock:
+            self._closing = True
+            for operation_id in list(self._queue):
+                self._records[operation_id].update(status="cancelled", finished_at=self._clock())
+                self._private_keys.pop(operation_id, None)
+                self._measure(operation_id)
+            self._queue.clear()
+            self._condition.notify_all()
+            self._prune()
+
+    def abandon(self, operation_id: str, error: Exception) -> None:
+        """End an operation whose worker never started, queued or active.
+
+        A request is reserved before its worker thread exists. When that thread cannot
+        start, nothing else will ever finish the operation, and the one slot it holds
+        stays taken for the life of the process.
+        """
+        with self._lock:
+            if operation_id in self._queue:
+                self._queue.remove(operation_id)
+            self.fail(operation_id, error)
 
     def exclusive(self, action: Callable[[], None]) -> None:
         with self._lock:
@@ -361,7 +394,10 @@ class InMemoryOperationGateway(OperationGateway):
                 finished_at=self._clock(),
                 error=str(error),
             )
-            self._active = None
+            # Only the operation that holds the slot may free it. A queued one that fails
+            # before its turn leaves the active operation where it is.
+            if self._active == operation_id:
+                self._active = None
             self._private_keys.pop(operation_id, None)
             self._measure(operation_id)
             self._prune()

@@ -70,6 +70,7 @@ class JsonApi:
         remove_assets=None,
         resource_admission: ResourceAdmission | None = None,
         memory_status: Callable[[], dict[str, object]] | None = None,
+        build: dict[str, object] | None = None,
     ) -> None:
         self._controller = controller
         self._video = video
@@ -83,6 +84,7 @@ class JsonApi:
         self._inspect_storage = inspect_storage
         self._remove_assets = remove_assets
         self._memory_status = memory_status
+        self._build = build or {}
 
     def model_storage(self):
         if self._inspect_storage is None:
@@ -349,6 +351,15 @@ class JsonApi:
             body["backend"] = operation["backend"]
         return body
 
+    def abandon_operation(self, operation_id: str, error: Exception) -> None:
+        """End an accepted operation whose worker thread could not start.
+
+        The reservation is recorded before the thread exists, so a dispatch failure has
+        no worker to finish the operation. Leaving it running would keep the one slot
+        taken for the life of the process.
+        """
+        self._operations.abandon(operation_id, error)
+
     def execute_operation(self, operation: dict[str, Any], payload: Mapping[str, object]):
         mode = operation["mode"]
         kind = operation["kind"]
@@ -515,6 +526,7 @@ class JsonApi:
     def studio(self) -> dict[str, Any]:
         document = studio_document(self._controller.page())
         document["private_operations"] = True
+        document["build"] = self._build
         document["settings"] = self.settings()
         if self._memory_status is not None:
             document["memory"] = self._memory_status()

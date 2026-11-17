@@ -14,6 +14,7 @@ def api_for(
     memory_status=None,
     max_queue=0,
     resource_admission=None,
+    build=None,
 ):
     operations = InMemoryOperationGateway(max_queue=max_queue)
     return JsonApi(
@@ -26,4 +27,5 @@ def api_for(
         batches=PrepareBatchUseCase(),
         memory_status=memory_status,
         resource_admission=resource_admission,
+        build=build,
     )

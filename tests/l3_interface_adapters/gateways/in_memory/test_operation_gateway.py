@@ -701,3 +701,72 @@ def test_model_control_waits_for_a_queue_that_holds_the_slot():
 
     assert not operations.busy()
     operations.exclusive(lambda: None)
+
+
+def test_closing_admission_cancels_the_queue_and_leaves_the_run_in_flight():
+    """Shutdown stops the run in flight, and that run's finish() wakes the head of the
+    queue. Nothing may take the slot while the models and the storage are being released."""
+    operations = Operations(max_queue=2)
+    running = operations.begin({"kind": "video"})
+    first = operations.begin({"kind": "video"}, queued=True)
+    second = operations.begin({"kind": "video"}, queued=True)
+
+    operations.close_admission()
+
+    assert operations.get(running["id"])["status"] == "running"
+    assert operations.get(first["id"])["status"] == "cancelled"
+    assert operations.get(second["id"])["status"] == "cancelled"
+    assert operations.queue_position(first["id"]) is None
+    with pytest.raises(BackendBusy, match="stopping"):
+        operations.begin({"kind": "image"})
+    with pytest.raises(BackendBusy, match="stopping"):
+        operations.begin({"kind": "image"}, queued=True)
+    assert operations.busy()
+
+
+def test_a_queued_waiter_ends_when_admission_closes():
+    operations = Operations(max_queue=1)
+    operations.begin({"kind": "video"})
+    waiting = operations.begin({"kind": "video"}, queued=True)
+    outcome = []
+
+    def wait():
+        try:
+            operations.wait_for_turn(waiting["id"])
+        except Cancelled as error:
+            outcome.append(str(error))
+
+    thread = threading.Thread(target=wait)
+    thread.start()
+    operations.close_admission()
+    thread.join(2)
+
+    assert outcome == ["The operation was cancelled before it started."]
+    assert operations.get(waiting["id"])["status"] == "cancelled"
+
+
+def test_abandon_ends_a_queued_operation_without_taking_the_active_slot():
+    """A request is reserved before its worker thread exists. A thread that cannot start
+    leaves nothing that would finish the operation."""
+    operations = Operations(max_queue=1)
+    running = operations.begin({"kind": "image"})
+    queued = operations.begin({"kind": "image"}, queued=True)
+
+    operations.abandon(queued["id"], RuntimeError("no thread"))
+
+    assert operations.get(queued["id"])["status"] == "failed"
+    assert "no thread" in operations.get(queued["id"])["error"]
+    assert operations.queue_position(queued["id"]) is None
+    assert active_id(operations) == running["id"]
+
+
+def test_abandon_ends_the_active_operation_that_never_got_a_worker():
+    operations = Operations()
+    running = operations.begin({"kind": "image"})
+
+    operations.abandon(running["id"], RuntimeError("no thread"))
+
+    assert operations.get(running["id"])["status"] == "failed"
+    assert operations.active() is None
+    second = operations.begin({"kind": "image"})
+    assert active_id(operations) == second["id"]
