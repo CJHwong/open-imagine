@@ -53,4 +53,14 @@ void main() {
 
     expect(failed, isFalse);
   });
+
+  test('a few missed probes do not mean the studio is gone', () {
+    expect(
+      studioIsGone(3),
+      isFalse,
+      reason: 'a model free or a radio stall can miss three',
+    );
+    expect(studioIsGone(missesBeforeLost - 1), isFalse);
+    expect(studioIsGone(missesBeforeLost), isTrue);
+  });
 }
