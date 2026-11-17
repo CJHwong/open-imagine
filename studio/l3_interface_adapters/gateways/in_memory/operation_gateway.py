@@ -30,13 +30,17 @@ class InMemoryOperationGateway(OperationGateway):
         clock: Callable[[], float] = time.time,
         private_directory: Path | None = None,
         max_queue: int = 0,
+        max_queue_bytes: int = 0,
     ):
         if max_queue < 0:
             raise ValueError("max_queue must be zero or more")
+        if max_queue_bytes < 0:
+            raise ValueError("max_queue_bytes must be zero or more")
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._queue: list[str] = []
         self._max_queue = max_queue
+        self._max_queue_bytes = max_queue_bytes
         self._records: dict[str, dict[str, Any]] = {}
         self._results: dict[str, Any] = {}
         self._items: dict[str, list[Any]] = {}
@@ -79,6 +83,11 @@ class InMemoryOperationGateway(OperationGateway):
                 raise BackendBusy("The studio is busy. Read its state or cancel the active operation.")
             if waiting and len(self._queue) >= self._max_queue:
                 raise QueueFull("The queue is full. Wait for a request to finish, or retry later.")
+            # A waiting request holds its media. Counting the queue's bytes is what stops
+            # a series of pushed clips from filling memory before the GPU does any work.
+            held = sum(self._records[one].get("payload_bytes", 0) for one in self._queue)
+            if waiting and self._max_queue_bytes and held + description.get("payload_bytes", 0) > self._max_queue_bytes:
+                raise QueueFull("The queue is holding too much media. Wait for a request to finish, or retry later.")
             operation_id = uuid.uuid4().hex
             record = {
                 **description,

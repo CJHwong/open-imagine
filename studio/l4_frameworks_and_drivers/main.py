@@ -344,6 +344,7 @@ def create_studio(
         memory_boundary_percent=config.memory_boundary_percent,
         total_memory_gib=total_memory_gib,
         queue_max_size=config.queue_max_size,
+        queue_max_bytes=config.queue_max_bytes,
         connect=connect,
     )
 
@@ -376,6 +377,7 @@ def assemble_studio(
     memory_boundary_percent: int = 84,
     total_memory_gib: float | None = None,
     queue_max_size: int = 0,
+    queue_max_bytes: int = 256 * 1024 * 1024,
     connect=None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
@@ -488,7 +490,9 @@ def assemble_studio(
             music_catalog,
             SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
         )
-    operations = InMemoryOperationGateway(private_directory=private_results_dir, max_queue=queue_max_size)
+    operations = InMemoryOperationGateway(
+        private_directory=private_results_dir, max_queue=queue_max_size, max_queue_bytes=queue_max_bytes
+    )
     api = JsonApi(
         controller,
         video_controller,

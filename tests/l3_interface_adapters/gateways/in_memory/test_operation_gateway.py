@@ -770,3 +770,22 @@ def test_abandon_ends_the_active_operation_that_never_got_a_worker():
     assert operations.active() is None
     second = operations.begin({"kind": "image"})
     assert active_id(operations) == second["id"]
+
+
+def test_the_queue_refuses_more_media_than_its_budget():
+    """The GPU runs one request at a time. Without a byte budget the queue is where a
+    series of pushed clips fills memory before any work starts."""
+    operations = Operations(max_queue=2, max_queue_bytes=100)
+    operations.begin({"kind": "image"})
+    operations.begin({"kind": "image", "payload_bytes": 60}, queued=True)
+
+    with pytest.raises(QueueFull, match="too much media"):
+        operations.begin({"kind": "image", "payload_bytes": 60}, queued=True)
+
+    operations.begin({"kind": "image", "payload_bytes": 40}, queued=True)
+    assert operations.queueing()
+
+
+def test_a_negative_queue_byte_budget_is_refused():
+    with pytest.raises(ValueError, match="max_queue_bytes"):
+        Operations(max_queue_bytes=-1)

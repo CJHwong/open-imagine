@@ -32,6 +32,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
 | `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
 | `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
+| `[queue].max_megabytes` | `256`. The media the waiting operations may hold together. A request that would pass it answers `429`. `0` removes the budget. |
 | `[connect].enabled` | `true`. Start the dumbpipe listener and print a phone pairing QR code at startup. |
 | `[connect].transport` | `dumbpipe`. The Tailcat adapter is not built yet. |
 | `[connect].studio_port` | `8765`. The port the phone binds on its own loopback. Keep it equal to the studio's `--port`. |

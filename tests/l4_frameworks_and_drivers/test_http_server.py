@@ -4,7 +4,9 @@ import base64
 import io
 import json
 import logging
+import socket
 import threading
+import time
 import urllib.error
 import urllib.request
 from dataclasses import replace
@@ -2213,10 +2215,12 @@ def test_body_deadline_also_stops_a_client_that_keeps_sending(monkeypatch):
     clock = iter([0.0, 0.01, 0.06])
     monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(http_server.time, "monotonic", lambda: next(clock))
-    with pytest.raises(http_server.InvalidJob, match="read deadline"):
+    with pytest.raises(http_server.InvalidJob, match="slowest supported rate"):
         handler._read_body_bytes(request, 10)
     request.rfile.read1.assert_called_once()
-    assert connection.settimeout.call_args.args == (30,)
+    first_wait = connection.settimeout.call_args_list[0].args[0]
+    assert 0 < first_wait <= 0.05
+    assert connection.settimeout.call_args_list[-1].args == (30,)
 
 
 def test_headers_have_an_inactivity_timeout(served, monkeypatch):
@@ -2328,3 +2332,65 @@ def test_a_slow_download_can_outlive_the_request_read_deadline(monkeypatch):
         server.shutdown()
         worker.join()
         server.server_close()
+
+
+def slow_post(server, body: bytes, chunks: int, gap: float) -> tuple[int, str]:
+    """Send a request body in pieces, the way a phone on a slow link does."""
+    host, port = server.server_address[:2]
+    head = (
+        b"POST /api/v1/operations HTTP/1.1\r\n"
+        b"Host: 127.0.0.1:" + str(port).encode() + b"\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: " + str(len(body)).encode() + b"\r\n\r\n"
+    )
+    step = max(1, len(body) // chunks)
+    with socket.create_connection((host, port), timeout=10) as connection:
+        connection.sendall(head)
+        for start in range(0, len(body), step):
+            connection.sendall(body[start : start + step])
+            time.sleep(gap)
+        answer = b""
+        while b"\r\n" not in answer:
+            piece = connection.recv(4096)
+            if not piece:
+                break
+            answer += piece
+    return int(answer.split(b" ")[1]), answer.decode("latin-1")
+
+
+def test_a_body_may_take_longer_than_the_idle_timeout_when_it_keeps_arriving(served, monkeypatch):
+    """A fixed deadline refused a legitimate large upload from a slow link while accepting
+    it from a fast one. The deadline follows the size; the idle timeout still catches a
+    client that stops."""
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(http_server, "MINIMUM_BODY_BYTES_PER_SECOND", 10)
+    body = json.dumps({"kind": "image", "prompt": "pear"}).encode()
+
+    status, _ = slow_post(served[1], body, chunks=12, gap=0.2)
+
+    assert status == 202, "a body that kept arriving was refused for being slow"
+
+
+def test_a_body_that_stops_arriving_is_refused_in_seconds(served, monkeypatch):
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 0.3)
+    host, port = served[1].server_address[:2]
+    with socket.create_connection((host, port), timeout=10) as connection:
+        connection.sendall(
+            b"POST /api/v1/operations HTTP/1.1\r\nHost: 127.0.0.1:" + str(port).encode() + b"\r\n"
+            b'Content-Type: application/json\r\nContent-Length: 40\r\n\r\n{"kind"'
+        )
+        time.sleep(1.0)
+        answer = connection.recv(4096).decode("latin-1")
+
+    assert " 400 " in answer.splitlines()[0]
+    assert "stopped arriving" in answer
+
+
+def test_the_body_deadline_follows_the_size_and_stops_at_a_bound(monkeypatch):
+    monkeypatch.setattr(http_server, "REQUEST_READ_TIMEOUT_SECONDS", 30.0)
+    monkeypatch.setattr(http_server, "MINIMUM_BODY_BYTES_PER_SECOND", 1024 * 1024)
+    monkeypatch.setattr(http_server, "MAXIMUM_BODY_READ_SECONDS", 300.0)
+
+    assert http_server.body_read_seconds(1) == pytest.approx(30.0)
+    assert http_server.body_read_seconds(10 * 1024 * 1024) == pytest.approx(40.0)
+    assert http_server.body_read_seconds(10**12) == 300.0

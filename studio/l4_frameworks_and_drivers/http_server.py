@@ -48,7 +48,26 @@ PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; chars
 MAX_CLIP_BYTES = int(MAX_CLIP_MEGABYTES * 1024 * 1024)
 MAX_VIDEO_REQUEST_BYTES = (MAX_CLIP_BYTES + 2) // 3 * 4 + 8 * 1024 * 1024
 MAX_VIDEO_REQUEST_MEGABYTES = MAX_VIDEO_REQUEST_BYTES // (1024 * 1024)
+
+
+def body_read_seconds(length: int) -> float:
+    """How long a body of this size may take: the idle timeout plus the slowest rate.
+
+    A small body still gets the idle timeout, so a stalled header is caught in seconds. A
+    large one gets the time its size needs at the slowest supported throughput, up to a
+    bound, so a slow but working link is not refused for being slow.
+    """
+    return min(MAXIMUM_BODY_READ_SECONDS, REQUEST_READ_TIMEOUT_SECONDS + length / MINIMUM_BODY_BYTES_PER_SECOND)
+
+
 REQUEST_READ_TIMEOUT_SECONDS = 30.0
+# The slowest upload a request may take, in bytes per second. The size cap admits a 64 MB
+# clip, which crosses as about 93 MB of base64, and the old fixed 30 second deadline
+# refused that from a phone on a slow link while accepting it from a fast one. The deadline
+# therefore follows the size, and a client that stops sending still fails on the idle
+# timeout above.
+MINIMUM_BODY_BYTES_PER_SECOND = 1024 * 1024
+MAXIMUM_BODY_READ_SECONDS = 300.0
 # A caller that sends this header owns private operations. The routes below are the
 # only ones that can keep that promise, so any other route refuses the header.
 PRIVATE_KEY_HEADER = "X-Studio-Private-Key"
@@ -808,21 +827,33 @@ def make_handler(
             return self._read_body_bytes(length)
 
         def _read_body_bytes(self, length: int) -> bytes:
-            deadline = time.monotonic() + REQUEST_READ_TIMEOUT_SECONDS
+            deadline = time.monotonic() + body_read_seconds(length)
             previous_timeout = self.connection.gettimeout()
             contents = bytearray()
+            ran_out = False
             try:
                 while len(contents) < length:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        ran_out = True
                         raise TimeoutError
-                    self.connection.settimeout(remaining)
+                    # The socket waits no longer than the idle timeout, so a client that
+                    # stops altogether is told so in seconds, not minutes.
+                    self.connection.settimeout(min(left, REQUEST_READ_TIMEOUT_SECONDS))
                     chunk = self.rfile.read1(min(length - len(contents), 64 * 1024))
                     if not chunk:
                         raise InvalidJob("The request body is shorter than Content-Length")
                     contents.extend(chunk)
             except TimeoutError:
-                raise InvalidJob("The request body did not arrive before the read deadline") from None
+                if ran_out:
+                    raise InvalidJob(
+                        f"The request body did not arrive within {body_read_seconds(length):.0f} seconds, "
+                        "which is the time this size is given at the slowest supported rate"
+                    ) from None
+                raise InvalidJob(
+                    "The request body stopped arriving. The read deadline is "
+                    f"{REQUEST_READ_TIMEOUT_SECONDS:.0f} seconds without a byte"
+                ) from None
             finally:
                 self.connection.settimeout(previous_timeout)
             return bytes(contents)

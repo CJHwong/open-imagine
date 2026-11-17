@@ -16,6 +16,7 @@ API.md lists the copies that a run makes.
 """
 
 import hashlib
+import json
 import time
 import uuid
 from collections.abc import Callable, Mapping
@@ -257,10 +258,15 @@ class JsonApi:
                 self._resource_admission(resource_payload)
         excluded = {"references", "reference", "clip", "audio", "reference_audio", "reference_token", "items"}
         settings = {key: value for key, value in payload.items() if key not in excluded}
+        # A queued request holds its media until its turn. The gateway counts that against
+        # one budget, so a hundred pushed clips cannot sit in memory waiting. A studio with
+        # no queue never holds one, so it pays for no measurement.
+        held = len(json.dumps(payload).encode()) if queued and self._operations.queueing() else 0
         document = operation_document(
             self._operations.begin(
                 {
                     **batch_metadata,
+                    "payload_bytes": held,
                     "kind": kind,
                     "source": source,
                     "workspace": workspace,

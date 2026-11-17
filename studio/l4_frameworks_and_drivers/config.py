@@ -25,6 +25,9 @@ class Config:
     memory_policy: str = "immediate"
     memory_boundary_percent: int = 84
     queue_max_size: int = 0
+    # How much media waiting requests may hold together. The GPU runs one at a time, so
+    # the queue is where a series of pushed clips would otherwise fill memory.
+    queue_max_bytes: int = 256 * 1024 * 1024
     # load_config supplies the connection default and its identity path together.
     connect_enabled: bool = False
     connect_transport: str = "dumbpipe"
@@ -88,6 +91,9 @@ def load_config(
     max_queue = queue_max_size if queue_max_size is not None else queue.get("max_size", 0)
     if type(max_queue) is not int or max_queue < 0:
         raise ConfigError("queue.max_size in studio.toml must be a whole number of zero or more")
+    max_queue_megabytes = queue.get("max_megabytes", 256)
+    if type(max_queue_megabytes) is not int or max_queue_megabytes < 0:
+        raise ConfigError("queue.max_megabytes in studio.toml must be a whole number of zero or more")
     connect = raw.get("connect", {})
     if not isinstance(connect, dict):
         raise ConfigError("[connect] in studio.toml must be a table")
@@ -123,6 +129,7 @@ def load_config(
         memory_policy=policy,
         memory_boundary_percent=percent,
         queue_max_size=max_queue,
+        queue_max_bytes=max_queue_megabytes * 1024 * 1024,
         connect_enabled=enabled_in_file,
         connect_transport=transport,
         connect_studio_port=connect_port,
