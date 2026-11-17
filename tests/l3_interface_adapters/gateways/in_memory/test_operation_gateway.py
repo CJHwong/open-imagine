@@ -789,3 +789,23 @@ def test_the_queue_refuses_more_media_than_its_budget():
 def test_a_negative_queue_byte_budget_is_refused():
     with pytest.raises(ValueError, match="max_queue_bytes"):
         Operations(max_queue_bytes=-1)
+
+
+def test_the_queue_pressure_reads_what_waits_without_moving_it():
+    """An operator reads this from the state poll. It counts the waiting requests, the
+    media they hold, and the ones whose turn has not been decided yet."""
+    operations = Operations(max_queue=2, max_queue_bytes=1000)
+    operations.begin({"kind": "image", "payload_bytes": 500})
+    waiting = operations.begin({"kind": "video", "payload_bytes": 300}, queued=True)
+    operations.begin({"kind": "video", "payload_bytes": 200}, queued=True)
+
+    pressure = operations.pressure()
+
+    assert pressure == {
+        "queued": 2,
+        "pending_admissions": 2,
+        "queued_bytes": 500,
+        "max_queued": 2,
+        "max_queued_bytes": 1000,
+    }
+    assert operations.queue_position(waiting["id"]) == 1

@@ -36,6 +36,10 @@ boundary_percent = 84
 [queue]
 max_size = 8
 max_megabytes = 256
+# The request bodies read at one time, in total. A 64 MB clip is about 93 MB of
+# base64 while it arrives, and the queue's byte cap starts counting only after the
+# body is parsed. Two near-limit uploads therefore read one after the other.
+max_in_flight_megabytes = 128
 
 # Share this studio with the phone app over a dumbpipe ticket. The listener binds
 # 127.0.0.1 and the server prints a QR code at startup. The ticket is a credential:

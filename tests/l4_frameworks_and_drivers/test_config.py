@@ -343,6 +343,7 @@ def test_the_shipping_config_bounds_what_the_queue_holds(tmp_path):
     config = load_config(Path(__file__).parents[2] / "studio.toml")
 
     assert config.queue_max_bytes >= 64 * 1024 * 1024
+    assert config.upload_max_bytes == 128 * 1024 * 1024
 
 
 @pytest.mark.parametrize("value", ["-1", '"8"', "true"])
@@ -357,3 +358,15 @@ def test_a_visible_backend_list_that_is_not_a_list_of_model_ids_is_refused(tmp_p
     unknown model instead of naming the line."""
     with pytest.raises(ConfigError, match="array of model ids"):
         load_config(write(tmp_path, f'default_backend = "qwen21"\nvisible_backends = {value}\n'))
+
+
+def test_the_read_budget_defaults_to_128_megabytes_and_loads_from_the_file(tmp_path):
+    assert load_config(write(tmp_path, SETTINGS)).upload_max_bytes == 128 * 1024 * 1024
+    config = load_config(write(tmp_path, SETTINGS + "\n[queue]\nmax_size = 3\nmax_in_flight_megabytes = 16\n"))
+    assert config.upload_max_bytes == 16 * 1024 * 1024
+
+
+@pytest.mark.parametrize("value", ["-1", '"8"', "true"])
+def test_a_read_budget_below_zero_or_not_a_whole_number_is_refused(tmp_path, value):
+    with pytest.raises(ConfigError, match=r"queue\.max_in_flight_megabytes"):
+        load_config(write(tmp_path, SETTINGS + f"\n[queue]\nmax_in_flight_megabytes = {value}\n"))

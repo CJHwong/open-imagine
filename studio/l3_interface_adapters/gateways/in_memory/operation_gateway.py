@@ -233,6 +233,22 @@ class InMemoryOperationGateway(OperationGateway):
             self._prune()
             return self.get(self._active) if self._active else None
 
+    def pressure(self) -> dict[str, int]:
+        """The queue's occupancy, for an operator reading the state.
+
+        Read-only: no record changes and no waiter wakes. The bytes counted here are
+        the media the waiting requests hold, which the queue's own budget also counts.
+        """
+        with self._lock:
+            queued = [self._records[one] for one in self._queue]
+            return {
+                "queued": len(queued),
+                "pending_admissions": sum(1 for one in queued if one.get("pending_admission")),
+                "queued_bytes": sum(one.get("payload_bytes", 0) for one in queued),
+                "max_queued": self._max_queue,
+                "max_queued_bytes": self._max_queue_bytes,
+            }
+
     def get(self, operation_id: str) -> dict[str, Any]:
         with self._lock:
             self._prune()

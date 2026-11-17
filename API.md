@@ -81,6 +81,13 @@ studio is busy. A stale cancellation also returns `409` and cannot stop a newer 
 A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+`GET /api/v1/state` carries two read-only occupancy readings.
+`queue` holds `queued`, `pending_admissions`, `queued_bytes`, `max_queued` and `max_queued_bytes`.
+`uploads` holds `limit_bytes`, `held_bytes` and `readers` for the request bodies being read at that moment.
+The server reads request bodies against one byte budget, `[queue] max_in_flight_megabytes`.
+A body that finds no room within ten seconds returns `429`, the same answer a full queue gives.
+The budget bounds the read, not the body: a body as large as the whole budget is read alone.
+
 ## Private operations
 
 Send `X-Studio-Private-Key` when another person or program must not see your work.

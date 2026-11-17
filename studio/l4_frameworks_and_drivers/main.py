@@ -82,7 +82,7 @@ from studio.l4_frameworks_and_drivers.build_identity import build_identity
 from studio.l4_frameworks_and_drivers.config import Config, ConfigError
 from studio.l4_frameworks_and_drivers.connect import DumbpipeTransport
 from studio.l4_frameworks_and_drivers.engines import EngineUnavailable, available_engines, require_engines
-from studio.l4_frameworks_and_drivers.http_server import make_handler
+from studio.l4_frameworks_and_drivers.http_server import UploadBudget, make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
 from studio.l4_frameworks_and_drivers.model_asset_storage_gateway import ModelAssetStorageGateway
 from studio.l4_frameworks_and_drivers.python_entry_points import entry_points
@@ -345,6 +345,7 @@ def create_studio(
         total_memory_gib=total_memory_gib,
         queue_max_size=config.queue_max_size,
         queue_max_bytes=config.queue_max_bytes,
+        upload_max_bytes=config.upload_max_bytes,
         connect=connect,
     )
 
@@ -378,6 +379,7 @@ def assemble_studio(
     total_memory_gib: float | None = None,
     queue_max_size: int = 0,
     queue_max_bytes: int = 256 * 1024 * 1024,
+    upload_max_bytes: int = 128 * 1024 * 1024,
     connect=None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
@@ -509,7 +511,15 @@ def assemble_studio(
         build=build_identity(),
     )
     return Studio(
-        handler=make_handler(controller, presenter, video_controller, api, allowed_origins, connect),
+        handler=make_handler(
+            controller,
+            presenter,
+            video_controller,
+            api,
+            allowed_origins,
+            connect,
+            upload_budget=UploadBudget(upload_max_bytes),
+        ),
         catalog=catalog,
         video_catalog=video_catalog,
         residency=residency,

@@ -330,6 +330,15 @@ def test_operations_record_synchronous_runs_without_reference_bytes():
     assert operation["model"] == "Fake"
     assert "references" not in operation["settings"]
     assert api.operation_result(operation["id"])["images"][0]["prompt"] == "a pear"
+    # The state poll carries the queue's occupancy, so an operator can see what waits
+    # for the one slot and how much media it holds. Nothing here is private.
+    assert state["queue"] == {
+        "queued": 0,
+        "pending_admissions": 0,
+        "queued_bytes": 0,
+        "max_queued": 0,
+        "max_queued_bytes": 0,
+    }
 
 
 @pytest.mark.parametrize(

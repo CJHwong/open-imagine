@@ -34,6 +34,10 @@ class QueueFull(StudioError):
     """The queue already holds every request it accepts."""
 
 
+class UploadBusy(QueueFull):
+    """The studio is reading other request bodies and cannot take this one yet."""
+
+
 class ResourceEstimateUnavailable(StudioError):
     """No safe memory estimate exists for this request setup."""
 
