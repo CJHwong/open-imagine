@@ -18,6 +18,7 @@ from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_text impo
     MAX_TOKENS,
     as_rewrite,
     in_the_request_language,
+    smaller_png,
     system_prompt,
 )
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
@@ -64,7 +65,7 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
             "role": mode,
             "system": system_prompt(self._models[mode]),
             "user": in_the_request_language(prompt),
-            "references": [base64.b64encode(reference.png).decode("ascii") for reference in references],
+            "references": [base64.b64encode(smaller_png(reference.png)).decode("ascii") for reference in references],
             "max_tokens": MAX_TOKENS,
             "temperature": TEMPERATURE,
             "top_p": TOP_P,

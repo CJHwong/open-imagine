@@ -43,6 +43,7 @@ from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_text import (
     MAX_TOKENS,
+    smaller_png,
 )
 from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_text import (
     as_rewrite as _as_rewrite,
@@ -162,7 +163,7 @@ class Qwen21Rewriter(PromptRewriterGateway):
         model, processor, config, system_prompt = self._resident_for(mode)
         # A PIL image, not a path: the studio tells its user it writes nothing to
         # disk, and mlx-vlm's load_image takes an Image.Image as it takes a path.
-        images = [Image.open(io.BytesIO(reference.png)).convert("RGB") for reference in references]
+        images = [Image.open(io.BytesIO(smaller_png(reference.png))).convert("RGB") for reference in references]
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": _in_the_request_language(prompt)},

@@ -5,6 +5,7 @@ here stubs it through `heavy_modules` and asserts the arguments the adapter pass
 to it. No weights are read and nothing is downloaded.
 """
 
+import io
 from unittest.mock import Mock
 
 import pytest
@@ -22,6 +23,10 @@ from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter import (
     _system_prompt,
     cache_line,
     in_the_cache,
+)
+from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_text import (
+    REFERENCE_PIXELS,
+    smaller_png,
 )
 from tests.support.heavy import heavy_modules
 from tests.support.images import png
@@ -421,3 +426,37 @@ def test_release_drops_the_model_and_holds_nothing_when_there_is_nothing_to_drop
         assert freed.call_count == 1
         rewriter.rewrite("a cat", "generate", (), no_writing, never_stop)
         assert stubs["mlx_vlm"]["load"].call_count == 2  # the model was rebuilt after the release
+
+
+def test_a_reference_under_the_budget_is_sent_as_it_arrived():
+    """The bytes are the same, so a small picture is not re-encoded on its way in."""
+    reference = png(1024, 768)
+
+    assert smaller_png(reference.png) is reference.png
+
+
+def test_a_large_reference_is_scaled_to_the_budget_and_keeps_its_shape():
+    """A phone photo spends 11,750 vision tokens; the budget is about 1 MP."""
+    reference = png(4000, 3000)
+
+    with Image.open(io.BytesIO(smaller_png(reference.png))) as scaled:
+        width, height = scaled.size
+
+    assert abs(width * height - REFERENCE_PIXELS) < REFERENCE_PIXELS // 50
+    assert abs(width / height - 4000 / 3000) < 0.01
+    assert (reference.width, reference.height) == (4000, 3000)
+
+
+def test_the_rewriter_reads_a_smaller_copy_than_the_engine_keeps(system_prompt):
+    """The engine's picture is untouched, so only the rewriter's eyes are downsized."""
+    generate = answering('{"rewritten_prompt": "a longer one"}')
+    stubs = rewriter_stubs(generate, system_prompt)
+    reference = png(2000, 1500)
+    with heavy_modules(stubs):
+        rewriter = Qwen21Rewriter({"edit": "Qwen/PE-I2I"})
+        rewriter.rewrite("a pear", "edit", (reference,), no_writing, never_stop)
+
+    (sent,) = generate.call_args.kwargs["image"]
+    assert sent.size == (1155, 866)
+    with Image.open(io.BytesIO(reference.png)) as kept:
+        assert kept.size == (2000, 1500)

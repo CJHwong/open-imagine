@@ -5,7 +5,9 @@ model the same thing and read its answer the same way, so the cards keep one con
 across the two machines. Only the loader and the sampler differ.
 """
 
+import io
 import json
+import math
 import re
 from pathlib import Path
 
@@ -14,6 +16,33 @@ from studio.l1_entities.prompt_rewrite import PromptRewrite
 # The cards' own sampling settings, and their token budget. Measured 2026-09-27:
 # 317 to 505 tokens out in 22 to 32 s, so the budget is never reached.
 MAX_TOKENS = 16384
+
+# What the rewriter sees of each reference. The card spends 11,750 vision tokens on
+# a 12 MP picture and 768 on a 1 MP one, and the instruction it writes is one
+# sentence either way. Measured 2026-11-19 on the spark: a 12 MP reference costs
+# 16 s more than a 1 MP one before the first token is written.
+REFERENCE_PIXELS = 1_000_000
+
+
+def smaller_png(png: bytes, pixels: int = REFERENCE_PIXELS) -> bytes:
+    """The reference at about `pixels`, keeping its shape, for the rewriter's copy.
+
+    The image engine keeps the full reference, because fidelity is its job. The
+    rewriter reads the picture to know what it is looking at, and a phone photo at
+    12 MP spends eleven thousand vision tokens on that. Pixels rather than an edge,
+    so a wide picture and a tall one cost the same.
+    """
+    from PIL import Image
+
+    with Image.open(io.BytesIO(png)) as found:
+        width, height = found.size
+        if width * height <= pixels:
+            return png
+        scale = math.sqrt(pixels / (width * height))
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        written = io.BytesIO()
+        found.convert("RGB").resize(size, Image.Resampling.LANCZOS).save(written, format="PNG")
+        return written.getvalue()
 
 
 def system_prompt(repo: str) -> str:

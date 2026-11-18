@@ -1,10 +1,13 @@
+import base64
+import io
 from unittest.mock import Mock
 
 import pytest
+from PIL import Image
 
 from studio.l1_entities.errors import InvalidJob
-from studio.l1_entities.image_job import ReferenceImage
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda import construction, rewriter
+from tests.support.images import png
 
 
 class Config:
@@ -59,9 +62,25 @@ def test_a_reference_reaches_the_card_as_base64():
     child.request.return_value = {"text": "a longer instruction"}
     gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i", "edit": "me/i2i"})
 
-    gateway.rewrite("a pear", "edit", (ReferenceImage(png=b"png", width=4, height=4),), lambda: None, lambda: False)
+    reference = png(4, 4)
 
-    assert child.request.call_args[0][0]["references"] == ["cG5n"]
+    gateway.rewrite("a pear", "edit", (reference,), lambda: None, lambda: False)
+
+    sent = child.request.call_args[0][0]["references"]
+    assert [base64.b64decode(item) for item in sent] == [reference.png]
+
+
+def test_a_large_reference_reaches_the_card_smaller():
+    """The card reads the picture to know what it edits, and 1 MP is enough for that."""
+    child = Mock()
+    child.request.return_value = {"text": "a longer instruction"}
+    gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i", "edit": "me/i2i"})
+
+    gateway.rewrite("a pear", "edit", (png(2000, 1500),), lambda: None, lambda: False)
+
+    written = base64.b64decode(child.request.call_args[0][0]["references"][0])
+    with Image.open(io.BytesIO(written)) as sent:
+        assert sent.size == (1155, 866)
 
 
 def test_a_cjk_request_is_not_asked_for_english():
