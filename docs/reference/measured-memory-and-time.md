@@ -419,6 +419,23 @@ These requests compare generate and edit paths. Each timing includes the recorde
 
 Each timing includes a fresh enhancer load. H3 stores its prompt encoder as NVFP4 and expands it to BF16 at runtime.
 
+What each enhancer costs before it writes, measured on 18 November 2026. Each figure is the
+child's own `loaded ... in` line, or the time to its first sign of work where it has none.
+
+| Enhancer | Machine | Environment | Load | First rewrite |
+| --- | --- | --- | --- | --- |
+| H3 Image PE | spark | cached, 188 ms | 182.5 s | not run |
+| Qwen PE T2I | spark | cached, 4 ms | 4.5 s | 40 s |
+| Qwen PE I2I | spark | cached, 2 ms | 4.9 s | 98 s |
+| Gemma 3 for LTX | office, MLX | cached | about 2 s | 7 s |
+
+The H3 encoder stores NVFP4 and expands it to BF16, so its load is the expansion and the
+encoder computes in BF16 after it; that expansion is the whole cost. The other three load
+weights directly, which is why they start in seconds. The Qwen and Gemma figures were taken
+with the card already in the page cache, so a cold disk read adds to them. A rewrite keeps
+the card resident, which is why the first-press figures below are much larger than a warm
+press.
+
 | Request | Time (s) | Result | Source |
 | --- | --- | --- | --- |
 | Rewrite for generate, first press | 109.3 | Structured result retained | 2 |

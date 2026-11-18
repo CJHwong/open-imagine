@@ -246,7 +246,7 @@ def test_the_rewriter_sends_the_request_and_the_sampling_it_was_measured_at(syst
         "temperature": 1.0,
         "top_p": 0.95,
         "top_k": 20,
-        "enable_thinking": True,
+        "enable_thinking": False,
         "verbose": False,
     }
     assert MAX_TOKENS == 16384  # 317 to 505 tokens out, so the budget is never reached

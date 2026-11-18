@@ -65,7 +65,7 @@ class Enhancer:
         # generate takes ready text, so the chat template, the image tokens and the thinking
         # switch are applied here, exactly as the release's own client does.
         prompt = apply_chat_template(
-            self.processor, self.model.config, messages, num_images=len(images), enable_thinking=True
+            self.processor, self.model.config, messages, num_images=len(images), enable_thinking=False
         )
         result = generate(
             self.model,

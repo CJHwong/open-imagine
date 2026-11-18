@@ -187,7 +187,9 @@ class Qwen21Rewriter(PromptRewriterGateway):
             temperature=1.0,
             top_p=0.95,
             top_k=20,
-            enable_thinking=True,
+            # The card answers directly. Its thinking block ran to hundreds of tokens
+            # and took a 40 second rewrite to 15; see the rewriter load table.
+            enable_thinking=False,
             verbose=False,
         ):
             if should_stop():

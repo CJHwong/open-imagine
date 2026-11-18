@@ -48,7 +48,7 @@ def test_the_rewrite_sends_the_instructions_the_nudge_and_the_sampling():
         1.0,
         0.95,
         20,
-        True,
+        False,
     )
     assert told == [1]
     assert result.prompt == "a pear, at golden hour"
