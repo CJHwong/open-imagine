@@ -42,7 +42,6 @@ import io
 import json
 import os
 import shutil
-import subprocess
 import sys
 import time
 import urllib.request
@@ -99,59 +98,108 @@ def audio_suffix(raw: bytes) -> str:
     return ".bin"
 
 
-def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
-    """The reference audio as native ABC, through the pinned SheetSage2 script."""
-    raw = base64.b64decode(job.get("reference_audio") or "")
-    if not raw:
-        raise ValueError("Upload reference audio before transcribing or covering a song.")
+# The transcriber, loaded by the first transcription and kept for the child's life.
+TRANSCRIBER: dict = {}
+SCORE_PROMPTS = ["timestamp", "downbeat_meter", "structure", "key"]
+
+
+def move_by_way_of_memory(module, device: str) -> None:
+    """Send each weight through ordinary memory before it lands on the device.
+
+    The checkpoint's tensors are mapped from the file, and the device copy reads them at
+    about 0.18 GB/s on the DGX Spark: 14.3 s for SheetSage2's 2.52 GiB, measured on
+    2026-11-19. From ordinary memory the same copy is a fraction of a second.
+    """
+    groups: dict[int, list] = {}
+    for tensor in [*module.parameters(), *module.buffers()]:
+        groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
+    for tensors in groups.values():
+        landed = tensors[0].data.clone().to(device)
+        for tensor in tensors:
+            tensor.data = landed
+
+
+def transcriber(extras_dir: Path):
+    """SheetSage2 on MERT-v2, held after the first transcription.
+
+    The pinned script loaded both on every call, in a new interpreter: measured on the
+    DGX Spark on 2026-11-19, a ten-second clip took 21.7 to 27.5 s, of which the model
+    itself spent 1.0 s and the load 16.5 s. Held, the two cost 2.52 GiB beside YuE's
+    weights. The script's helpers are imported from the pinned copy, so its score
+    checks are the ones that run here.
+    """
+    if TRANSCRIBER:
+        return TRANSCRIBER["model"], TRANSCRIBER["tools"]
     from huggingface_hub import snapshot_download
 
     directory = install_transcriber(extras_dir)
-    snapshot_download(
-        SHEETSAGE,
-        revision=SHEETSAGE_REVISION,
-        allow_patterns=["config.json", "*.json", "*.safetensors", "*.py", "LICENSE"],
-    )
-    base_model = snapshot_download(
-        MERT,
-        revision=MERT_REVISION,
-        allow_patterns=["config.json", "*.json", "*.safetensors", "*.py", "LICENSE"],
-    )
+    patterns = ["config.json", "*.json", "*.safetensors", "*.py", "LICENSE"]
+    snapshot_download(SHEETSAGE, revision=SHEETSAGE_REVISION, allow_patterns=patterns)
+    base_model = snapshot_download(MERT, revision=MERT_REVISION, allow_patterns=patterns)
     import imageio_ffmpeg
 
+    # The transcriber's decoder asks for a command called `ffmpeg`. The package ships a
+    # binary under a longer name, so a link with that name goes first on PATH.
+    binaries = Path(extras_dir).expanduser() / "bin"
+    binaries.mkdir(parents=True, exist_ok=True)
+    link = binaries / "ffmpeg"
+    if not link.is_symlink():
+        link.symlink_to(imageio_ffmpeg.get_ffmpeg_exe())
+    os.environ["PATH"] = os.pathsep.join([str(binaries), os.environ.get("PATH", "")])
+    sys.path.insert(0, str(directory))
+    import abc_tools
+    from transformers import AutoModel
+
+    started = time.time()
+    model = AutoModel.from_pretrained(
+        SHEETSAGE,
+        trust_remote_code=True,
+        local_files_only=True,
+        revision=SHEETSAGE_REVISION,
+        code_revision=SHEETSAGE_REVISION,
+        base_model_path=base_model,
+    ).eval()
+    move_by_way_of_memory(model, "cuda")
+    say(f"loaded the transcriber in {time.time() - started:.1f}s")
+    TRANSCRIBER.update(model=model, tools=abc_tools)
+    return model, abc_tools
+
+
+def transcribe(job: dict, extras_dir: Path) -> tuple[str, dict]:
+    """The reference audio as native ABC, through the pinned SheetSage2 interface."""
+    raw = base64.b64decode(job.get("reference_audio") or "")
+    if not raw:
+        raise ValueError("Upload reference audio before transcribing or covering a song.")
+    task = job.get("transcription_task", "melody-full")
+    model, abc_tools = transcriber(extras_dir)
+    prompts = [*SCORE_PROMPTS, *(["chord_full", "melody_full"] if task == "full" else [])]
+    options = {}
+    if task != "full":
+        prompts.append("melody_vocal" if task == "melody-vocal" else "melody_full")
+        options["melody_only"] = True
     with TemporaryDirectory(prefix="yue2-transcribe-") as scratch:
-        # The transcriber's decoder asks for a command called `ffmpeg`. The package ships a
-        # binary under a longer name, so a link with that name goes first on PATH.
-        binaries = Path(scratch) / "bin"
-        binaries.mkdir()
-        (binaries / "ffmpeg").symlink_to(imageio_ffmpeg.get_ffmpeg_exe())
-        environment = dict(os.environ)
-        environment["PATH"] = os.pathsep.join([str(binaries), environment.get("PATH", "")])
         audio = Path(scratch) / f"reference{audio_suffix(raw)}"
         audio.write_bytes(raw)
         output = Path(scratch) / "transcription"
-        command = [
-            sys.executable,
-            str(directory / "transcribe.py"),
+        output.mkdir()
+        result = model.transcribe(
             str(audio),
-            "--output",
-            str(output),
-            "--device",
-            "cuda",
-            "--offline",
-            "--revision",
-            SHEETSAGE_REVISION,
-            "--base-model",
-            base_model,
-            "--task",
-            job.get("transcription_task", "melody-full"),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=3600, env=environment)
-        if completed.returncode != 0 or not (output / "score.abc").is_file():
-            detail = (completed.stderr or completed.stdout or "").strip().splitlines()
-            raise ValueError(f"Transcription failed: {detail[-1] if detail else 'no output'}")
+            output_dir=str(output),
+            prompts=prompts,
+            dtype="bf16",
+            preset="default",
+            max_seconds=None,
+            **options,
+        )
+        if result.get("abc_error") or not result.get("abc"):
+            raise ValueError(f"Transcription failed: no usable ABC: {result.get('abc_error')}")
+        parsed = abc_tools.parse_abc(result["abc"])
+        if task != "full" and any(voice.chords for voice in parsed.voices.values()):
+            raise ValueError("Transcription failed: the melody carries chord symbols")
+        if not (output / "score.abc").is_file():
+            raise ValueError("Transcription failed: the transcriber saved no score.abc")
         score = (output / "score.abc").read_text(encoding="utf-8")
-        manifest = json.loads((output / "transcription_manifest.json").read_text(encoding="utf-8"))
+    manifest = {"status": "complete", "warnings": result.get("warnings", [])}
     artifacts = [
         {
             "name": "score.abc",
@@ -185,8 +233,8 @@ def request_for(job: dict) -> dict:
 
 
 # The upstream transcriber is a PyTorch script, not part of `yue2-infer`: SheetSage2 through
-# its Transformers interface. It runs as its own process so the 27 GB of YuE weights stay
-# resident, and it exits with the model freed.
+# its Transformers interface. This child imports the pinned script's helpers and holds the
+# model after the first transcription; see `transcriber`.
 TRANSCRIBER_REVISION = "1647252d68b70cbead046ffd3f7caf036dde47ee"
 TRANSCRIBER_ROOT = f"https://raw.githubusercontent.com/multimodal-art-projection/YuE/{TRANSCRIBER_REVISION}"
 TRANSCRIBER_DIRECTORY = "yue2-transcriber"
