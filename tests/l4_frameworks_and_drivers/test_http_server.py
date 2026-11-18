@@ -1,6 +1,7 @@
 """The HTTP routes: a form goes to the controller, the answer goes to the presenter."""
 
 import base64
+import gzip
 import io
 import json
 import logging
@@ -282,6 +283,76 @@ def test_a_changed_asset_gets_a_new_version(tmp_path):
 
 def test_an_asset_that_is_gone_has_no_version(tmp_path):
     assert http_server.asset_digest(tmp_path / "absent.css") == ""
+
+
+@pytest.mark.parametrize(
+    ("header", "accepted"),
+    [
+        ("gzip, deflate, br", True),
+        ("gzip;q=0", False),
+        ("br", False),
+        ("", False),
+        ("deflate, gzip;q=0.5", True),
+        ("gzip;q=words", True),
+    ],
+)
+def test_a_client_that_asks_for_gzip_is_read_from_its_header(header, accepted):
+    assert http_server.accepts_gzip(header) is accepted
+
+
+@pytest.mark.parametrize(
+    ("content_type", "size", "wanted"),
+    [
+        ("text/css; charset=utf-8", 4096, True),
+        ("application/json; charset=utf-8", 4096, True),
+        ("image/png", 4096, False),
+        ("video/mp4", 4096, False),
+        ("text/css; charset=utf-8", 10, False),
+        ("text/css; charset=utf-8", 5 * 1024 * 1024, False),
+    ],
+)
+def test_only_text_of_a_useful_size_is_worth_compressing(content_type, size, wanted):
+    assert http_server.compressible(content_type, size) is wanted
+
+
+def test_a_text_answer_goes_out_compressed_when_the_client_asks(served):
+    """The page is 1.4 MB of text and a slow link carries 58 KB a second. Content-Length
+    must name the compressed bytes, or a keep-alive client reads the next answer where
+    this one ends."""
+    version = http_server.web_build_digest(http_server.WEB)
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/page/v/{version}/page.css"
+    request = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})
+
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        body = answer.read()
+        assert answer.headers["Content-Encoding"] == "gzip"
+        assert int(answer.headers["Content-Length"]) == len(body)
+        assert gzip.decompress(body) == (http_server.WEB / "page.css").read_bytes()
+
+
+def test_a_text_answer_stays_plain_for_a_client_that_does_not_ask(served):
+    status, content_type, _ = call(served[1], "/page/page.css")
+
+    assert (status, content_type) == (200, "text/css; charset=utf-8")
+
+
+def test_a_small_answer_is_not_compressed_even_when_the_client_asks(served):
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/video/progress"
+    request = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})
+
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert answer.headers["Content-Encoding"] is None
+
+
+def test_a_picture_is_not_compressed_even_when_the_client_asks(served):
+    contents = io.BytesIO()
+    Image.new("RGB", (32, 24), (10, 20, 30)).save(contents, format="PNG")
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/image/normalize"
+    request = urllib.request.Request(url, data=contents.getvalue(), headers={"Accept-Encoding": "gzip"}, method="POST")
+
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert answer.headers["Content-Type"] == "image/png"
+        assert answer.headers["Content-Encoding"] is None
 
 
 def video_request(**updates):

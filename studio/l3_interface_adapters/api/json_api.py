@@ -445,17 +445,24 @@ class JsonApi:
             raise InvalidJob("Only private operations support deletion.")
         self._operations.delete(operation_id)
 
-    def state(self, viewer: str = "") -> dict[str, Any]:
-        """`busy` stays true while a private operation that this viewer cannot see runs."""
+    def state(self, viewer: str = "", brief: bool = False) -> dict[str, Any]:
+        """`busy` stays true while a private operation that this viewer cannot see runs.
+
+        `brief` leaves out each workspace's capability document. A client that polls this
+        route while a run is in flight carries them on every tick, and they were 57,046 of
+        the answer's 58,376 bytes, measured on the office studio. It reads them once, from
+        `/api/v1/studio`, and asks again when `capabilities_version` moves.
+        """
         recent = [one for one in self._operations.recent() if visible(one, viewer)]
         operations = [self._operation_document(one, viewer) for one in recent]
         active = next((one for one in operations if one["status"] in ("running", "stopping")), None)
+        document = self.studio()
         return {
             "active": active,
             "busy": self._operations.busy(),
             "operations": operations,
             "queue": self._operations.pressure(),
-            "studio": self.studio(),
+            "studio": brief_studio(document) if brief else document,
         }
 
     def cancel_operation(self, operation_id: str, viewer: str = "") -> None:
@@ -835,6 +842,31 @@ class JsonApi:
 
 def visible(record: Mapping[str, Any], viewer: str) -> bool:
     return record.get("owner", "") in ("", owner_digest(viewer))
+
+
+def brief_studio(document: Mapping[str, Any]) -> dict[str, Any]:
+    """The studio document without each workspace's capability document.
+
+    A workspace's capabilities say what its form offers: modes, params, sizes, Looks. They
+    do not change while the studio runs, and a polling client reads them once. What is left
+    is 1,330 bytes: which model each workspace holds, its backends, the build, the settings
+    and the memory status. `capabilities_version` names the set that is not here, so a
+    client that holds another one, or none, reads the whole document.
+    """
+    capabilities = {
+        name: section["capabilities"]
+        for name, section in document.items()
+        if isinstance(section, Mapping) and "capabilities" in section
+    }
+    version = hashlib.sha256(json.dumps(capabilities, sort_keys=True).encode()).hexdigest()[:12]
+    brief = {
+        name: {key: value for key, value in section.items() if key != "capabilities"}
+        if isinstance(section, Mapping)
+        else section
+        for name, section in document.items()
+    }
+    brief["capabilities_version"] = version
+    return brief
 
 
 def owner_digest(private_key: str) -> str:

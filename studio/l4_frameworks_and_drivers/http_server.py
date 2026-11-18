@@ -1,5 +1,6 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
+import gzip
 import hashlib
 import json
 import logging
@@ -47,6 +48,42 @@ PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; chars
 # How long a browser may keep a versioned asset. The version covers every file the page
 # loads, so a changed tree is a different URL and this promise cannot go stale.
 ASSET_CACHE_SECONDS = 31536000
+
+# Text goes out compressed when the client says it can take it. The page is 1.4 MB of
+# JavaScript, CSS and JSON, most of it text, and a link that carries 58 KB a second spends
+# 25 seconds on it. Pictures, audio and clips are compressed already.
+MINIMUM_COMPRESSED_BYTES = 1024
+MAXIMUM_COMPRESSED_BYTES = 4 * 1024 * 1024
+COMPRESSIBLE_TYPES = ("text/", "application/json")
+COMPRESS_LEVEL = 6
+
+
+def accepts_gzip(header: str) -> bool:
+    """Whether the client named gzip and did not refuse it with `q=0`.
+
+    `gzip;q=0.5` is accepted and `gzip;q=0` is not, so the quality is read as a number and
+    not by its first character.
+    """
+    for part in header.split(","):
+        name, _, quality = part.partition(";")
+        if name.strip().lower() != "gzip":
+            continue
+        value = quality.strip().lower()
+        if not value.startswith("q="):
+            return True
+        try:
+            return float(value.removeprefix("q=")) > 0
+        except ValueError:
+            return True
+    return False
+
+
+def compressible(content_type: str, size: int) -> bool:
+    """Whether an answer of this type and size is worth compressing."""
+    return MINIMUM_COMPRESSED_BYTES <= size <= MAXIMUM_COMPRESSED_BYTES and content_type.split(";")[
+        0
+    ].strip().lower().startswith(COMPRESSIBLE_TYPES)
+
 
 # Each asset's digest, by path, with the mtime and size it was taken at. A stat that did
 # not move cannot change the bytes, so the hash is paid once per edit, not per request.
@@ -456,9 +493,15 @@ def make_handler(
 
         def _state_document(self, viewer: str) -> dict[str, Any]:
             """The API's state, with the bodies being read added here: that is this
-            transport's own fact, and the queue's occupancy is the API's."""
+            transport's own fact, and the queue's occupancy is the API's.
+
+            `?view=brief` leaves out the capability documents, which the page reads once at
+            load and a poll would otherwise carry on every tick. Anything else is the full
+            document.
+            """
             assert api is not None
-            document = api.state(viewer)
+            brief = (parse_qs(urlsplit(self.path).query).get("view") or [""])[0] == "brief"
+            document = api.state(viewer, brief=brief)
             document["uploads"] = budget.status()
             return document
 
@@ -1105,11 +1148,21 @@ def make_handler(
             # A response can be large, so the write has no deadline. The socket goes back
             # to the read deadline afterwards, so an idle keep-alive connection ends
             # instead of holding a thread open for ever.
+            body = payload
+            encoding = None
+            if compressible(content_type, len(payload)) and accepts_gzip(self.headers.get("Accept-Encoding", "")):
+                # Content-Length names the compressed bytes: the client frames the answer
+                # by that number, and a keep-alive connection reads the next request where
+                # this one ends.
+                body = gzip.compress(payload, COMPRESS_LEVEL)
+                encoding = "gzip"
             self.connection.settimeout(None)
             try:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
-                self.send_header("Content-Length", str(len(payload)))
+                self.send_header("Content-Length", str(len(body)))
+                if encoding is not None:
+                    self.send_header("Content-Encoding", encoding)
                 # The studio serves files that change between restarts, so nothing here is
                 # worth keeping unless the URL names the version it is. A module under
                 # `/page/v/<digest>/` has that name; every other answer is `no-store`, which
@@ -1118,7 +1171,7 @@ def make_handler(
                 for name, value in (headers or {}).items():
                     self.send_header(name, value)
                 self.end_headers()
-                self.wfile.write(payload)
+                self.wfile.write(body)
             finally:
                 self.connection.settimeout(REQUEST_READ_TIMEOUT_SECONDS)
 

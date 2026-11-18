@@ -2314,6 +2314,10 @@
       renderStrip: renderStrip,
       renderMediaActions: renderMediaActions,
     });
+    // A result can arrive from the poll while this module is still configuring, and the
+    // handle above is what carries the strip its list. Push once it exists, or the frames
+    // that arrived in that window are in the page's gallery and in no strip at all.
+    renderStrip();
   });
 
   // Three names verify_page.py reads straight out of the page's global scope:

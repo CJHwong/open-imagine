@@ -38,6 +38,9 @@ let refreshPending = false;
 let serverBusy = false;
 let localBusy = false;
 let stopped = false;
+// The capability set this page holds. The poll answers a brief state that names the set it
+// left out, and the page reads the whole document once for each set it does not hold.
+let capabilitiesVersion = '';
 let lastFailure = '';
 let progressId = null;
 let overallPercent = null;
@@ -275,7 +278,9 @@ async function poll() {
   clearPollTimer();
   polling = true;
   try {
-    const answer = await fetch('/api/v1/state', {cache: 'no-store'});
+    // The brief view leaves out the capability documents, which the page read once at
+    // load and this poll would otherwise carry on every tick: 57 KB of 58 KB.
+    const answer = await fetch('/api/v1/state?view=brief', {cache: 'no-store'});
     if (answer.status === 404) {
       stopped = true;
       awake.set(false);
@@ -292,7 +297,23 @@ async function poll() {
       }
     }
     if (!answer.ok) throw new Error(t('operation.error.status'));
-    const state = await answer.json();
+    let state = await answer.json();
+    // The brief view names the capability documents it left out. When this page holds no
+    // copy of that set, or an older one, it asks once for the whole document: the form
+    // needs the capabilities of the model in force, and a model another caller switched
+    // arrives that way too. Every later tick is the brief view alone. A whole document that
+    // does not arrive leaves the form as it was, rather than handing it a set that is not
+    // there to draw.
+    const version = state.studio?.capabilities_version;
+    if (version && version !== capabilitiesVersion) {
+      const whole = await fetch('/api/v1/state', {cache: 'no-store'});
+      const document = whole.ok ? await whole.json() : null;
+      if (document?.studio?.image?.capabilities) {
+        capabilitiesVersion = version;
+        state = document;
+      }
+    }
+    const briefState = Boolean(state.studio?.capabilities_version) && !state.studio?.image?.capabilities;
     active = state.active;
     serverBusy = Boolean(state.busy || active);
     // This page's own model change also holds the studio with no operation.
@@ -311,7 +332,7 @@ async function poll() {
     render(active);
     if (page.beforeState) page.beforeState();
     try {
-      if (state.studio) page.syncModels(state.studio);
+      if (state.studio && !briefState) page.syncModels(state.studio);
       page.setActive(active);
     } finally { if (page.afterState) page.afterState(); }
     if (active && active.kind === 'video' && active.client_id !== page.clientId) {
