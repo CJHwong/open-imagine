@@ -2653,10 +2653,13 @@
       editRadio.dispatchEvent(new Event('change', { bubbles: true }));
     }
     references = [];
-    promptInput.value = '';
+    // The words in the box are the person's. Editing a frame adds this picture as the
+    // reference and leaves what they typed where it is; only the seed is filled, and only
+    // while the field is empty, because a rerun of this frame wants its own.
     formApi.growPrompt();
     formApi.setLook((entry.look && formApi.picksHere(entry.look.picks)) || {});
-    document.getElementById('seed').value = entry.seed;
+    const seedField = document.getElementById('seed');
+    if (!seedField.value.trim()) seedField.value = entry.seed;
     referFrom(entry);
     view = entry.id;
     renderStage();
@@ -3154,6 +3157,9 @@
             mode: image.mode || operation.mode,
             src: URL.createObjectURL(blob), b64: image.png_base64, at: (image.completed_at || operation.finished_at) * 1000,
             backend: operation.model, backendId: operation.backend, precision: operation.settings.precision || '',
+            // The frame's own Details reads this. A frame that arrived over the poll had
+            // no time at all, so its sheet showed every field except the one that costs.
+            elapsed: image.elapsed ?? (((operation.finished_at || 0) - (operation.started_at || 0)) || null),
             typed: image.prompt, look: null, negative: operation.settings.negative || '', sources: [], before: null});
           // JSON numbers cannot retain seeds above 2^53; batch item settings
           // keep the exact decimal text submitted by the form.
