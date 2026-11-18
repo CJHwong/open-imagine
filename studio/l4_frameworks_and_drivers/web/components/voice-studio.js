@@ -1476,7 +1476,10 @@ class VoiceStudio extends LitElement {
           stage: progress.stage || progress.label,
           step: progress.step,
           total: progress.total,
-          elapsedSeconds: started ? Date.now() / 1000 - started : -1,
+          // A finished operation keeps the time it took, instead of counting on.
+          elapsedSeconds: started
+            ? (Number(operation?.finished_at) || Date.now() / 1000) - started
+            : -1,
         };
       },
     });

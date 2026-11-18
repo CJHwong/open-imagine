@@ -493,6 +493,14 @@ function fileName(entry) {
 
 // The top bar's Details action, for a still run. The request is this page's own,
 // or a shared run's record; without either there is nothing to open.
+function elapsedFor(shared, runElapsed) {
+  const running = runElapsed ? runElapsed() : -1;
+  if (running >= 0) return running;
+  const started = Number(shared?.started_at) || 0;
+  const finished = Number(shared?.finished_at) || 0;
+  return started && finished ? finished - started : -1;
+}
+
 export function openRunDetails() {
   const shared = page.runShared ? page.runShared() : null;
   const request = (page.runRequest ? page.runRequest() : null) || shared?.settings || null;
@@ -509,7 +517,9 @@ export function openRunDetails() {
         stage: state.stage,
         step: state.step,
         total: state.total,
-        elapsedSeconds: page.runElapsed ? page.runElapsed() : -1,
+        // A finished run has no live object left to ask, and the sheet then showed no
+        // time at all. The shared record keeps the two moments.
+        elapsedSeconds: elapsedFor(shared, page.runElapsed),
       };
     },
   });

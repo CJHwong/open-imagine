@@ -1554,7 +1554,10 @@ class MusicStudio extends HTMLElement {
           stage: progress.stage || progress.label,
           step: progress.step,
           total: progress.total,
-          elapsedSeconds: started ? Date.now() / 1000 - started : -1,
+          // A finished operation keeps the time it took, instead of counting on.
+          elapsedSeconds: started
+            ? (Number(this.operation?.finished_at) || Date.now() / 1000) - started
+            : -1,
         };
       },
     });
