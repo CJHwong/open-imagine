@@ -10,6 +10,7 @@ from collections.abc import Callable, Mapping
 
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_job import ReferenceImage
+from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l1_entities.prompt_rewrite import PromptRewrite
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
@@ -29,6 +30,10 @@ from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 TEMPERATURE = 1.0
 TOP_P = 0.95
 TOP_K = 20
+
+# `rewrite_quantize` is a width in bits, as it is for the MLX rewriter. This engine holds a
+# card at full precision or in fp8; see the child's docstring for the measurement.
+REWRITE_PRECISIONS = {0: "bf16", 8: "fp8"}
 
 # The two modes the cards serve, and the setting each one reads.
 MODEL_SETTINGS = {"generate": "rewrite_generate_model", "edit": "rewrite_edit_model"}
@@ -85,13 +90,22 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
         self._child.stop()
 
 
+def rewrite_precision(config: ModelConfigurationGateway, backend_id: str) -> str:
+    quantize = config.backend(backend_id).get("rewrite_quantize", 0)
+    # bool is an int in Python: `false` equals 0 and would pass as full precision.
+    if isinstance(quantize, bool) or quantize not in REWRITE_PRECISIONS:
+        raise ModelConfigurationError(f"rewrite_quantize under [{backend_id}] must be 0 or 8, not {quantize!r}")
+    return REWRITE_PRECISIONS[quantize]
+
+
 def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
     models = rewrite_models(config, backend_id)
     if not models:
         return NoPromptRewriterGateway()
     from studio.l3_interface_adapters.gateways.image.qwen21_cuda.construction import rewriter_command
 
-    return Qwen21CudaRewriter(StdioChild(rewriter_command(models)), models)
+    command = rewriter_command(models, rewrite_precision(config, backend_id))
+    return Qwen21CudaRewriter(StdioChild(command), models)
 
 
 def rewriter_cache(config: ModelConfigurationGateway, backend_id: str) -> str:

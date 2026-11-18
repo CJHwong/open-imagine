@@ -65,6 +65,7 @@ class Written:
 
 class FakeProcessor:
     def __init__(self):
+        self.tokenizer = SimpleNamespace(eos_token_id=248046)
         self.messages = []
         self.images = []
         self.inputs = FakeInputs()
@@ -82,8 +83,9 @@ class FakeProcessor:
 
 
 class FakeModel(Module):
-    def __init__(self):
+    def __init__(self, eos=248044):
         super().__init__([Holder(FakeTensor("w"))])
+        self.generation_config = SimpleNamespace(eos_token_id=eos)
         self.kwargs = {}
 
     def generate(self, **kwargs):
@@ -179,6 +181,15 @@ def test_generate_sends_the_images_and_reads_only_the_new_tokens(monkeypatch):
     assert content[0] == {"type": "image"} and content[1] == {"type": "text", "text": "make it night"}
     assert len(processor.images) == 1
     assert model.kwargs["max_new_tokens"] == 64 and model.kwargs["do_sample"] is True
+    assert model.kwargs["eos_token_id"] == [248044, 248046]
+
+
+def test_the_answer_ends_at_the_end_of_the_turn_as_well_as_the_configured_end():
+    processor = FakeProcessor()
+
+    assert child.stop_tokens(processor, FakeModel(eos=248044)) == [248044, 248046]
+    assert child.stop_tokens(processor, FakeModel(eos=[248044, 248046])) == [248044, 248046]
+    assert child.stop_tokens(processor, FakeModel(eos=None)) == [248046]
 
 
 def test_reference_image_decodes_a_png():
@@ -268,3 +279,85 @@ def test_the_script_enters_through_its_main_guard(monkeypatch):
         runpy.run_path(child.__file__, run_name="__main__")
 
     assert exited.value.code == 0
+
+
+class FakeLinear:
+    pass
+
+
+def fake_torchao(monkeypatch):
+    calls = []
+    quantization = types.ModuleType("torchao.quantization")
+    monkeypatch.setattr(quantization, "PerRow", lambda: "per-row", raising=False)
+    monkeypatch.setattr(
+        quantization,
+        "Float8DynamicActivationFloat8WeightConfig",
+        lambda granularity, kernel_preference: ("fp8 dynamic", granularity, kernel_preference),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        quantization,
+        "quantize_",
+        lambda weights, config, filter_fn: calls.append((weights, config, filter_fn)),
+        raising=False,
+    )
+    preference = types.ModuleType("torchao.quantization.quantize_.common.kernel_preference")
+    monkeypatch.setattr(preference, "KernelPreference", SimpleNamespace(TORCH="torch"), raising=False)
+    monkeypatch.setitem(sys.modules, "torchao", types.ModuleType("torchao"))
+    monkeypatch.setitem(sys.modules, "torchao.quantization", quantization)
+    monkeypatch.setitem(
+        sys.modules, "torchao.quantization.quantize_", types.ModuleType("torchao.quantization.quantize_")
+    )
+    monkeypatch.setitem(
+        sys.modules, "torchao.quantization.quantize_.common", types.ModuleType("torchao.quantization.quantize_.common")
+    )
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.common.kernel_preference", preference)
+    return calls
+
+
+def test_load_at_fp8_quantizes_the_language_model_with_fp8_matrix_multiplies(monkeypatch, capsys):
+    torch = fake_torch(monkeypatch)
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Linear=FakeLinear), raising=False)
+    processor, model = FakeProcessor(), FakeModel()
+    fake_transformers(monkeypatch, processor, model)
+    calls = fake_torchao(monkeypatch)
+
+    child.load("me/i2i", "fp8")
+
+    [(weights, config, filter_fn)] = calls
+    assert weights is model and config == ("fp8 dynamic", "per-row", "torch")
+    assert filter_fn is child.language_linear
+    assert "loaded me/i2i as fp8" in capsys.readouterr().err
+
+
+def test_load_at_bf16_leaves_the_weights_alone(monkeypatch):
+    fake_torch(monkeypatch)
+    fake_transformers(monkeypatch, FakeProcessor(), FakeModel())
+    calls = fake_torchao(monkeypatch)
+
+    child.load("me/i2i")
+
+    assert calls == []
+
+
+def test_only_the_language_models_linear_layers_take_fp8(monkeypatch):
+    torch = fake_torch(monkeypatch)
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Linear=FakeLinear), raising=False)
+
+    assert child.language_linear(FakeLinear(), "model.language_model.layers.0.mlp.up_proj")
+    assert not child.language_linear(FakeLinear(), "model.visual.blocks.0.attn.qkv")
+    assert not child.language_linear(FakeLinear(), "lm_head")
+    assert not child.language_linear(object(), "model.language_model.norm")
+
+
+def test_main_holds_the_cards_at_the_precision_it_was_given(monkeypatch, capsys):
+    fake_torch(monkeypatch)
+    loaded = []
+    monkeypatch.setattr(child, "load", lambda model, quantize: loaded.append((model, quantize)) or (Mock(), Mock()))
+    monkeypatch.setattr(child, "generate", lambda state, job: {"text": "ok"})
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "fp8"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"role": "edit", "request_id": "r1"})))
+
+    assert child.main() == 0
+
+    assert loaded == [("Qwen/Qwen-Image-2.1-PE-I2I", "fp8")]
