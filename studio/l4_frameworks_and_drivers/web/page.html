@@ -3144,6 +3144,10 @@
           const response = await fetch('data:image/png;base64,' + image.png_base64);
           const blob = await response.blob();
           const entry = Object.assign({}, image, {id: id, number: takeFrameId(id), operationId: operation.id,
+            // The frame names its own mode, and the result document does not carry one:
+            // a tile imported by the poll read "undefined, seed 12" and no check could find
+            // it by name. The htmx path takes it from the markup's data-mode.
+            mode: image.mode || operation.mode,
             src: URL.createObjectURL(blob), b64: image.png_base64, at: (image.completed_at || operation.finished_at) * 1000,
             backend: operation.model, backendId: operation.backend, precision: operation.settings.precision || '',
             typed: image.prompt, look: null, negative: operation.settings.negative || '', sources: [], before: null});
