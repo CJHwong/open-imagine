@@ -108,6 +108,14 @@ function liveRows(live) {
   return rows;
 }
 
+// The result document carries its time as a string ("8"), and Number.isFinite
+// refuses a string, so a frame's sheet showed every field except the time. An
+// absent time is not a zero: it gets no row at all.
+function secondsOf(value) {
+  if (value === null || value === undefined || value === '') return NaN;
+  return Number(value);
+}
+
 function clock(seconds) {
   const whole = Math.max(0, Math.floor(Number(seconds) || 0));
   return Math.floor(whole / 60) + ':' + String(whole % 60).padStart(2, '0');
@@ -169,7 +177,8 @@ export function openResultSheet({kind, model, mode, request, elapsed, trigger}) 
   if (typeof request.loras === 'string' && request.loras) rows.push(['run.field.addons', request.loras]);
   if (shown(model)) rows.unshift([LABELS.model, model]);
   if (shown(mode)) rows.unshift([LABELS.mode, mode]);
-  if (Number.isFinite(elapsed)) rows.push(['run.field.elapsed', clock(elapsed)]);
+  const seconds = secondsOf(elapsed);
+  if (Number.isFinite(seconds)) rows.push(['run.field.elapsed', clock(seconds)]);
   return openSheet({
     id: 'result-details-sheet',
     title: t('run.details'),

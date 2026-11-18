@@ -1633,6 +1633,33 @@ with sync_playwright() as playwright:
         f"{shown[:70]} for frame {wanted} (seed {wanted_seed})",
     )
 
+    # The sheet behind Details lists what made the frame, and the time it took is one
+    # of those fields. The result document carries that time as a string, and an
+    # isFinite test refuses a string, so the sheet showed every field except the one
+    # that costs.
+    page.locator("button.preview-details-toggle").first.click()
+    page.wait_for_timeout(400)
+    sheet = page.locator("#result-details-sheet").inner_text().replace("\n", " ")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    check(
+        "a frame's details sheet carries the time it took",
+        re.search(r"Elapsed \d+:\d\d", sheet) is not None,
+        sheet[:120],
+    )
+
+    # A bar narrower than its actions used to leave the caption about a hundred pixels
+    # wide, where the prompt wrapped one character per line and the facts stacked.
+    page.set_viewport_size({"width": 1000, "height": 900})
+    page.wait_for_timeout(400)
+    caption = page.evaluate(
+        "() => { const box = document.querySelector('.stage-bar .about');"
+        " return box ? Math.round(box.getBoundingClientRect().width) : -1; }"
+    )
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.wait_for_timeout(400)
+    check("the caption keeps a readable width at 1000 pixels", caption >= 200, f"{caption}px")
+
     # Reuse seed puts the image's own seed back in the form, so the same picture
     # can be asked for again with one change.
     page.get_by_role("button", name="More actions").click()
