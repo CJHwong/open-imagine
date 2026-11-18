@@ -23,9 +23,16 @@
 
 The checkpoint is 68.7 GB of transformer and 66.7 GB of text encoder in bfloat16, which is
 more than a 128 GB unified machine holds once the runtime and the VAE join. The text
-encoder therefore loads in FP8 and the transformer is quantized to NVFP4 after it lands,
-which brings the pair to about 50 GB. Peak during the quantize is the bf16 transformer plus
-the packed copy, so the order is encoder first, transformer second, quantize third.
+encoder is therefore quantized first, alone, and the transformer after it lands. Peak during
+the quantize is the bf16 transformer plus the packed copy, so the order is encoder first,
+transformer second, quantize third.
+
+`fp8` holds both in fp8 and multiplies in fp8 (W8A8, one scale per row). On the DGX Spark
+a 1024 image took 39.8 s with an NVFP4 weight-only encoder and an fp8 weight-only
+transformer, and 5.9 s this way: the encoder pass went from 17.3 s to 0.2 s and the
+transformer from 21.8 s to 5.0 s. A weight-only tensor widens itself on every pass, and that
+widening was the time. The kernels are pinned to torch's, because mslk's cutlass path will
+not initialize on this card.
 """
 
 import argparse
@@ -133,6 +140,11 @@ everything else. Rebuilding from those parts was checked bit-identical on 2026-1
 
 PACK_COMPONENTS = ("transformer", "text_encoder", "vae")
 
+# A quantizer whose recipe changed names the new one here, so a pack built by the old
+# recipe is rebuilt instead of trusted. A quantizer missing here matches a pack that names
+# no recipe, which every pack built before this key did.
+RECIPES = {"fp8": "w8a8-per-row"}
+
 
 def versions() -> dict:
     """What the pack was built with. A pack from another set is rebuilt, not trusted."""
@@ -156,6 +168,7 @@ def expected_manifest(model: str, quantize: str) -> dict:
         "format": PACK_FORMAT,
         "model": model,
         "quantize": quantize,
+        "recipe": RECIPES.get(quantize),
         "versions": versions(),
         "source": source_revision(model),
     }
@@ -339,6 +352,26 @@ def quantize_kwargs(weight) -> dict | None:
     return dict(vars(values)) if values is not None else None
 
 
+def float8_settings(weight) -> dict:
+    """How an fp8 weight multiplies, as plain values.
+
+    Without these a rebuilt weight takes torchao's defaults: no activation quantization,
+    which is the slow weight-only path, and the automatic kernel, which fails on this card.
+    """
+    activation = weight.act_quant_kwargs
+    return {
+        "mm_config": list(weight.mm_config) if weight.mm_config is not None else None,
+        "kernel_preference": weight.kernel_preference.value,
+        "act_quant": None
+        if activation is None
+        else {
+            "float8_dtype": str(activation.float8_dtype),
+            "row_dim": activation.granularity.dim,
+            "kernel_preference": activation.kernel_preference.value,
+        },
+    }
+
+
 def copy_to_host(tensor):
     """Wait before serialization reads a nonblocking device copy."""
     if tensor.device.type == "cpu":
@@ -384,7 +417,7 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             elif kind == "fp8":
                 tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
                 tensors[f"{key}.scale"] = copy_to_host(weight.scale)
-                entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype)})
+                entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype), **float8_settings(weight)})
             else:
                 tensors[key] = copy_to_host(weight)
             entries[key] = entry
@@ -413,12 +446,24 @@ def rebuild(entry: dict, key: str, handle, device: str):
     if entry["kind"] == "plain":
         return handle.get_tensor(key).clone().to(device)
     if entry["kind"] == "fp8":
-        from torchao.quantization import Float8Tensor
+        from torchao.quantization import Float8MMConfig, Float8Tensor, PerRow
+        from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+        from torchao.quantization.quantize_.workflows.float8.float8_tensor import QuantizeTensorToFloat8Kwargs
 
+        activation = entry["act_quant"]
         return Float8Tensor(
             qdata=part("qdata"),
             scale=part("scale"),
             block_size=entry["block_size"],
+            mm_config=None if entry["mm_config"] is None else Float8MMConfig(*entry["mm_config"]),
+            act_quant_kwargs=None
+            if activation is None
+            else QuantizeTensorToFloat8Kwargs(
+                float8_dtype=getattr(torch, activation["float8_dtype"].removeprefix("torch.")),
+                granularity=PerRow(activation["row_dim"]),
+                kernel_preference=KernelPreference(activation["kernel_preference"]),
+            ),
+            kernel_preference=KernelPreference(entry["kernel_preference"]),
             dtype=getattr(torch, entry["dtype"].removeprefix("torch.")),
         )
     if entry["kind"] == "nvfp4":
@@ -531,15 +576,19 @@ def build(model: str, quantize: str):
         return pipe
 
     # The encoder first, alone, then quantized, then the transformer. Loading both at
-    # bf16 needs 135 GB and this machine has 121.7. Torchao weight-only NVFP4 is used for
-    # the encoder because it runs once per prompt and accuracy matters more than speed
-    # there; the transformer takes W4A4, which is where the time is spent.
+    # bf16 needs 135 GB and this machine has 121.7. The NVFP4 build keeps its encoder
+    # weight-only, the smaller of the two; the fp8 build quantizes it W8A8 on the device.
     from torchao.prototype.mx_formats import NVFP4WeightOnlyConfig
     from torchao.quantization import quantize_
 
     pipe.load_components(names=["text_encoder"], dtype=torch.bfloat16, device_map="cpu")
     say(f"encoder loaded in {time.time() - started:.1f}s")
-    quantize_(component(pipe, "text_encoder"), NVFP4WeightOnlyConfig())
+    encoder = component(pipe, "text_encoder")
+    if quantize == "nvfp4":
+        quantize_(encoder, NVFP4WeightOnlyConfig())
+    else:
+        move_by_way_of_memory(encoder, "cuda")
+        to_w8a8(encoder, kept=("visual", "lm_head"))
     torch.cuda.empty_cache()
     say(f"encoder packed in {time.time() - started:.1f}s")
     # The weights land on the host first and then travel one tensor at a time, because the
@@ -558,13 +607,32 @@ def build(model: str, quantize: str):
 
         quantize_(component(pipe, "transformer"), NVFP4DynamicActivationNVFP4WeightConfig())
     else:
-        from torchao.quantization import Float8WeightOnlyConfig
-
-        quantize_(component(pipe, "transformer"), Float8WeightOnlyConfig())
-    component(pipe, "text_encoder").to("cuda")
+        to_w8a8(component(pipe, "transformer"))
+    encoder.to("cuda")
     torch.cuda.synchronize()
     say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return pipe
+
+
+def to_w8a8(module, kept: tuple[str, ...] = ()) -> None:
+    """fp8 weights and fp8 activations, one scale per row, on torch's own kernels.
+
+    A row scale needs a bf16 weight, so a linear in another dtype stays as it is. The
+    encoder keeps its vision tower and output head at bf16, `kept` by name.
+    """
+    import torch
+    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow, quantize_
+    from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+
+    def chosen(layer, name: str) -> bool:
+        return (
+            isinstance(layer, torch.nn.Linear)
+            and layer.weight.dtype == torch.bfloat16
+            and not any(part in name for part in kept)
+        )
+
+    config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), kernel_preference=KernelPreference.TORCH)
+    quantize_(module, config, filter_fn=chosen)
 
 
 def reference_image(encoded: str):

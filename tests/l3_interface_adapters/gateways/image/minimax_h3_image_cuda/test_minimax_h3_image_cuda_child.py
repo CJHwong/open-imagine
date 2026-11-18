@@ -109,10 +109,40 @@ def fake_diffusers(monkeypatch, pipe):
     monkeypatch.setitem(sys.modules, "diffusers", module)
 
 
+class Preference:
+    """torchao's KernelPreference, by value."""
+
+    def __init__(self, value):
+        self.value = value
+
+    TORCH: "Preference"
+
+
+Preference.TORCH = Preference("torch")
+AUTO = Preference("auto")
+
+
 def fake_torchao(monkeypatch, record, name="NVFP4DynamicActivationNVFP4WeightConfig"):
     quantize = types.ModuleType("torchao.quantization")
-    monkeypatch.setattr(quantize, "quantize_", lambda module, config: record.append((module, config)), raising=False)
-    monkeypatch.setattr(quantize, "Float8WeightOnlyConfig", lambda: "fp8-config", raising=False)
+
+    def quantize_(module, config, filter_fn=None):
+        record.append((module, config, filter_fn) if filter_fn else (module, config))
+
+    monkeypatch.setattr(quantize, "quantize_", quantize_, raising=False)
+    monkeypatch.setattr(quantize, "PerRow", lambda dim=-1: ("per-row", dim), raising=False)
+    monkeypatch.setattr(
+        quantize,
+        "Float8DynamicActivationFloat8WeightConfig",
+        lambda granularity, kernel_preference: ("w8a8", granularity, kernel_preference.value),
+        raising=False,
+    )
+    monkeypatch.setattr(quantize, "Float8MMConfig", lambda *values: ("mm", *values), raising=False)
+    preference = types.ModuleType("torchao.quantization.quantize_.common.kernel_preference")
+    monkeypatch.setattr(preference, "KernelPreference", Preference, raising=False)
+    float8 = types.ModuleType("torchao.quantization.quantize_.workflows.float8.float8_tensor")
+    monkeypatch.setattr(float8, "QuantizeTensorToFloat8Kwargs", lambda **values: values, raising=False)
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.common.kernel_preference", preference)
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.workflows.float8.float8_tensor", float8)
     monkeypatch.setattr(quantize, "NVFP4WeightOnlyConfig", lambda: "nvfp4-wo-config", raising=False)
     config = types.ModuleType("torchao.prototype.mx_formats")
     monkeypatch.setattr(config, name, object, raising=False)
@@ -243,13 +273,44 @@ def test_aliased_weights_move_once_and_stay_shared():
     assert module.parameters()[0].data is module.parameters()[1].data
 
 
-def test_load_can_ask_for_fp8_or_bf16(monkeypatch):
+def test_fp8_quantizes_the_encoder_and_the_transformer_with_fp8_matrix_multiplies(monkeypatch):
+    """Weight-only fp8 widened every weight on every pass: 39.8 s a 1024 image, against 5.9 s."""
     fake_torch(monkeypatch)
-    fake_diffusers(monkeypatch, FakePipe())
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    moved = []
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: moved.append((module, device)))
     recorded = []
     fake_torchao(monkeypatch, recorded)
-    assert child.load("me/pack", "fp8") is not None
-    assert recorded[1][1] == "fp8-config"
+
+    assert child.load("me/pack", "fp8") is pipe
+
+    assert moved[0] == (pipe.text_encoder, "cuda")
+    assert [entry[:2] for entry in recorded] == [
+        (pipe.text_encoder, ("w8a8", ("per-row", -1), "torch")),
+        (pipe.transformer, ("w8a8", ("per-row", -1), "torch")),
+    ]
+
+
+class Linear:
+    def __init__(self, dtype="bfloat16"):
+        self.weight = SimpleNamespace(dtype=dtype)
+
+
+def test_w8a8_takes_bf16_linears_and_leaves_the_kept_ones(monkeypatch):
+    fake_torch(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "nn", SimpleNamespace(Linear=Linear), raising=False)
+    recorded = []
+    fake_torchao(monkeypatch, recorded)
+
+    child.to_w8a8("encoder", kept=("visual", "lm_head"))
+
+    chosen = recorded[0][2]
+    assert chosen(Linear(), "model.layers.0.mlp.up_proj")
+    assert not chosen(Linear(), "model.visual.blocks.0.attn.qkv")
+    assert not chosen(Linear(), "lm_head")
+    assert not chosen(Linear("float32"), "model.layers.0.mlp.up_proj")
+    assert not chosen(SimpleNamespace(), "model.norm")
 
 
 def test_bf16_loads_everything_at_once_and_quantizes_nothing(monkeypatch):
@@ -359,9 +420,30 @@ class Part:
 class Float8Weight:
     """The shape of torchao's Float8Tensor, as the pack sees it."""
 
-    def __init__(self, qdata, scale, block_size=None, dtype=None):
+    def __init__(
+        self,
+        qdata,
+        scale,
+        block_size=None,
+        mm_config=None,
+        act_quant_kwargs=None,
+        kernel_preference=AUTO,
+        dtype=None,
+    ):
         self.qdata, self.scale = qdata, scale
         self.block_size, self.dtype = block_size, dtype
+        self.mm_config, self.act_quant_kwargs = mm_config, act_quant_kwargs
+        self.kernel_preference = kernel_preference
+
+
+W8A8_ACTIVATION = SimpleNamespace(
+    float8_dtype="torch.float8_e4m3fn", granularity=SimpleNamespace(dim=-1), kernel_preference=Preference("torch")
+)
+W8A8_SETTINGS = {
+    "mm_config": [False, True, False],
+    "kernel_preference": "torch",
+    "act_quant": {"float8_dtype": "torch.float8_e4m3fn", "row_dim": -1, "kernel_preference": "torch"},
+}
 
 
 class NVFP4Weight:
@@ -500,7 +582,15 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
     scalar = Part("scalar")
     transformer = PackModule(
         {
-            "block.weight": Float8Weight(qdata, scale, block_size=[1, 256], dtype="torch.bfloat16"),
+            "block.weight": Float8Weight(
+                qdata,
+                scale,
+                block_size=[1, 256],
+                mm_config=(False, True, False),
+                act_quant_kwargs=W8A8_ACTIVATION,
+                kernel_preference=Preference("torch"),
+                dtype="torch.bfloat16",
+            ),
             "norm.weight": Part("plain"),
         }
     )
@@ -537,6 +627,7 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
         "kind": "fp8",
         "block_size": [1, 256],
         "dtype": "torch.bfloat16",
+        **W8A8_SETTINGS,
     }
     assert manifest["tensors"]["transformer.norm.weight"] == {"kind": "plain"}
     assert manifest["tensors"]["text_encoder.proj.weight"]["kind"] == "nvfp4"
@@ -555,12 +646,64 @@ def test_rebuild_restores_fp8(monkeypatch):
     def handle(path, framework="pt"):
         yield SimpleNamespace(get_tensor=lambda key: store["pack.safetensors"][key])
 
-    entry = {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16"}
+    entry = {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16", **W8A8_SETTINGS}
     with handle("x") as opened:
         weight = child.rebuild(entry, "layer.weight", opened, "cuda")
 
     assert isinstance(weight, Float8Weight)
     assert weight.block_size == [1, 256] and weight.dtype == "bfloat16"
+    assert weight.mm_config == ("mm", False, True, False)
+    assert weight.kernel_preference.value == "torch"
+    assert weight.act_quant_kwargs["float8_dtype"] == "fp8"
+    assert weight.act_quant_kwargs["granularity"] == ("per-row", -1)
+    assert weight.act_quant_kwargs["kernel_preference"].value == "torch"
+
+
+def test_an_fp8_weight_keeps_how_it_multiplies_through_the_pack(monkeypatch):
+    """A weight rebuilt without its settings runs weight-only on torchao's automatic kernel."""
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    weight = Float8Weight(
+        Part("q"),
+        Part("s"),
+        block_size=[1, 256],
+        mm_config=(False, True, False),
+        act_quant_kwargs=W8A8_ACTIVATION,
+        kernel_preference=Preference("torch"),
+        dtype="torch.bfloat16",
+    )
+
+    assert child.float8_settings(weight) == W8A8_SETTINGS
+
+
+def test_a_weight_only_fp8_weight_is_stored_without_activation_settings(monkeypatch):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    store = {"layer.weight.qdata": Part("q"), "layer.weight.scale": Part("s")}
+    settings = child.float8_settings(Float8Weight(Part("q"), Part("s"), [1, 256], dtype="torch.bfloat16"))
+
+    weight = child.rebuild(
+        {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16", **settings},
+        "layer.weight",
+        SimpleNamespace(get_tensor=store.__getitem__),
+        "cuda",
+    )
+
+    assert settings == {"mm_config": None, "kernel_preference": "auto", "act_quant": None}
+    assert weight.mm_config is None and weight.act_quant_kwargs is None
+    assert weight.kernel_preference.value == "auto"
+
+
+def test_an_fp8_pack_from_before_the_recipe_is_built_again_and_an_nvfp4_one_is_not(monkeypatch, tmp_path):
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    old = {"format": 1, "model": "me/pack", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+
+    assert not child.manifest_matches({**old, "quantize": "fp8"}, child.expected_manifest("me/pack", "fp8"))
+    assert child.manifest_matches({**old, "quantize": "nvfp4"}, child.expected_manifest("me/pack", "nvfp4"))
+    assert child.manifest_matches(
+        {**old, "quantize": "fp8", "recipe": "w8a8-per-row"}, child.expected_manifest("me/pack", "fp8")
+    )
 
 
 def test_rebuild_restores_nvfp4_with_its_scalar(monkeypatch):
@@ -649,6 +792,7 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -1214,6 +1358,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -1243,6 +1388,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -1272,7 +1418,14 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
         (tmp_path / f"{name}.safetensors").write_text("")
     (tmp_path / "pack.json").write_text(
         json.dumps(
-            {"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+            {
+                "format": 1,
+                "model": "me/pack",
+                "quantize": "fp8",
+                "recipe": "w8a8-per-row",
+                "versions": {"torch": "2.15.0"},
+                "source": "abc123",
+            }
         )
     )
 
