@@ -76,6 +76,7 @@ class FakeProcessor:
 
     def __call__(self, text, images, return_tensors):
         self.images = images
+        self.text = text
         return self.inputs
 
     def batch_decode(self, written, skip_special_tokens):
@@ -176,12 +177,27 @@ def test_generate_sends_the_images_and_reads_only_the_new_tokens(monkeypatch):
         },
     )
 
-    assert reply == {"text": "the answer"}
+    assert reply == {"text": '{"rewritten_prompt": "the answer'}
+    assert processor.text == ['formatted{"rewritten_prompt": "']
     content = processor.messages[1]["content"]
     assert content[0] == {"type": "image"} and content[1] == {"type": "text", "text": "make it night"}
     assert len(processor.images) == 1
     assert model.kwargs["max_new_tokens"] == 64 and model.kwargs["do_sample"] is True
     assert model.kwargs["eos_token_id"] == [248044, 248046]
+
+
+def test_a_thinking_turn_is_not_given_the_answer_opening(monkeypatch):
+    """A thinking turn opens with its thinking block, so the JSON opening would skip it."""
+    fake_torch(monkeypatch)
+    processor = FakeProcessor()
+
+    reply = child.generate(
+        {"processor": processor, "model": FakeModel()},
+        {"role": "generate", "system": "s", "user": "a pear", "enable_thinking": True},
+    )
+
+    assert reply == {"text": "the answer"}
+    assert processor.text == ["formatted"]
 
 
 def test_the_answer_ends_at_the_end_of_the_turn_as_well_as_the_configured_end():
@@ -234,7 +250,7 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     assert child.main() == 0
 
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    assert lines[0] == {"text": "the answer", "request_id": "r1"}
+    assert lines[0] == {"text": child.ANSWER_OPENING + "the answer", "request_id": "r1"}
     assert lines[1]["error"].startswith("ValueError") and lines[1]["request_id"] == "r2"
     assert lines[2]["error"].startswith("KeyError") and lines[2]["request_id"] == "r3"
 

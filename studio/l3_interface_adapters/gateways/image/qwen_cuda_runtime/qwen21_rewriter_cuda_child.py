@@ -160,6 +160,16 @@ def stop_tokens(processor, model) -> list[int]:
     return sorted({processor.tokenizer.eos_token_id, *(end for end in ends if end is not None)})
 
 
+ANSWER_OPENING = '{"rewritten_prompt": "'
+"""The first words of every answer the cards are told to write, written for them.
+
+Without them the I2I card sometimes reasoned in plain prose before its JSON: a poster
+request ran to 2,590 and 4,020 tokens, 172 s and 266 s at fp8. With them the same request
+took 359 and 290 tokens, and twelve sampled rewrites took 332 s against 711 s, every one
+parsed. A thinking turn opens with its thinking block instead, so it is left alone.
+"""
+
+
 def generate(state: dict, job: dict) -> dict:
     import torch
 
@@ -170,12 +180,15 @@ def generate(state: dict, job: dict) -> dict:
         {"role": "system", "content": job["system"]},
         {"role": "user", "content": content},
     ]
+    thinking = bool(job.get("enable_thinking", False))
+    opening = "" if thinking else ANSWER_OPENING
     text = processor.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=bool(job.get("enable_thinking", False)),
+        enable_thinking=thinking,
     )
+    text += opening
     inputs = processor(text=[text], images=images or None, return_tensors="pt").to("cuda")
     with torch.inference_mode():
         written = model.generate(
@@ -187,7 +200,8 @@ def generate(state: dict, job: dict) -> dict:
             top_p=float(job.get("top_p", 0.95)),
             top_k=int(job.get("top_k", 20)),
         )
-    return {"text": processor.batch_decode(written[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True)[0]}
+    answer = processor.batch_decode(written[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True)[0]
+    return {"text": opening + answer}
 
 
 def main() -> int:
