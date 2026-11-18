@@ -484,6 +484,10 @@
   .stage-bar .preview-details-toggle { display: none; }
   .result-sheet-dialog dd { white-space: pre-wrap; overflow-wrap: anywhere; }
   .about { flex: 1; min-width: 0; }
+  /* The caption keeps a floor and the row of actions falls below it. A bar that
+     is narrower than its actions used to leave the caption a hundred pixels,
+     where a prompt wrapped one character per line and the facts stacked. */
+  .stage-bar .about { flex: 1 1 200px; }
   /* Two lines are reserved whether the prompt fills them or not. The bar takes
      its height from this box, the stage takes its height from the bar, and the
      print is fitted to the stage, so a caption that grew and shrank with the
