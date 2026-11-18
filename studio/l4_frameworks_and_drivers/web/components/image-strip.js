@@ -25,7 +25,7 @@ import {galleryStepIndex} from '../lib/gallery-navigation.js';
 // the region asks for the reference list, and never keeps a second copy that
 // could disagree with it.
 
-import { LitElement, html } from '/page/vendor/lit.js';
+import { LitElement, html } from '../vendor/lit.js';
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';
@@ -156,6 +156,10 @@ class ImageStrip extends LitElement {
   }
 
   entries() {
+    // The page holds the array and is asked for it, as its own comment says. The store
+    // held a copy, and a copy can fall behind the moment the two calls land either side
+    // of an arrival: the note counted three images while the strip drew one.
+    if (page && page.gallery) return page.gallery();
     return get('gallery') || [];
   }
 

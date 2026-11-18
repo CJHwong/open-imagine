@@ -2462,6 +2462,12 @@
 
 
   function renderStrip() {
+    // The strip draws the list this note counts, and it redraws when it is told to. A push
+    // to the store used to be the only nudge, so a push that did not land left the note
+    // reading three images and the strip drawing one.
+    if (formApi) formApi.pushGallery();
+    const element = document.getElementById('strip');
+    if (element && element.requestUpdate) element.requestUpdate();
     const wrap = document.getElementById('strip-wrap');
     wrap.hidden = mediaMode !== 'image' || (!gallery.length && !busy());
     const count = gallery.length;
@@ -2475,9 +2481,6 @@
     // The arrival is handed over here, before the stage clears it: the strip
     // reads it while it still holds it and adds the frame's entrance once.
     if (arrivedId !== null) strip.arrived(arrivedId);
-    // The first draw runs inside the form module's own configure, before its
-    // handle is assigned, and the store is seeded again on its door.
-    if (formApi) formApi.pushGallery();
     renderProgress();
   }
 
@@ -2734,6 +2737,9 @@
     const later = gallery.findIndex(function (other) { return other.id < entry.id; });
     gallery.splice(later < 0 ? gallery.length : later, 0, entry);
     nextId = Math.max(nextId, entry.number + 1);
+    // The list is what the strip draws, and it changed here. A frame another tab made
+    // enters by this door too, so the push belongs to the moment the list moves.
+    if (formApi) formApi.pushGallery();
     return entry;
   }
 
