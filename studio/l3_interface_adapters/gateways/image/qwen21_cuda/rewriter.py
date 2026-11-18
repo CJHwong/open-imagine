@@ -69,7 +69,8 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
             "temperature": TEMPERATURE,
             "top_p": TOP_P,
             "top_k": TOP_K,
-            "enable_thinking": True,
+            # Off: the thinking block cost 25 seconds and the rewrite is one sentence.
+            "enable_thinking": False,
         }
         # The child loads the card before it answers, and the caller cannot see that
         # from here. Saying it now is the same contract the MLX adapter keeps.

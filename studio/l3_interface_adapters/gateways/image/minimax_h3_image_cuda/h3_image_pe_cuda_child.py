@@ -192,7 +192,7 @@ def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> 
         content = [{"type": "image"} for _ in images]
         content.append({"type": "text", "text": messages[-1]["content"]})
         messages = [*messages[:-1], {**messages[-1], "content": content}]
-    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=True)
+    text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
     inputs = processor(text=[text], images=list(images) or None, return_tensors="pt").to("cuda")
     with torch.inference_mode():
         written = model.generate(

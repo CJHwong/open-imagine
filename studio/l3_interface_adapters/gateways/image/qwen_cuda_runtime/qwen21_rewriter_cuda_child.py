@@ -126,7 +126,7 @@ def generate(state: dict, job: dict) -> dict:
         messages,
         tokenize=False,
         add_generation_prompt=True,
-        enable_thinking=bool(job.get("enable_thinking", True)),
+        enable_thinking=bool(job.get("enable_thinking", False)),
     )
     inputs = processor(text=[text], images=images or None, return_tensors="pt").to("cuda")
     with torch.inference_mode():

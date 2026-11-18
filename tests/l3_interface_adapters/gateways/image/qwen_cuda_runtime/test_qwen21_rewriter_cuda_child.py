@@ -170,7 +170,7 @@ def test_generate_sends_the_images_and_reads_only_the_new_tokens(monkeypatch):
             "temperature": 0.9,
             "top_p": 0.95,
             "top_k": 20,
-            "enable_thinking": True,
+            "enable_thinking": False,
         },
     )
 
