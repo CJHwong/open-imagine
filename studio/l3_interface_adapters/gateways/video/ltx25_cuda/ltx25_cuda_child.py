@@ -120,6 +120,11 @@ def load(model: str):
             move_by_way_of_memory(component, "cuda")
     # Every weight is on the device already; this call sets the pipeline's own bookkeeping.
     pipe.to("cuda")
+    # One transformer block is compiled and its code serves every block. The compile runs
+    # on the first call of each canvas and frame count, inside that run. On the DGX Spark a
+    # 768 x 768, 97-frame clip took 70.8 s eager, 65.6 s on its first compiled run and 53.6
+    # s after; the transformer alone went from 60.4 s to 43.0 s.
+    pipe.transformer.compile_repeated_blocks(fullgraph=False, dynamic=False)
     torch.cuda.synchronize()
     say(f"loaded {model} in {time.time() - started:.1f}s")
     return pipe
