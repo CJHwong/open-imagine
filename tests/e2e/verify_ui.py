@@ -320,7 +320,7 @@ with sync_playwright() as playwright:
     rules = page.evaluate(
         """() => {
              const sheet = Array.from(document.styleSheets).find(
-               (one) => one.href && new URL(one.href).pathname === '/page/page.css');
+               (one) => one.href && new URL(one.href).pathname.endsWith('/page.css'));
              return sheet ? sheet.cssRules.length : 0;
            }"""
     )

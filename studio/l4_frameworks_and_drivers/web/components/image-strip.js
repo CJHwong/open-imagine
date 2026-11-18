@@ -25,7 +25,7 @@ import {galleryStepIndex} from '../lib/gallery-navigation.js';
 // the region asks for the reference list, and never keeps a second copy that
 // could disagree with it.
 
-import { LitElement, html } from '/page/vendor/lit.js';
+import { LitElement, html } from '../vendor/lit.js';
 import { get, subscribe } from '../lib/state.js';
 import {pencilLoop} from './gallery-marker.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';

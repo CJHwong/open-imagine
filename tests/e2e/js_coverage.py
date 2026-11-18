@@ -84,7 +84,17 @@ def _source_of(url, document, origin):
         return INLINE
     if not url.startswith(origin + "/page/"):
         return None
-    return None if url.removeprefix(origin + "/page/").startswith("vendor/") else MODULES
+    return None if asset_path(url, origin).startswith("vendor/") else MODULES
+
+
+def asset_path(url, origin):
+    """The file the page asked for, without the build version the URL carries.
+
+    The page asks for `/page/v/<digest>/components/x.js`, so the version comes off before
+    anything reads the name: it says which tree, not which file.
+    """
+    rest = url.removeprefix(origin + "/page/")
+    return rest.partition("/")[2] if rest.startswith("v/") else rest
 
 
 def measure(session):
@@ -106,7 +116,7 @@ def measure(session):
         if source_of is None:
             continue
         source = session.send("Debugger.getScriptSource", {"scriptId": script_id})["scriptSource"]
-        where = "inline" if source_of == INLINE else url.removeprefix(origin + "/page/")
+        where = "inline" if source_of == INLINE else asset_path(url, origin)
         for offset, (name, count) in functions.items():
             total += 1
             reached[source_of][1] += 1

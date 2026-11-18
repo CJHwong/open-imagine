@@ -1,5 +1,6 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
+import hashlib
 import json
 import logging
 import threading
@@ -42,6 +43,51 @@ WEB = Path(__file__).with_name("web").resolve()
 # Only what a browser loads as code. The documents that sit beside them, this
 # design among them, are not served.
 PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8"}
+
+# How long a browser may keep a versioned asset. The version covers every file the page
+# loads, so a changed tree is a different URL and this promise cannot go stale.
+ASSET_CACHE_SECONDS = 31536000
+
+# Each asset's digest, by path, with the mtime and size it was taken at. A stat that did
+# not move cannot change the bytes, so the hash is paid once per edit, not per request.
+_ASSET_DIGESTS: dict[Path, tuple[int, int, str]] = {}
+
+
+def asset_digest(path: Path) -> str:
+    """The digest a client names to keep this asset, or an empty string if it is gone.
+
+    The digest is of the bytes on disk, so it changes exactly when the served bytes change.
+    A file edited under a running studio gets a new version on the next page load, which is
+    the bug `no-store` was added for.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        _ASSET_DIGESTS.pop(path, None)
+        return ""
+    known = _ASSET_DIGESTS.get(path)
+    if known is not None and known[:2] == (stat.st_mtime_ns, stat.st_size):
+        return known[2]
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    _ASSET_DIGESTS[path] = (stat.st_mtime_ns, stat.st_size, digest)
+    return digest
+
+
+def web_build_digest(web: Path) -> str:
+    """One version for the whole page, so a module's relative imports inherit it.
+
+    A module served at `/page/v/<digest>/components/x.js` imports `./y.js`, and the browser
+    resolves that under the same versioned directory, so every file the page loads is
+    cacheable with the same promise. A build digest covers the set: any file that changes
+    changes the directory, and the old one stops being served.
+    """
+    parts = []
+    for path in sorted(web.rglob("*")):
+        if path.is_file() and path.suffix in PAGE_ASSETS:
+            parts.append(f"{path.relative_to(web).as_posix()}:{asset_digest(path)}")
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:12]
+
+
 # A clip crosses as base64 inside JSON, which costs four bytes for every three. A body cap
 # below the encoded size refuses a clip the validator would accept, so this follows the
 # advertised limit instead of being picked by hand. The margin holds the audio track, the
@@ -49,6 +95,15 @@ PAGE_ASSETS = {".js": "text/javascript; charset=utf-8", ".css": "text/css; chars
 MAX_CLIP_BYTES = int(MAX_CLIP_MEGABYTES * 1024 * 1024)
 MAX_VIDEO_REQUEST_BYTES = (MAX_CLIP_BYTES + 2) // 3 * 4 + 8 * 1024 * 1024
 MAX_VIDEO_REQUEST_MEGABYTES = MAX_VIDEO_REQUEST_BYTES // (1024 * 1024)
+
+
+def versioned_assets(markup: str, version: str) -> str:
+    """Point every asset URL the page loads at `/page/v/<version>/`.
+
+    Both quote styles, because two modules are imported from an inline script. The version
+    is in the path, not the query, so a module's own relative imports resolve under it.
+    """
+    return markup.replace('"/page/', f'"/page/v/{version}/').replace("'/page/", f"'/page/v/{version}/")
 
 
 def body_read_seconds(length: int) -> float:
@@ -211,17 +266,18 @@ def make_handler(
                 # A handler without the API offers no optional workspace, and
                 # the presenter draws no tab for one it was not told about.
                 query = parse_qs(urlsplit(self.path).query)
-                self._send(
-                    presenter.page(
-                        controller.page(),
-                        api.workspaces() if api else None,
-                        presenter.locale_for(
-                            requested=(query.get("lang") or [None])[0],
-                            cookie=self.headers.get("Cookie"),
-                            accept_language=self.headers.get("Accept-Language"),
-                        ),
-                    )
+                page_markup = presenter.page(
+                    controller.page(),
+                    api.workspaces() if api else None,
+                    presenter.locale_for(
+                        requested=(query.get("lang") or [None])[0],
+                        cookie=self.headers.get("Cookie"),
+                        accept_language=self.headers.get("Accept-Language"),
+                    ),
                 )
+                # The page names the version of the files it loads, so a browser keeps
+                # them between loads and a model switch no longer refetches the lot.
+                self._send(versioned_assets(page_markup, web_build_digest(WEB)))
             elif path == "/api/docs":
                 self._send((WEB / "api-docs.html").read_text())
             elif path == "/progress":
@@ -239,7 +295,7 @@ def make_handler(
                     content_type="application/json",
                 )
             elif path.startswith("/page/"):
-                self._send_page_asset(path.removeprefix("/page/"))
+                self._page_asset(path.removeprefix("/page/"))
             else:
                 self._send("not found", status=404, content_type="text/plain")
 
@@ -986,19 +1042,44 @@ def make_handler(
                 self.connection.settimeout(previous_timeout)
             return bytes(contents)
 
-        def _send_page_asset(self, name: str) -> None:
+        def _page_asset(self, name: str) -> None:
+            """`v/<digest>/<name>` is the form the page itself asks for."""
+            if name.startswith("v/"):
+                version, _, rest = name.removeprefix("v/").partition("/")
+                self._send_page_asset(rest, version)
+                return
+            self._send_page_asset(name)
+
+        def _send_page_asset(self, name: str, version: str = "") -> None:
             """One module or stylesheet out of web/. Two rules keep it to those:
             the resolved path stays inside web/, so `..` cannot escape it, and
             only .js and .css are handed out. Without both, every document in
-            that directory would be readable."""
+            that directory would be readable.
+
+            A request that names the build version in the path is answered to be kept
+            for a year: the version covers every byte under it, and a changed page is a
+            different path. A request that names no version is answered `no-store`, and one
+            that names a version this tree does not have is refused, because the bytes under
+            that name are no longer the ones it promises.
+            """
+            if version and version != web_build_digest(WEB):
+                self._send("not found", status=404, content_type="text/plain")
+                return
             asset = (WEB / name).resolve()
             if not asset.is_relative_to(WEB) or asset.suffix not in PAGE_ASSETS or not asset.is_file():
                 self._send("not found", status=404, content_type="text/plain")
                 return
-            self._send(asset.read_text(encoding="utf-8"), content_type=PAGE_ASSETS[asset.suffix])
+            keep = f"public, max-age={ASSET_CACHE_SECONDS}, immutable" if version else "no-store"
+            self._send(asset.read_text(encoding="utf-8"), content_type=PAGE_ASSETS[asset.suffix], cache=keep)
 
-        def _send(self, body: str, status: int = 200, content_type: str = "text/html; charset=utf-8"):
-            self._send_bytes(body.encode("utf-8"), status, content_type)
+        def _send(
+            self,
+            body: str,
+            status: int = 200,
+            content_type: str = "text/html; charset=utf-8",
+            cache: str = "no-store",
+        ):
+            self._send_bytes(body.encode("utf-8"), status, content_type, cache=cache)
 
         def _send_busy(self, error: UploadBusy) -> None:
             """A body refused for room to be read. It is the answer a full queue gets, so
@@ -1019,6 +1100,7 @@ def make_handler(
             status: int = 200,
             content_type: str = "application/octet-stream",
             headers: dict[str, str] | None = None,
+            cache: str = "no-store",
         ):
             # A response can be large, so the write has no deadline. The socket goes back
             # to the read deadline afterwards, so an idle keep-alive connection ends
@@ -1028,10 +1110,11 @@ def make_handler(
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(payload)))
-                # The studio serves files that change between restarts, and it sent no cache
-                # header at all, so a browser was free to keep an old page.css or module and
-                # show a form the server no longer had. Nothing here is worth caching.
-                self.send_header("Cache-Control", "no-store")
+                # The studio serves files that change between restarts, so nothing here is
+                # worth keeping unless the URL names the version it is. A module under
+                # `/page/v/<digest>/` has that name; every other answer is `no-store`, which
+                # is what stops a browser showing a form the server no longer has.
+                self.send_header("Cache-Control", cache)
                 for name, value in (headers or {}).items():
                     self.send_header(name, value)
                 self.end_headers()

@@ -1,4 +1,4 @@
-import {html} from '/page/vendor/lit.js';
+import {html} from '../vendor/lit.js';
 import {t} from '../lib/i18n.js';
 
 // The pencil loop, one hand-drawn stroke that overlaps where it closes. It is

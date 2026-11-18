@@ -1202,9 +1202,10 @@ boundary_percent = 84
 `immediate` is the default. It frees the loaded model when another model runs, or
 when the page leaves its workspace. `boundary` keeps loaded models and frees the
 oldest first, and only when the next model's resident footprint would take the total
-past `boundary_percent` of physical memory. A model with no measured footprint is
-never kept. The boundary controls retention. When memory checks are enabled,
-Studio checks a run's peak against free memory with the 8 GiB system reserve.
+past `boundary_percent` of physical memory, so a workspace switch frees nothing and
+answers at once. A model with no measured footprint is never kept. The boundary
+controls retention. When memory checks are enabled, Studio checks a run's peak against
+free memory with the 8 GiB system reserve.
 
 `POST /api/v1/memory/release` frees every model under either policy. The page's
 workspace switch follows the policy.

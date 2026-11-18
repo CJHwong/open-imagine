@@ -22,6 +22,8 @@ class Config:
     visible_music_backends: tuple[str, ...] = ("yue2",)
 
     require_memory_estimate: bool = False
+    # The eager policy frees every model on a workspace switch, and the switch waits for
+    # the free. The boundary policy keeps them until the next claim does not fit.
     memory_policy: str = "immediate"
     memory_boundary_percent: int = 84
     queue_max_size: int = 0

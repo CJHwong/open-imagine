@@ -2,7 +2,7 @@
 // strip shows the same picture, number and marks without the caption and the checkbox.
 // The owner supplies the picture, the foot line and the mark, because a still, a wave,
 // a frame and a cover are different pictures.
-import { LitElement, html, nothing } from '/page/vendor/lit.js';
+import { LitElement, html, nothing } from '../vendor/lit.js';
 import { pencilLoop } from './gallery-marker.js';
 
 class GalleryTile extends LitElement {

@@ -843,6 +843,57 @@ def test_startup_wires_app_memory_settings_and_isolates_the_stub(tmp_path, monke
     assert preferences.require_memory_estimate() is (required if stub else not required)
 
 
+def test_an_eager_policy_needs_no_memory_reading(tmp_path, monkeypatch):
+    """`immediate` frees every model on a workspace switch, so it never asks the machine
+    for a total and cannot fail on a machine whose reading is missing."""
+    from studio.l4_frameworks_and_drivers import main
+
+    assembly = Mock()
+    monkeypatch.setattr(main, "assemble_studio", assembly)
+    monkeypatch.setattr(main, "available_engines", lambda: frozenset({"mlx"}))
+
+    def unreadable():
+        raise AssertionError("the eager policy must not read memory")
+
+    monkeypatch.setattr(main, "memory_headroom", unreadable)
+    config = replace(pack_settings(tmp_path), memory_policy="immediate")
+
+    main.create_studio(config, stub=False, plugins=install(monkeypatch, pack_entries()))
+
+    assert assembly.call_args.kwargs["total_memory_gib"] is None
+
+
+def test_a_boundary_policy_reads_the_machine_total_it_keeps_models_under(tmp_path, monkeypatch):
+    """The boundary is a share of physical memory, read at startup. The stub keeps a fixed
+    total, so a test that measures the arithmetic patches the reading instead."""
+    from studio.l4_frameworks_and_drivers import main
+
+    assembly = Mock()
+    monkeypatch.setattr(main, "assemble_studio", assembly)
+    monkeypatch.setattr(main, "available_engines", lambda: frozenset({"mlx"}))
+    monkeypatch.setattr(main, "memory_headroom", lambda: (64 * main.GIB, 8 * main.GIB))
+    config = replace(pack_settings(tmp_path), memory_policy="boundary", memory_boundary_percent=84)
+
+    main.create_studio(config, stub=False, plugins=install(monkeypatch, pack_entries()))
+
+    assert assembly.call_args.kwargs["total_memory_gib"] == 64.0
+    assert assembly.call_args.kwargs["memory_boundary_percent"] == 84
+
+
+def test_a_boundary_policy_that_cannot_read_memory_names_the_setting_that_avoids_it(tmp_path, monkeypatch):
+    """The boundary decides what to keep from the machine's own total. Where that reading
+    fails, the startup must name the policy that does not need it."""
+    from studio.l4_frameworks_and_drivers import main
+
+    monkeypatch.setattr(main, "assemble_studio", Mock())
+    monkeypatch.setattr(main, "available_engines", lambda: frozenset({"mlx"}))
+    monkeypatch.setattr(main, "memory_headroom", Mock(side_effect=StudioError("The studio could not read memory.")))
+    config = replace(pack_settings(tmp_path), memory_policy="boundary")
+
+    with pytest.raises(ConfigError, match=r'policy = "immediate"'):
+        main.create_studio(config, stub=False, plugins=install(monkeypatch, pack_entries()))
+
+
 def test_shutdown_stops_the_phone_listener():
     from studio.l4_frameworks_and_drivers.studio import Studio
 

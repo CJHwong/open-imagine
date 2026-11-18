@@ -1,5 +1,5 @@
-import {LitElement, html} from '/page/vendor/lit.js';
-import {repeat} from '/page/vendor/lit.js';
+import {LitElement, html} from '../vendor/lit.js';
+import {repeat} from '../vendor/lit.js';
 
 // Only mount the visible cards and a small buffer; spacers preserve the full scroll range.
 class GalleryWindow extends LitElement {

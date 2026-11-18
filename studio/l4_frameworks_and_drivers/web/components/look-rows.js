@@ -20,7 +20,7 @@
 // pick a block of its own, and a text node here would put a space in with the
 // stylesheet refused as well, where the name has always read "Lightnone".
 
-import { LitElement, html } from '/page/vendor/lit.js';
+import { LitElement, html } from '../vendor/lit.js';
 import { subscribe } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
 import {toggleMenu, closeMenus} from './popup-menu.js';

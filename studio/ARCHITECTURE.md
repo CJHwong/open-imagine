@@ -447,12 +447,13 @@ policy in local storage. `require_memory_estimate` defaults to false. Disabling 
 skips all memory admission checks, including checks against known estimates.
 
 The `[memory]` table selects the model release policy. `immediate`, the default, frees
-the previous model when another one runs or when the page leaves its workspace.
-`boundary` keeps loaded models in load order and frees the oldest first, and only when
-the next model's `resident_gib` would take the total past `boundary_percent` of physical
-memory. A provider declares `resident_gib` from its weight size; a model without one is
-never kept. The boundary covers retention only: `ResourceAdmission` still checks each
-run's peak against free memory and keeps its 8 GiB system reserve. For a model that is
+the previous model when another one runs or when the page leaves its workspace, and a
+switch then waits for the free. `boundary` keeps loaded models in load order and frees the
+oldest first, and only when the next model's `resident_gib` would take the total past
+`boundary_percent` of physical memory, so a workspace switch frees nothing. A provider
+declares `resident_gib` from its weight size; a model without one is never kept. The
+boundary covers retention only: `ResourceAdmission` still checks each run's peak against
+free memory and keeps its 8 GiB system reserve. For a model that is
 loaded already, admission subtracts its `resident_gib` from the peak, because free
 memory excludes a loaded model and the measured peak counts it again; the run pays
 only for what it allocates on top of the weights it holds. `ReleaseModelUseCase`

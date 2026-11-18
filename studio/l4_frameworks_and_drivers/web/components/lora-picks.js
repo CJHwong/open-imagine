@@ -22,7 +22,7 @@
 // never writes back: watching another client's run switches the mode on screen,
 // and the picks must still be there when it ends.
 
-import { LitElement, html, nothing } from '/page/vendor/lit.js';
+import { LitElement, html, nothing } from '../vendor/lit.js';
 
 const boards = new Map();
 const picksOf = new Map([['image', []], ['video', []]]);

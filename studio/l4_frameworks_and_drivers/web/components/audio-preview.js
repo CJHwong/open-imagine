@@ -1,4 +1,4 @@
-import {LitElement, html, svg} from '/page/vendor/lit.js';
+import {LitElement, html, svg} from '../vendor/lit.js';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, waveBytes} from '../lib/voice-audio.js';
 
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';

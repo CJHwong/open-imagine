@@ -1,7 +1,7 @@
 // Load the engraver only when a recording's score is opened.
 let engraver;
 export async function renderNotation(target, score) {
-  if (!engraver) engraver = import('/page/vendor/abcjs.js')
+  if (!engraver) engraver = import('../vendor/abcjs.js')
     .then(module => module.default || module).catch(error => { engraver = null; throw error; });
   const abc = await engraver;
   if (!target.isConnected) return;

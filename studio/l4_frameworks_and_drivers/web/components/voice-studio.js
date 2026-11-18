@@ -1,6 +1,6 @@
 import {galleryStepIndex} from '../lib/gallery-navigation.js';
 import {uuid} from '../lib/uuid.js';
-import {LitElement, html, svg, nothing, render} from '/page/vendor/lit.js';
+import {LitElement, html, svg, nothing, render} from '../vendor/lit.js';
 import {audioPeaks, blobBase64, decodeAudio, downloadAudio, joinAudio, normalizeReference, TRACK_GAP} from '../lib/voice-audio.js';
 import {clearVoice, exportVoice, loadVoice, loadVoiceTake, saveVoice} from '../lib/voice-store.js';
 import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';

@@ -25,7 +25,8 @@ with sync_playwright() as tool:
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.on("dialog", lambda dialog: dialog.accept())
     page.route(
-        "**/api/v1/state", lambda route: route.fulfill(status=503, json={"error": "Status is temporarily unavailable."})
+        "**/api/v1/state",
+        lambda route: route.fulfill(status=503, json={"error": "Status is temporarily unavailable."}),
     )
     context.request.post(URL + "/api/v1/voice/backend", data={"backend": "auk_base"})
     page.goto(URL + "/?workspace=voice")

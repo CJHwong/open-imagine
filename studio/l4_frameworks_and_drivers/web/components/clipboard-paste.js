@@ -1,4 +1,4 @@
-import {LitElement, html, nothing} from '/page/vendor/lit.js';
+import {LitElement, html, nothing} from '../vendor/lit.js';
 import {t} from '../lib/i18n.js';
 
 const EXTENSIONS = {

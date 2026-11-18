@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
+from studio.l1_entities.errors import StudioError
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSettingsGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
@@ -295,7 +296,14 @@ def create_studio(
         private_results_dir = Path.home() / ".local" / "share" / "open-imagine" / "private-results"
     total_memory_gib = None
     if config.memory_policy == "boundary":
-        total_memory_gib = STUB_MEMORY_GIB if stub else memory_headroom()[0] / GIB
+        try:
+            total_memory_gib = STUB_MEMORY_GIB if stub else memory_headroom()[0] / GIB
+        except StudioError as error:
+            # A boundary decides what to keep from the machine's own total. Without that
+            # reading the policy cannot run, and the setting that avoids it is named here.
+            raise ConfigError(
+                f'{error} Set [memory] policy = "immediate" in studio.toml to free every model when another one runs.'
+            ) from None
     connect = None
     if config.connect_enabled:
         assert config.connect_identity_path is not None  # load_config always resolves it

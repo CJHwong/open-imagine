@@ -1,6 +1,6 @@
 import {galleryStepIndex} from '../lib/gallery-navigation.js';
 import {uuid} from '../lib/uuid.js';
-import { LitElement, html, nothing, render as renderTemplate } from '/page/vendor/lit.js';
+import { LitElement, html, nothing, render as renderTemplate } from '../vendor/lit.js';
 import { closeMenus, menuItem, toggleMenu } from './popup-menu.js';
 import {mediaDownloadName, mediaExtension} from '../lib/download-name.js';
 import {encodeFiles, filesName, saveBundle} from '../lib/gallery-bundle.js';

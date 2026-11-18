@@ -239,6 +239,51 @@ def test_a_page_asset_that_is_not_there_is_a_plain_not_found(served):
     assert call(served[1], "/page/absent.css") == (404, "text/plain", "not found")
 
 
+def test_every_asset_url_in_the_page_names_the_build(served):
+    """A model switch reloads the page. With `no-store` on every answer, that reload fetched
+    all 1,469 KB again: 29.7 s on a browser across a slow link. The page now names the build
+    in each asset URL, so the browser keeps them and a changed tree is a different URL."""
+    status, _, body = call(served[1], "/")
+    version = http_server.web_build_digest(http_server.WEB)
+
+    assert status == 200
+    assert f'"/page/v/{version}/' in body
+    assert '"/page/components/' not in body and "'/page/lib/" not in body
+
+
+def test_a_versioned_asset_may_be_kept_for_a_year(served):
+    version = http_server.web_build_digest(http_server.WEB)
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/page/v/{version}/page.css"
+
+    with urllib.request.urlopen(url, timeout=30) as answer:
+        assert answer.status == 200
+        assert answer.headers["Cache-Control"] == (f"public, max-age={http_server.ASSET_CACHE_SECONDS}, immutable")
+        assert answer.headers["Content-Type"] == "text/css; charset=utf-8"
+
+
+def test_a_version_the_tree_does_not_have_is_not_served(served):
+    """A stale version must not answer with the new bytes: the client would keep them under
+    a URL it believes names the old file."""
+    assert call(served[1], "/page/v/000000000000/page.css") == (404, "text/plain", "not found")
+
+
+def test_a_changed_asset_gets_a_new_version(tmp_path):
+    web = tmp_path / "web"
+    web.mkdir()
+    asset = web / "page.css"
+    asset.write_text("body { color: red; }\n", encoding="utf-8")
+    before, web_before = http_server.asset_digest(asset), http_server.web_build_digest(web)
+
+    asset.write_text("body { color: blue; }\n\n", encoding="utf-8")
+
+    assert http_server.asset_digest(asset) != before
+    assert http_server.web_build_digest(web) != web_before
+
+
+def test_an_asset_that_is_gone_has_no_version(tmp_path):
+    assert http_server.asset_digest(tmp_path / "absent.css") == ""
+
+
 def video_request(**updates):
     payload = {
         "prompt": "A kite rises",
@@ -1047,7 +1092,7 @@ def test_optional_api_keeps_legacy_image_and_video_routes():
         def _read_json(self):
             return {}
 
-        def _send_bytes(self, payload, status=200, content_type="", headers=None):
+        def _send_bytes(self, payload, status=200, content_type="", headers=None, cache="no-store"):
             answers.append((payload, status, content_type, headers))
 
     instance = Stub()
@@ -1926,7 +1971,7 @@ def _connect_stub(connect):
         def __init__(self):
             self.sent = []
 
-        def _send(self, body, status=200, content_type="text/html"):
+        def _send(self, body, status=200, content_type="text/html", cache="no-store"):
             self.sent.append((body, status, content_type))
 
         def _send_json(self, payload, status=200):

@@ -29,7 +29,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `default_voice_backend`, `visible_voice_backends` | Initial and available Voice models. |
 | `require_memory_estimate` | `false`. Require a measured peak for every media run and batch item. Settings → Generation or `POST /api/v1/settings` can change this app-wide policy. `false` skips all memory admission checks, including checks against known estimates. Saved app preferences override this startup default. |
 | `settings_path` | `~/.config/open-imagine/settings.json`. Stores app preferences across restarts, without operation data. Relative paths resolve beside the TOML file. Stub servers keep preferences in memory and do not read or write this file. |
-| `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace. `boundary` keeps loaded models and frees the oldest first when the next would pass `boundary_percent` of physical memory. |
+| `[memory].policy` | `immediate` or `boundary`. `immediate` frees the previous model when another runs or the page leaves its workspace, so a workspace switch waits for the free. `boundary` keeps loaded models and frees the oldest first, and only when the next would pass `boundary_percent` of physical memory. |
 | `[memory].boundary_percent` | `84`. The share of physical memory that loaded models may hold under the boundary policy. |
 | `[queue].max_size` | `8`. Asynchronous operations that wait behind the running one. `0` restores the single-slot refusal. |
 | `[queue].max_megabytes` | `256`. The media the waiting operations may hold together. A request that would pass it answers `429`. `0` removes the budget. |
