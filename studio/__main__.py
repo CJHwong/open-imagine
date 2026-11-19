@@ -15,8 +15,10 @@ USAGE:
 """
 
 import argparse
+import os
 import signal
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -190,9 +192,31 @@ def stop_on_signal(signum, frame):
     Ctrl-C reaches every process in the terminal's group. A repeat raised while the first
     was being handled skipped the cleanup, so the first one turns the rest off.
     """
-    for number in STOP_SIGNALS:
-        signal.signal(number, signal.SIG_IGN)
+    ignore_repeats()
     raise KeyboardInterrupt
+
+
+REPEAT_WINDOW = 2.0
+"""Seconds in which a stop counts as a copy of the first. `uv run` forwards its copy within
+milliseconds; a person who presses Ctrl-C again takes longer."""
+stopping = {"since": 0.0}
+
+
+def ignore_repeats() -> None:
+    """From now on a copy of the stop is ignored, so the cleanup runs to the end."""
+    stopping["since"] = time.monotonic()
+    for number in STOP_SIGNALS:
+        signal.signal(number, stop_now_on_repeat)
+
+
+def stop_now_on_repeat(signum, frame):
+    """A copy of the first stop does nothing. A stop pressed later, while the cleanup hangs on
+    an engine that will not end, ends the studio at once and leaves that engine running, as a
+    second Ctrl-C does in other tools. Without it, only SIGKILL could end the studio."""
+    if time.monotonic() - stopping["since"] < REPEAT_WINDOW:
+        return
+    print("\nStopping at once. An engine may still hold the GPU.", file=sys.stderr, flush=True)
+    os._exit(130)
 
 
 def main():
@@ -275,10 +299,9 @@ def main():
         except KeyboardInterrupt:
             print("\nStopped.")
     finally:
-        # A stop that did not come from a signal turns the signals off here, so none can cut
-        # the cleanup short.
-        for number in STOP_SIGNALS:
-            signal.signal(number, signal.SIG_IGN)
+        # A stop that did not come from a signal turns the copies off here too, so none can
+        # cut the cleanup short.
+        ignore_repeats()
         try:
             studio.shutdown()
             if server is not None:

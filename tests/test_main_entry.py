@@ -53,7 +53,22 @@ def test_a_termination_signal_takes_the_orderly_stop_and_ignores_a_repeat(monkey
     with pytest.raises(KeyboardInterrupt):
         entry.stop_on_signal(signal.SIGTERM, None)
 
-    assert installed == [(number, signal.SIG_IGN) for number in entry.STOP_SIGNALS]
+    assert installed == [(number, entry.stop_now_on_repeat) for number in entry.STOP_SIGNALS]
+
+
+def test_a_copy_of_the_stop_is_ignored_and_a_later_press_ends_the_studio_at_once(monkeypatch):
+    """A hung cleanup could only be ended by SIGKILL, because every later stop was ignored."""
+    exits = []
+    monkeypatch.setattr(entry.signal, "signal", lambda number, handler: None)
+    monkeypatch.setattr(entry.os, "_exit", exits.append)
+    clock = iter([100.0, 101.9, 102.1])
+    monkeypatch.setattr(entry.time, "monotonic", lambda: next(clock))
+
+    entry.ignore_repeats()
+    entry.stop_now_on_repeat(signal.SIGTERM, None)
+    assert exits == []
+    entry.stop_now_on_repeat(signal.SIGINT, None)
+    assert exits == [130]
 
 
 def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_path, monkeypatch):
@@ -76,9 +91,9 @@ def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_
 
     assert seen[:3] == [(number, entry.stop_on_signal) for number in entry.STOP_SIGNALS]
     # Shutdown ignores a repeat of the stop, then puts back what was there before this start.
-    assert seen[3:6] == [(number, signal.SIG_IGN) for number in entry.STOP_SIGNALS]
+    assert seen[3:6] == [(number, entry.stop_now_on_repeat) for number in entry.STOP_SIGNALS]
     assert [number for number, _ in seen[6:]] == list(entry.STOP_SIGNALS)
-    assert all(handler not in (entry.stop_on_signal, signal.SIG_IGN) for _, handler in seen[6:])
+    assert all(handler not in (entry.stop_on_signal, entry.stop_now_on_repeat) for _, handler in seen[6:])
 
 
 @pytest.mark.parametrize("repeat", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
