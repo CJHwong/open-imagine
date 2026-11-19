@@ -183,10 +183,11 @@ def test_a_prepare_asks_each_card_for_one_token_and_then_stops_the_child():
 
 def test_a_card_that_cannot_load_fails_the_prepare_and_still_stops_the_child():
     child = Mock()
-    child.request.return_value = {"error": "no such repo"}
+    # StdioChild raises a child's error answer; it never returns one.
+    child.request.side_effect = RuntimeError("no such repo")
     gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i"})
 
-    with pytest.raises(InvalidJob, match="no such repo"):
+    with pytest.raises(RuntimeError, match="no such repo"):
         gateway.prepare()
 
     child.stop.assert_called_once_with()

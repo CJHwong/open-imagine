@@ -91,9 +91,8 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
         try:
             for mode in self._models:
                 payload = {"role": mode, "system": "", "user": "a", "references": [], "max_tokens": 1}
-                reply = self._child.request(payload, lambda *_: None, lambda: False)
-                if "error" in reply:
-                    raise InvalidJob(str(reply["error"]))
+                # A card that cannot load raises here: the child answers with an error.
+                self._child.request(payload, lambda *_: None, lambda: False)
         finally:
             self._child.stop()
 
