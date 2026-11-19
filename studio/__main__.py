@@ -233,6 +233,7 @@ def main():
     # failed at the port, at the phone listener or after serving for hours.
     server = None
     previous = [(number, signal.signal(number, stop_on_signal)) for number in (signal.SIGTERM, signal.SIGHUP)]
+    interrupt = signal.getsignal(signal.SIGINT)
     try:
         # Bind before loading. The weights take a minute, and a busy port found
         # after that minute is a waste. Anything that connects during the load
@@ -266,11 +267,18 @@ def main():
         except KeyboardInterrupt:
             print("\nStopped.")
     finally:
-        studio.shutdown()
-        if server is not None:
-            server.server_close()
-        for number, handler in previous:
-            signal.signal(number, handler)
+        # The stop often arrives twice: `uv run` forwards the SIGTERM its group already got,
+        # and Ctrl-C reaches every process in the terminal's group. A repeat raised inside
+        # shutdown() abandoned the engine children, which keep the GPU in their own sessions.
+        for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            signal.signal(number, signal.SIG_IGN)
+        try:
+            studio.shutdown()
+            if server is not None:
+                server.server_close()
+        finally:
+            for number, handler in [*previous, (signal.SIGINT, interrupt)]:
+                signal.signal(number, handler)
 
 
 if __name__ == "__main__":

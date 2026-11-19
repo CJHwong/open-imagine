@@ -5,6 +5,7 @@ name: `__main__.py` is the file pytest runs to start a session, so a test
 written in it would not run. The test lives here instead.
 """
 
+import os
 import runpy
 import signal
 import sys
@@ -70,9 +71,41 @@ def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_
 
     assert seen[0] == (signal.SIGTERM, entry.stop_on_signal)
     assert seen[1] == (signal.SIGHUP, entry.stop_on_signal)
-    # The last thing installed for each number is what was there before this start.
-    assert [number for number, _ in seen[2:]] == [signal.SIGTERM, signal.SIGHUP]
-    assert all(handler is not entry.stop_on_signal for _, handler in seen[2:])
+    # Shutdown ignores a repeat of the stop, then puts back what was there before this start.
+    assert seen[2:5] == [
+        (signal.SIGTERM, signal.SIG_IGN),
+        (signal.SIGHUP, signal.SIG_IGN),
+        (signal.SIGINT, signal.SIG_IGN),
+    ]
+    assert [number for number, _ in seen[5:]] == [signal.SIGTERM, signal.SIGHUP, signal.SIGINT]
+    assert all(handler not in (entry.stop_on_signal, signal.SIG_IGN) for _, handler in seen[5:])
+
+
+@pytest.mark.parametrize("repeat", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
+def test_a_second_signal_during_shutdown_cannot_cut_the_cleanup_short(tmp_path, monkeypatch, repeat):
+    """`uv run` forwards the SIGTERM its group already got, and a terminal sends Ctrl-C to
+    every process in the foreground group, so the studio often sees the stop twice. The
+    second one used to land inside `shutdown()` and abort it before the engines were freed;
+    each engine child sits in its own session, so it kept the GPU memory behind a dead server."""
+    freed = []
+
+    def shutdown():
+        os.kill(os.getpid(), repeat)
+        freed.append("engines")
+
+    studio = SimpleNamespace(handler=Mock(), shutdown=shutdown, expire=Mock(), start_connect=Mock(return_value=None))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+    before = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+
+    assert entry.main() is None
+
+    assert freed == ["engines"]
+    server.server_close.assert_called_once_with()
+    assert {number: signal.getsignal(number) for number in before} == before
 
 
 def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypatch, capsys):
