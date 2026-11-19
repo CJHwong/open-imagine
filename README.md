@@ -24,7 +24,7 @@ cd open-imagine
 uv run studio
 ```
 
-Open **http://127.0.0.1:8765**. Models load on first use. The default Image model downloads about 32.5 GB;
+Open **http://127.0.0.1:8765**. Press **Download** once for each model before its first run, or run `uv run studio --prepare`. The default Image model downloads about 32.5 GB;
 Video builds its engine on the first run and needs [ffmpeg and the model terms](docs/how-to/set-up-models.md#video-ltx-25). Use `uv run studio --stub` to explore without models. On an NVIDIA machine, see [Run on an NVIDIA machine](docs/how-to/set-up-models.md#run-on-an-nvidia-machine).
 
 LTX-2.5 on CUDA supports Generate with text, keyframes, and optional generated sound.

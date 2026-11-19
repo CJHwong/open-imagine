@@ -13,7 +13,7 @@ uv run studio
 ```
 
 Open **http://127.0.0.1:8765** when the terminal says Ready. Stay in **Image** with its default Qwen Image Turbo model.
-Startup loads no weights; your first generation downloads and loads the model.
+Startup loads no weights. The run button reads **Download** until the model is on disk: press it once, and wait for it to turn back into **Generate**.
 
 ## Generate a scene
 

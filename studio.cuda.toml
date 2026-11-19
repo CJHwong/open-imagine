@@ -1,11 +1,11 @@
-# The NVIDIA setup. Nothing here downloads until a model runs.
+# The NVIDIA setup. Nothing here downloads until a model is prepared, and a run never downloads.
 #
 #   uv run studio --config studio.cuda.toml --prepare
 #   uv run studio --config studio.cuda.toml
 #
 # Every engine below runs as a PEP 723 script child with its own pinned environment, so
 # `uv` must be on the server's PATH. [Run on an NVIDIA machine](docs/how-to/set-up-models.md#run-on-an-nvidia-machine)
-# covers the memory each model needs and the packs the first run builds.
+# covers the memory each model needs and the packs a prepare builds.
 
 default_backend = "qwen21_turbo_cuda"
 visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda", "minimax_h3_image_cuda_nvfp4"]

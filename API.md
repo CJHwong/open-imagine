@@ -1,6 +1,6 @@
 # Studio API
 
-The API and page use the same controllers, model checks, download policy, and shared model memory.
+The API and page use the same controllers, model checks, model preparation, and shared model memory.
 
 With memory checking enabled, Studio requires a calibrated estimate and enough available memory.
 It keeps an 8 GiB reserve for the operating system.
@@ -78,7 +78,8 @@ when its turn comes. A full queue returns `429`. Setting `max_size = 0` restores
 previous behavior, where a conflicting request returns `409` and is not queued.
 Synchronous generate routes are never queued and keep returning `409` while the
 studio is busy. A stale cancellation also returns `409` and cannot stop a newer operation.
-A missing model follows the page's policy: download when configured, otherwise fail with the same reason.
+A run never downloads, packs or builds a model. A run for a model that is not prepared returns
+`409` with a reason that names the fix, before any queue slot is taken. See "Prepare a model".
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
 `GET /api/v1/state` carries two read-only occupancy readings.
@@ -307,11 +308,44 @@ curl -sS http://localhost:8765/api/v1/operations \
 Use the same encoding step for a video keyframe's `image` or a clip's `data`.
 A Voice reference must contain WAV bytes. Renaming an MP3 file does not convert it.
 
+## Prepare a model
+
+A model's first load downloads its weights, builds any pack of quantized weights and its
+engine environment. A run never does that, so each model is prepared once, by a person or a
+program. One prepare covers everything that model's selection needs: Generate, Edit and its
+prompt rewriter.
+
+`GET /api/v1/models` lists each offered model and loads nothing:
+
+```json
+{"models": [{"id": "qwen21_turbo_cuda", "workspace": "image", "name": "Qwen-Image-2.1-Turbo",
+  "state": "missing", "bytes": 0, "missing": ["Weights"]}]}
+```
+
+`state` is `ready`, `missing` or `preparing`. `bytes` counts the declared downloads already on
+disk, and it grows while a prepare downloads. The server knows no total before the download.
+A `preparing` model carries the `operation` id of its prepare. A model is ready when a prepare
+under its current weight settings succeeded and its declared files are still there. A change
+to `model`, `quantize`, `pack_dir` or a rewrite model needs a new prepare.
+
+Start a prepare as an operation:
+
+```json
+{"kind": "prepare", "workspace": "image", "backend": "qwen21_turbo_cuda"}
+```
+
+It waits in the same queue as a run and holds the GPU while it runs. Its `progress.stage` is
+`engine`, then `rewriter`. Its result is `{"backend", "state", "bytes"}`. The cancel route
+stops it between the engine and the rewriter, not inside a download. A part-finished download
+resumes from what the Hugging Face cache kept. A prepare carries no words of the caller, so it
+refuses `X-Studio-Private-Key`. `uv run studio --prepare` prepares every configured model the
+same way, and the server and the command share one record beside the settings file.
+
 ## Voice jobs
 
 Read `GET /api/v1/voice/capabilities` for the active Voice model modes, settings, and templates.
-Its `loading` record names the weight repository, pinned revision, and first-use download policy.
-The model loads lazily. Missing cached weights download on the first Voice operation.
+Its `loading` record names the weight repository and pinned revision.
+The model loads lazily, and only after a prepare has downloaded it. See "Prepare a model".
 A synchronous `POST /api/v1/voice/generate` returns WAV bytes.
 An asynchronous request uses `kind: "voice"` and the same fields.
 Clone and edit require one WAV reference. Design requires `voice`.
@@ -1239,7 +1273,8 @@ releases resident engines before removal. No route accepts filesystem paths.
 Cleanup covers explicitly declared built-in weights and selected dedicated runtimes.
 Hugging Face repositories are removed through its cache API, retaining blobs referenced
 by other revisions. Repositories used outside Studio cannot be detected; other apps may
-need to download those files again. Shared built-in assets require selecting every owning
+need to download those files again. A model whose files are removed needs a prepare again
+before it runs. Shared built-in assets require selecting every owning
 model. Configured installed-plugin checkpoints are protected. Unmanaged paths, symlinked
 roots and overlapping declarations require manual management. Root cache folders are never
 removed. Generated results, browser galleries, configured user LoRAs, shared UV environments,
