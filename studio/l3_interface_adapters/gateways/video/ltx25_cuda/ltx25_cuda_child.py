@@ -125,6 +125,10 @@ def load(model: str):
     # 768 x 768, 97-frame clip took 70.8 s eager, 65.6 s on its first compiled run and 53.6
     # s after; the transformer alone went from 60.4 s to 43.0 s.
     pipe.transformer.compile_repeated_blocks(fullgraph=False, dynamic=False)
+    # A whole long clip decodes in one piece and peaks past the machine: on the DGX Spark a
+    # 768 x 768, 361-frame clip left 5 GiB free, and in tiles 14 GiB. Tiles decoded a 121-frame
+    # clip in 4.4 s against 5.1 s, and the frames differ by 45.3 dB, where the tiles overlap.
+    pipe.vae.enable_tiling()
     torch.cuda.synchronize()
     say(f"loaded {model} in {time.time() - started:.1f}s")
     return pipe
