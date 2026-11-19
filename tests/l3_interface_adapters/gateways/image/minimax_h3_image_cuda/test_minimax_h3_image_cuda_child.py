@@ -229,7 +229,6 @@ class FakeTensor:
     def __init__(self, name, log):
         self.name = name
         self.log = log
-        self.device = SimpleNamespace(type="cpu")
 
     def data_ptr(self):
         return hash(self.name)
@@ -274,19 +273,23 @@ def test_aliased_weights_move_once_and_stay_shared():
     assert module.parameters()[0].data is module.parameters()[1].data
 
 
-def test_fp8_lands_the_encoder_and_the_transformer_in_fp8(monkeypatch):
+def test_fp8_quantizes_the_encoder_and_the_transformer_with_fp8_matrix_multiplies(monkeypatch):
     """Weight-only fp8 widened every weight on every pass: 39.8 s a 1024 image, against 5.9 s."""
     fake_torch(monkeypatch)
     pipe = FakePipe()
     fake_diffusers(monkeypatch, pipe)
-    landed = []
-    monkeypatch.setattr(child, "land_in_fp8", lambda module, kept=(): landed.append((module, kept)))
-    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: None)
-    fake_torchao(monkeypatch, [])
+    moved = []
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: moved.append((module, device)))
+    recorded = []
+    fake_torchao(monkeypatch, recorded)
 
     assert child.load("me/pack", "fp8") is pipe
 
-    assert landed == [(pipe.text_encoder, ("visual", "lm_head")), (pipe.transformer, ())]
+    assert moved[0] == (pipe.text_encoder, "cuda")
+    assert [entry[:2] for entry in recorded] == [
+        (pipe.text_encoder, ("w8a8", ("per-row", -1), "torch")),
+        (pipe.transformer, ("w8a8", ("per-row", -1), "torch")),
+    ]
 
 
 class Linear:
@@ -294,36 +297,20 @@ class Linear:
         self.weight = SimpleNamespace(dtype=dtype)
 
 
-class Tree:
-    def __init__(self, layers):
-        self.layers = layers
-
-    def named_modules(self):
-        return [("", self), *self.layers.items()]
-
-
-def test_land_in_fp8_quantizes_each_chosen_linear_as_it_lands_and_moves_the_rest(monkeypatch):
+def test_w8a8_takes_bf16_linears_and_leaves_the_kept_ones(monkeypatch):
     fake_torch(monkeypatch)
     monkeypatch.setattr(sys.modules["torch"], "nn", SimpleNamespace(Linear=Linear), raising=False)
-    events = []
-    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: events.append(("move", module)))
-    fake_torchao(monkeypatch, events)
-    chosen, vision, wide, norm = Linear(), Linear(), Linear("float32"), SimpleNamespace()
-    tree = Tree({"layers.0.up": chosen, "visual.qkv": vision, "layers.0.gate": wide, "norm": norm})
+    recorded = []
+    fake_torchao(monkeypatch, recorded)
 
-    child.land_in_fp8(tree, kept=("visual",))
+    child.to_w8a8("encoder", kept=("visual", "lm_head"))
 
-    assert events == [("move", chosen), (chosen, ("w8a8", ("per-row", -1), "torch")), ("move", tree)]
-
-
-def test_a_weight_already_on_the_device_is_not_moved_again():
-    log = []
-    landed = FakeTensor("w", log)
-    landed.device = SimpleNamespace(type="cuda")
-
-    child.move_by_way_of_memory(FakeModule([landed]), "cuda")
-
-    assert log == []
+    chosen = recorded[0][2]
+    assert chosen(Linear(), "model.layers.0.mlp.up_proj")
+    assert not chosen(Linear(), "model.visual.blocks.0.attn.qkv")
+    assert not chosen(Linear(), "lm_head")
+    assert not chosen(Linear("float32"), "model.layers.0.mlp.up_proj")
+    assert not chosen(SimpleNamespace(), "model.norm")
 
 
 def test_bf16_loads_everything_at_once_and_quantizes_nothing(monkeypatch):
