@@ -91,10 +91,13 @@ def hub_cache() -> Path:
 
 
 def _bytes_under(path: Path) -> int:
-    total = 0
+    """The bytes of every file under `path`, each real file once. A link counts the file it
+    points to, because a deduplicating hub cache links each repo's blobs into a shared store,
+    and a link that points nowhere counts nothing."""
+    seen = set()
     for parent, _, files in os.walk(path):
         for name in files:
-            item = Path(parent) / name
-            if not item.is_symlink():
-                total += item.stat().st_size
-    return total
+            target = (Path(parent) / name).resolve()
+            if target.is_file():
+                seen.add(target)
+    return sum(target.stat().st_size for target in seen)

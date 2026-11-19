@@ -73,6 +73,24 @@ def test_a_link_inside_a_folder_is_not_counted_twice(tmp_path):
     assert gateway(tmp_path, {"mlx": (ModelAsset("Weights", str(folder)),)}).readiness("mlx").bytes_on_disk == 3
 
 
+def test_a_hub_entry_whose_blobs_link_into_a_shared_store_counts_the_linked_files(tmp_path):
+    """A deduplicating cache keeps each blob once under `hub/blobs/<xx>/` and links the repo's
+    blobs to it. Skipping links read Drama-3's 39 GB as 0.0 GiB on both Macs."""
+    hub = tmp_path / "hub"
+    hub_repo(hub, "me/model", 2)
+    shared = hub / "blobs" / "7c"
+    shared.mkdir(parents=True)
+    (shared / "big").write_bytes(b"x" * 40)
+    blob = hub / "models--me--model" / "blobs" / "def"
+    blob.symlink_to(shared / "big")
+    (hub / "models--me--model" / "snapshots" / "rev" / "codec.safetensors").symlink_to(blob)
+    (hub / "models--me--model" / "blobs" / "broken").symlink_to(shared / "gone")
+
+    readiness = gateway(tmp_path, {"a": (ModelAsset("Weights", "me/model", source="hub"),)}).readiness("a")
+
+    assert readiness.bytes_on_disk == 42
+
+
 def test_an_empty_folder_or_an_empty_hub_entry_is_not_present(tmp_path):
     (tmp_path / "empty").mkdir()
     (tmp_path / "hub" / "models--me--model" / "snapshots").mkdir(parents=True)
