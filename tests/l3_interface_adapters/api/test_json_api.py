@@ -1988,6 +1988,19 @@ def test_a_prepare_names_the_active_model_when_it_names_none():
     assert api.reserve({"kind": "prepare"})["backend"] == "fake"
 
 
+def test_a_prepare_that_names_only_its_model_finds_the_workspace_that_offers_it(monkeypatch):
+    """A 409 tells the caller to send the kind and the model, and nothing else."""
+    api, _ = prepared_api(Readiness())
+    studio = api.studio()
+    monkeypatch.setattr(
+        api, "studio", lambda: {**studio, "voice": {"active": "drama", "backends": [{"id": "drama", "name": "Drama"}]}}
+    )
+
+    operation = api.reserve({"kind": "prepare", "backend": "drama"})
+
+    assert (operation["workspace"], operation["model"]) == ("voice", "Drama")
+
+
 def test_a_queued_prepare_reads_as_preparing_and_skips_resource_admission():
     from unittest.mock import Mock
 

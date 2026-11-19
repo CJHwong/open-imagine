@@ -481,8 +481,11 @@ class JsonApi:
             raise InvalidJob("This studio prepares no models.")
         if owner:
             raise InvalidJob("A prepare takes no X-Studio-Private-Key. Send it without the header.")
-        workspace = payload.get("workspace") or "image"
-        document = self.studio().get(workspace) if workspace in ("image", "video", "voice", "music") else None
+        studio = self.studio()
+        # A 409 names only the model to prepare, so a prepare that names no workspace looks
+        # for the one that offers it.
+        workspace = payload.get("workspace") or _workspace_offering(studio, payload.get("backend")) or "image"
+        document = studio.get(workspace) if workspace in WORKSPACES else None
         if document is None:
             raise InvalidJob("workspace must be image, video, voice or music, and offered by this studio")
         backend = payload.get("backend") or document["active"]
@@ -984,3 +987,14 @@ def visible(record: Mapping[str, Any], viewer: str) -> bool:
 
 def owner_digest(private_key: str) -> str:
     return hashlib.sha256(private_key.encode("ascii")).hexdigest() if private_key else ""
+
+
+WORKSPACES = ("image", "video", "voice", "music")
+
+
+def _workspace_offering(studio: Mapping[str, Any], backend: object) -> str | None:
+    """The workspace whose models include `backend`, or None when no workspace offers it."""
+    for name in WORKSPACES:
+        if any(one["id"] == backend for one in (studio.get(name) or {}).get("backends", ())):
+            return name
+    return None

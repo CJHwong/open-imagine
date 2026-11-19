@@ -337,7 +337,8 @@ Start a prepare as an operation:
 {"kind": "prepare", "workspace": "image", "backend": "qwen21_turbo_cuda"}
 ```
 
-It waits in the same queue as a run and holds the GPU while it runs. Its `progress.stage` is
+Without `workspace`, the prepare takes the workspace that offers the model. It waits in the
+same queue as a run and holds the GPU while it runs. Its `progress.stage` is
 `engine`, then `rewriter`. Its result is `{"backend", "state", "bytes"}`. The cancel route
 stops it between the engine and the rewriter, not inside a download. A part-finished download
 resumes from what the Hugging Face cache kept. A prepare carries no words of the caller, so it
