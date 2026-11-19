@@ -14,7 +14,7 @@ Run from the checkout with `uv run studio`. The console command remains `studio`
 | `-q`, `--quantize` | Model configuration | Opening Image model quantization: 0, 3, 4, 5, 6, or 8 bits; 0 means full precision. |
 | `--config` | `studio.toml` | Configuration file. |
 | `--allow-origin` | None | Let a page at this origin post, such as a Tailscale serve URL. Repeat it for each origin. See [Open from another device](../how-to/open-from-another-device.md). |
-| `--prepare` | Off | Load each configured model and its prompt rewriter once, building any pack, record each as ready, then exit. A model that is not prepared refuses to run. The record is `prepared-models.json` beside `settings_path`. |
+| `--prepare` | Off | Load each configured model and its prompt rewriter once, building any pack, then exit. A model with a declared file missing refuses to run, and only a prepare builds a pack. |
 | `--stub` | Off | Simulated engines: placeholder images, a Voice test tone, and Video metadata. No model loading. |
 | `--connect[=on|off]` | On | Start the phone connection and print its QR code. `--connect=off` disables it for this start. |
 

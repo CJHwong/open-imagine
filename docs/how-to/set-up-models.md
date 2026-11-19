@@ -273,9 +273,10 @@ uv run studio --config studio.cuda.toml
 ```
 
 `--prepare` loads each configured model and its prompt rewriter, builds its packs and engine
-environment, then releases it and records it as ready. It does not run inference. A first
-generation can still compile kernels for its shape. A model that is not prepared refuses to
-run; the page offers a **Download** for it, which does the same prepare for that one model.
+environment, then releases it. It does not run inference. A first
+generation can still compile kernels for its shape. A model whose files are on disk is
+ready, however they got there. A model with a missing file refuses to run; the page offers a
+**Download** for it, which does the same prepare for that one model.
 
 `uv` must be on the server's PATH, because each engine runs as a PEP 723 script child with
 its own pinned environment; YuE2 moves that environment's torch to 2.15 so `mslk` will load.
@@ -290,7 +291,8 @@ rather than quantizing on every start:
 
 Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are
 rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
-Asking for another `quantize` needs a new prepare, which builds that quantizer's own pack.
+A run never builds a pack. If a pack is missing, made for another `quantize`, or out of date
+for the installed torch, the run fails and asks for a prepare, which builds it.
 
 MiniMax H3-Image needs about 65 GiB resident in fp8, and building its pack keeps at least 45
 GiB of a 121 GiB DGX Spark free; its nvfp4 path peaks near 105 GiB, so do not offer both

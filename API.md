@@ -324,9 +324,12 @@ prompt rewriter.
 
 `state` is `ready`, `missing` or `preparing`. `bytes` counts the declared downloads already on
 disk, and it grows while a prepare downloads. The server knows no total before the download.
-A `preparing` model carries the `operation` id of its prepare. A model is ready when a prepare
-under its current weight settings succeeded and its declared files are still there. A change
-to `model`, `quantize`, `pack_dir` or a rewrite model needs a new prepare.
+A `preparing` model carries the `operation` id of its prepare. A model is ready when every
+file it declares is on disk, however it got there: no prepare is needed for files that are
+already in place. For MiniMax H3-Image on CUDA that includes its pack, a directory with a
+`pack.json`. A pack can be present but built by another torch; a run never rebuilds it.
+The run fails with `409` and asks for a prepare, and the model reads `missing` (with
+`"Pack for this build"`) until a prepare succeeds. That mark lives in memory only.
 
 Start a prepare as an operation:
 
@@ -339,12 +342,12 @@ It waits in the same queue as a run and holds the GPU while it runs. Its `progre
 stops it between the engine and the rewriter, not inside a download. A part-finished download
 resumes from what the Hugging Face cache kept. A prepare carries no words of the caller, so it
 refuses `X-Studio-Private-Key`. `uv run studio --prepare` prepares every configured model the
-same way, and the server and the command share one record beside the settings file.
+same way.
 
 ## Voice jobs
 
 Read `GET /api/v1/voice/capabilities` for the active Voice model modes, settings, and templates.
-Its `loading` record names the weight repository and pinned revision.
+Its `loading` record names the weight repository, pinned revision, and `policy: "download_on_prepare"`.
 The model loads lazily, and only after a prepare has downloaded it. See "Prepare a model".
 A synchronous `POST /api/v1/voice/generate` returns WAV bytes.
 An asynchronous request uses `kind: "voice"` and the same fields.
