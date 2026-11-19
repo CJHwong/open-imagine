@@ -12,37 +12,6 @@ import pytest
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import h3_image_pe_cuda_child as child
 
 
-def test_decode_all_fp4_codes_in_low_nibble_order():
-    packed = np.array([[0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE]], dtype=np.uint8)
-    expected = np.array([[0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6]], dtype=np.float32)
-    actual = child.dequantize_nvfp4(packed, np.ones((1, 1), dtype=np.float32), np.array(1, dtype=np.float32))
-    np.testing.assert_array_equal(actual, expected)
-    assert actual.dtype == np.float32
-
-
-def test_decode_applies_each_block_scale_and_the_tensor_scale():
-    packed = np.full((2, 16), 0x22, dtype=np.uint8)
-    scales = np.array([[2, 0.5], [4, 0.25]], dtype=np.float32)
-    actual = child.dequantize_nvfp4(packed, scales, np.array([0.5], dtype=np.float32))
-    np.testing.assert_array_equal(actual[:, :16], np.array([[1] * 16, [2] * 16]))
-    np.testing.assert_array_equal(actual[:, 16:], np.array([[0.25] * 16, [0.125] * 16]))
-
-
-@pytest.mark.parametrize(
-    ("packed", "scales", "global_scale"),
-    [
-        (np.zeros((1, 8), dtype=np.float32), np.ones((1, 1)), np.array(1)),
-        (np.zeros(8, dtype=np.uint8), np.ones((1, 1)), np.array(1)),
-        (np.zeros((1, 7), dtype=np.uint8), np.ones((1, 1)), np.array(1)),
-        (np.zeros((1, 8), dtype=np.uint8), np.ones((1, 2)), np.array(1)),
-        (np.zeros((1, 8), dtype=np.uint8), np.ones((1, 1)), np.ones(2)),
-    ],
-)
-def test_decode_refuses_invalid_packed_dimensions(packed, scales, global_scale):
-    with pytest.raises(ValueError):
-        child.dequantize_nvfp4(packed, scales, global_scale)
-
-
 class Tensor:
     def __init__(self, values, dtype=None):
         self.values = np.asarray(values)
@@ -89,25 +58,39 @@ def packed_model(monkeypatch, tmp_path):
     assignments, opened, closed = [], [], []
 
     @contextlib.contextmanager
-    def safe_open(path, framework, device):
+    def open_shard(path):
         from pathlib import Path
 
         shard = Path(path).name
-        assert framework == "pt" and device == "cpu"
         opened.append(shard)
         try:
-            yield SimpleNamespace(get_tensor=lambda name: shards[shard][name])
+            yield lambda name: shards[shard][name]
         finally:
             closed.append(shard)
 
-    monkeypatch.setitem(sys.modules, "safetensors", SimpleNamespace(safe_open=safe_open))
     monkeypatch.setitem(sys.modules, "accelerate", SimpleNamespace(init_empty_weights=contextlib.nullcontext))
     monkeypatch.setitem(
         sys.modules,
         "accelerate.utils",
         SimpleNamespace(set_module_tensor_to_device=lambda *args, **kwargs: assignments.append((args, kwargs))),
     )
-    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(from_numpy=Tensor, bfloat16="bf16"))
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(bfloat16="bf16"))
+    decoded_on = []
+
+    def dequantize_nvfp4(packed, scales, global_scale, device):
+        """The device decode, done here in numpy; its own tests hold the arithmetic."""
+        decoded_on.append(device)
+        values, block = packed.numpy(), scales.numpy()
+        if block.shape != (values.shape[0], values.shape[1] // 8):
+            raise ValueError("NVFP4 scales do not match the packed weights.")
+        levels = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6], dtype=np.float32)
+        out = np.empty((values.shape[0], values.shape[1] * 2), dtype=np.float32)
+        out[:, 0::2], out[:, 1::2] = levels[values & 15], levels[values >> 4]
+        out.reshape(values.shape[0], -1, 16)[:] *= block[:, :, None]
+        return Tensor(out * global_scale.numpy().reshape(()), "bf16")
+
+    weights = SimpleNamespace(dequantize_nvfp4=dequantize_nvfp4, open_shard=open_shard)
+    monkeypatch.setitem(sys.modules, "h3_image_pe_nvfp4_weights", weights)
     generation = Mock(return_value="generation-config")
     monkeypatch.setitem(
         sys.modules,
@@ -130,6 +113,7 @@ def packed_model(monkeypatch, tmp_path):
         snapshot=snapshot,
         generation=generation,
         shards=shards,
+        decoded_on=decoded_on,
     )
 
 
@@ -140,6 +124,7 @@ def test_streams_cross_shard_weights_and_preserves_dense_dtype(packed_model):
     loaded = {args[1]: kwargs for args, kwargs in fixture.assignments}
     np.testing.assert_array_equal(loaded["layer.weight"]["value"].numpy(), np.ones((1, 16)))
     assert loaded["layer.weight"]["dtype"] == "bf16"
+    assert fixture.decoded_on == ["cuda"]
     assert loaded["layer.A_log"]["dtype"] == np.float32
     assert fixture.dense.clones == 1
     assert all(args[0] is fixture.model and args[2] == "cuda" for args, _ in fixture.assignments)

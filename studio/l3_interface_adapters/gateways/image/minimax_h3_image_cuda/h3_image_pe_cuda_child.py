@@ -93,48 +93,29 @@ def move_by_way_of_memory(module, device: str = "cuda") -> None:
             tensor.data = landed
 
 
-def dequantize_nvfp4(packed, scales, global_scale):
-    """Decode the release's low-nibble-first weights, in blocks of sixteen."""
-    import numpy as np
-
-    if packed.dtype != np.uint8 or packed.ndim != 2 or packed.shape[1] % 8:
-        raise ValueError("NVFP4 weights must hold uint8 rows with eight-byte blocks.")
-    if scales.shape != (packed.shape[0], packed.shape[1] // 8) or global_scale.size != 1:
-        raise ValueError("NVFP4 scales do not match the packed weights.")
-    levels = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6], dtype=np.float32)
-    decoded = np.empty((packed.shape[0], packed.shape[1] * 2), dtype=np.float32)
-    decoded[:, 0::2] = levels[packed & 15]
-    decoded[:, 1::2] = levels[packed >> 4]
-    decoded.reshape(packed.shape[0], packed.shape[1] // 8, 16)[:] *= scales.astype(np.float32)[:, :, None]
-    decoded *= global_scale.astype(np.float32).reshape(())
-    return decoded
-
-
 def indexed_tensor_reader(source: Path, index: dict, stack):
     """Keep shard readers open because a weight and its scales can occupy different shards."""
-    from safetensors import safe_open
+    # Beside this script, so it imports by name when the child runs.
+    from h3_image_pe_nvfp4_weights import open_shard  # ty: ignore[unresolved-import]
 
     readers = {}
 
     def read(name):
         shard = index[name]
         if shard not in readers:
-            readers[shard] = stack.enter_context(safe_open(str(source / shard), framework="pt", device="cpu"))
-        return readers[shard].get_tensor(name)
+            readers[shard] = stack.enter_context(open_shard(source / shard))
+        return readers[shard](name)
 
     return read
 
 
 def checkpoint_tensor(read, index: dict, name: str):
-    import torch
+    from h3_image_pe_nvfp4_weights import dequantize_nvfp4  # ty: ignore[unresolved-import]
 
     packed = read(name)
     if f"{name}_scale" not in index:
         return packed.clone()
-    decoded = dequantize_nvfp4(
-        packed.numpy(), read(f"{name}_scale").float().numpy(), read(f"{name}_scale_2").float().numpy()
-    )
-    return torch.from_numpy(decoded).to(torch.bfloat16)
+    return dequantize_nvfp4(packed, read(f"{name}_scale").float(), read(f"{name}_scale_2").float(), "cuda")
 
 
 def load_nvfp4(source: str, config):
