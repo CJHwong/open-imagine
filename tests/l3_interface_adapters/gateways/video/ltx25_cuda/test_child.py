@@ -61,7 +61,10 @@ def fake_world(monkeypatch, pipe, available=True):
     torch = types.ModuleType("torch")
     monkeypatch.setattr(torch, "bfloat16", "bfloat16", raising=False)
     monkeypatch.setattr(
-        torch, "cuda", SimpleNamespace(is_available=lambda: available, synchronize=Mock()), raising=False
+        torch,
+        "cuda",
+        SimpleNamespace(is_available=lambda: available, synchronize=Mock(), empty_cache=Mock()),
+        raising=False,
     )
     monkeypatch.setattr(
         torch, "Generator", lambda device=None: SimpleNamespace(manual_seed=lambda seed: seed), raising=False
@@ -225,6 +228,9 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "mp4" in lines[0]
     assert lines[1]["error"].startswith("KeyError")
+    # Each job hands its cached memory back, the failed one too: a long clip keeps about
+    # 21 GiB in PyTorch's cache, and the next clip starts that much closer to the limit.
+    assert sys.modules["torch"].cuda.empty_cache.call_count == 2
 
 
 def test_the_script_enters_through_its_main_guard(monkeypatch):

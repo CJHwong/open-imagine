@@ -257,6 +257,11 @@ def main() -> int:
             answer({**run(pipe, job), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
+        finally:
+            # PyTorch keeps a run's peak in its cache. On the DGX Spark a 768 x 768, 241-frame
+            # clip left the child holding 99.7 GiB, against 78.2 GiB with this release, and the
+            # next clips ran up to 1.7 times slower in the memory that was left.
+            torch.cuda.empty_cache()
     return 0
 
 
