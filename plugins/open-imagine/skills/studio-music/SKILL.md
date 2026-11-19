@@ -49,6 +49,10 @@ server, not from this file.
 One operation runs at a time. A `409` creates no queued request: wait or report it. Never
 cancel another caller's operation to get a turn. Do not start, stop or restart the server.
 
+A `409` that says the model is not downloaded yet is not a busy server. Read `GET
+/api/v1/models`, and ask the user before you start `kind: "prepare"` for it, because the
+download can be tens of GB.
+
 ## Write the request
 
 Read [prompt craft](references/prompt-craft.md) for the style sentence, lyric sections and

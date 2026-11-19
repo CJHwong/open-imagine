@@ -21,9 +21,10 @@ Inspect the chosen mode's `params`, `min_references`, `max_references`, `each_re
 `overhead` once per image or once per batch (`overhead_per_image`). A mode with
 `per_reference_ratio` adds, inside the parentheses, that value times `long side / short side - 1`
 for each reference. Give the user that figure as a rough guide, and compare it with each result's
-`elapsed`. A listed backend is not proof that its weights are already installed. Missing weights
-follow the server's download policy; an accepted request can still fail during preparation. Do not
-silently change the user's model.
+`elapsed`. A listed backend is not proof that its weights are installed: read `GET /api/v1/models`. A
+model whose `state` is not `ready` refuses every run with `409`. Ask the user before you start
+its download, because it can be tens of GB: `POST /api/v1/operations` with `kind: "prepare"`,
+its `workspace` and `backend`, then poll that operation. Do not silently change the user's model.
 
 ## Submit and follow your operation
 
