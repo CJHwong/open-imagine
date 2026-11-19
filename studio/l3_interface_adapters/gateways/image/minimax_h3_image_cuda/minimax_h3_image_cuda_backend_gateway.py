@@ -1,4 +1,5 @@
 import base64
+import contextlib
 
 from studio.l1_entities.errors import InvalidJob, ModelOutOfDate
 from studio.l1_entities.image_job import ImageJob, ImageResult
@@ -7,13 +8,15 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilit
     MATCH,
     minimax_h3_image_cuda_capabilities,
 )
-from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways.stdio_child import EngineExited, StdioChild
 
 MAX_MATCH_PIXELS = 2048 * 2048
 MAX_REFERENCE_RATIO = 4
 PACK_NOT_READY = "the H3 pack is missing or out of date for this torch build"
-"""What the child says when a run finds no usable pack. The child is a script of its own,
-so the words are the contract between the two."""
+PACK_NOT_READY_EXIT = 3
+"""The code the child ends with when it finds no usable pack. The child is a script of its
+own, so the code is the contract between the two. Its words are not: torch's warnings
+can follow them, and an error keeps only the child's last lines."""
 
 
 def validate_reference_aspect(width: int, height: int) -> None:
@@ -96,10 +99,17 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         return minimax_h3_image_cuda_capabilities(self._backend_id, self._name, self._badge)
 
     def load(self):
-        try:
+        with self._pack_checked():
             self._child.wait_ready()
-        except RuntimeError as error:
-            if PACK_NOT_READY not in str(error):
+
+    @contextlib.contextmanager
+    def _pack_checked(self):
+        """Report a child that found no usable pack as an out-of-date model. A run starts the
+        child inside its request, without a load first, so both paths pass through here."""
+        try:
+            yield
+        except EngineExited as error:
+            if error.exit_code != PACK_NOT_READY_EXIT:
                 raise
             raise ModelOutOfDate(
                 f"{self._name}: {PACK_NOT_READY}. Prepare the model again: press Download, or run "
@@ -120,7 +130,8 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
 
     def run(self, job: ImageJob, on_step, should_stop):
         payload = edit_payload(job) if job.mode == "edit" else generate_payload(job)
-        reply = self._child.request(payload, on_step, should_stop)
+        with self._pack_checked():
+            reply = self._child.request(payload, on_step, should_stop)
         return ImageResult(
             png=base64.b64decode(reply["png_base64"]),
             width=int(reply["width"]),

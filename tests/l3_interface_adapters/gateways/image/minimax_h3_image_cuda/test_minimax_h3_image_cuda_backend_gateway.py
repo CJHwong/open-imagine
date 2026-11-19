@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from studio.l1_entities.errors import InvalidJob
+from studio.l1_entities.errors import InvalidJob, ModelOutOfDate
 from studio.l1_entities.image_job import ImageJob, ReferenceImage
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import EDIT_SIZE, SIZE
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h3_image_cuda_backend_gateway import (
@@ -13,6 +13,7 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h
     generate_payload,
     match_size,
 )
+from studio.l3_interface_adapters.gateways.stdio_child import EngineExited, StdioChild
 
 
 def job(**options):
@@ -147,18 +148,36 @@ def test_a_run_sends_the_edit_payload_for_an_edit():
     child.request.assert_called_once_with(edit_payload(edit_job()), on_step, should_stop)
 
 
-def test_a_child_that_found_no_usable_pack_is_a_model_out_of_date():
-    from studio.l1_entities.errors import ModelOutOfDate
+REFUSES_THE_PACK = (
+    "echo 'the H3 pack is missing or out of date for this torch build; prepare the model again' >&2; "
+    "echo 'W1119 KernelPreference' >&2; echo '* regex for parameter names' >&2; echo 'W1119 again' >&2; exit 3"
+)
 
-    child = Mock()
-    child.wait_ready.side_effect = RuntimeError(
-        "the engine stopped while loading. It last said: the H3 pack is missing or out of date for this "
-        "torch build; prepare the model again (there is no readable pack)"
-    )
-    gateway = MinimaxH3ImageCudaBackendGateway(child, name="H3")
 
-    with pytest.raises(ModelOutOfDate, match=r"H3: the H3 pack is missing.*press Download"):
+def test_a_run_whose_child_found_no_usable_pack_is_a_model_out_of_date():
+    """The path a real run takes: no load first, the child starts inside the request, and
+    torch's warnings push the child's own words out of the error's last lines."""
+    gateway = MinimaxH3ImageCudaBackendGateway(StdioChild(["/bin/sh", "-c", REFUSES_THE_PACK]), name="H3")
+
+    with pytest.raises(ModelOutOfDate, match=r"^H3: the H3 pack is missing.*press Download.*--prepare"):
+        gateway.run(job(), lambda *_: None, lambda: False)
+
+
+def test_a_load_whose_child_found_no_usable_pack_is_a_model_out_of_date():
+    gateway = MinimaxH3ImageCudaBackendGateway(StdioChild(["/bin/sh", "-c", REFUSES_THE_PACK]), name="H3")
+
+    with pytest.raises(ModelOutOfDate, match=r"^H3: the H3 pack is missing"):
         gateway.load()
+
+
+@pytest.mark.parametrize("call", ["load", "run"])
+def test_a_child_that_ends_with_another_code_stays_an_engine_failure(call):
+    gateway = MinimaxH3ImageCudaBackendGateway(StdioChild(["/bin/sh", "-c", "echo 'out of memory' >&2; exit 1"]))
+    arguments = () if call == "load" else (job(), lambda *_: None, lambda: False)
+
+    with pytest.raises(EngineExited, match="out of memory") as failed:
+        getattr(gateway, call)(*arguments)
+    assert failed.value.exit_code == 1
 
 
 def test_any_other_load_failure_stays_what_it_was():
