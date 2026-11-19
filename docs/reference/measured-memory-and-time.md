@@ -580,6 +580,53 @@ No prompt enhancement unless the row says so.
 | 768 × 768, 97 frames, two keyframes | not run | 53.4 |
 | 768 × 768, 97 frames, prompt enhancement, first run | not run | 120.9 |
 
+Each canvas and length compiles its own graph, and the page offers 30. PyTorch compiles 8 at
+most and runs every later one eager, so the child raises that limit to 64. In one process, the
+tenth and eleventh lengths ran in 62.9 and 79.1 s on their first, compiling run, against 74.1
+and 104.7 s eager before the change.
+
+The child decodes a clip in tiles and hands PyTorch's cached memory back after each clip. A
+clip's peak used to stay in the cache, so a session that grew to 99.7 GiB ran the next long clip
+out of memory. Warm, the second run at each size, with audio and prompt enhancement:
+
+| Clip | 5 s (s) | 10 s (s) | 15 s (s) |
+| --- | ---: | ---: | ---: |
+| 384 × 384 | 26.5 | 42.8 | 59.3 |
+| 512 × 512 | 38.8 | 69.0 | 103.1 |
+| 768 × 768 | 76.5 | 159.8 | 275.5 |
+| 1024 × 576 | 77.5 | 159.9 | 275.3 |
+| 1280 × 704 | 123.6 | 282.5 | 488.5 |
+| 1920 × 1088 | 350.1 | not run | not run |
+
+The 15 s clips at 768 × 768, 1024 × 576 and 1280 × 704 ran out of memory before the tiled
+decode. Driven in the child, the 768 × 768, 15 s clip now peaks at 84.5 GiB with 14 GiB still
+available, and a 5 s clip decodes in 4.4 s against 5.1 s. Tiled and whole frames differ by
+45.3 dB, only where the tiles overlap. After every clip above, the engine held 78.2 GiB, its
+weights. The 384 and 512 rows ran before the tiled decode.
+
+Image, Qwen-Image-2.1 Turbo BF16 (`qwen21_turbo_cuda`), with the transformer compiled for
+dynamic shapes. Warm runs:
+
+| Request | Eager (s) | Compiled (s) |
+| --- | ---: | ---: |
+| generate 768 × 768 | 6.6 | 5.1 |
+| generate 1024 × 1024 | 11.7 | 9.0 |
+| generate 1328 × 1328 | 19.1 | 15.4 |
+| edit 1024, one reference | 14.5 | 12.5 |
+| edit 1344, one reference | 26.6 | 22.8 |
+| edit 1024, ten references | 48.5 | 46.2 |
+| first generate of a fresh studio, load included | 19.2 | 17.5 |
+
+A compile with static shapes gained the same, but each size and prompt length is its own
+sequence length, and it ran out of recompiles by its second size. Dynamic shapes recompiled
+three times over four sizes and two prompt lengths. An empty compile cache adds about 14 s to
+the first image; a warm cache, under 2 s to the first edit. A compiled image is the same scene
+as the eager one, and at 1328 small objects differ as they would with a nearby seed.
+
+Prepare, every Spark model with no H3 pack on disk, through `studio --prepare`: 632 s in all,
+with available memory at 26 GiB or more. Qwen 44.6 s, H3 fp8 145.1 s, H3 NVFP4 291.4 s, LTX
+43.6 s, Drama 65.0 s, YuE2 14.5 s, YuE2 NVFP4 26.1 s.
+
 Music, YuE2 transcription (`yue2_cuda`). The child keeps the transcriber after its first use.
 A first transcription took 26.2 s with the child's own load; a cache miss after
 it took 1.55 s, against about 21 s before, timed in the child.
@@ -617,9 +664,6 @@ API:
 
 - Qwen-Image-2.1 Turbo in fp8 with fp8 multiplies: 15.6 s against 11.3 s at 1024, because
   the transformer is compute-bound and quantizing each activation costs more than it saves.
-- Qwen-Image-2.1 Turbo with its repeated block compiled: 8.8 s against 11.3 s at 1024 after
-  the first run, but every new shape pays the compile, an edit's shape follows its reference,
-  and an edit gained 4%.
 - The Qwen rewrite cards with NVFP4 multiplies in the feed-forward layers: 16.0 tokens/s
   against 14.8 for fp8, for a 4-bit build and one more kernel package.
 
