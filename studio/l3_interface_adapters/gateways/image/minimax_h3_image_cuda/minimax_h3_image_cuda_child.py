@@ -125,6 +125,8 @@ def move_by_way_of_memory(module, device: str) -> None:
     for tensor in [*module.parameters(), *module.buffers()]:
         groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
     for tensors in groups.values():
+        if tensors[0].data.device.type == device:
+            continue
         landed = tensors[0].data.clone().to(device)
         for tensor in tensors:
             tensor.data = landed
@@ -633,8 +635,7 @@ def build(model: str, quantize: str):
     if quantize == "nvfp4":
         quantize_(encoder, NVFP4WeightOnlyConfig())
     else:
-        move_by_way_of_memory(encoder, "cuda")
-        to_w8a8(encoder, kept=("visual", "lm_head"))
+        land_in_fp8(encoder, kept=("visual", "lm_head"))
     torch.cuda.empty_cache()
     say(f"encoder packed in {time.time() - started:.1f}s")
     # The weights land on the host first and then travel one tensor at a time, because the
@@ -644,41 +645,45 @@ def build(model: str, quantize: str):
     pipe.load_components(
         names=["transformer", "vae", "processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu"
     )
-    move_by_way_of_memory(component(pipe, "transformer"), "cuda")
-    move_by_way_of_memory(component(pipe, "vae"), "cuda")
-    torch.cuda.synchronize()
-    say(f"transformer on the device in {time.time() - started:.1f}s")
     if quantize == "nvfp4":
         from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
+        move_by_way_of_memory(component(pipe, "transformer"), "cuda")
         quantize_(component(pipe, "transformer"), NVFP4DynamicActivationNVFP4WeightConfig())
     else:
-        to_w8a8(component(pipe, "transformer"))
+        land_in_fp8(component(pipe, "transformer"))
+    move_by_way_of_memory(component(pipe, "vae"), "cuda")
+    torch.cuda.synchronize()
+    say(f"transformer on the device in {time.time() - started:.1f}s")
     encoder.to("cuda")
     torch.cuda.synchronize()
     say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return pipe
 
 
-def to_w8a8(module, kept: tuple[str, ...] = ()) -> None:
-    """fp8 weights and fp8 activations, one scale per row, on torch's own kernels.
+def land_in_fp8(module, kept: tuple[str, ...] = ()) -> None:
+    """Move a module to the device one linear at a time, each quantized as it lands.
 
-    A row scale needs a bf16 weight, so a linear in another dtype stays as it is. The
-    encoder keeps its vision tower and output head at bf16, `kept` by name.
+    fp8 weights and fp8 activations, one scale per row, on torch's own kernels. Landing the
+    whole bf16 transformer first and quantizing it after held it beside the fp8 encoder, and
+    the DGX Spark fell to 13.8 GiB available while it landed; one bf16 linear at a time kept
+    it at 45.9 GiB or more. A row scale needs a bf16 weight, so a linear in another dtype
+    lands as it is. The encoder keeps its vision tower and output head at bf16, `kept` by
+    name. What is not a linear follows in one move at the end.
     """
     import torch
     from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow, quantize_
     from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
 
-    def chosen(layer, name: str) -> bool:
-        return (
-            isinstance(layer, torch.nn.Linear)
-            and layer.weight.dtype == torch.bfloat16
-            and not any(part in name for part in kept)
-        )
-
     config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), kernel_preference=KernelPreference.TORCH)
-    quantize_(module, config, filter_fn=chosen)
+    for name, layer in list(module.named_modules()):
+        if not isinstance(layer, torch.nn.Linear) or layer.weight.dtype != torch.bfloat16:
+            continue
+        if any(part in name for part in kept):
+            continue
+        move_by_way_of_memory(layer, "cuda")
+        quantize_(layer, config)
+    move_by_way_of_memory(module, "cuda")
 
 
 def reference_image(encoded: str):
