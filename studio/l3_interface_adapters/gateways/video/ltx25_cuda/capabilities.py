@@ -36,8 +36,13 @@ from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
 # `enhance_seconds` is zero here because no run on this machine timed the prompt enhancer
 # alone. A run with enhancement off is estimated at the same figure, which is honest about
 # what was measured.
-CLIP_SCALE = 0.530
-CLIP_FIXED_SECONDS = 14.2
+#
+# Refit on 2026-11-19, with the transformer compiled and the decode tiled, on the warm second
+# run of 16 clips from 384 x 384 to 1920 x 1088 and 5 to 15 s: 0.426 of the figure plus 13.4 s
+# reads each clip within 4%, where 0.530 and 14.2 s read 3 to 26% high. The 384 and 512 rows
+# ran before the tiled decode, which moves a decode by under a second.
+CLIP_SCALE = 0.426
+CLIP_FIXED_SECONDS = 13.4
 
 
 def ltx25_cuda_estimate() -> VideoEstimate:

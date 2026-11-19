@@ -59,8 +59,13 @@ MAX_REFERENCES = 4
 # NVFP4 generate            19.36 s       21.15 s       34.30 s       --
 # NVFP4 edit                29.51 s       31.26 s       44.29 s     64.79 s
 # Reference size also affects encoding time; these estimates are only a starting point.
+# The fp8 edit was refit on 2026-11-19 as an average over twelve runs, adding: 2048 out with one
+# reference at 1024, 1536 and 2048 took 55.5, 68.8 and 88.5 s, four at 2048 349.2 s; 1024 out
+# with one at 2048 59.5 s and two at 2048 114.3 s. The engine reads each reference with its short
+# edge between 1024 and 2048, and that cost follows the reference, not the output, so a large
+# reference with a small output reads up to 58% low. The common cases read within about 25%.
 FP8_GENERATE_ESTIMATE = Estimate(0.756, 1.284, 1.73, overhead_per_image=True)
-FP8_EDIT_ESTIMATE = Estimate(0.533, 1.768, 17.25, overhead_per_image=True, per_reference=7.069)
+FP8_EDIT_ESTIMATE = Estimate(2.067, 0.969, 12.133, overhead_per_image=True, per_reference=2.032)
 NVFP4_GENERATE_ESTIMATE = Estimate(0.693, 1.0, 16.86, overhead_per_image=True)
 NVFP4_EDIT_ESTIMATE = Estimate(0.686, 1.0, 27.02, overhead_per_image=True, per_reference=2.584)
 ESTIMATES = {

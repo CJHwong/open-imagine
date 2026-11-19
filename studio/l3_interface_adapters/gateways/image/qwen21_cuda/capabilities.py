@@ -73,8 +73,13 @@ TURBO_STEPS = steps_param(8, 1, 50)
 # 512 3.0, 768 6.0, 1024 11.0, 1328 18.1, and an edit at 512 out in 3.1 and at 1344 out in
 # 25.2. That is 5 to 14% for visible grain and 4.7 GiB of memory, which does not pay. The
 # rows are in docs/reference/measured-memory-and-time.md.
-GENERATE_ESTIMATE = Estimate(1.466, 0.91, 0.0, overhead_per_image=True)
-EDIT_ESTIMATE = Estimate(1.944, 1.0, 0.21, overhead_per_image=True, per_reference=0.171)
+#
+# Refit on 2026-11-19 once the transformer was compiled, from warm studio runs: generate 512
+# 2.3, 768 5.1, 1024 9.0, 1328 15.4 s; edit 1024 out with 1, 2, 4, 8 and 10 references 12.5,
+# 15.8, 22.6, 37.6 and 46.2 s, 512 out 2.7, 768 out 7.3, 1344 out 22.8 s. Generate reads within
+# 0.1 s, edit within 1.5 s. The figures are a guide, not a promise.
+GENERATE_ESTIMATE = Estimate(1.056, 1.033, 0.183, overhead_per_image=True)
+EDIT_ESTIMATE = Estimate(1.503, 1.093, 0.0, overhead_per_image=True, per_reference=0.281)
 
 
 TURBO_GENERATE = ModeSpec(
