@@ -22,6 +22,12 @@ class FakeImage:
 
 
 class EmptyModule:
+    def __init__(self):
+        self.compiled = []
+
+    def compile_repeated_blocks(self, **options):
+        self.compiled.append(options)
+
     def parameters(self):
         return []
 
@@ -114,6 +120,30 @@ def test_load_keeps_bf16_when_asked(monkeypatch):
 
     assert child.load("me/pack", "bf16") is pipe
     assert recorded == []
+
+
+def test_load_compiles_the_bf16_transformer_for_every_size_and_prompt(monkeypatch):
+    """Static, the compile ran out of recompiles by the second size and fell back to eager;
+    dynamic, 1024 took 8.9 s against 11.3 s eager on the DGX Spark."""
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    fake_torchao(monkeypatch, [])
+
+    child.load("me/pack", "bf16")
+
+    assert pipe.transformer.compiled == [{"fullgraph": False, "dynamic": True}]
+
+
+def test_load_leaves_the_nvfp4_transformer_uncompiled(monkeypatch):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    fake_torchao(monkeypatch, [])
+
+    child.load("me/pack", "nvfp4")
+
+    assert pipe.transformer.compiled == []
 
 
 def test_an_unknown_quantizer_stops_the_child(monkeypatch):

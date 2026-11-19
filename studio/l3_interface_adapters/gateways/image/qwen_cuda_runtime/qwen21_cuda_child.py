@@ -106,6 +106,13 @@ def load(model: str, quantize: str):
 
         quantize_(pipe.transformer, NVFP4DynamicActivationNVFP4WeightConfig())
         torch.cuda.empty_cache()
+    else:
+        # Dynamic shapes, because each size and each prompt length is its own sequence length:
+        # compiled static, Turbo used up dynamo's eight recompiles by its second size and ran
+        # eager from then on. Dynamic, on the DGX Spark, 1024 took 8.9 s against 11.3 s eager,
+        # 1328 15.4 against 18.9, with three recompiles over four sizes and two prompts and
+        # about 8 s once on the first image. The nvfp4 transformer is not measured compiled.
+        pipe.transformer.compile_repeated_blocks(fullgraph=False, dynamic=True)
     torch.cuda.synchronize()
     say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return pipe
