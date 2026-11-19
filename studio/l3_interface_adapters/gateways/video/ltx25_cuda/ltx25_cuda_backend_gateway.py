@@ -64,7 +64,7 @@ class Ltx25CudaBackendGateway(VideoBackendGateway):
 
         def on_step(step: int, total: int) -> None:
             if progress is not None:
-                progress(1, step, total)
+                progress(step, total, 1)
 
         reply = self._child.request(clip_payload(job), on_step, cancelled or (lambda: False))
         return VideoResult(
