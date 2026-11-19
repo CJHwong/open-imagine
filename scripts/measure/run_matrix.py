@@ -466,9 +466,20 @@ def done(path: Path, fingerprints: dict[str, str], work: Path) -> set[str]:
     }
 
 
-def checkpoint_path(work: Path, machine: str, case_id: str) -> Path:
-    """One file per case, and two ids that read alike after slugging are still two files."""
-    directory = work / f"phases-{machine}"
+def checkpoint_path(work: Path, machine: str, case_id: str, out: Path | None = None) -> Path:
+    """One file per case and per results file, and two ids that read alike after slugging
+    are still two files.
+
+    A warm pass repeats cold cases into its own results file, with the same ids and the
+    same fingerprints. Sharing one checkpoint made it resume the cold pass's operation: a
+    0 s timeout when that operation was older than the deadline, and the cold run's figures
+    under the warm row when it was not. The default results file keeps its old folder, so a
+    campaign that is already running still resumes.
+    """
+    folder = f"phases-{machine}"
+    if out is not None and out.name != f"results-{machine}.jsonl":
+        folder = f"{folder}-{out.stem}"
+    directory = work / folder
     directory.mkdir(parents=True, exist_ok=True)
     return directory / f"{slug(case_id)}-{sha256(case_id.encode())[:12]}.json"
 
@@ -542,9 +553,13 @@ def await_terminal(base: str, operation: str, deadline: float, accepted_at: floa
     forgotten the operation the checkpoint names, and waiting longer cannot bring it back.
     """
     stalls = 0
+    asked = False
     while True:
-        if deadline and time.time() - accepted_at > deadline:
+        # Ask once before judging the deadline: a resumed operation can be older than the
+        # deadline and long finished, and its answer is the record, not a timeout.
+        if asked and deadline and time.time() - accepted_at > deadline:
             return None
+        asked = True
         try:
             state = call(base, f"/api/v1/operations/{operation}", timeout=poll_timeout(deadline, accepted_at))
         except urllib.error.HTTPError as failure:
@@ -701,7 +716,7 @@ def run_case(
             machine,
             payload,
             fingerprint_value,
-            checkpoint_path(work, machine, case["id"]),
+            checkpoint_path(work, machine, case["id"], out),
             out,
             started,
             deadline,

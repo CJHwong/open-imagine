@@ -142,7 +142,7 @@ def work(tmp_path):
     return tmp_path
 
 
-def run(studio, work, case, monkeypatch, deadline=5.0, machine="mlx", force=False):
+def run(studio, work, case, monkeypatch, deadline=5.0, machine="mlx", force=False, out=None):
     monkeypatch.setattr(run_matrix, "POLL_SECONDS", 0.01)
     return run_matrix.run_case(
         studio.base,
@@ -152,7 +152,7 @@ def run(studio, work, case, monkeypatch, deadline=5.0, machine="mlx", force=Fals
         work / "assets",
         {},
         work,
-        work / f"results-{machine}.jsonl",
+        out or work / f"results-{machine}.jsonl",
         deadline,
         force,
     )
@@ -208,6 +208,39 @@ def test_force_runs_the_case_again_instead_of_reusing_its_operation(work, monkey
 
     assert again["status"] == "succeeded"
     assert studio.submissions == 2
+
+
+def test_a_warm_pass_into_its_own_results_file_runs_the_case_again(work, monkeypatch):
+    """A warm pass repeats a cold case under the same id and fingerprint. Resuming the cold
+    operation would file the cold run's figures as the warm row."""
+    with served() as studio:
+        cold = run(studio, work, one_case(), monkeypatch)
+        warm = run(studio, work, one_case(), monkeypatch, out=work / "warm-mlx.jsonl")
+
+    assert cold["status"] == warm["status"] == "succeeded"
+    assert studio.submissions == 2
+
+
+def test_a_resumed_operation_older_than_the_deadline_is_read_not_timed_out(work, monkeypatch):
+    """The checkpoint names an operation that finished long ago. Its status is the answer,
+    and judging the deadline first recorded it as a timeout of zero seconds."""
+    with served() as studio:
+        assert run(studio, work, one_case(), monkeypatch)["status"] == "succeeded"
+        path = run_matrix.checkpoint_path(work, "mlx", "case/one", work / "results-mlx.jsonl")
+        path.write_text(json.dumps({**json.loads(path.read_text()), "accepted_at": time.time() - 3600}))
+
+        again = run(studio, work, one_case(), monkeypatch, deadline=5.0)
+
+    assert again["status"] == "succeeded"
+    assert studio.submissions == 1
+
+
+def test_only_another_results_file_moves_the_checkpoint_folder(work):
+    """A campaign already running keeps resuming from the folder it wrote."""
+    default = run_matrix.checkpoint_path(work, "mlx", "a", work / "results-mlx.jsonl")
+    assert default == run_matrix.checkpoint_path(work, "mlx", "a")
+    assert default.parent.name == "phases-mlx"
+    assert run_matrix.checkpoint_path(work, "mlx", "a", work / "warm-mlx.jsonl").parent.name == "phases-mlx-warm-mlx"
 
 
 def test_a_case_that_never_ends_is_recorded_as_a_timeout_and_cancelled(work, monkeypatch):
