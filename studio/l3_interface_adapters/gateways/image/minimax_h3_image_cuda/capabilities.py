@@ -49,17 +49,18 @@ EDIT_SIZE = ParamSpec(
 # The engine takes 16. Do not advertise more than the measurement reached.
 MAX_REFERENCES = 4
 
-# DGX Spark, Studio API, resident child, six steps, 2026-11-16. One request per case.
-# Reference edits use one 512 x 512 image; the four-reference run repeats that image.
-# Times include polling. The estimate fits a linear cost to the three selected areas.
+# DGX Spark, Studio API, resident child, six steps. One request per case. Reference edits use
+# one 512 x 512 image; the four-reference run repeats that image. Times include polling. fp8
+# was measured on 2026-11-19 with fp8 matrix multiplies (W8A8), NVFP4 on 2026-11-16. Each
+# estimate fits a cost, a growth with area and a fixed cost through the three areas.
 #                         1024 x 576  1024 x 1024  2048 x 2048  4 refs at 1024
-# FP8 generate              38.42 s       41.21 s       56.23 s       --
-# FP8 edit                  50.54 s       52.32 s       68.38 s     90.76 s
+# FP8 generate               4.03 s        6.55 s       30.35 s       --
+# FP8 edit                  18.51 s       20.73 s       57.59 s     94.48 s
 # NVFP4 generate            19.36 s       21.15 s       34.30 s       --
 # NVFP4 edit                29.51 s       31.26 s       44.29 s     64.79 s
 # Reference size also affects encoding time; these estimates are only a starting point.
-FP8_GENERATE_ESTIMATE = Estimate(0.814, 1.0, 35.80, overhead_per_image=True)
-FP8_EDIT_ESTIMATE = Estimate(0.835, 1.0, 47.35, overhead_per_image=True, per_reference=2.423)
+FP8_GENERATE_ESTIMATE = Estimate(0.756, 1.284, 1.73, overhead_per_image=True)
+FP8_EDIT_ESTIMATE = Estimate(0.533, 1.768, 17.25, overhead_per_image=True, per_reference=7.069)
 NVFP4_GENERATE_ESTIMATE = Estimate(0.693, 1.0, 16.86, overhead_per_image=True)
 NVFP4_EDIT_ESTIMATE = Estimate(0.686, 1.0, 27.02, overhead_per_image=True, per_reference=2.584)
 ESTIMATES = {

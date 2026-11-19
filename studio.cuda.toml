@@ -41,13 +41,15 @@ quantize = "fp8"
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
 rewrite_quantize = 8
 
-# The same checkpoint packed to NVFP4. fp8 stays the default: the pack is 40% faster and
-# leaves grain that fp8 does not. Its first run on a machine without the pack takes about
-# nine minutes and 104 GiB, because the child writes the 38 GB pack and then loads it; after
-# that a run is 34.3 s against fp8's 57.4.
+# The same checkpoint packed to NVFP4. fp8 is the default: it multiplies in fp8, so a 1024
+# image takes 6.6 s against 21.2 s here, and it leaves no grain. NVFP4 holds about 40 GiB
+# against fp8's 73, so it is the entry for a machine that is short of memory. Its first run
+# on a machine without the pack takes about nine minutes and 104 GiB, because the child
+# writes the 38 GB pack and then loads it.
 [minimax_h3_image_cuda_nvfp4]
 quantize = "nvfp4"
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
+rewrite_quantize = 8
 
 [drama3_cuda]
 checkpoint = "fishaudio/drama-3"

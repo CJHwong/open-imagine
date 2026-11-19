@@ -30,6 +30,17 @@ def test_a_generate_rewrite_asks_for_a_caption_and_keeps_the_ratio():
     assert gateway._child.request.call_args.args[0] == {"kind": "generate", "prompt": "a pear"}
 
 
+def test_a_generate_caption_without_a_ratio_leaves_the_shape_to_the_run():
+    """The CUDA child reads a caption the card left open as a caption with no ratio."""
+    gateway = rewriter()
+    gateway._child = Mock()
+    gateway._child.request.return_value = {"prompt": "a long caption", "ratio": None}
+
+    reply = gateway.rewrite("a poster", "generate", (), Mock(), lambda: False)
+
+    assert reply.prompt == "a long caption" and reply.ratio is None
+
+
 def test_an_edit_rewrite_carries_the_pictures_the_run_will_send():
     gateway = rewriter()
     gateway._child = Mock()
