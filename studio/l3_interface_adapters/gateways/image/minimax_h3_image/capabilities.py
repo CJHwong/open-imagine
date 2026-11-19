@@ -106,7 +106,7 @@ def minimax_h3_image_capabilities() -> Capabilities:
         name="MiniMax H3-Image",
         badge="int8",
         max_batch=4,
-        description="Six-step image generation up to 4 MP, and edits with multiple references.",
+        description="A 33B model known for close instruction following: six steps up to 4 MP, and edits from up to 4 references. Runs on MLX.",
         # The engine takes its request as request.json and its references as PNG files, and
         # its VAE stage writes the result as a file. A private run keeps no plaintext on disk.
         private_operations=False,

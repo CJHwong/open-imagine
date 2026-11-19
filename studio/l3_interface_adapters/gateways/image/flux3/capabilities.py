@@ -62,7 +62,7 @@ def flux3_capabilities(badge: str) -> Capabilities:
         name="FLUX3 Image Klein",
         badge=badge,
         max_batch=4,
-        description="Fast instruction edits and image composition from multiple references.",
+        description="A 5.6B model built for editing: it follows instructions and composes two pictures into one. Runs on MLX.",
         modes=(
             ModeSpec(
                 "generate",

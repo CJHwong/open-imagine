@@ -27,7 +27,10 @@ def test_the_picker_line_says_what_it_is():
     """The picker draws this under the name, so a reader knows what the model is
     before switching to it. The name already carries the lineage, so the line does
     not repeat it."""
-    assert capabilities().description == "Image generation and editing in six steps for quick experiments."
+    assert (
+        capabilities().description
+        == "A six-step distill, about five times faster than the full model and best near 1 MP. Runs on MLX."
+    )
 
 
 def test_six_steps_is_the_only_step_count_offered():

@@ -396,7 +396,7 @@ def ltx25_mlx_capabilities() -> VideoCapabilities:
         "ltx25",
         edit=True,
         fast_mode=True,
-        description="Connected video shots with synchronized sound and image or audio guidance.",
+        description="Multishot clips up to 15 s that keep characters and light across cuts, with sound, guided by keyframes or audio. Runs on MLX.",
     )
 
 
@@ -405,7 +405,7 @@ def ltx23_mlx_capabilities() -> VideoCapabilities:
         "ltx23_mlx",
         "LTX-2.3",
         "ltx23",
-        description="Continuous video shots with synchronized sound and image or audio guidance.",
+        description="The previous LTX: one continuous shot with sound, guided by keyframes or audio. Runs on MLX.",
     )
 
 

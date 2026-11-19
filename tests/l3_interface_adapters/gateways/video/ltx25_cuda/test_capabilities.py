@@ -14,6 +14,6 @@ def test_the_cuda_record_keeps_the_models_form_and_names_itself():
     capabilities = ltx25_cuda_capabilities()
 
     assert capabilities.backend_id == "ltx25_cuda"
-    assert capabilities.name == "LTX-2.5 (CUDA)"
+    assert capabilities.name == "LTX-2.5"
     assert capabilities.precision == "bf16"
     assert capabilities.shapes and capabilities.frame_rate == 24

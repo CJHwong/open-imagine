@@ -57,7 +57,7 @@ CAPABILITIES = VideoCapabilities(
     backend_id="minimax_h3",
     name="MiniMax H3",
     badge="Q8, 24 fps",
-    description="Experimental short videos with synchronized sound, guided by keyframes or audio.",
+    description="MiniMax's experimental 33B omni-modal model: 3 to 7 s clips with stereo sound and dialogue, steered by up to 3 keyframes or audio. Runs on MLX.",
     shapes=SHAPES,
     default_shape_ratio="16:9",
     min_frames=73,
@@ -125,11 +125,7 @@ FLASH_CAPABILITIES = replace(
     backend_id="minimax_h3_flash",
     name="HyperFlow H3 Flash",
     badge="Q8 · 6 steps · 24 fps",
-    description=(
-        "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. "
-        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. "
-        "A track and a LoRA are untested on these weights."
-    ),
+    description="Video Rebirth's pruned H3, under half the size, in six steps for faster clips. Audio tracks and LoRAs are untested. Runs on MLX.",
     fast_mode=False,
     fast_mode_note="",
     estimate=FLASH_ESTIMATE,

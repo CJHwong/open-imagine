@@ -27,7 +27,7 @@ with sync_playwright() as tool:
     page.wait_for_function("document.getElementById('voice-studio')?.capabilities?.backend_id === 'auk_base'")
     page.locator('label[for="voice-mode-edit"]').click()
     page.locator("#backend-toggle").click()
-    page.get_by_role("menuitemradio", name="Drama-3", exact=True).click()
+    page.get_by_role("menuitemradio", name="Drama-3", exact=True).filter(has_text="Runs on MLX.").click()
     page.wait_for_function("document.getElementById('voice-studio').capabilities?.backend_id === 'drama3'")
     check("unsupported Edit reconciles to Generate", page.locator("#voice-mode-generate").is_checked())
     check("Drama exposes Generate and Clone", page.locator('input[name="voice-mode"]').count() == 2)
@@ -156,7 +156,7 @@ with sync_playwright() as tool:
     page.locator("details.voice-advanced").evaluate("(element) => element.open = true")
     page.locator("#voice-seconds").fill("8")
     page.locator("#backend-toggle").click()
-    page.get_by_role("menuitemradio", name="Drama-3", exact=True).click()
+    page.get_by_role("menuitemradio", name="Drama-3", exact=True).filter(has_text="Runs on MLX.").click()
     page.wait_for_function("voiceStudio.capabilities?.backend_id === 'drama3'")
     check(
         "hidden AuK duration cannot label Drama output",
@@ -218,7 +218,7 @@ with sync_playwright() as tool:
     page.wait_for_function("voiceStudio.capabilities?.backend_id === 'auk_base'")
     check("AuK accepts its longer supported reference", not page.locator("#voice-generate").is_disabled())
     page.locator("#backend-toggle").click()
-    page.get_by_role("menuitemradio", name="Drama-3", exact=True).click()
+    page.get_by_role("menuitemradio", name="Drama-3", exact=True).filter(has_text="Runs on MLX.").click()
     page.wait_for_function("voiceStudio.capabilities?.backend_id === 'drama3'")
     page.wait_for_function("!voiceStudio.referencePending && voiceStudio.reference.duration === 15")
     check(

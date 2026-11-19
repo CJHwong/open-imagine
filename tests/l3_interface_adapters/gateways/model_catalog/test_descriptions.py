@@ -12,10 +12,17 @@ from studio.l3_interface_adapters.gateways.image.flux2.capabilities import flux2
 from studio.l3_interface_adapters.gateways.image.flux3.capabilities import flux3_capabilities
 from studio.l3_interface_adapters.gateways.image.krea2.capabilities import krea2_capabilities
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
+    minimax_h3_image_cuda_capabilities,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen21_cuda.capabilities import qwen21_cuda_capabilities
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
 from studio.l3_interface_adapters.gateways.image.viggle_turbo.capabilities import viggle_turbo_capabilities
+from studio.l3_interface_adapters.gateways.model_catalog.registry import BUILTIN_PROVIDERS
 from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import yue2_cuda_capabilities
+from studio.l3_interface_adapters.gateways.video.ltx25_cuda.capabilities import ltx25_cuda_capabilities
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
     CAPABILITIES as minimax_capabilities,
 )
@@ -28,27 +35,23 @@ from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
 )
 from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
 from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import drama_capabilities
+from studio.l3_interface_adapters.gateways.voice.drama3_cuda.capabilities import drama_cuda_capabilities
 
+I18N = Path(__file__).parents[4] / "studio/l4_frameworks_and_drivers/web/i18n"
+ENGINE_NAMES = {"mlx": "MLX", "cuda": "CUDA"}
+ENDINGS = {"en": "Runs on {}.", "zh-TW": "以 {} 執行。"}
+
+
+def translations(language):
+    return json.loads((I18N / (language + ".json")).read_text())
+
+
+# The page shows a description from the locale table by backend id, and the server's English
+# is its fallback, so the English table is the one reference for every description.
 DESCRIPTIONS = {
-    "qwen21": "Precise image edits and readable text with multiple references.",
-    "qwen21_turbo": "Fast image generation and editing in eight steps.",
-    "flux2": "Diverse image generation and editing with multiple references.",
-    "flux3": "Fast instruction edits and image composition from multiple references.",
-    "krea2": "Polished images with varied styles for creative exploration.",
-    "viggle_turbo": "Image generation and editing in six steps for quick experiments.",
-    "minimax_h3_image": "Six-step image generation up to 4 MP, and edits with multiple references.",
-    "ltx25_mlx": "Connected video shots with synchronized sound and image or audio guidance.",
-    "ltx23_mlx": "Continuous video shots with synchronized sound and image or audio guidance.",
-    "minimax_h3": "Experimental short videos with synchronized sound, guided by keyframes or audio.",
-    "minimax_h3_flash": (
-        "Experimental H3 distilled to six steps, with synchronized sound. Short clips only. "
-        "Keyframes set the first, a middle or the last frame, and a track drives the motion and becomes the sound. "
-        "A track and a LoRA are untested on these weights."
-    ),
-    "drama3": "Expressive speech and voice cloning with delivery cues inside the script.",
-    "auk_base": "Voice design, cloning, and recording edits, with a focus on quality.",
-    "auk": "Fast voice design, cloning, and recording edits in four steps.",
-    "yue2": "Complete songs from style and lyrics, with editable melody and chords.",
+    key.removeprefix("label.backend."): text
+    for key, text in translations("en").items()
+    if key.startswith("label.backend.")
 }
 
 
@@ -69,6 +72,13 @@ def all_capabilities():
         auk_capabilities("base"),
         auk_capabilities("flash"),
         yue2_capabilities(),
+        qwen21_cuda_capabilities("bf16"),
+        minimax_h3_image_cuda_capabilities(),
+        minimax_h3_image_cuda_capabilities("minimax_h3_image_cuda_nvfp4", "MiniMax H3-Image NVFP4", "nvfp4"),
+        ltx25_cuda_capabilities(),
+        drama_cuda_capabilities(),
+        yue2_cuda_capabilities(),
+        yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 NVFP4", "nvfp4"),
     )
 
 
@@ -98,12 +108,29 @@ def test_music_picker_record_keeps_the_name_and_includes_the_description():
 
 
 @pytest.mark.parametrize("language", ["en", "zh-TW"])
-def test_every_builtin_description_has_a_locale_override(language):
-    path = Path(__file__).parents[4] / "studio/l4_frameworks_and_drivers/web/i18n" / (language + ".json")
-    translations = json.loads(path.read_text())
+def test_every_builtin_model_has_a_description_that_names_its_engine(language):
+    """A model left out of a table shows the server's English, and only in English."""
+    table = translations(language)
 
-    for backend_id, english in DESCRIPTIONS.items():
-        translated = translations["label.backend." + backend_id]
-        assert translated and translated.endswith("." if language == "en" else "。")
-        if language == "en":
-            assert translated == english
+    for provider in BUILTIN_PROVIDERS:
+        text = table.get("label.backend." + provider.backend_id)
+        assert text, f"{provider.backend_id} has no {language} description"
+        assert text.endswith(ENDINGS[language].format(ENGINE_NAMES[provider.engine])), provider.backend_id
+
+
+@pytest.mark.parametrize("language", ["en", "zh-TW"])
+def test_no_two_models_share_a_description(language):
+    texts = [translations(language)["label.backend." + provider.backend_id] for provider in BUILTIN_PROVIDERS]
+
+    assert len(set(texts)) == len(texts)
+
+
+def test_every_builtin_model_is_checked_against_its_description():
+    assert {capabilities.backend_id for capabilities in all_capabilities()} == {
+        provider.backend_id for provider in BUILTIN_PROVIDERS
+    }
+
+
+def test_no_name_says_which_engine_runs_it():
+    """The description names the engine, so the picker's name stays the model's own."""
+    assert not [c.name for c in all_capabilities() if "CUDA" in c.name or "MLX" in c.name]

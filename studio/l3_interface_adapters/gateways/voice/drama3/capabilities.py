@@ -79,7 +79,7 @@ def drama_capabilities():
         backend_id="drama3",
         name="Drama-3",
         badge="",
-        description="Expressive speech and voice cloning with delivery cues inside the script.",
+        description="Fish Audio's expressive speech in 83 languages, directed with tags such as [laughs] in the script, in 8-bit. Runs on MLX.",
         max_batch=16,
         default_mode="generate",
         reference_sample_rate=44100,

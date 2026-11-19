@@ -107,9 +107,9 @@ CLONE_ESTIMATE = Estimate(rtf=1.383, overhead=1.64, seconds_per_character=0.104)
 def drama_cuda_capabilities():
     return Capabilities(
         backend_id="drama3_cuda",
-        name="Drama-3 (CUDA)",
+        name="Drama-3",
         badge="FP8 W8A8",
-        description="Expressive speech and voice cloning with delivery cues inside the script.",
+        description="Fish Audio's expressive speech in 83 languages, directed with tags such as [laughs] in the script, in FP8. Runs on CUDA.",
         max_batch=16,
         default_mode="generate",
         reference_sample_rate=44100,

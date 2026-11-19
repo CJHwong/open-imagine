@@ -17,7 +17,7 @@ from studio.l3_interface_adapters.gateways.music.yue2_cuda.capabilities import (
 
 
 class Yue2CudaBackendGateway(MusicBackendGateway):
-    def __init__(self, child, *, backend_id="yue2_cuda", name="YuE2 (CUDA)", badge="bf16"):
+    def __init__(self, child, *, backend_id="yue2_cuda", name="YuE2", badge="bf16"):
         self._child = child
         self._backend_id = backend_id
         self._name = name

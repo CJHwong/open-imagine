@@ -201,5 +201,5 @@ def viggle_turbo_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Image generation and editing in six steps for quick experiments.",
+        description="A six-step distill, about five times faster than the full model and best near 1 MP. Runs on MLX.",
     )

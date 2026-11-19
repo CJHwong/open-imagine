@@ -94,5 +94,5 @@ def qwen21_turbo_capabilities(badge: str = "bf16") -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Fast image generation and editing in eight steps.",
+        description="Qwen's own accelerated checkpoint: eight steps for quick generation and edits with up to 10 references. Runs on MLX.",
     )

@@ -33,7 +33,7 @@ def test_the_entry_runs_bf16(monkeypatch):
     assert gateway._child._command[:5] == ["/bin/uv", "run", "--python", "3.12", "--script"]
     assert gateway._child._command[-4:] == ["--model", DEFAULT_MODEL, "--quantize", "bf16"]
     assert gateway.capabilities().badge == "bf16"
-    assert gateway.capabilities().name == "Qwen-Image-2.1-Turbo (CUDA)"
+    assert gateway.capabilities().name == "Qwen-Image-2.1-Turbo"
     assert PROVIDER.resident_gib == 41.0
 
 

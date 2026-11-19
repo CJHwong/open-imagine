@@ -42,13 +42,13 @@ def test_the_second_entry_runs_the_packed_build(monkeypatch):
     assert NVFP4_PROVIDER.engine == "cuda" and NVFP4_PROVIDER.resident_gib == 9.1
     assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
     assert gateway.capabilities().backend_id == "yue2_cuda_nvfp4"
-    assert gateway.capabilities().name == "YuE2 (CUDA, NVFP4)"
+    assert gateway.capabilities().name == "YuE2 NVFP4"
     assert gateway.capabilities().badge == "nvfp4"
 
 
 def test_the_two_entries_carry_different_estimates():
-    bf16 = yue2_cuda_capabilities("yue2_cuda", "YuE2 (CUDA)", "bf16").estimate
-    nvfp4 = yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 (CUDA, NVFP4)", "nvfp4").estimate
+    bf16 = yue2_cuda_capabilities("yue2_cuda", "YuE2", "bf16").estimate
+    nvfp4 = yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 NVFP4", "nvfp4").estimate
 
     assert bf16 is not None and nvfp4 is not None
     assert bf16.generate_base_seconds != nvfp4.generate_base_seconds

@@ -61,9 +61,9 @@ def ltx25_cuda_capabilities() -> VideoCapabilities:
     return replace(
         shared,
         backend_id="ltx25_cuda",
-        name="LTX-2.5 (CUDA)",
+        name="LTX-2.5",
         badge="bf16",
-        description="Clips with a soundtrack on an NVIDIA GPU, from the diffusers pipeline.",
+        description="Multishot clips up to 15 s that keep characters and light across cuts, with sound, in bf16 and guided by keyframes. Runs on CUDA.",
         precision="bf16",
         modes=(replace(shared.mode("generate"), accepts_audio=False),),
         adapters=(),

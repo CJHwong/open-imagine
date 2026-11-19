@@ -80,5 +80,5 @@ def qwen21_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Precise image edits and readable text with multiple references.",
+        description="The full Qwen model for the finest detail and legible lettering, with edits you can mark on the picture and up to 10 references. Runs on MLX.",
     )

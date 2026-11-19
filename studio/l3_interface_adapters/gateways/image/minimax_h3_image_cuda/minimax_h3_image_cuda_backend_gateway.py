@@ -86,7 +86,7 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         *,
         prepare_child: StdioChild | None = None,
         backend_id: str = "minimax_h3_image_cuda",
-        name: str = "MiniMax H3-Image (CUDA)",
+        name: str = "MiniMax H3-Image FP8",
         badge: str = "fp8",
     ):
         self._child = child
