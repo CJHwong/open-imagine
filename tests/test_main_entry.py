@@ -5,6 +5,7 @@ name: `__main__.py` is the file pytest runs to start a session, so a test
 written in it would not run. The test lives here instead.
 """
 
+import os
 import runpy
 import signal
 import sys
@@ -43,11 +44,31 @@ def exit_message(exits) -> str:
     return str(exits.value.code)
 
 
-def test_a_termination_signal_takes_the_orderly_stop():
+def test_a_termination_signal_takes_the_orderly_stop_and_ignores_a_repeat(monkeypatch):
     """SIGTERM ends Python at once by default. Each engine child sits in its own session,
     so nothing forwards the signal to it, and the GPU stays busy behind a dead server."""
+    installed = []
+    monkeypatch.setattr(entry.signal, "signal", lambda number, handler: installed.append((number, handler)))
+
     with pytest.raises(KeyboardInterrupt):
         entry.stop_on_signal(signal.SIGTERM, None)
+
+    assert installed == [(number, entry.stop_now_on_repeat) for number in entry.STOP_SIGNALS]
+
+
+def test_a_copy_of_the_stop_is_ignored_and_a_later_press_ends_the_studio_at_once(monkeypatch):
+    """A hung cleanup could only be ended by SIGKILL, because every later stop was ignored."""
+    exits = []
+    monkeypatch.setattr(entry.signal, "signal", lambda number, handler: None)
+    monkeypatch.setattr(entry.os, "_exit", exits.append)
+    clock = iter([100.0, 101.9, 102.1])
+    monkeypatch.setattr(entry.time, "monotonic", lambda: next(clock))
+
+    entry.ignore_repeats()
+    entry.stop_now_on_repeat(signal.SIGTERM, None)
+    assert exits == []
+    entry.stop_now_on_repeat(signal.SIGINT, None)
+    assert exits == [130]
 
 
 def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_path, monkeypatch):
@@ -68,11 +89,66 @@ def test_serving_handles_termination_signals_and_puts_the_old_handlers_back(tmp_
 
     entry.main()
 
-    assert seen[0] == (signal.SIGTERM, entry.stop_on_signal)
-    assert seen[1] == (signal.SIGHUP, entry.stop_on_signal)
-    # The last thing installed for each number is what was there before this start.
-    assert [number for number, _ in seen[2:]] == [signal.SIGTERM, signal.SIGHUP]
-    assert all(handler is not entry.stop_on_signal for _, handler in seen[2:])
+    assert seen[:3] == [(number, entry.stop_on_signal) for number in entry.STOP_SIGNALS]
+    # Shutdown ignores a repeat of the stop, then puts back what was there before this start.
+    assert seen[3:6] == [(number, entry.stop_now_on_repeat) for number in entry.STOP_SIGNALS]
+    assert [number for number, _ in seen[6:]] == list(entry.STOP_SIGNALS)
+    assert all(handler not in (entry.stop_on_signal, entry.stop_now_on_repeat) for _, handler in seen[6:])
+
+
+@pytest.mark.parametrize("repeat", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
+def test_a_second_signal_during_shutdown_cannot_cut_the_cleanup_short(tmp_path, monkeypatch, repeat):
+    """`uv run` forwards the SIGTERM its group already got, and a terminal sends Ctrl-C to
+    every process in the foreground group, so the studio often sees the stop twice. The
+    second one used to land inside `shutdown()` and abort it before the engines were freed;
+    each engine child sits in its own session, so it kept the GPU memory behind a dead server."""
+    freed = []
+
+    def shutdown():
+        os.kill(os.getpid(), repeat)
+        freed.append("engines")
+
+    studio = SimpleNamespace(handler=Mock(), shutdown=shutdown, expire=Mock(), start_connect=Mock(return_value=None))
+    server = Mock()
+    server.serve_forever.side_effect = KeyboardInterrupt
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+    before = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
+
+    assert entry.main() is None
+
+    assert freed == ["engines"]
+    server.server_close.assert_called_once_with()
+    assert {number: signal.getsignal(number) for number in before} == before
+
+
+@pytest.mark.parametrize("repeat", [signal.SIGTERM, signal.SIGINT, signal.SIGHUP])
+def test_a_second_signal_before_shutdown_begins_cannot_skip_it(tmp_path, monkeypatch, repeat):
+    """On the DGX Spark the forwarded SIGTERM landed while the studio printed "Stopped.",
+    after the first stop and before shutdown() began, so it skipped the cleanup outright."""
+    freed = []
+    printed = []
+
+    def note(*args, **kwargs):
+        printed.append(args)
+        if args and "Stopped." in str(args[0]):
+            os.kill(os.getpid(), repeat)
+
+    studio = SimpleNamespace(
+        handler=Mock(), shutdown=lambda: freed.append("engines"), expire=Mock(), start_connect=Mock(return_value=None)
+    )
+    server = Mock()
+    server.serve_forever.side_effect = lambda: os.kill(os.getpid(), signal.SIGTERM)
+    monkeypatch.setattr(entry, "create_studio", Mock(return_value=studio))
+    monkeypatch.setattr(entry, "StudioHTTPServer", Mock(return_value=server))
+    monkeypatch.setattr(entry, "print", note, raising=False)
+    argv(monkeypatch, "--config", str(settings_file(tmp_path)))
+
+    assert entry.main() is None
+
+    assert freed == ["engines"]
+    assert any("Stopped." in str(args[0]) for args in printed if args)
 
 
 def test_a_good_run_serves_until_ctrl_c_then_frees_the_engine(tmp_path, monkeypatch, capsys):

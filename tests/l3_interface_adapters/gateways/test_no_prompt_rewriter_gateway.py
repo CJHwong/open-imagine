@@ -15,3 +15,7 @@ def test_the_absent_rewriter_refuses_instead_of_answering():
     with pytest.raises(InvalidJob, match="no prompt rewriter"):
         rewriter.rewrite("a cat", "generate", (), lambda: None, lambda: False)
     rewriter.release()
+
+
+def test_a_rewriter_with_no_weights_has_nothing_to_prepare():
+    assert NoPromptRewriterGateway().prepare() is None

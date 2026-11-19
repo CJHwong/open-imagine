@@ -8,6 +8,40 @@ For normalized video, it converts one frame at a time. This avoids the exporter'
 
 For other values, it passes the original array to the exporter. This preserves its warnings and error behavior.
 
+The child compiles the transformer's repeated block once it is on the GPU
+(`compile_repeated_blocks`, static shapes). Each new size or frame count compiles again on its
+first run, and later runs at that shape reuse it.
+
+## Speed experiments, 2026-11-19
+
+All on a DGX Spark through the Studio operations API, seed 7, BF16, 24 fps, without prompt
+enhancement unless the row says so.
+
+| Request | Eager | Compiled |
+|---|---:|---:|
+| 768 × 768, 97 frames, warm | 70.8 s | 53.0 s |
+| 768 × 768, 97 frames, first run (load included) | 119.6 s | 111.3 s |
+| 1280 × 704, 97 frames, first run at that size | 110.0 s | 89.7 s |
+| 384 × 384, 25 frames, first run at that size | 7.6 s | 12.1 s |
+| 384 × 384, 25 frames, repeat | 7.55 s | 6.57 s |
+
+The compile wins from the second run at a shape, and on the first run of any clip long
+enough to hide the compile. A short first clip pays about 5 s for it. The compiled frames
+match the eager ones in scene and quality: the mean absolute pixel difference was 4.8 and 6.3
+of 255 at 1 s and 3 s. A compiled child also ran two keyframes (53.4 s), a run with prompt
+enhancement, and a cancel, which stopped the run at step 3. A cancel stops the child, so the
+compiled block goes with it: the next run, 384 × 384 at 25 frames, took 56.3 s with the reload
+and the compile.
+
+These did not win, and are not used. They were measured on the child directly, not through the API:
+
+- fp8 and NVFP4 transformer weights. At 768 × 768 and 97 frames BF16 took 70.8 s, NVFP4
+  W4A4 70.9 s, and fp8 W8A8 108.5 s, because quantizing each activation cost more than the
+  narrower multiply saved. The transformer is compute-bound here, so narrower weights save
+  memory (NVFP4 peaked 25 GiB lower) and no time.
+- Attention backends. The transformer's 60.4 s became 61.2 s on cuDNN and 69.5 s on the
+  memory-efficient kernel.
+
 ## Stage experiment, 2026-11-15
 
 The experiment uses the Studio operations API on a DGX Spark. It uses `diffusers==0.43.0`, BF16 weights, seed 7, 97 frames, and 24 frames per second. Prompt enhancement and audio remain enabled.

@@ -49,17 +49,23 @@ EDIT_SIZE = ParamSpec(
 # The engine takes 16. Do not advertise more than the measurement reached.
 MAX_REFERENCES = 4
 
-# DGX Spark, Studio API, resident child, six steps, 2026-11-16. One request per case.
-# Reference edits use one 512 x 512 image; the four-reference run repeats that image.
-# Times include polling. The estimate fits a linear cost to the three selected areas.
+# DGX Spark, Studio API, resident child, six steps. One request per case. Reference edits use
+# one 512 x 512 image; the four-reference run repeats that image. Times include polling. fp8
+# was measured on 2026-11-19 with fp8 matrix multiplies (W8A8), NVFP4 on 2026-11-16. Each
+# estimate fits a cost, a growth with area and a fixed cost through the three areas.
 #                         1024 x 576  1024 x 1024  2048 x 2048  4 refs at 1024
-# FP8 generate              38.42 s       41.21 s       56.23 s       --
-# FP8 edit                  50.54 s       52.32 s       68.38 s     90.76 s
+# FP8 generate               4.03 s        6.55 s       30.35 s       --
+# FP8 edit                  18.51 s       20.73 s       57.59 s     94.48 s
 # NVFP4 generate            19.36 s       21.15 s       34.30 s       --
 # NVFP4 edit                29.51 s       31.26 s       44.29 s     64.79 s
 # Reference size also affects encoding time; these estimates are only a starting point.
-FP8_GENERATE_ESTIMATE = Estimate(0.814, 1.0, 35.80, overhead_per_image=True)
-FP8_EDIT_ESTIMATE = Estimate(0.835, 1.0, 47.35, overhead_per_image=True, per_reference=2.423)
+# The fp8 edit was refit on 2026-11-19 as an average over twelve runs, adding: 2048 out with one
+# reference at 1024, 1536 and 2048 took 55.5, 68.8 and 88.5 s, four at 2048 349.2 s; 1024 out
+# with one at 2048 59.5 s and two at 2048 114.3 s. The engine reads each reference with its short
+# edge between 1024 and 2048, and that cost follows the reference, not the output, so a large
+# reference with a small output reads up to 58% low. The common cases read within about 25%.
+FP8_GENERATE_ESTIMATE = Estimate(0.756, 1.284, 1.73, overhead_per_image=True)
+FP8_EDIT_ESTIMATE = Estimate(2.067, 0.969, 12.133, overhead_per_image=True, per_reference=2.032)
 NVFP4_GENERATE_ESTIMATE = Estimate(0.693, 1.0, 16.86, overhead_per_image=True)
 NVFP4_EDIT_ESTIMATE = Estimate(0.686, 1.0, 27.02, overhead_per_image=True, per_reference=2.584)
 ESTIMATES = {

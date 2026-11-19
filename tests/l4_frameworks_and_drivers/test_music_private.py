@@ -136,9 +136,24 @@ def test_private_music_roundtrips_only_for_owner_after_restart_and_deletes(tmp_p
         assert request(path)[0] == 404
 
 
-@pytest.mark.parametrize("path", ["/music/operations", "/api/v1/music/generate", "/api/v1/music/backend"])
+@pytest.mark.parametrize(
+    "path", ["/music/operations", "/api/v1/music/generate", "/api/v1/music/backend", "/api/v1/music/plan"]
+)
 def test_music_routes_without_private_ownership_refuse_key(tmp_path, path):
     with music_server(tmp_path) as request:
         status, answer = request(path, PAYLOAD)
         assert status == 400 and "only with POST /api/v1/operations" in answer["error"]
         assert request("/api/v1/state")[1]["operations"] == []
+
+
+def test_the_music_plan_route_answers_the_figure_without_a_run(tmp_path):
+    with music_server(tmp_path) as request:
+        status, plan = request("/api/v1/music/plan", PAYLOAD, key=None)
+
+        assert status == 200
+        assert (plan["backend"], plan["mode"], plan["count"]) == ("yue2", "generate", 1)
+        assert plan["estimate"]["basis"] == "constants"
+        assert plan["estimate"]["resident"] is False
+        assert "lyrics" not in plan["effective_options"]
+        assert request("/api/v1/state", key=None)[1]["operations"] == []
+        assert request("/api/v1/music/plan", {**PAYLOAD, "steps": 7}, key=None)[0] == 400

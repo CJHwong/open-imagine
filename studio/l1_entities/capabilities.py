@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
+from studio.l1_entities.estimate_stages import Stage, check_parts
 from studio.l1_entities.image_job import OptionValue
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
 from studio.l1_entities.template_translation import TemplateTranslation
@@ -113,7 +114,9 @@ class Estimate:
     of the step cost each reference adds for each unit of its aspect ratio past
     1:1, for an engine that reads a long reference at more pixels than a square
     one. `strength_scales_steps` says a starting image shortens the schedule
-    according to the selected strength.
+    according to the selected strength. `fixed_parts` names the pieces of `overhead`, such
+    as the text encode and the decode, in seconds that add up to it. A plan reports them
+    as stages; an empty tuple reports one "fixed" stage.
     """
 
     step_cost: float
@@ -125,6 +128,10 @@ class Estimate:
     per_reference: float = 0.0
     strength_scales_steps: bool = False
     per_reference_ratio: float = 0.0
+    fixed_parts: tuple[Stage, ...] = ()
+
+    def __post_init__(self):
+        check_parts(self.fixed_parts, self.overhead, "The overhead")
 
 
 @dataclass(frozen=True)
@@ -199,6 +206,10 @@ class Capabilities:
     # False when the engine reads the prompt or a reference from a plaintext file. The API then
     # refuses a private operation on this model, because a private run adds no copy on disk.
     private_operations: bool = True
+    # The seconds a cold load of the model takes, which no image figure holds, or None when
+    # unmeasured. `may_add` names a cost that a first run may add, such as a compile.
+    load_seconds: float | None = None
+    may_add: tuple[Stage, ...] = ()
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

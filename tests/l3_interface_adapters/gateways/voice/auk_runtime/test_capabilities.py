@@ -16,7 +16,7 @@ def test_loading_policy_names_the_same_pinned_weights_as_the_child():
     from studio.l3_interface_adapters.gateways.voice.auk_runtime.auk_child import WEIGHTS_REPO, WEIGHTS_REVISION
 
     loading = auk_capabilities("flash").loading
-    assert loading.policy == "download_on_first_use"
+    assert loading.policy == "download_on_prepare"
     assert loading.repository == WEIGHTS_REPO
     assert loading.revision == WEIGHTS_REVISION
     assert "first Voice run downloads" in loading.note

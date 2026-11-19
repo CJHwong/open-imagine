@@ -86,7 +86,7 @@ def test_controller_maps_single_and_batch_requests():
     assert controller.run_batch([payload], completed, started, cancelled) == run.execute_batch.return_value
     assert controller.capabilities()["max_batch_items"] == 16
     assert controller.capabilities()["max_batch"] == controller.capabilities()["max_batch_items"]
-    assert controller.capabilities()["loading"]["policy"] == "download_on_first_use"
+    assert controller.capabilities()["loading"]["policy"] == "download_on_prepare"
 
 
 def test_validate_checks_a_voice_request_without_running_the_model():
@@ -323,3 +323,21 @@ def test_localized_delivery_preserves_engine_tag_and_uses_the_local_spoken_defau
 
     job = parse({"mode": "generate", "template": "Whisper", "template_locale": "zh-TW"}, drama_capabilities())
     assert job.text == "[whispers] 小聲一點，有人在聽。"  # noqa: RUF001
+
+
+def test_a_voice_plan_makes_the_run_s_checks_and_runs_nothing():
+    from unittest.mock import Mock
+
+    from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+
+    run = Mock()
+    controller = VoiceController(run, auk_capabilities("flash"))
+
+    response = controller.plan({"mode": "design", "text": "Hello", "voice": "A warm voice", "seconds": 4})
+
+    assert (response.backend, response.mode) == ("auk", "design")
+    assert response.effective_options["seconds"] == 4
+    assert response.estimate.basis == "constants"
+    run.execute.assert_not_called()
+    with pytest.raises(InvalidJob, match="text must contain"):
+        controller.plan({"mode": "design", "text": "", "voice": "A warm voice"})

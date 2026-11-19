@@ -12,7 +12,8 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
-from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways import stdio_child
+from studio.l3_interface_adapters.gateways.stdio_child import EngineExited, StdioChild
 from tests.support import REPO_ROOT
 
 FAKE_CHILD = REPO_ROOT / "tests/support/voice_fake_child.py"
@@ -58,8 +59,9 @@ def test_a_silent_reply_has_a_deadline_and_releases_the_process_group():
         assert runner._proc is not None
         pid = runner._proc.pid
         started = time.monotonic()
-        with pytest.raises(RuntimeError, match="request timed out"):
+        with pytest.raises(RuntimeError, match="request timed out") as failed:
             runner.request({}, lambda *_: None, never)
+        assert not isinstance(failed.value, EngineExited)  # a deadline kill is not the engine's own end
         assert time.monotonic() - started < 3
         assert not runner.running()
         with pytest.raises(ProcessLookupError):
@@ -526,3 +528,43 @@ def test_a_spawn_that_fails_removes_its_scratch_folder(monkeypatch, tmp_path):
 
     assert created and not created[0].exists()
     assert runner._scratch is None
+
+
+def test_a_child_that_ends_while_loading_carries_its_own_exit_code():
+    """A gateway reads why a child refused from its exit code. Its words can scroll past
+    the last few lines a message keeps, behind a library's warnings."""
+    runner = StdioChild(["/bin/sh", "-c", "echo 'no pack' >&2; echo w1 >&2; echo w2 >&2; echo w3 >&2; exit 3"])
+    with pytest.raises(
+        EngineExited, match=r"^the engine stopped while loading\. It last said: w1 \| w2 \| w3$"
+    ) as failed:
+        runner.wait_ready()
+    assert failed.value.exit_code == 3
+    assert not runner.running()
+
+
+def test_a_child_that_ends_before_answering_carries_its_own_exit_code():
+    """A run starts the child itself, without a wait for it to load, so the same code has to
+    arrive through a request."""
+    runner = StdioChild(["/bin/sh", "-c", "echo 'no pack' >&2; echo w1 >&2; exit 3"])
+    with pytest.raises(EngineExited, match=r"^the engine stopped answering\. It last said: no pack \| w1$") as failed:
+        runner.request({}, lambda *_: None, never)
+    assert failed.value.exit_code == 3
+    assert not runner.running()
+
+
+def test_a_child_that_closes_its_pipes_but_lingers_has_no_exit_code(monkeypatch):
+    monkeypatch.setattr(stdio_child, "EXIT_GRACE", 0.1)
+    runner = StdioChild(["/bin/sh", "-c", "exec 2>&-; exec sleep 30"])
+    started = time.monotonic()
+    with pytest.raises(EngineExited, match="stopped while loading") as failed:
+        runner.wait_ready()
+    assert failed.value.exit_code is None
+    assert time.monotonic() - started < 3
+    assert not runner.running()
+
+
+def test_a_child_already_stopped_by_another_thread_has_no_exit_code():
+    """A release stops the child from its own thread, so a request that then reads no answer
+    finds no process to read a code from."""
+    runner = StdioChild(["/bin/sh", "-c", "exit 3"])
+    assert runner._exit_code() is None

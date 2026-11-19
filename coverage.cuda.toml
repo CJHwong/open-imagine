@@ -2,8 +2,9 @@
 #
 # pytest-cov reads one config file, so this one replaces pyproject.toml for that run. It
 # keeps the 100% statement and branch gate over every line this host can load, and omits
-# the eight engine modules that import mlx, mflux or mlx_vlm. Their tests skip here, and a
-# file that cannot be imported can never be measured.
+# the eight engine modules that import mlx, mflux or mlx_vlm, and the H3 enhancer's weight
+# reader, which imports torch: torch lives in the child's environment, not the studio's.
+# Their tests skip here, and a file that cannot be imported can never be measured.
 #
 # Measured on 2026-11-17: those eight files held all 86 uncovered statements and all 6
 # partial branches, so omitting them leaves exactly 100% over the rest. A module that
@@ -21,6 +22,7 @@ omit = [
     "studio/l3_interface_adapters/gateways/image/flux2/klein_models.py",
     "studio/l3_interface_adapters/gateways/image/krea2/krea2_model.py",
     "studio/l3_interface_adapters/gateways/image/minimax_h3_image/h3_image_pe_child.py",
+    "studio/l3_interface_adapters/gateways/image/minimax_h3_image_cuda/h3_image_pe_nvfp4_weights.py",
     "studio/l3_interface_adapters/gateways/image/qwen21_turbo/official_qwen_turbo_backend_gateway.py",
     "studio/l3_interface_adapters/gateways/image/qwen_runtime/edit.py",
     "studio/l3_interface_adapters/gateways/image/qwen_runtime/generator.py",

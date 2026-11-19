@@ -23,9 +23,16 @@
 
 The checkpoint is 68.7 GB of transformer and 66.7 GB of text encoder in bfloat16, which is
 more than a 128 GB unified machine holds once the runtime and the VAE join. The text
-encoder therefore loads in FP8 and the transformer is quantized to NVFP4 after it lands,
-which brings the pair to about 50 GB. Peak during the quantize is the bf16 transformer plus
-the packed copy, so the order is encoder first, transformer second, quantize third.
+encoder is therefore quantized first, alone, and the transformer after it lands. Peak during
+the quantize is the bf16 transformer plus the packed copy, so the order is encoder first,
+transformer second, quantize third.
+
+`fp8` holds both in fp8 and multiplies in fp8 (W8A8, one scale per row). On the DGX Spark
+a 1024 image took 39.8 s with an NVFP4 weight-only encoder and an fp8 weight-only
+transformer, and 5.9 s this way: the encoder pass went from 17.3 s to 0.2 s and the
+transformer from 21.8 s to 5.0 s. A weight-only tensor widens itself on every pass, and that
+widening was the time. The kernels are pinned to torch's, because mslk's cutlass path will
+not initialize on this card.
 """
 
 import argparse
@@ -118,6 +125,8 @@ def move_by_way_of_memory(module, device: str) -> None:
     for tensor in [*module.parameters(), *module.buffers()]:
         groups.setdefault(tensor.data.data_ptr(), []).append(tensor)
     for tensors in groups.values():
+        if tensors[0].data.device.type == device:
+            continue
         landed = tensors[0].data.clone().to(device)
         for tensor in tensors:
             tensor.data = landed
@@ -132,6 +141,11 @@ everything else. Rebuilding from those parts was checked bit-identical on 2026-1
 """
 
 PACK_COMPONENTS = ("transformer", "text_encoder", "vae")
+
+# A quantizer whose recipe changed names the new one here, so a pack built by the old
+# recipe is rebuilt instead of trusted. A quantizer missing here matches a pack that names
+# no recipe, which every pack built before this key did.
+RECIPES = {"fp8": "w8a8-per-row"}
 
 
 def versions() -> dict:
@@ -156,6 +170,7 @@ def expected_manifest(model: str, quantize: str) -> dict:
         "format": PACK_FORMAT,
         "model": model,
         "quantize": quantize,
+        "recipe": RECIPES.get(quantize),
         "versions": versions(),
         "source": source_revision(model),
     }
@@ -339,6 +354,26 @@ def quantize_kwargs(weight) -> dict | None:
     return dict(vars(values)) if values is not None else None
 
 
+def float8_settings(weight) -> dict:
+    """How an fp8 weight multiplies, as plain values.
+
+    Without these a rebuilt weight takes torchao's defaults: no activation quantization,
+    which is the slow weight-only path, and the automatic kernel, which fails on this card.
+    """
+    activation = weight.act_quant_kwargs
+    return {
+        "mm_config": list(weight.mm_config) if weight.mm_config is not None else None,
+        "kernel_preference": weight.kernel_preference.value,
+        "act_quant": None
+        if activation is None
+        else {
+            "float8_dtype": str(activation.float8_dtype),
+            "row_dim": activation.granularity.dim,
+            "kernel_preference": activation.kernel_preference.value,
+        },
+    }
+
+
 def copy_to_host(tensor):
     """Wait before serialization reads a nonblocking device copy."""
     if tensor.device.type == "cpu":
@@ -350,10 +385,56 @@ def copy_to_host(tensor):
     return copied
 
 
+SAFETENSORS_DTYPES = {
+    "torch.bfloat16": "BF16",
+    "torch.float16": "F16",
+    "torch.float32": "F32",
+    "torch.float8_e4m3fn": "F8_E4M3",
+    "torch.uint8": "U8",
+    "torch.int32": "I32",
+    "torch.int64": "I64",
+    "torch.bool": "BOOL",
+}
+
+
+def stream_safetensors(path: Path, parts: list) -> None:
+    """safetensors' own layout, written one tensor at a time.
+
+    `save_file` takes every tensor of a file at once, so a component's whole host copy stood
+    beside its device copy. While the W8A8 pack was written that took the DGX Spark to 4.0
+    GiB available. Here one tensor is on the host at a time, and `safe_open` reads the file
+    as it reads one `save_file` wrote.
+    """
+
+    header = {}
+    offset = 0
+    for key, tensor in parts:
+        kind = SAFETENSORS_DTYPES.get(str(tensor.dtype))
+        if kind is None:
+            raise ValueError(f"the pack cannot store {key} as {tensor.dtype}")
+        size = tensor.numel() * tensor.element_size()
+        header[key] = {"dtype": kind, "shape": list(tensor.shape), "data_offsets": [offset, offset + size]}
+        offset += size
+    encoded = json.dumps(header, separators=(",", ":")).encode()
+    encoded += b" " * (-len(encoded) % 8)
+    with open(path, "wb") as sink:
+        sink.write(len(encoded).to_bytes(8, "little"))
+        sink.write(encoded)
+        for _, tensor in parts:
+            write_tensor(sink, tensor)
+
+
+def write_tensor(sink, tensor) -> None:
+    """One tensor's bytes; its host copy is gone when this returns."""
+    import torch
+
+    host = copy_to_host(tensor).contiguous().reshape(-1)
+    sink.write(host.view(torch.uint8).numpy().tobytes())
+
+
 def write_pack(pipe, directory: Path, manifest: dict) -> None:
     """One safetensors file per component, assembled beside the pack in use and swapped in."""
     import torch
-    from safetensors.torch import save_file
 
     staging = staging_directory(directory)
     torch.cuda.empty_cache()
@@ -367,10 +448,10 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             kind = weight_kind(weight)
             entry = {"kind": kind}
             if kind == "nvfp4":
-                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
-                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
+                tensors[f"{key}.qdata"] = weight.qdata
+                tensors[f"{key}.scale"] = weight.scale
                 if weight.per_tensor_scale is not None:
-                    tensors[f"{key}.per_tensor_scale"] = copy_to_host(weight.per_tensor_scale)
+                    tensors[f"{key}.per_tensor_scale"] = weight.per_tensor_scale
                 entry.update(
                     {
                         "block_size": weight.block_size,
@@ -382,14 +463,14 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
                     }
                 )
             elif kind == "fp8":
-                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
-                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
-                entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype)})
+                tensors[f"{key}.qdata"] = weight.qdata
+                tensors[f"{key}.scale"] = weight.scale
+                entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype), **float8_settings(weight)})
             else:
-                tensors[key] = copy_to_host(weight)
+                tensors[key] = weight
             entries[key] = entry
         try:
-            save_file(tensors, str(staging / f"{component_name}.safetensors"))
+            stream_safetensors(staging / f"{component_name}.safetensors", list(tensors.items()))
         finally:
             tensors.clear()
             torch.accelerator.memory.empty_host_cache()
@@ -413,12 +494,24 @@ def rebuild(entry: dict, key: str, handle, device: str):
     if entry["kind"] == "plain":
         return handle.get_tensor(key).clone().to(device)
     if entry["kind"] == "fp8":
-        from torchao.quantization import Float8Tensor
+        from torchao.quantization import Float8MMConfig, Float8Tensor, PerRow
+        from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+        from torchao.quantization.quantize_.workflows.float8.float8_tensor import QuantizeTensorToFloat8Kwargs
 
+        activation = entry["act_quant"]
         return Float8Tensor(
             qdata=part("qdata"),
             scale=part("scale"),
             block_size=entry["block_size"],
+            mm_config=None if entry["mm_config"] is None else Float8MMConfig(*entry["mm_config"]),
+            act_quant_kwargs=None
+            if activation is None
+            else QuantizeTensorToFloat8Kwargs(
+                float8_dtype=getattr(torch, activation["float8_dtype"].removeprefix("torch.")),
+                granularity=PerRow(activation["row_dim"]),
+                kernel_preference=KernelPreference(activation["kernel_preference"]),
+            ),
+            kernel_preference=KernelPreference(entry["kernel_preference"]),
             dtype=getattr(torch, entry["dtype"].removeprefix("torch.")),
         )
     if entry["kind"] == "nvfp4":
@@ -441,6 +534,22 @@ def rebuild(entry: dict, key: str, handle, device: str):
     raise SystemExit(f"the pack holds a weight of kind {entry['kind']!r}, which this child cannot rebuild")
 
 
+def drop_unread_encoder_parts(pipe) -> None:
+    """Remove the encoder layers and the head that H3 never reads.
+
+    H3 conditions on `hidden_states[pipe.text_encoder_layer]`, 50, of its 64-layer Qwen3-VL
+    encoder, and reads it off `text_encoder.model`, so the language-model head never runs.
+    `hidden_states[k]` is the input of layer k, so the first 51 layers give that state
+    unchanged and still before the final norm; the 13 after it only cost time and memory.
+    A pack written with every layer still loads, because its extra tensors are never read.
+    """
+    import torch
+
+    encoder = component(pipe, "text_encoder")
+    del encoder.model.language_model.layers[pipe.text_encoder_layer + 1 :]
+    encoder.lm_head = torch.nn.Identity()
+
+
 def load_packed(model: str, directory: Path, manifest: dict):
     """Build the components empty and give them the weights the pack holds."""
     import torch
@@ -451,6 +560,7 @@ def load_packed(model: str, directory: Path, manifest: dict):
     pipe = ModularPipeline.from_pretrained(local_snapshot(model))
     pipe.load_components(names=list(PACK_COMPONENTS), device_map="meta")
     pipe.load_components(names=["processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu")
+    drop_unread_encoder_parts(pipe)
     say(f"built empty in {time.time() - started:.1f}s")
     for component_name in PACK_COMPONENTS:
         module = component(pipe, component_name)
@@ -476,7 +586,16 @@ def load_packed(model: str, directory: Path, manifest: dict):
     return pipe
 
 
-def load(model: str, quantize: str, root: Path | None = None):
+PACK_NOT_READY = "the H3 pack is missing or out of date for this torch build; prepare the model again"
+
+
+class PackNotReady(RuntimeError):
+    """A run found no usable pack, and only a prepare may build one."""
+
+
+def load(model: str, quantize: str, root: Path | None = None, may_build: bool = False):
+    """Load from the pack. Only a child started by a prepare (`may_build`) builds a missing
+    or out-of-date pack, because a build takes minutes and tens of GiB a run never pays."""
     if quantize not in ("nvfp4", "fp8", "bf16"):
         raise SystemExit(f"quantize must be nvfp4, fp8 or bf16, not {quantize}")
     if quantize == "bf16" or root is None:
@@ -488,6 +607,8 @@ def load(model: str, quantize: str, root: Path | None = None):
         attempt += 1
         recover(directory)
         reason = pack_state(directory, expected)
+        if reason is not None and not may_build:
+            raise PackNotReady(f"{PACK_NOT_READY} ({reason})")
         if reason is not None:
             with pack_lock(directory):
                 # Another studio may have published a pack while this one waited.
@@ -501,6 +622,8 @@ def load(model: str, quantize: str, root: Path | None = None):
         except Exception as error:
             # A pack that will not load is a cache fault, not a reason to stop. Move it
             # aside and build once; a second failure raises with nothing left to try.
+            if not may_build:
+                raise PackNotReady(f"{PACK_NOT_READY} (the pack did not load: {error})") from error
             if attempt == 2:
                 raise
             say(f"the pack did not load ({error}), so it is built again")
@@ -528,18 +651,23 @@ def build(model: str, quantize: str):
     say(f"loaded the pipeline shell in {time.time() - started:.1f}s")
     if quantize == "bf16":
         pipe.load_components(dtype=torch.bfloat16, device_map="cuda")
+        drop_unread_encoder_parts(pipe)
         return pipe
 
     # The encoder first, alone, then quantized, then the transformer. Loading both at
-    # bf16 needs 135 GB and this machine has 121.7. Torchao weight-only NVFP4 is used for
-    # the encoder because it runs once per prompt and accuracy matters more than speed
-    # there; the transformer takes W4A4, which is where the time is spent.
+    # bf16 needs 135 GB and this machine has 121.7. The NVFP4 build keeps its encoder
+    # weight-only, the smaller of the two; the fp8 build quantizes it W8A8 on the device.
     from torchao.prototype.mx_formats import NVFP4WeightOnlyConfig
     from torchao.quantization import quantize_
 
     pipe.load_components(names=["text_encoder"], dtype=torch.bfloat16, device_map="cpu")
     say(f"encoder loaded in {time.time() - started:.1f}s")
-    quantize_(component(pipe, "text_encoder"), NVFP4WeightOnlyConfig())
+    drop_unread_encoder_parts(pipe)
+    encoder = component(pipe, "text_encoder")
+    if quantize == "nvfp4":
+        quantize_(encoder, NVFP4WeightOnlyConfig())
+    else:
+        land_in_fp8(encoder, kept=("visual", "lm_head"))
     torch.cuda.empty_cache()
     say(f"encoder packed in {time.time() - started:.1f}s")
     # The weights land on the host first and then travel one tensor at a time, because the
@@ -549,22 +677,45 @@ def build(model: str, quantize: str):
     pipe.load_components(
         names=["transformer", "vae", "processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu"
     )
-    move_by_way_of_memory(component(pipe, "transformer"), "cuda")
-    move_by_way_of_memory(component(pipe, "vae"), "cuda")
-    torch.cuda.synchronize()
-    say(f"transformer on the device in {time.time() - started:.1f}s")
     if quantize == "nvfp4":
         from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
 
+        move_by_way_of_memory(component(pipe, "transformer"), "cuda")
         quantize_(component(pipe, "transformer"), NVFP4DynamicActivationNVFP4WeightConfig())
     else:
-        from torchao.quantization import Float8WeightOnlyConfig
-
-        quantize_(component(pipe, "transformer"), Float8WeightOnlyConfig())
-    component(pipe, "text_encoder").to("cuda")
+        land_in_fp8(component(pipe, "transformer"))
+    move_by_way_of_memory(component(pipe, "vae"), "cuda")
+    torch.cuda.synchronize()
+    say(f"transformer on the device in {time.time() - started:.1f}s")
+    encoder.to("cuda")
     torch.cuda.synchronize()
     say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return pipe
+
+
+def land_in_fp8(module, kept: tuple[str, ...] = ()) -> None:
+    """Move a module to the device one linear at a time, each quantized as it lands.
+
+    fp8 weights and fp8 activations, one scale per row, on torch's own kernels. Landing the
+    whole bf16 transformer first and quantizing it after held it beside the fp8 encoder, and
+    the DGX Spark fell to 13.8 GiB available while it landed; one bf16 linear at a time kept
+    it at 45.9 GiB or more. A row scale needs a bf16 weight, so a linear in another dtype
+    lands as it is. The encoder keeps its vision tower and output head at bf16, `kept` by
+    name. What is not a linear follows in one move at the end.
+    """
+    import torch
+    from torchao.quantization import Float8DynamicActivationFloat8WeightConfig, PerRow, quantize_
+    from torchao.quantization.quantize_.common.kernel_preference import KernelPreference
+
+    config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), kernel_preference=KernelPreference.TORCH)
+    for name, layer in list(module.named_modules()):
+        if not isinstance(layer, torch.nn.Linear) or layer.weight.dtype != torch.bfloat16:
+            continue
+        if any(part in name for part in kept):
+            continue
+        move_by_way_of_memory(layer, "cuda")
+        quantize_(layer, config)
+    move_by_way_of_memory(module, "cuda")
 
 
 def reference_image(encoded: str):
@@ -618,6 +769,7 @@ def main() -> int:
     parser.add_argument("--model", default="MiniMaxAI/MiniMax-H3-Image")
     parser.add_argument("--quantize", default="nvfp4", choices=["nvfp4", "fp8", "bf16"])
     parser.add_argument("--pack-dir", default="")
+    parser.add_argument("--may-build", action="store_true", help="build a missing pack; only a prepare passes it")
     arguments = parser.parse_args()
     import torch
 
@@ -625,7 +777,11 @@ def main() -> int:
         say("CUDA is not available in this environment")
         return 2
     pack_dir = Path(arguments.pack_dir) if arguments.pack_dir else None
-    pipe = load(arguments.model, arguments.quantize, pack_dir)
+    try:
+        pipe = load(arguments.model, arguments.quantize, pack_dir, may_build=arguments.may_build)
+    except PackNotReady as error:
+        say(str(error))
+        return 3
     say("ready")
     for line in sys.stdin:
         line = line.strip()

@@ -3,7 +3,7 @@
 import base64
 import threading
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -1173,8 +1173,35 @@ def test_an_image_plan_reads_the_body_of_a_run_through_its_prompt_step():
             "setup_seconds": 1.0,
             "total_seconds": 5.0,
             "excludes": ["weight download", "model load", "queue wait"],
+            "stages": [],
+            "load_seconds": None,
+            "resident": None,
+            "with_load_seconds": None,
+            "may_add": [],
         },
     }
+
+
+def test_a_plan_reads_whether_the_model_is_held_from_the_list_the_state_route_reports():
+    from studio.l1_entities.image_estimate import ImageEstimate
+    from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
+
+    class Cold(PlanningController):
+        def plan(self, form):
+            estimate = ImageEstimate("constants", 4, 512, 512, 0, 2.0, 1.0, 3.0, load_seconds=12.0)
+            return PlanImageResponse("fake", "generate", 1, {}, (), False, estimate)
+
+    held = {"policy": "boundary", "boundary_gib": 10.0, "resident": ["fake"]}
+    cold = {**held, "resident": ["other"]}
+
+    warm = api_for(Cold(), memory_status=lambda: held).image_plan({})["estimate"]
+    first = api_for(Cold(), memory_status=lambda: cold).image_plan({})["estimate"]
+
+    assert (warm["resident"], warm["with_load_seconds"], warm["load_seconds"]) == (True, 3.0, 12.0)
+    assert "model load" in warm["excludes"]
+    assert (first["resident"], first["with_load_seconds"]) == (False, 15.0)
+    assert first["excludes"] == ["weight download", "queue wait"]
+    assert first["total_seconds"] == warm["total_seconds"] == 3.0
 
 
 def test_an_image_plan_refuses_a_backend_that_is_not_an_id():
@@ -1203,6 +1230,57 @@ def test_a_video_plan_is_the_video_controller_s_plan_as_a_document():
     assert document["effective_options"] == {"width": 960, "loras": [{"id": "motion", "strength": 0.5}]}
     assert document["estimate"]["excludes"] == ["queue wait"]
     assert document["estimate"]["total_seconds"] == 280.0
+
+
+def test_voice_and_music_plans_answer_the_run_s_settings_and_time_without_a_run():
+    from unittest.mock import Mock
+
+    from studio.l3_interface_adapters.controllers.music_controller import MusicController
+    from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+    from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
+    from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
+
+    run, catalog = Mock(), Mock()
+    catalog.active_id.return_value = "yue2"
+    catalog.get.return_value.capabilities.return_value = replace(yue2_capabilities(), load_seconds=60.0)
+    held = {"policy": "immediate", "boundary_gib": None, "resident": ["auk"]}
+    api = api_for(
+        FakeController(),
+        voice=VoiceController(run, auk_capabilities("flash")),
+        music=MusicController(run, catalog, Mock()),
+        memory_status=lambda: held,
+    )
+
+    voice = api.voice_plan({"mode": "design", "text": "Hello", "voice": "A warm voice", "seconds": 4, "seed": 9})
+    music = api.music_plan({"style": "piano pop", "lyrics": "[Verse]\nA quiet road"})
+
+    assert (voice["backend"], voice["mode"], voice["count"]) == ("auk", "design", 1)
+    assert "seed" not in voice["effective_options"]
+    assert (voice["estimate"]["resident"], voice["estimate"]["audio_seconds"]) == (True, 4.0)
+    assert voice["estimate"]["with_load_seconds"] == voice["estimate"]["total_seconds"]
+    assert [stage["name"] for stage in voice["estimate"]["stages"]] == ["fixed", "generation"]
+    assert music["estimate"]["resident"] is False
+    assert music["estimate"]["with_load_seconds"] == round(music["estimate"]["total_seconds"] + 60.0, 1)
+    assert "model load" not in music["estimate"]["excludes"]
+    run.execute.assert_not_called()
+
+
+def test_a_voice_or_music_plan_for_a_model_that_does_not_exist_is_a_bad_request():
+    from unittest.mock import Mock
+
+    from studio.l1_entities.errors import UnknownBackend
+    from studio.l3_interface_adapters.controllers.music_controller import MusicController
+
+    catalog = Mock()
+    catalog.get.side_effect = UnknownBackend("no music backend registered as ghost")
+    api = api_for(FakeController(), voice=FakeVoice(), music=MusicController(Mock(), catalog, Mock()))
+
+    with pytest.raises(InvalidJob, match="No music model is offered as ghost"):
+        api.music_plan({"backend": "ghost", "style": "pop", "lyrics": "la"})
+    with pytest.raises(StudioError, match="Music generation is not configured"):
+        api_for(FakeController()).music_plan({})
+    with pytest.raises(StudioError, match="Voice generation is not configured"):
+        api_for(FakeController()).voice_plan({})
 
 
 @pytest.mark.parametrize(
@@ -1797,3 +1875,225 @@ def test_a_queued_request_records_the_media_it_holds():
     assert queued["queue_position"] == 1
     assert "payload_bytes" not in queued
     assert api._operations.get(queued["id"])["payload_bytes"] > 100
+
+
+class Readiness:
+    def __init__(self, ready=()):
+        self.ready = set(ready)
+
+    def readiness(self, backend_id):
+        from studio.l1_entities.model_readiness import MISSING, READY, ModelReadiness
+
+        if backend_id in self.ready:
+            return ModelReadiness(backend_id, READY, 9)
+        return ModelReadiness(backend_id, MISSING, 4, ("Weights",))
+
+    def mark_prepared(self, backend_id):
+        self.ready.add(backend_id)
+
+    def mark_unprepared(self, backend_id):
+        self.ready.discard(backend_id)
+
+
+class Prepare:
+    """The prepare use case, reading its own operation while it runs."""
+
+    def __init__(self, readiness, holder):
+        self._readiness = readiness
+        self._holder = holder
+        self.seen = []
+
+    def execute(self, backend_id, on_stage, should_stop):
+        api = self._holder["api"]
+        active = api.state()["active"]
+        self.seen.append(active["progress"]["stage"])
+        self.seen.append(api.models()["models"][0]["state"])
+        on_stage("engine")
+        self.seen.append(api.operation(active["id"])["progress"]["stage"])
+        self.seen.append(should_stop())
+        self._readiness.mark_prepared(backend_id)
+        return self._readiness.readiness(backend_id)
+
+
+def prepared_api(readiness=None, prepare=True, max_queue=0, resource_admission=None):
+    operations = InMemoryOperationGateway(max_queue=max_queue)
+    holder = {}
+    use_case = Prepare(readiness, holder) if prepare else None
+    holder["api"] = JsonApi(
+        FakeController(),
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+        prepare=cast(Any, use_case),
+        readiness=readiness,
+        resource_admission=resource_admission,
+    )
+    return holder["api"], use_case
+
+
+def test_the_models_route_names_each_offered_model_and_its_files():
+    api, _ = prepared_api(Readiness())
+
+    assert api.models() == {
+        "models": [
+            {"id": "fake", "workspace": "image", "name": "Fake", "state": "missing", "bytes": 4, "missing": ["Weights"]}
+        ]
+    }
+
+
+def test_a_studio_with_no_record_reads_every_model_as_ready():
+    api, _ = prepared_api(None, prepare=False)
+
+    assert api.models()["models"][0] == {
+        "id": "fake",
+        "workspace": "image",
+        "name": "Fake",
+        "state": "ready",
+        "bytes": 0,
+        "missing": [],
+    }
+
+
+def test_a_run_for_a_model_that_is_not_prepared_is_refused_before_it_takes_the_slot():
+    from studio.l1_entities.errors import ModelNotReady
+
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(ModelNotReady, match="fake is not downloaded yet"):
+        api.reserve({"kind": "image", "prompt": "pear"})
+    with pytest.raises(ModelNotReady):
+        api.reserve({"kind": "rewrite", "prompt": "pear"})
+
+    assert api.state()["operations"] == []
+
+
+def test_a_prepare_is_an_operation_that_reports_its_stage_and_leaves_the_model_ready():
+    readiness = Readiness()
+    api, prepare = prepared_api(readiness)
+
+    operation = api.reserve({"kind": "prepare", "backend": "fake"})
+    assert operation["kind"] == "prepare" and operation["model"] == "Fake"
+    api.execute_operation(operation, {"kind": "prepare", "backend": "fake"})
+
+    assert prepare.seen == ["starting", "preparing", "engine", False]
+    assert api.operation_result(operation["id"]) == {"backend": "fake", "state": "ready", "bytes": 9}
+    assert api.operation(operation["id"])["progress"] == {"running": False, "stage": "succeeded", "step": 0, "total": 0}
+    assert api.models()["models"][0]["state"] == "ready"
+    assert api.reserve({"kind": "image", "prompt": "pear"})["kind"] == "image"
+
+
+def test_a_prepare_names_the_active_model_when_it_names_none():
+    api, _ = prepared_api(Readiness())
+
+    assert api.reserve({"kind": "prepare"})["backend"] == "fake"
+
+
+def test_a_prepare_that_names_only_its_model_finds_the_workspace_that_offers_it(monkeypatch):
+    """A 409 tells the caller to send the kind and the model, and nothing else."""
+    api, _ = prepared_api(Readiness())
+    studio = api.studio()
+    monkeypatch.setattr(
+        api, "studio", lambda: {**studio, "voice": {"active": "drama", "backends": [{"id": "drama", "name": "Drama"}]}}
+    )
+
+    operation = api.reserve({"kind": "prepare", "backend": "drama"})
+
+    assert (operation["workspace"], operation["model"]) == ("voice", "Drama")
+
+
+def test_a_queued_prepare_reads_as_preparing_and_skips_resource_admission():
+    from unittest.mock import Mock
+
+    admission = Mock()
+    api, _ = prepared_api(Readiness({"fake"}), max_queue=2, resource_admission=admission)
+    first = api.reserve({"kind": "prepare"}, queued=True)
+    second = api.reserve({"kind": "prepare"}, queued=True)
+
+    assert second["queue_position"] == 1
+    assert api.models()["models"][0] == {
+        "id": "fake",
+        "workspace": "image",
+        "name": "Fake",
+        "state": "preparing",
+        "bytes": 9,
+        "missing": [],
+        "operation": first["id"],
+    }
+    api.execute_operation(first, {"kind": "prepare"})
+    api.execute_operation(second, {"kind": "prepare"})
+
+    assert api.operation(second["id"])["status"] == "succeeded"
+    admission.assert_not_called()
+    admission.require.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("payload", "owner", "message"),
+    [
+        ({"kind": "prepare", "workspace": "voice"}, "", "workspace must be"),
+        ({"kind": "prepare", "workspace": "sculpture"}, "", "workspace must be"),
+        ({"kind": "prepare", "backend": "flux9"}, "", "no model called 'flux9'"),
+        ({"kind": "prepare"}, "k" * 40, "X-Studio-Private-Key"),
+    ],
+)
+def test_a_prepare_refuses_what_it_cannot_do(payload, owner, message):
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(InvalidJob, match=message):
+        api.reserve(payload, owner=owner)
+
+
+def test_a_studio_without_a_prepare_refuses_one():
+    api, _ = prepared_api(Readiness(), prepare=False)
+
+    with pytest.raises(InvalidJob, match="prepares no models"):
+        api.reserve({"kind": "prepare"})
+
+
+def test_an_unknown_kind_names_prepare_among_the_kinds():
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(InvalidJob, match="rewrite or prepare"):
+        api.reserve({"kind": "sculpture"})
+
+
+def test_a_run_whose_engine_finds_its_files_out_of_date_marks_the_model_for_a_prepare():
+    from studio.l1_entities.errors import ModelOutOfDate
+
+    unprepared = []
+
+    class Watched(Readiness):
+        def mark_unprepared(self, backend_id):
+            unprepared.append(backend_id)
+
+    readiness = Watched({"fake"})
+    operations = InMemoryOperationGateway()
+
+    def stale(form):
+        raise ModelOutOfDate("the H3 pack is missing or out of date for this torch build")
+
+    api = JsonApi(
+        FakeController(run=stale),
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+        readiness=cast(Any, readiness),
+    )
+
+    with pytest.raises(ModelOutOfDate):
+        api.image_run({"prompt": "pear"}, "generate")
+
+    assert unprepared == ["fake"]
+    assert api.state()["operations"][0]["status"] == "failed"
+
+
+def test_an_out_of_date_run_in_a_studio_with_no_readiness_only_fails():
+    from studio.l1_entities.errors import ModelOutOfDate
+
+    def stale(form):
+        raise ModelOutOfDate("stale")
+
+    api = api_for(FakeController(run=stale))
+
+    with pytest.raises(ModelOutOfDate):
+        api.image_run({"prompt": "pear"}, "generate")

@@ -5,7 +5,7 @@ would take, and the time. It reads the named model's capabilities only, so it lo
 weights, takes no lock and leaves the active model as it is.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.lora import LoraUse
@@ -73,6 +73,7 @@ class PlanVideoUseCase:
             fast_mode=request.fast_mode,
             adapter=adapter,
         )
+        estimate = replace(estimate, load_seconds=capabilities.load_seconds, may_add=capabilities.may_add)
         options: dict[str, object] = {
             "width": request.width,
             "height": request.height,

@@ -28,6 +28,11 @@ runs, and a clip it wrote to its own temp folder stayed on disk.
 A child marks an error that the job caused with "kind": "input". The client
 then gets a refused request, not a server failure.
 
+A child that ends on its own takes its exit code into the error, as EngineExited.
+A child can refuse in a way its gateway must tell apart, and its words cannot carry
+that: torch printed warnings after an H3 child's refusal, and the message kept only
+those. The code is read before the group is killed, because the kill replaces it.
+
 A child prints `ready` on stderr once its engine is loaded. Starting a child
 takes no time, but loading takes a minute, and a server that reported itself
 ready before that made its first request pay for the load.
@@ -55,6 +60,16 @@ SAID_LINES = 20  # how much of the child's stderr to hold for a failure message
 SAID_IN_MESSAGE = 3
 READY_LINE = b"ready"
 SCRATCH_ENV = "SPEECH_GEN_SCRATCH"
+EXIT_GRACE = 5  # seconds a child whose pipes closed gets to end, so its own exit code is read
+
+
+class EngineExited(RuntimeError):
+    """The engine ended without an answer. `exit_code` is the code it ended with, or None
+    when it was still there after EXIT_GRACE."""
+
+    def __init__(self, message: str, exit_code: int | None):
+        super().__init__(message)
+        self.exit_code = exit_code
 
 
 def _answers(line: bytes, request_id: str) -> bool:
@@ -155,8 +170,9 @@ class StdioChild:
             self._drain()
             raise RuntimeError("the engine loading timed out" + self._last_words())
         if not self._loaded:
+            exit_code = self._exit_code()
             self.stop()
-            raise RuntimeError("the engine stopped while loading" + self._last_words())
+            raise EngineExited("the engine stopped while loading" + self._last_words(), exit_code)
 
     def stop(self) -> None:
         """Kill the child and free its memory."""
@@ -226,9 +242,10 @@ class StdioChild:
             self._drain()  # so no reader is left to append to the next job's message
             raise Cancelled(f"stopped at step {self._last_step}")
         if not answer:
+            exit_code = self._exit_code()
             self.stop()
             self._drain()
-            raise RuntimeError("the engine stopped answering" + self._last_words())
+            raise EngineExited("the engine stopped answering" + self._last_words(), exit_code)
         # `_read_reply` returns only a line that parsed as a JSON object answering this
         # request, so this parse cannot fail. A line that is not an answer is kept for the
         # failure message instead, and the reply behind it is still the one read.
@@ -238,6 +255,17 @@ class StdioChild:
                 raise InvalidJob(reply["error"])
             raise RuntimeError(reply["error"])
         return reply
+
+    def _exit_code(self) -> int | None:
+        """The code the child ended with. Its pipes close a moment before a `uv run` wrapper
+        exits, so it gets EXIT_GRACE to end before the kill that would replace the code."""
+        proc = self._proc
+        if proc is None:
+            return None
+        try:
+            return proc.wait(timeout=EXIT_GRACE)
+        except subprocess.TimeoutExpired:
+            return None
 
     def _exchange(self, payload: dict) -> bytes:
         proc = self._proc

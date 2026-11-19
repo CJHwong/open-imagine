@@ -21,6 +21,7 @@ from studio.l3_interface_adapters.gateways.image.qwen_runtime.rewriter_text impo
     smaller_png,
     system_prompt,
 )
+from studio.l3_interface_adapters.gateways.image.shared.rewrite_precision import rewrite_precision
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
@@ -84,6 +85,17 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
     def release(self) -> None:
         self._child.stop()
 
+    def prepare(self) -> None:
+        """Ask each card for one token, because the child loads a card when it is asked for
+        one. That load is the download; the token is the cheapest question that causes it."""
+        try:
+            for mode in self._models:
+                payload = {"role": mode, "system": "", "user": "a", "references": [], "max_tokens": 1}
+                # A card that cannot load raises here: the child answers with an error.
+                self._child.request(payload, lambda *_: None, lambda: False)
+        finally:
+            self._child.stop()
+
 
 def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
     models = rewrite_models(config, backend_id)
@@ -91,7 +103,8 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
         return NoPromptRewriterGateway()
     from studio.l3_interface_adapters.gateways.image.qwen21_cuda.construction import rewriter_command
 
-    return Qwen21CudaRewriter(StdioChild(rewriter_command(models)), models)
+    command = rewriter_command(models, rewrite_precision(config, backend_id))
+    return Qwen21CudaRewriter(StdioChild(command), models)
 
 
 def rewriter_cache(config: ModelConfigurationGateway, backend_id: str) -> str:

@@ -7,7 +7,7 @@ leaves the active backend as it is. It answers while a run holds the engine.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.image_estimate import ImageEstimate, estimate_image
@@ -66,4 +66,5 @@ class PlanImageUseCase:
         loras = mode.parse_loras(request.options.get("loras"))
         images = request.total * (len(request.reference_sizes) if each else 1)
         estimate = estimate_image(mode, options, request.reference_sizes, images, each=each, mask=request.mask)
+        estimate = replace(estimate, load_seconds=capabilities.load_seconds, may_add=capabilities.may_add)
         return PlanImageResponse(backend_id, mode.id, images, options, loras, bool(mode.loras), estimate)

@@ -1,16 +1,22 @@
 import base64
+import contextlib
 
-from studio.l1_entities.errors import InvalidJob
+from studio.l1_entities.errors import InvalidJob, ModelOutOfDate
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
     MATCH,
     minimax_h3_image_cuda_capabilities,
 )
-from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
+from studio.l3_interface_adapters.gateways.stdio_child import EngineExited, StdioChild
 
 MAX_MATCH_PIXELS = 2048 * 2048
 MAX_REFERENCE_RATIO = 4
+PACK_NOT_READY = "the H3 pack is missing or out of date for this torch build"
+PACK_NOT_READY_EXIT = 3
+"""The code the child ends with when it finds no usable pack. The child is a script of its
+own, so the code is the contract between the two. Its words are not: torch's warnings
+can follow them, and an error keeps only the child's last lines."""
 
 
 def validate_reference_aspect(width: int, height: int) -> None:
@@ -78,11 +84,13 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         self,
         child: StdioChild,
         *,
+        prepare_child: StdioChild | None = None,
         backend_id: str = "minimax_h3_image_cuda",
         name: str = "MiniMax H3-Image (CUDA)",
         badge: str = "fp8",
     ):
         self._child = child
+        self._prepare_child = prepare_child
         self._backend_id = backend_id
         self._name = name
         self._badge = badge
@@ -91,11 +99,39 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         return minimax_h3_image_cuda_capabilities(self._backend_id, self._name, self._badge)
 
     def load(self):
-        self._child.wait_ready()
+        with self._pack_checked():
+            self._child.wait_ready()
+
+    @contextlib.contextmanager
+    def _pack_checked(self):
+        """Report a child that found no usable pack as an out-of-date model. A run starts the
+        child inside its request, without a load first, so both paths pass through here."""
+        try:
+            yield
+        except EngineExited as error:
+            if error.exit_code != PACK_NOT_READY_EXIT:
+                raise
+            raise ModelOutOfDate(
+                f"{self._name}: {PACK_NOT_READY}. Prepare the model again: press Download, or run "
+                "`uv run studio --prepare`."
+            ) from error
+
+    def prepare(self):
+        """Start the child that may build the pack, wait for it to load, and stop it. The
+        next run's child then finds the pack."""
+        if self._prepare_child is None:
+            self.load()
+            return
+        self._child.stop()
+        try:
+            self._prepare_child.wait_ready()
+        finally:
+            self._prepare_child.stop()
 
     def run(self, job: ImageJob, on_step, should_stop):
         payload = edit_payload(job) if job.mode == "edit" else generate_payload(job)
-        reply = self._child.request(payload, on_step, should_stop)
+        with self._pack_checked():
+            reply = self._child.request(payload, on_step, should_stop)
         return ImageResult(
             png=base64.b64decode(reply["png_base64"]),
             width=int(reply["width"]),

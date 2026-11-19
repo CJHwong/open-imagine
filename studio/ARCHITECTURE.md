@@ -236,7 +236,7 @@ Voice uses `voice_capabilities.py` and `VoiceBackendGateway`. Its records do not
 A resident Voice child exits after a model switch, memory release, or another workspace claims the model slot.
 Voice capabilities declare a model-specific default mode, reference sample rate and duration limit. Required text parameters include Drama-3 reference transcripts. Templates explicitly target the spoken text or the AuK voice description. The page reconciles unsupported modes and stale template settings when a model changes.
 Drama-3 decodes its codec incrementally and joins all audio at native rate. It rejects capped generation and missing internal text chunks; unknown generation length stays indeterminate in the shared progress state.
-The Voice capabilities declare the first-use download policy and pinned weight identity.
+The Voice capabilities declare the download policy (a prepare downloads; a run never does) and pinned weight identity.
 
 ## Engine reuse in batches
 

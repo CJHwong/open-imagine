@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from studio.l1_entities.capabilities import LookRow, Template
 from studio.l1_entities.errors import UnsupportedMode
+from studio.l1_entities.estimate_stages import Stage, check_parts
 from studio.l1_entities.lora import Lora, LoraUse, check_offer, parse_loras
 
 # The largest clip an edit takes. The request reader sizes its body cap from this number,
@@ -119,6 +120,8 @@ class VideoEstimate:
     pass. A request without the prompt pass saves `enhance_seconds` of it. Each LoRA adds
     `lora_seconds`. An audio track takes the guided path, which multiplies the clip by
     `guided_factor`, and so does a reference image when `guided_with_references` is set.
+    `fixed_parts` names the pieces of `fixed_seconds` less `enhance_seconds`, in seconds that
+    add up to it; a plan reports the prompt pass as one more stage when the clip pays for it.
     An Edit takes `edit`, a constant and a slope over the tokens of the output, with the
     loads of a clip as its floor. `excludes` names the time that no figure holds.
 
@@ -140,6 +143,10 @@ class VideoEstimate:
     edit: tuple[float, float] = (0.0, 0.0)
     excludes: tuple[str, ...] = ()
     forwards: int = 0
+    fixed_parts: tuple[Stage, ...] = ()
+
+    def __post_init__(self):
+        check_parts(self.fixed_parts, self.fixed_seconds - self.enhance_seconds, "The fixed cost")
 
 
 @dataclass(frozen=True)
@@ -213,6 +220,11 @@ class VideoCapabilities:
     path cannot apply them says so here, and the form clears the picks when a track is set."""
     estimate: VideoEstimate | None = None
     """The constants of the time that a clip costs. None means that a plan names no seconds."""
+    load_seconds: float | None = None
+    """The seconds a cold load takes when the clip's figure excludes the load, or None when
+    unmeasured. A figure whose fixed part holds the loads needs none."""
+    may_add: tuple[Stage, ...] = ()
+    """A cost that a first run may add and no figure holds, such as compiling a new shape."""
 
     def __post_init__(self) -> None:
         check_offer(self.loras, self.max_loras, f"video model {self.backend_id!r}")

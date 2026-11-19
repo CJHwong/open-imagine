@@ -15,6 +15,7 @@ from studio.l1_entities.errors import (
     BackendBusy,
     Cancelled,
     InvalidJob,
+    ModelNotReady,
     OperationMissing,
     QueueFull,
     StudioError,
@@ -461,13 +462,14 @@ def make_handler(
             if status != 200:
                 self._send_json(viewer, status=status)
                 return
-            if path in ("/api/v1/settings", "/api/v1/model-storage") and self._refused_private_key():
+            if path in ("/api/v1/settings", "/api/v1/model-storage", "/api/v1/models") and self._refused_private_key():
                 return
             readers = {
                 "/api/v1/openapi.json": api.openapi,
                 "/api/v1/studio": api.studio,
                 "/api/v1/settings": api.settings,
                 "/api/v1/model-storage": api.model_storage,
+                "/api/v1/models": api.models,
                 "/api/v1/voice/capabilities": api.voice_capabilities,
                 "/api/v1/music/capabilities": api.music_capabilities,
                 "/api/v1/progress": lambda: api.progress(viewer),
@@ -574,6 +576,10 @@ def make_handler(
                 body, status = self._api_result(lambda: api.image_plan(self._read_json()))
             elif path == "/api/v1/videos/plan":
                 body, status = self._api_result(lambda: api.video_plan(self._read_json()))
+            elif path == "/api/v1/voice/plan":
+                body, status = self._api_result(lambda: api.voice_plan(self._read_json()))
+            elif path == "/api/v1/music/plan":
+                body, status = self._api_result(lambda: api.music_plan(self._read_json()))
             elif path == "/api/v1/images/rewrite":
                 body, status = self._api_result(lambda: api.image_rewrite(self._read_json()))
             elif path == "/api/v1/videos/rewrite":
@@ -773,7 +779,7 @@ def make_handler(
                 return {"error": "Cancelled"}, 409
             except (InvalidJob, UnreadableImage) as error:
                 return {"error": str(error)}, 400
-            except BackendBusy as error:
+            except (BackendBusy, ModelNotReady) as error:
                 return {"error": str(error)}, 409
             except QueueFull as error:
                 return {"error": str(error)}, 429
@@ -815,7 +821,7 @@ def make_handler(
             except (InvalidJob, UnreadableImage) as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
-            except BackendBusy as error:
+            except (BackendBusy, ModelNotReady) as error:
                 self._send_json({"error": str(error)}, status=409)
                 return
             except StudioError as error:

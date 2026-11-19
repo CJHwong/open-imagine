@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
+from studio.l2_use_cases.boundaries.model_readiness_gateway import ModelReadinessGateway
 from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
 from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSettingsGateway
 from studio.l2_use_cases.cancel_rewrite_use_case import CancelRewriteUseCase
@@ -12,10 +13,12 @@ from studio.l2_use_cases.cancel_run_use_case import CancelRunUseCase
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
 from studio.l2_use_cases.describe_studio_use_case import DescribeStudioUseCase
 from studio.l2_use_cases.inspect_model_storage_use_case import InspectModelStorageUseCase
+from studio.l2_use_cases.model_readiness_gate import ReadyModelResidency, ReadyPromptRewriter
 from studio.l2_use_cases.model_services import ModelServices
 from studio.l2_use_cases.plan_image_use_case import PlanImageUseCase
 from studio.l2_use_cases.plan_video_use_case import PlanVideoUseCase
 from studio.l2_use_cases.prepare_batch_use_case import PrepareBatchUseCase
+from studio.l2_use_cases.prepare_model_use_case import PrepareModelUseCase
 from studio.l2_use_cases.prepare_models_use_case import PrepareModelsUseCase
 from studio.l2_use_cases.read_progress_use_case import ReadProgressUseCase
 from studio.l2_use_cases.read_rewrite_progress_use_case import ReadRewriteProgressUseCase
@@ -85,6 +88,11 @@ from studio.l4_frameworks_and_drivers.engines import EngineUnavailable, availabl
 from studio.l4_frameworks_and_drivers.http_server import UploadBudget, make_handler
 from studio.l4_frameworks_and_drivers.json_studio_settings_gateway import JsonStudioSettingsGateway
 from studio.l4_frameworks_and_drivers.model_asset_storage_gateway import ModelAssetStorageGateway
+from studio.l4_frameworks_and_drivers.model_readiness_gateway import (
+    FileModelReadinessGateway,
+    hub_cache,
+    model_bundles,
+)
 from studio.l4_frameworks_and_drivers.python_entry_points import entry_points
 from studio.l4_frameworks_and_drivers.studio import Studio as Studio
 from studio.l4_frameworks_and_drivers.subprocess_runner import SubprocessRunner
@@ -110,28 +118,39 @@ GIB = 1024**3
 STUB_MEMORY_GIB = 64.0
 
 
-def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, float]]:
-    """Build and prepare every configured built-in model, freeing each before the next.
-
-    Plugins are not prepared: their provider owns its own runtime, and the page discovers
-    them at start.
-    """
-    services = ModelServices(SubprocessRunner().execute)
-    configured = {
+def _configured(config) -> set[str]:
+    return {
         *config.visible_backends,
         *config.visible_video_backends,
         *config.visible_voice_backends,
         *config.visible_music_backends,
     }
+
+
+def model_readiness(config) -> FileModelReadinessGateway:
+    """Each configured built-in model's files, read from disk on every question."""
+    return FileModelReadinessGateway(model_bundles(BUILTIN_PROVIDERS, config, _configured(config)), hub_cache())
+
+
+def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, float]]:
+    """Build and prepare every configured built-in model and its prompt rewriter, freeing
+    each before the next, and record each one as ready.
+
+    Plugins are not prepared: their provider owns its own runtime, and the page discovers
+    them at start.
+    """
+    services = ModelServices(SubprocessRunner().execute)
+    configured = _configured(config)
     targets = [
         (
             provider.backend_id,
             provider.create(config, execute_process=services.run_process, services=services),
+            provider.rewriter(config, provider.backend_id, services=services) if provider.rewriter else None,
         )
         for provider in BUILTIN_PROVIDERS
         if provider.backend_id in configured
     ]
-    return PrepareModelsUseCase().execute(targets, on_start)
+    return PrepareModelsUseCase(model_readiness(config)).execute(targets, on_start)
 
 
 def resident_memory() -> dict[str, float]:
@@ -341,6 +360,7 @@ def create_studio(
             else InMemoryStudioSettingsGateway(config.require_memory_estimate)
         ),
         resident_memory=resident_memory(),
+        readiness=None if stub else model_readiness(config),
         memory_policy=config.memory_policy,
         memory_boundary_percent=config.memory_boundary_percent,
         total_memory_gib=total_memory_gib,
@@ -383,9 +403,12 @@ def assemble_studio(
     upload_max_bytes: int = 128 * 1024 * 1024,
     private_max_bytes: int = 0,
     connect=None,
+    readiness: ModelReadinessGateway | None = None,
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     settings = settings if settings is not None else InMemoryStudioSettingsGateway()
+    # No declared files: every model is ready, which is what the stub and a test want.
+    readiness = readiness if readiness is not None else FileModelReadinessGateway({}, Path())
     gpu = GpuThread()
     engine_lock = threading.Lock()
     confined = {name: ThreadConfinedBackendGateway(backend, gpu) for name, backend in backends.items()}
@@ -407,7 +430,9 @@ def assemble_studio(
             voice_backends, default_voice_id, visible_voice_ids or tuple(voice_backends)
         )
     if video_rewriters is not None and video_catalog is not None:
-        video_rewriter = CatalogPromptRewriterGateway(video_rewriters, video_catalog)
+        video_rewriter = ReadyPromptRewriter(
+            CatalogPromptRewriterGateway(video_rewriters, video_catalog), readiness, video_catalog.active_id
+        )
     if video_rewriter is not None:
         video_rewriter = ThreadConfinedPromptRewriter(video_rewriter, gpu)
     music_catalog = None
@@ -425,6 +450,8 @@ def assemble_studio(
         boundary_gib=boundary_gib,
         footprints=resident_memory,
     )
+    # A run claims through the gate, so it never loads a model a prepare has not proved.
+    gated = ReadyModelResidency(residency, readiness)
     resource_admission = (
         ResourceAdmission(
             resource_memory_headroom,
@@ -435,7 +462,9 @@ def assemble_studio(
         if resource_memory_headroom
         else None
     )
-    rewriter = ThreadConfinedPromptRewriter(CatalogPromptRewriterGateway(rewriters, catalog), gpu)
+    rewriter = ThreadConfinedPromptRewriter(
+        ReadyPromptRewriter(CatalogPromptRewriterGateway(rewriters, catalog), readiness, catalog.active_id), gpu
+    )
     progress = InMemoryProgressGateway(external_cancel=lambda: api.cancellation_requested())
     # The rewrite publishes its own phase, because the page draws that button from
     # it: a rewrite is worth stopping, and only once the model is writing.
@@ -444,7 +473,7 @@ def assemble_studio(
     video_controller = None
     if video_catalog is not None:
         video_controller = VideoController(
-            RunVideoUseCase(video_catalog, progress, engine_lock, residency),
+            RunVideoUseCase(video_catalog, progress, engine_lock, gated),
             video_catalog,
             SwitchVideoBackendUseCase(video_catalog, engine_lock, residency),
             PlanVideoUseCase(video_catalog),
@@ -457,7 +486,7 @@ def assemble_studio(
             InMemoryReferenceStoreGateway(),
             engine_lock=engine_lock,
             rewriter=rewriter,
-            residency=residency,
+            residency=gated,
         ),
         read_progress=ReadProgressUseCase(progress),
         cancel=cancel,
@@ -481,7 +510,7 @@ def assemble_studio(
     if voice_catalog is not None:
         backend = voice_catalog.get(voice_catalog.active_id())
         voice_controller = VoiceController(
-            RunVoiceUseCase(backend, progress, engine_lock, residency, voice_catalog),
+            RunVoiceUseCase(backend, progress, engine_lock, gated, voice_catalog),
             backend.capabilities(),
             voice_catalog,
             SwitchVoiceBackendUseCase(voice_catalog, engine_lock, residency),
@@ -490,7 +519,7 @@ def assemble_studio(
     if music_catalog is not None:
         music_backend = music_catalog.get(music_catalog.active_id())
         music_controller = MusicController(
-            RunMusicUseCase(music_backend, progress, engine_lock, residency, music_catalog),
+            RunMusicUseCase(music_backend, progress, engine_lock, gated, music_catalog),
             music_catalog,
             SwitchMusicBackendUseCase(music_catalog, engine_lock, residency),
         )
@@ -514,6 +543,17 @@ def assemble_studio(
         remove_assets=RemoveModelAssetsUseCase(model_storage, engine_lock, residency) if model_storage else None,
         memory_status=residency.status,
         build=build_identity(),
+        prepare=PrepareModelUseCase(
+            engine_lock,
+            residency,
+            runtimes,
+            {
+                backend_id: ThreadConfinedPromptRewriter(one, gpu)
+                for backend_id, one in {**rewriters, **(video_rewriters or {})}.items()
+            },
+            readiness,
+        ),
+        readiness=readiness,
     )
     return Studio(
         handler=make_handler(

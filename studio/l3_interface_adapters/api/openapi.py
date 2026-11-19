@@ -766,7 +766,7 @@ def operation_paths() -> dict[str, Any]:
             "parameters": [PRIVATE_KEY],
             "tags": ["studio"],
             "summary": "Start work and return immediately",
-            "description": "One operation runs at a time. There is no queue. The API checks the request's memory estimate against current macOS headroom before it records or starts the operation. A measured requirement that exceeds current headroom returns 503 with the required and available memory and retry suggestions. Workflows without a calibrated estimate are allowed; acceptance does not guarantee enough memory. Poll an accepted operation's URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. Model loading and downloads use the same policy as the page. A worker failure appears in status and error.",
+            "description": "One operation runs at a time. There is no queue. The API checks the request's memory estimate against current macOS headroom before it records or starts the operation. A measured requirement that exceeds current headroom returns 503 with the required and available memory and retry suggestions. Workflows without a calibrated estimate are allowed; acceptance does not guarantee enough memory. Poll an accepted operation's URL or /api/v1/state. Public results remain in memory for at most 10 minutes, 32 operations, or 256 MiB, whichever limit comes first. A restart clears public results. Private results remain encrypted on disk for one hour after completion, survive restart, and support repeated downloads until deletion or expiry. A legacy page batch keeps its reservation for 30 seconds between image requests. Closing that tab cancels the unfinished batch after this interval. API batches run entirely on the server and use no continuation timeout. A missing result returns 404. A run never downloads or packs a model: a run for a model that is not prepared answers 409 and names the way to prepare it. Kind prepare downloads, packs and loads one model's whole selection, its prompt rewriter included, then frees it; a model whose declared files are on disk is ready with no prepare; it takes no private key, and a cancel lands between its engine and its rewriter. A worker failure appears in status and error.",
             "requestBody": {
                 "required": True,
                 "content": {
@@ -782,7 +782,7 @@ def operation_paths() -> dict[str, Any]:
                     "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Operation"}}},
                 },
                 "400": _error("Invalid operation"),
-                "409": _error("The studio is busy"),
+                "409": _error("The studio is busy, or the model is not prepared"),
                 "503": _error("The measured memory requirement exceeds current headroom"),
             },
         }
@@ -876,9 +876,9 @@ def operation_schemas() -> dict[str, Any]:
                 "type": "string",
                 "description": "Browser library identity from X-Studio-Library when present",
             },
-            "kind": {"enum": ["image", "video", "voice", "music", "rewrite"]},
+            "kind": {"enum": ["image", "video", "voice", "music", "rewrite", "prepare"]},
             "workspace": {"enum": ["image", "video", "voice", "music"]},
-            "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover"]},
+            "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover", "prepare"]},
             "status": {"enum": ["running", "stopping", "succeeded", "failed", "cancelled"]},
             "started_at": {"type": "number", "description": "Unix seconds"},
             "finished_at": {"type": ["number", "null"]},
@@ -926,13 +926,14 @@ def operation_schemas() -> dict[str, Any]:
                     ("voice", ("VoiceRequest", "BatchRequest")),
                     ("music", ("MusicRequest", "BatchRequest")),
                     ("rewrite", ("OperationRewriteRequest",)),
+                    ("prepare", ("OperationPrepareRequest",)),
                 )
             ],
             "description": "Use the request schema for the selected kind, or BatchRequest for ordered items. Add kind and optionally workspace, mode, client_id. Each accepted operation owns its whole batch.",
             "properties": {
-                "kind": {"enum": ["image", "video", "voice", "music", "rewrite"]},
+                "kind": {"enum": ["image", "video", "voice", "music", "rewrite", "prepare"]},
                 "workspace": {"enum": ["image", "video", "voice", "music"]},
-                "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover"]},
+                "mode": {"enum": ["generate", "edit", "clone", "design", "plan", "transcribe", "cover", "prepare"]},
                 "client_id": {"type": "string"},
             },
         },
@@ -1243,6 +1244,17 @@ def batch_paths() -> dict[str, Any]:
 
 def batch_schemas() -> dict[str, Any]:
     return {
+        "OperationPrepareRequest": {
+            "type": "object",
+            "description": "Download, pack and load one model's whole selection once, so its runs fetch nothing.",
+            "properties": {
+                "workspace": {"enum": ["image", "video", "voice", "music"], "default": "image"},
+                "backend": {
+                    "type": "string",
+                    "description": "A model id from /api/v1/models; the active one if absent",
+                },
+            },
+        },
         "OperationRewriteRequest": {
             "type": "object",
             "required": ["prompt"],
@@ -1346,6 +1358,20 @@ def plan_paths() -> dict[str, Any]:
                 "Check a video request and estimate its time",
                 {"503": _error("The studio serves no video model")},
             ),
+            (
+                "voice",
+                "VoiceRequest",
+                "planVoice",
+                "Check a voice request and estimate its time",
+                {"503": _error("The studio serves no voice model")},
+            ),
+            (
+                "music",
+                "MusicRequest",
+                "planMusic",
+                "Check a music request and estimate its time",
+                {"503": _error("The studio serves no music model")},
+            ),
         )
     }
 
@@ -1408,7 +1434,7 @@ def plan_schemas() -> dict[str, Any]:
             "properties": {
                 "backend": {"type": "string"},
                 "mode": {"type": "string"},
-                "count": {"type": "integer", "description": "The images or clips that the request makes"},
+                "count": {"type": "integer", "description": "The images, clips or sounds that the request makes"},
                 "effective_options": {
                     "type": "object",
                     "additionalProperties": True,
@@ -1420,7 +1446,8 @@ def plan_schemas() -> dict[str, Any]:
         },
         "PlanEstimate": {
             "type": "object",
-            "required": ["basis", "steps", "width", "height", "reference_count", "total_seconds", "excludes"],
+            "description": "steps, width and height come with an image or a clip, and audio_seconds with voice.",
+            "required": ["basis", "reference_count", "total_seconds", "excludes", "stages", "with_load_seconds"],
             "properties": {
                 "basis": {
                     "type": "string",
@@ -1439,6 +1466,28 @@ def plan_schemas() -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "The time that the figure does not hold",
+                },
+                "audio_seconds": {**seconds, "description": "The length of speech that a voice figure reads"},
+                "stages": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Stage"},
+                    "description": "total_seconds in named parts that add up to it: the fixed cost, by the parts "
+                    "the model declares or as one fixed stage, then steps or generation",
+                },
+                "load_seconds": {**seconds, "description": "The model's declared cold load, or null when unmeasured"},
+                "resident": {
+                    "type": ["boolean", "null"],
+                    "description": "Whether the studio holds the model now, as GET /api/v1/state lists it",
+                },
+                "with_load_seconds": {
+                    **seconds,
+                    "description": "total_seconds with the load when the model is not held and the figure excludes "
+                    "the load. Null when that load is unmeasured",
+                },
+                "may_add": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Stage"},
+                    "description": "A cost that a first run may add, such as a compile. No total holds it",
                 },
             },
         },
@@ -1911,6 +1960,11 @@ def music_schemas() -> dict[str, Any]:
                 "max_batch": {"type": "integer", "description": "Most songs one BatchRequest may ask for"},
                 "description": {"type": "string"},
                 "loading_note": {"type": "string", "description": "What to install before the first generation"},
+                "load_seconds": {
+                    "type": ["number", "null"],
+                    "description": "The seconds a cold load of the model takes, or null when unmeasured",
+                },
+                "may_add": {"type": "array", "items": {"$ref": "#/components/schemas/Stage"}},
             },
         },
     }

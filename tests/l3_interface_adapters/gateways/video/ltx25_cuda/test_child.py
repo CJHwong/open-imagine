@@ -11,11 +11,21 @@ import numpy as np
 import pytest
 
 from studio.l3_interface_adapters.gateways.video.ltx25_cuda import ltx25_cuda_child as child
+from studio.l3_interface_adapters.gateways.video.shared.capabilities import SHAPES
 
 
 class EmptyModule:
+    def __init__(self):
+        self.compiled = []
+
     def parameters(self):
         return []
+
+    def compile_repeated_blocks(self, **options):
+        self.compiled.append(options)
+
+    def enable_tiling(self):
+        self.tiled = True
 
     def buffers(self):
         return []
@@ -55,11 +65,15 @@ def fake_world(monkeypatch, pipe, available=True):
     torch = types.ModuleType("torch")
     monkeypatch.setattr(torch, "bfloat16", "bfloat16", raising=False)
     monkeypatch.setattr(
-        torch, "cuda", SimpleNamespace(is_available=lambda: available, synchronize=Mock()), raising=False
+        torch,
+        "cuda",
+        SimpleNamespace(is_available=lambda: available, synchronize=Mock(), empty_cache=Mock()),
+        raising=False,
     )
     monkeypatch.setattr(
         torch, "Generator", lambda device=None: SimpleNamespace(manual_seed=lambda seed: seed), raising=False
     )
+    monkeypatch.setattr(torch, "_dynamo", SimpleNamespace(config=SimpleNamespace(recompile_limit=8)), raising=False)
     monkeypatch.setitem(sys.modules, "torch", torch)
 
     diffusers = types.ModuleType("diffusers")
@@ -140,6 +154,42 @@ def test_load_materializes_and_moves_to_the_device(monkeypatch, capsys):
     assert "loaded me/pack" in capsys.readouterr().err
 
 
+def test_load_compiles_the_repeated_transformer_block_once(monkeypatch):
+    """Eager, the transformer took 60.4 s of a 768 x 768, 97-frame clip; compiled, 43.0 s."""
+    pipe = FakePipe()
+    transformer = EmptyModule()
+    pipe.transformer = transformer
+    fake_world(monkeypatch, pipe)
+
+    child.load("me/pack")
+
+    assert transformer.compiled == [{"fullgraph": False, "dynamic": False}]
+
+
+def test_load_lets_every_canvas_and_length_the_page_offers_stay_compiled(monkeypatch):
+    """Dynamo's default of 8 graphs ran the tenth canvas and length of a session eager."""
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+
+    child.load("me/pack")
+
+    pixel_counts = {shape.width * shape.height for shape in SHAPES}
+    lengths = 3  # 5, 10 and 15 seconds
+    assert sys.modules["torch"]._dynamo.config.recompile_limit >= len(pixel_counts) * lengths
+
+
+def test_load_decodes_the_clip_in_tiles(monkeypatch):
+    """Whole, the decode of a 768 x 768, 361-frame clip took the DGX Spark to 5 GiB free; in
+    tiles it finished with 14 GiB free, and a 121-frame clip decoded in 4.4 s against 5.1 s.
+    The frames differ by 45.3 dB PSNR, only where the tiles overlap."""
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+
+    child.load("me/pack")
+
+    assert pipe.vae.tiled is True
+
+
 def test_load_sends_each_weight_through_memory_first(monkeypatch):
     log = []
 
@@ -156,7 +206,11 @@ def test_load_sends_each_weight_through_memory_first(monkeypatch):
             return 1
 
     pipe = FakePipe()
-    moved = SimpleNamespace(parameters=lambda: [SimpleNamespace(data=Tensor())], buffers=lambda: [])
+    moved = SimpleNamespace(
+        parameters=lambda: [SimpleNamespace(data=Tensor())],
+        buffers=lambda: [],
+        compile_repeated_blocks=lambda **options: None,
+    )
     pipe.transformer = moved
     pipe.components["transformer"] = moved
     fake_world(monkeypatch, pipe)
@@ -203,6 +257,9 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "mp4" in lines[0]
     assert lines[1]["error"].startswith("KeyError")
+    # Each job hands its cached memory back, the failed one too: a long clip keeps about
+    # 21 GiB in PyTorch's cache, and the next clip starts that much closer to the limit.
+    assert sys.modules["torch"].cuda.empty_cache.call_count == 2
 
 
 def test_the_script_enters_through_its_main_guard(monkeypatch):

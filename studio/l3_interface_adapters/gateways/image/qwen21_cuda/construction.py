@@ -21,7 +21,7 @@ QUANTIZERS = {"nvfp4", "bf16"}
 RESIDENT_GIB = 41.0
 
 
-def rewriter_command(models: dict) -> list[str]:
+def rewriter_command(models: dict, quantize: str = "bf16") -> list[str]:
     """The command that runs the prompt cards on this engine, one child for both modes."""
     script = Path(__file__).parent.parent / "qwen_cuda_runtime" / "qwen21_rewriter_cuda_child.py"
     return [
@@ -35,6 +35,8 @@ def rewriter_command(models: dict) -> list[str]:
         models["generate"],
         "--edit-model",
         models["edit"],
+        "--quantize",
+        quantize,
     ]
 
 

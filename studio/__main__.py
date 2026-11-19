@@ -15,8 +15,10 @@ USAGE:
 """
 
 import argparse
+import os
 import signal
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -176,14 +178,45 @@ def parse_args():
     return parser.parse_args()
 
 
+STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+
+
 def stop_on_signal(signum, frame):
-    """Turn a termination request into the orderly stop Ctrl-C gets.
+    """Turn a termination request into one orderly stop.
 
     SIGTERM's default ends the process at once, so the engine children, each in its own
     session, keep the GPU. Raising here lands in the handler that shuts down and closes
     the socket. SIGHUP is the same story when a terminal window closes.
+
+    The stop often arrives twice: `uv run` forwards the SIGTERM its group already got, and
+    Ctrl-C reaches every process in the terminal's group. A repeat raised while the first
+    was being handled skipped the cleanup, so the first one turns the rest off.
     """
+    ignore_repeats()
     raise KeyboardInterrupt
+
+
+REPEAT_WINDOW = 2.0
+"""Seconds in which a stop counts as a copy of the first. `uv run` forwards its copy within
+milliseconds; a person who presses Ctrl-C again takes longer."""
+stopping = {"since": 0.0}
+
+
+def ignore_repeats() -> None:
+    """From now on a copy of the stop is ignored, so the cleanup runs to the end."""
+    stopping["since"] = time.monotonic()
+    for number in STOP_SIGNALS:
+        signal.signal(number, stop_now_on_repeat)
+
+
+def stop_now_on_repeat(signum, frame):
+    """A copy of the first stop does nothing. A stop pressed later, while the cleanup hangs on
+    an engine that will not end, ends the studio at once and leaves that engine running, as a
+    second Ctrl-C does in other tools. Without it, only SIGKILL could end the studio."""
+    if time.monotonic() - stopping["since"] < REPEAT_WINDOW:
+        return
+    print("\nStopping at once. An engine may still hold the GPU.", file=sys.stderr, flush=True)
+    os._exit(130)
 
 
 def main():
@@ -232,7 +265,7 @@ def main():
     # interrupt Ctrl-C does, and the one finally below closes both, whether the start
     # failed at the port, at the phone listener or after serving for hours.
     server = None
-    previous = [(number, signal.signal(number, stop_on_signal)) for number in (signal.SIGTERM, signal.SIGHUP)]
+    previous = [(number, signal.signal(number, stop_on_signal)) for number in STOP_SIGNALS]
     try:
         # Bind before loading. The weights take a minute, and a busy port found
         # after that minute is a waste. Anything that connects during the load
@@ -257,7 +290,7 @@ def main():
         if args.allow_origin:
             print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
         print(
-            "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
+            "Models load on first use, once prepared. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
             flush=True,
         )
         server.expire = studio.expire
@@ -266,11 +299,16 @@ def main():
         except KeyboardInterrupt:
             print("\nStopped.")
     finally:
-        studio.shutdown()
-        if server is not None:
-            server.server_close()
-        for number, handler in previous:
-            signal.signal(number, handler)
+        # A stop that did not come from a signal turns the copies off here too, so none can
+        # cut the cleanup short.
+        ignore_repeats()
+        try:
+            studio.shutdown()
+            if server is not None:
+                server.server_close()
+        finally:
+            for number, handler in previous:
+                signal.signal(number, handler)
 
 
 if __name__ == "__main__":

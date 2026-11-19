@@ -86,3 +86,16 @@ def test_batch_preparation_uses_the_same_gpu_thread(parts):
     confined.prepare_batch([JOB], cancelled)
     backend.prepare_batch.assert_called_once_with([JOB], cancelled)
     assert identifiers[0] != threading.get_ident()
+
+
+def test_a_prepare_uses_the_same_gpu_thread(parts):
+    from unittest.mock import Mock
+
+    confined, backend = parts
+    identifiers = []
+    backend.prepare = Mock(side_effect=lambda: identifiers.append(threading.get_ident()))
+
+    confined.prepare()
+
+    backend.prepare.assert_called_once_with()
+    assert identifiers[0] != threading.get_ident()

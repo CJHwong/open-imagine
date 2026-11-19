@@ -106,6 +106,13 @@ def load(model: str, quantize: str):
 
         quantize_(pipe.transformer, NVFP4DynamicActivationNVFP4WeightConfig())
         torch.cuda.empty_cache()
+    else:
+        # Dynamic shapes, because each size and each prompt length is its own sequence length:
+        # compiled static, Turbo used up dynamo's eight recompiles by its second size and ran
+        # eager from then on. Dynamic, on the DGX Spark, 1024 took 8.9 s against 11.3 s eager,
+        # 1328 15.4 against 18.9, with three recompiles over four sizes and two prompts and
+        # about 8 s once on the first image. The nvfp4 transformer is not measured compiled.
+        pipe.transformer.compile_repeated_blocks(fullgraph=False, dynamic=True)
     torch.cuda.synchronize()
     say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return pipe
@@ -189,6 +196,11 @@ def main() -> int:
             answer({**run(pipe, job), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
+        finally:
+            # PyTorch keeps a run's peak in its cache. On the DGX Spark the child held 68.4 GiB
+            # after a ten-reference edit and still 68.4 GiB after the next 512 image, which needs
+            # 34.1 GiB.
+            torch.cuda.empty_cache()
     return 0
 
 

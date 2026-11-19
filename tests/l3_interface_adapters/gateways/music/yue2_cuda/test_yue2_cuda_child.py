@@ -2,6 +2,7 @@ import base64
 import contextlib
 import io
 import json
+import os
 import sys
 import types
 from dataclasses import dataclass
@@ -798,50 +799,161 @@ def fake_ffmpeg(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "imageio_ffmpeg", module)
 
 
-def test_transcription_runs_the_pinned_script_and_reads_the_score(monkeypatch, tmp_path):
+class FakeWeight:
+    def __init__(self):
+        self.data = self
+        self.device = "cpu"
+
+    def data_ptr(self):
+        return id(self)
+
+    def clone(self):
+        return FakeWeight()
+
+    def to(self, device):
+        self.device = device
+        return self
+
+
+class FakeSheetSage:
+    def __init__(self, result, writes_score=True):
+        self.weight = FakeWeight()
+        self.result, self.writes_score, self.calls = result, writes_score, []
+
+    def eval(self):
+        return self
+
+    def parameters(self):
+        return [self.weight]
+
+    def buffers(self):
+        return []
+
+    def transcribe(self, audio, output_dir, **options):
+        self.calls.append((Path(audio).read_bytes(), options))
+        if self.writes_score:
+            (Path(output_dir) / "score.abc").write_text(self.result.get("abc") or "")
+        return self.result
+
+
+ABC_TOOLS = """
+from types import SimpleNamespace
+
+
+def parse_abc(text):
+    chords = ["C"] if '"C"' in text else []
+    return SimpleNamespace(voices={"V1": SimpleNamespace(chords=chords)})
+"""
+
+
+def fake_transcriber(monkeypatch, tmp_path, model):
+    """The resident transcriber's world: the hub, ffmpeg, the pinned helpers and the model."""
     fake_ffmpeg(monkeypatch, tmp_path)
     hub = types.ModuleType("huggingface_hub")
     downloads = []
-    monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: downloads.append(a), raising=False)
+    monkeypatch.setattr(
+        hub, "snapshot_download", lambda repo, **kwargs: downloads.append(repo) or f"/hub/{repo}", raising=False
+    )
     monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
     scripts = tmp_path / "scripts"
     scripts.mkdir()
-    (scripts / "transcribe.py").write_text("# script\n")
+    (scripts / "abc_tools.py").write_text(ABC_TOOLS)
     monkeypatch.setattr(child, "install_transcriber", lambda extras: scripts)
-    calls = []
+    monkeypatch.delitem(sys.modules, "abc_tools", raising=False)
+    monkeypatch.setattr(sys, "path", list(sys.path))
+    monkeypatch.setenv("PATH", "/usr/bin")
+    loads = []
+    transformers = types.ModuleType("transformers")
+    monkeypatch.setattr(
+        transformers,
+        "AutoModel",
+        SimpleNamespace(from_pretrained=lambda repo, **kwargs: loads.append((repo, kwargs)) or model),
+        raising=False,
+    )
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    monkeypatch.setattr(child, "TRANSCRIBER", {})
+    return downloads, loads
 
-    def run(command, **kwargs):
-        calls.append(command)
-        output = Path(command[command.index("--output") + 1])
-        output.mkdir(parents=True)
-        (output / "score.abc").write_text("X:1\n")
-        (output / "transcription_manifest.json").write_text('{"status": "complete", "warnings": []}')
-        return SimpleNamespace(returncode=0, stderr="", stdout="")
 
-    monkeypatch.setattr(child.subprocess, "run", run)
+def test_transcription_runs_the_held_model_and_reads_the_score(monkeypatch, tmp_path):
+    model = FakeSheetSage({"abc": "X:1\n", "warnings": ["short clip"]})
+    downloads, loads = fake_transcriber(monkeypatch, tmp_path, model)
 
-    score, extra = child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+    score, extra = child.transcribe({"reference_audio": base64.b64encode(b"RIFFaudio").decode()}, tmp_path)
 
     assert score == "X:1\n"
+    assert extra["transcription"] == {"status": "complete", "warnings": ["short clip"]}
     assert extra["artifacts"][0]["name"] == "score.abc"
-    assert calls[0][:2] == [sys.executable, str(scripts / "transcribe.py")]
-    assert "--device" in calls[0] and downloads
+    assert downloads == [child.SHEETSAGE, child.MERT]
+    [(repo, kwargs)] = loads
+    assert repo == child.SHEETSAGE and kwargs["local_files_only"] is True
+    assert kwargs["revision"] == kwargs["code_revision"] == child.SHEETSAGE_REVISION
+    assert kwargs["base_model_path"] == f"/hub/{child.MERT}"
+    assert model.weight.device == "cpu" and model.parameters()[0].data.device == "cuda"
+    audio, options = model.calls[0]
+    assert audio == b"RIFFaudio" and options["melody_only"] is True
+    assert options["prompts"] == ["timestamp", "downbeat_meter", "structure", "key", "melody_full"]
+    assert (tmp_path / "bin" / "ffmpeg").is_symlink()
+    assert os.environ["PATH"].startswith(str(tmp_path / "bin"))
 
 
-def test_a_failed_transcription_reports_the_last_line(monkeypatch, tmp_path):
-    fake_ffmpeg(monkeypatch, tmp_path)
-    hub = types.ModuleType("huggingface_hub")
-    monkeypatch.setattr(hub, "snapshot_download", lambda *a, **k: [], raising=False)
-    monkeypatch.setitem(sys.modules, "huggingface_hub", hub)
-    scripts = tmp_path / "scripts"
-    scripts.mkdir()
-    (scripts / "transcribe.py").write_text("# script\n")
-    monkeypatch.setattr(child, "install_transcriber", lambda extras: scripts)
-    monkeypatch.setattr(
-        child.subprocess, "run", lambda command, **kwargs: SimpleNamespace(returncode=2, stderr="boom\n", stdout="")
+def test_the_transcriber_loads_once_and_serves_every_later_job(monkeypatch, tmp_path):
+    model = FakeSheetSage({"abc": "X:1\n"})
+    _, loads = fake_transcriber(monkeypatch, tmp_path, model)
+    job = {"reference_audio": base64.b64encode(b"audio").decode()}
+
+    child.transcribe(job, tmp_path)
+    child.transcribe({**job, "transcription_task": "full"}, tmp_path)
+
+    assert len(loads) == 1 and len(model.calls) == 2
+    assert model.calls[1][1]["prompts"][-2:] == ["chord_full", "melody_full"]
+    assert "melody_only" not in model.calls[1][1]
+
+
+def test_a_vocal_melody_asks_for_the_vocal_line(monkeypatch, tmp_path):
+    model = FakeSheetSage({"abc": "X:1\n"})
+    fake_transcriber(monkeypatch, tmp_path, model)
+
+    child.transcribe(
+        {"reference_audio": base64.b64encode(b"audio").decode(), "transcription_task": "melody-vocal"}, tmp_path
     )
 
-    with pytest.raises(ValueError, match="Transcription failed: boom"):
+    assert model.calls[0][1]["prompts"][-1] == "melody_vocal"
+
+
+def test_an_existing_ffmpeg_link_is_kept(monkeypatch, tmp_path):
+    fake_transcriber(monkeypatch, tmp_path, FakeSheetSage({"abc": "X:1\n"}))
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "ffmpeg").symlink_to(tmp_path / "ffmpeg")
+
+    child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+
+    assert (tmp_path / "bin" / "ffmpeg").resolve() == (tmp_path / "ffmpeg").resolve()
+
+
+def test_a_link_into_a_rebuilt_environment_follows_the_binary(monkeypatch, tmp_path):
+    """uv can rebuild the environment elsewhere; the old link would point at nothing."""
+    fake_transcriber(monkeypatch, tmp_path, FakeSheetSage({"abc": "X:1\n"}))
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "ffmpeg").symlink_to(tmp_path / "gone" / "ffmpeg")
+
+    child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+
+    assert os.readlink(tmp_path / "bin" / "ffmpeg") == str(tmp_path / "ffmpeg")
+
+
+@pytest.mark.parametrize(
+    ("result", "writes_score", "message"),
+    [
+        ({"abc": "", "abc_error": "no beats"}, True, "no usable ABC: no beats"),
+        ({"abc": 'X:1\n"C"c', "warnings": []}, True, "the melody carries chord symbols"),
+        ({"abc": "X:1\n"}, False, "saved no score.abc"),
+    ],
+)
+def test_a_transcription_the_checks_refuse_is_a_named_failure(monkeypatch, tmp_path, result, writes_score, message):
+    fake_transcriber(monkeypatch, tmp_path, FakeSheetSage(result, writes_score))
+
+    with pytest.raises(ValueError, match=message):
         child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
 
 

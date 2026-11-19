@@ -18,10 +18,10 @@ def test_the_estimate_reads_this_machine_s_measurement():
     edit = qwen21_cuda_capabilities("bf16").mode("edit").estimate
     assert generate is not None and edit is not None
 
-    # Eight steps at one megapixel, against the measured 3.0 s at a quarter of one.
-    assert 8 * generate.step_cost * 0.25**generate.exponent + generate.overhead == pytest.approx(3.0, abs=0.4)
-    # 28.2 s at 1.8 MP, which the edit fit reads as its fixed cost plus eight steps.
-    assert 8 * edit.step_cost * 1.8**edit.exponent + edit.overhead == pytest.approx(28.2, abs=0.5)
+    # Eight compiled steps at a quarter megapixel took 2.3 s.
+    assert 8 * generate.step_cost * 0.25**generate.exponent + generate.overhead == pytest.approx(2.3, abs=0.4)
+    # 22.8 s at 1.8 MP, which the edit fit reads as its fixed cost plus eight steps.
+    assert 8 * edit.step_cost * 1.8**edit.exponent + edit.overhead == pytest.approx(22.8, abs=0.5)
 
 
 def test_one_estimate_serves_every_badge():

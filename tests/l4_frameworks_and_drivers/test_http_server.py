@@ -1242,7 +1242,7 @@ def voice_served():
 def test_voice_capabilities_and_wav_routes(voice_served):
     status, _, body = call(voice_served, "/api/v1/voice/capabilities")
     assert status == 200 and json.loads(body)["name"] == "AuK Flash"
-    assert json.loads(body)["loading"]["policy"] == "download_on_first_use"
+    assert json.loads(body)["loading"]["policy"] == "download_on_prepare"
     url = f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/voice/generate"
     request = urllib.request.Request(
         url,
@@ -1259,6 +1259,22 @@ def test_voice_capabilities_and_wav_routes(voice_served):
     ) as answer:
         assert answer.read().startswith(b"RIFF")
     assert post_json(voice_served, "/api/v1/voice/generate", {"text": ""})[0] == 400
+
+
+def test_the_voice_plan_route_answers_the_figure_without_a_run_and_refuses_a_private_key(voice_served):
+    body = {"mode": "design", "text": "Hello", "voice": "a calm narrator", "seconds": 4}
+    status, _, answer = post_json(voice_served, "/api/v1/voice/plan", body)
+
+    assert status == 200
+    plan = json.loads(answer)
+    assert (plan["backend"], plan["mode"], plan["count"]) == ("auk", "design", 1)
+    assert plan["estimate"]["audio_seconds"] == 4.0
+    assert json.loads(call(voice_served, "/api/v1/state")[2])["operations"] == []
+    assert post_json(voice_served, "/api/v1/voice/plan", {**body, "text": ""})[0] == 400
+    private = call(
+        voice_served, "/api/v1/voice/plan", json.dumps(body).encode(), **{"Content-Type": "application/json"}, **PRIVATE
+    )
+    assert private[0] == 400 and "only with POST /api/v1/operations" in json.loads(private[2])["error"]
 
 
 def test_batch_item_routes_return_retained_outputs(voice_served):
@@ -2663,3 +2679,69 @@ def test_a_refused_body_that_outlives_its_deadline_closes_the_connection(monkeyp
     target = discard_with([b"a" * 10], 10)
 
     assert target.close_connection is True
+
+
+def test_a_model_that_is_not_prepared_answers_409_until_its_prepare_operation_ends(tmp_path):
+    """The whole path on a real server: the models route, the refusal of a run, the
+    prepare as an operation, and the run that the prepare lets through."""
+    from studio.l1_entities.model_asset import ModelAsset
+    from studio.l4_frameworks_and_drivers.model_readiness_gateway import FileModelReadinessGateway
+
+    weights = tmp_path / "fake-weights"
+
+    class Downloading(FakeBackendGateway):
+        """A first load that fetches its weights, as a real engine's does."""
+
+        def load(self):
+            super().load()
+            weights.mkdir(exist_ok=True)
+            (weights / "model.safetensors").write_bytes(b"weights")
+
+    image = Downloading()
+    video = FakeVideoBackendGateway("video-fake", "Fake video")
+    readiness = FileModelReadinessGateway(
+        {
+            "fake": (ModelAsset("Weights", str(weights)),),
+            "video-fake": (ModelAsset("Weights", str(tmp_path / "video-weights")),),
+        },
+        tmp_path,
+    )
+    studio = assemble_studio(
+        {"fake": image},
+        {"fake": fast(StubPromptRewriterGateway())},
+        "fake",
+        ("fake",),
+        video_backends={"video-fake": video},
+        default_video_id="video-fake",
+        visible_video_ids=("video-fake",),
+        readiness=readiness,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status, _, body = call(server, "/api/v1/models")
+        assert status == 200
+        assert [(one["id"], one["state"]) for one in json.loads(body)["models"]] == [
+            ("fake", "missing"),
+            ("video-fake", "missing"),
+        ]
+        assert call(server, "/api/v1/models", **{"X-Studio-Private-Key": "private-test"})[0] == 400
+        status, _, body = post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "a pear"})
+        assert status == 409 and "--prepare" in json.loads(body)["error"]
+        status, _, body = post_json(server, "/api/v1/videos/generate", {"prompt": "a pear"})
+        assert status == 409 and "video-fake is not downloaded yet" in json.loads(body)["error"]
+
+        status, _, body = post_json(server, "/api/v1/operations", {"kind": "prepare", "backend": "fake"})
+        assert status == 202
+        operation = json.loads(body)
+        deadline = time.monotonic() + 10
+        while studio.operations.get(operation["id"])["status"] != "succeeded" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        status, _, body = call(server, f"/api/v1/operations/{operation['id']}/result")
+        assert json.loads(body) == {"backend": "fake", "state": "ready", "bytes": 7}
+        assert image.events[:2] == ["load", "release"]
+        assert post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "a pear"})[0] == 202
+    finally:
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()

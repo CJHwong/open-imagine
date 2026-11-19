@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from studio.l1_entities.capabilities import Estimate, ModeSpec
+from studio.l1_entities.estimate_stages import Stage, split
 from studio.l1_entities.image_job import OptionValue
 
 # The side that the page takes when the shape comes from a reference that it cannot see, or
@@ -29,6 +30,11 @@ class ImageEstimate:
     `reference_count` are what one image samples and carries. `setup_seconds` is paid once
     for the request, and `per_item_seconds` once for each image. `excludes` names the time
     that the figure does not hold.
+
+    `stages` splits `total_seconds` into the fixed cost of every image, by the parts the mode
+    declares or as one "fixed" stage, and the "steps". `load_seconds` is the backend's declared
+    cold load, `resident` whether the studio holds the model now, and `with_load_seconds` the
+    total with the load when it does not. `may_add` names a first-run cost the total leaves out.
     """
 
     basis: str
@@ -40,6 +46,11 @@ class ImageEstimate:
     setup_seconds: float | None = None
     total_seconds: float | None = None
     excludes: tuple[str, ...] = EXCLUDES
+    stages: tuple[Stage, ...] = ()
+    load_seconds: float | None = None
+    resident: bool | None = None
+    with_load_seconds: float | None = None
+    may_add: tuple[Stage, ...] = ()
 
 
 def estimate_image(
@@ -77,6 +88,9 @@ def estimate_image(
     step_seconds = model.step_cost * passes * growth * math.pow(pixels / 1e6, model.exponent)
     per_item = steps * step_seconds + (model.overhead if model.overhead_per_image else 0)
     setup = 0.0 if model.overhead_per_image else model.overhead
+    total = round(count * per_item + setup, 1)
+    # The overhead is paid once for each image or once for the request.
+    fixed = model.overhead * (count if model.overhead_per_image else 1)
     return ImageEstimate(
         "constants",
         steps,
@@ -85,7 +99,8 @@ def estimate_image(
         carried,
         round(per_item, 1),
         round(setup, 1),
-        round(count * per_item + setup, 1),
+        total,
+        stages=split(model.fixed_parts, model.overhead, round(fixed, 1), "steps", total),
     )
 
 

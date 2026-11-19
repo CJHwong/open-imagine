@@ -57,6 +57,10 @@ the resident list are left out, because they move while a campaign runs. The fir
   operation, and the next run fetches it.
 - A case that finished but whose result never arrived is fetched on the next run, not
   generated again.
+- Each results file keeps its own checkpoints, so a warm pass into `warm-<machine>.jsonl`
+  runs its cases again and never resumes the cold pass's operation. A resumed operation is
+  asked for its status before its deadline is judged, so one that finished long ago is
+  recorded, not timed out.
 - A results file that ends in half a line loses that line and keeps the rest. A bad line
   anywhere else stops the run, because that is corruption and not an interrupted append.
 

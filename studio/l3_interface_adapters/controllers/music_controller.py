@@ -9,6 +9,7 @@ from dataclasses import asdict
 
 from studio.l1_entities.errors import InvalidJob
 from studio.l1_entities.music_job import MusicJob
+from studio.l2_use_cases.plan_audio_use_case import PlanAudioResponse, plan_song
 
 # The engine's Sampling fields, with the bounds its own constructor checks. A field the
 # map does not name keeps that stage's default.
@@ -56,6 +57,12 @@ class MusicController:
 
     def validate(self, payload):
         return music_job(payload, self.model_capabilities(self._backend_id(payload)))
+
+    def plan(self, payload) -> PlanAudioResponse:
+        """What the run of this body would do: the run's own checks, and no run."""
+        backend_id = self._backend_id(payload)
+        capabilities = self.model_capabilities(backend_id)
+        return plan_song(backend_id, capabilities, music_job(payload, capabilities))
 
     def run(self, payload):
         return self._run.execute(self.validate(payload), self._backend_id(payload))

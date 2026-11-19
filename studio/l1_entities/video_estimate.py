@@ -8,6 +8,7 @@ a clip moves with the machine's memory, so two runs of one clip can differ by a 
 
 from dataclasses import dataclass
 
+from studio.l1_entities.estimate_stages import Stage, split
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoEstimate
 
 # A latent token covers 32 x 32 pixels, and a latent frame covers 8 frames after the first.
@@ -20,6 +21,7 @@ GUIDED_STEPS = (30, 3)
 EDIT_STEPS = 8
 REFINE_STEPS = 3
 FAST_MODE = "Fast mode speedup"
+PROMPT_PASS = "prompt pass"
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,8 @@ class ClipEstimate:
     when it does not. The seconds are then None. `setup_seconds` is the fixed part of the
     clip, and `per_item_seconds` the rest. Both are rounded so that they add up to
     `total_seconds`, which is to the nearest 10 s. `excludes` names the time that the figure
-    does not hold.
+    does not hold. The other fields mean what they mean on an image estimate; the computed
+    stage is "generation".
     """
 
     basis: str
@@ -42,6 +45,11 @@ class ClipEstimate:
     setup_seconds: float | None = None
     total_seconds: float | None = None
     excludes: tuple[str, ...] = ()
+    stages: tuple[Stage, ...] = ()
+    load_seconds: float | None = None
+    resident: bool | None = None
+    with_load_seconds: float | None = None
+    may_add: tuple[Stage, ...] = ()
 
 
 def estimate_clip(
@@ -77,11 +85,31 @@ def estimate_clip(
         setup = model.fixed_seconds - model.enhance_seconds
         clip = max(setup, (model.edit[0] + model.edit[1] * count) * adapter.cost_factor)
     total = _tens(clip + loras * model.lora_seconds)
-    setup = min(_tens(setup), total)
+    fixed = min(_tens(setup), total)
     excludes = model.excludes + ((FAST_MODE,) if fast_mode else ())
     return ClipEstimate(
-        "provisional", steps, width, height, references, float(total - setup), float(setup), float(total), excludes
+        "provisional",
+        steps,
+        width,
+        height,
+        references,
+        float(total - fixed),
+        float(fixed),
+        float(total),
+        excludes,
+        stages=split(_fixed_parts(model, adapter is None and enhance), setup, float(fixed), "generation", float(total)),
     )
+
+
+def _fixed_parts(model: VideoEstimate, enhanced: bool) -> tuple[Stage, ...]:
+    """The declared parts of a clip's fixed cost. The parts split the cost without the prompt
+    pass, so the pass joins them as its own stage when this clip pays for it. An edit is
+    never enhanced."""
+    if not model.fixed_parts:
+        return ()
+    if not enhanced or not model.enhance_seconds:
+        return model.fixed_parts
+    return (*model.fixed_parts, Stage(PROMPT_PASS, model.enhance_seconds))
 
 
 def run_seconds(model: VideoEstimate, width: int, height: int, num_frames: int) -> float:

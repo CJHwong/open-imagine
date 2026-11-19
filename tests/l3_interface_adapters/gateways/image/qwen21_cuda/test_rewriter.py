@@ -6,6 +6,7 @@ import pytest
 from PIL import Image
 
 from studio.l1_entities.errors import InvalidJob
+from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda import construction, rewriter
 from tests.support.images import png
 
@@ -127,8 +128,27 @@ def test_the_builder_returns_the_child_gateway_when_the_section_names_both_cards
 
     command = gateway._child._command
     assert command[:5] == ["/bin/uv", "run", "--python", "3.12", "--script"]
-    assert command[-4:] == ["--generate-model", "me/t2i", "--edit-model", "me/i2i"]
+    assert command[-6:] == ["--generate-model", "me/t2i", "--edit-model", "me/i2i", "--quantize", "bf16"]
     assert gateway.modes() == ("generate", "edit")
+
+
+def test_the_builder_passes_the_rewrite_precision_the_section_names(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = rewriter.build_rewriter(
+        Config({"rewrite_generate_model": "me/t2i", "rewrite_edit_model": "me/i2i", "rewrite_quantize": 8}),
+        "qwen21_turbo_cuda",
+    )
+
+    assert gateway._child._command[-2:] == ["--quantize", "fp8"]
+
+
+@pytest.mark.parametrize("width", [4, "fp8", True])
+def test_the_builder_refuses_a_rewrite_width_the_child_cannot_hold(width):
+    settings = {"rewrite_generate_model": "me/t2i", "rewrite_edit_model": "me/i2i", "rewrite_quantize": width}
+
+    with pytest.raises(ModelConfigurationError, match=r"rewrite_quantize under \[qwen21_turbo_cuda\] must be 0 or 8"):
+        rewriter.build_rewriter(Config(settings), "qwen21_turbo_cuda")
 
 
 def test_the_builder_falls_back_to_no_rewriter_without_the_settings():
@@ -146,3 +166,28 @@ def test_the_cache_line_names_each_mode(monkeypatch):
 
     assert line == "Rewriters: generate cached, edit cached"
     assert rewriter.rewriter_cache(Config({}), "qwen21_turbo_cuda") == ""
+
+
+def test_a_prepare_asks_each_card_for_one_token_and_then_stops_the_child():
+    child = Mock()
+    child.request.return_value = {"text": "x"}
+    gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i", "edit": "me/i2i"})
+
+    gateway.prepare()
+
+    asked = [call.args[0] for call in child.request.call_args_list]
+    assert [payload["role"] for payload in asked] == ["generate", "edit"]
+    assert all(payload["max_tokens"] == 1 and payload["references"] == [] for payload in asked)
+    child.stop.assert_called_once_with()
+
+
+def test_a_card_that_cannot_load_fails_the_prepare_and_still_stops_the_child():
+    child = Mock()
+    # StdioChild raises a child's error answer; it never returns one.
+    child.request.side_effect = RuntimeError("no such repo")
+    gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i"})
+
+    with pytest.raises(RuntimeError, match="no such repo"):
+        gateway.prepare()
+
+    child.stop.assert_called_once_with()

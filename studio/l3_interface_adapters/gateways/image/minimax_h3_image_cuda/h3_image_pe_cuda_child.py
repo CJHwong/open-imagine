@@ -9,6 +9,7 @@
 #   "numpy",
 #   "huggingface-hub>=1.0",
 #   "safetensors",
+#   "torchao==0.18.0",
 # ]
 # [tool.uv]
 # index-strategy = "unsafe-best-match"
@@ -21,6 +22,10 @@ task templates ship beside the weights, and `shared/h3_image_pe_text` builds the
 and reads the answer, so both machines ask the same thing.
 
 One model serves both modes, so nothing is swapped in or out between presses.
+
+`--quantize fp8` holds the language model in fp8 and multiplies in fp8, one scale per row,
+on torch's own kernels. On the DGX Spark it took the model from 51.0 GiB to 28.4 GiB, and an
+edit from 3.6 to 4.4 tokens per second. The vision tower and the output head stay bf16.
 """
 
 import argparse
@@ -42,6 +47,14 @@ from h3_image_pe_text import (  # ty: ignore[unresolved-import]
 )
 
 MAX_TOKENS = 4096
+CAPTION_OPENING = '{"expanded_caption":"'
+"""The first words of a generate answer, written for the card.
+
+With its thinking turned off the generate card ends its turn at once: on the DGX Spark the
+end of turn was its first choice at p = 0.81, so most presses came back empty, and the rest
+were prose with no JSON. Opened this way, two of two answers were complete captions of 233
+and 285 tokens that parsed.
+"""
 
 
 def say(message: str) -> None:
@@ -80,48 +93,29 @@ def move_by_way_of_memory(module, device: str = "cuda") -> None:
             tensor.data = landed
 
 
-def dequantize_nvfp4(packed, scales, global_scale):
-    """Decode the release's low-nibble-first weights, in blocks of sixteen."""
-    import numpy as np
-
-    if packed.dtype != np.uint8 or packed.ndim != 2 or packed.shape[1] % 8:
-        raise ValueError("NVFP4 weights must hold uint8 rows with eight-byte blocks.")
-    if scales.shape != (packed.shape[0], packed.shape[1] // 8) or global_scale.size != 1:
-        raise ValueError("NVFP4 scales do not match the packed weights.")
-    levels = np.array([0, 0.5, 1, 1.5, 2, 3, 4, 6, -0.0, -0.5, -1, -1.5, -2, -3, -4, -6], dtype=np.float32)
-    decoded = np.empty((packed.shape[0], packed.shape[1] * 2), dtype=np.float32)
-    decoded[:, 0::2] = levels[packed & 15]
-    decoded[:, 1::2] = levels[packed >> 4]
-    decoded.reshape(packed.shape[0], packed.shape[1] // 8, 16)[:] *= scales.astype(np.float32)[:, :, None]
-    decoded *= global_scale.astype(np.float32).reshape(())
-    return decoded
-
-
 def indexed_tensor_reader(source: Path, index: dict, stack):
     """Keep shard readers open because a weight and its scales can occupy different shards."""
-    from safetensors import safe_open
+    # Beside this script, so it imports by name when the child runs.
+    from h3_image_pe_nvfp4_weights import open_shard  # ty: ignore[unresolved-import]
 
     readers = {}
 
     def read(name):
         shard = index[name]
         if shard not in readers:
-            readers[shard] = stack.enter_context(safe_open(str(source / shard), framework="pt", device="cpu"))
-        return readers[shard].get_tensor(name)
+            readers[shard] = stack.enter_context(open_shard(source / shard))
+        return readers[shard](name)
 
     return read
 
 
 def checkpoint_tensor(read, index: dict, name: str):
-    import torch
+    from h3_image_pe_nvfp4_weights import dequantize_nvfp4  # ty: ignore[unresolved-import]
 
     packed = read(name)
     if f"{name}_scale" not in index:
         return packed.clone()
-    decoded = dequantize_nvfp4(
-        packed.numpy(), read(f"{name}_scale").float().numpy(), read(f"{name}_scale_2").float().numpy()
-    )
-    return torch.from_numpy(decoded).to(torch.bfloat16)
+    return dequantize_nvfp4(packed, read(f"{name}_scale").float(), read(f"{name}_scale_2").float(), "cuda")
 
 
 def load_nvfp4(source: str, config):
@@ -159,7 +153,30 @@ def load_nvfp4(source: str, config):
     return weights.eval()
 
 
-def load(model: str):
+def language_linear(module, name: str) -> bool:
+    """A bf16 linear layer of the language model: not the vision tower, not the output head."""
+    import torch
+
+    if not isinstance(module, torch.nn.Linear) or module.weight.dtype != torch.bfloat16:
+        return False
+    return "visual" not in name and "lm_head" not in name
+
+
+def to_fp8(weights) -> None:
+    from torchao.quantization import (  # ty: ignore[unresolved-import]
+        Float8DynamicActivationFloat8WeightConfig,
+        PerRow,
+        quantize_,
+    )
+    from torchao.quantization.quantize_.common.kernel_preference import (  # ty: ignore[unresolved-import]
+        KernelPreference,
+    )
+
+    config = Float8DynamicActivationFloat8WeightConfig(granularity=PerRow(), kernel_preference=KernelPreference.TORCH)
+    quantize_(weights, config, filter_fn=language_linear)
+
+
+def load(model: str, quantize: str = "bf16"):
     import torch
     from transformers import AutoConfig, AutoProcessor, Qwen3_5ForConditionalGeneration
 
@@ -172,8 +189,11 @@ def load(model: str):
     else:
         weights = Qwen3_5ForConditionalGeneration.from_pretrained(source, torch_dtype=torch.bfloat16, device_map="cpu")
         move_by_way_of_memory(weights, "cuda")
+    if quantize == "fp8":
+        to_fp8(weights)
+        torch.cuda.empty_cache()
     torch.cuda.synchronize()
-    say(f"loaded {model} in {time.time() - started:.1f}s")
+    say(f"loaded {model} as {quantize} in {time.time() - started:.1f}s")
     return processor, weights
 
 
@@ -185,6 +205,11 @@ def reference_image(raw: bytes):
 
 
 def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> str:
+    return write(processor, model, messages, images, max_tokens)[0]
+
+
+def write(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS, opening: str = "") -> tuple[str, bool]:
+    """The answer, and whether the card ended it before the token limit did."""
     import torch
 
     if images:
@@ -193,6 +218,7 @@ def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> 
         content.append({"type": "text", "text": messages[-1]["content"]})
         messages = [*messages[:-1], {**messages[-1], "content": content}]
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    text += opening
     inputs = processor(text=[text], images=list(images) or None, return_tensors="pt").to("cuda")
     with torch.inference_mode():
         written = model.generate(
@@ -203,7 +229,25 @@ def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> 
             top_p=0.95,
             top_k=20,
         )
-    return processor.batch_decode(written[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True)[0]
+    prompt_length = inputs["input_ids"].shape[1]
+    answer = processor.batch_decode(written[:, prompt_length:], skip_special_tokens=True)[0]
+    return opening + answer, written.shape[1] - prompt_length < max_tokens
+
+
+def unclosed_caption(text: str) -> dict:
+    """A caption the card ended its turn inside, before it closed the string.
+
+    One poster answer in four did this on the DGX Spark: a whole caption, then the end of
+    the turn. The caption stands, and the ratio is left to the request.
+    """
+    body = text.removeprefix(CAPTION_OPENING).rstrip().removesuffix('"}').removesuffix('"')
+    try:
+        caption = json.loads(f'"{body}"').strip()
+    except json.JSONDecodeError:
+        raise ValueError("The prompt enhancer returned no JSON object.") from None
+    if not caption:
+        raise ValueError("The prompt enhancer wrote an empty caption.")
+    return {"prompt": caption, "ratio": None}
 
 
 def generate(processor, model, job: dict, prompt_dir: Path) -> dict:
@@ -213,7 +257,14 @@ def generate(processor, model, job: dict, prompt_dir: Path) -> dict:
         raise ValueError("Write a prompt before asking for a longer one.")
     pictures = [base64.b64decode(raw) for raw in job.get("images") or []]
     if kind == "generate":
-        return caption_reply(ask(processor, model, image_messages(prompt_dir, prompt)), "aspect_ratio")
+        text, finished = write(processor, model, image_messages(prompt_dir, prompt), opening=CAPTION_OPENING)
+        # An answer the card closed all but its last brace still holds its ratio.
+        for candidate in (text, text + "}"):
+            with contextlib.suppress(ValueError):
+                return caption_reply(candidate, "aspect_ratio")
+        if not finished:
+            raise ValueError("The prompt enhancer reached its token limit before it closed the caption.")
+        return unclosed_caption(text)
     if kind == "edit":
         ratio = str(job.get("ratio") or "adaptive")
         messages = edit_messages(prompt_dir, prompt, [picture_ratio(raw) for raw in pictures], ratio)
@@ -226,13 +277,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="MiniMaxAI/MiniMax-H3-Image-PE")
     parser.add_argument("--prompt-dir")
+    parser.add_argument("--quantize", default="bf16", choices=["bf16", "fp8"])
     arguments = parser.parse_args()
     import torch
 
     if not torch.cuda.is_available():
         say("CUDA is not available in this environment")
         return 2
-    processor, model = load(arguments.model)
+    processor, model = load(arguments.model, arguments.quantize)
     prompt_dir = Path(arguments.prompt_dir or Path(local_snapshot(arguments.model)) / "prompt")
     say("ready")
     for line in sys.stdin:

@@ -10,7 +10,21 @@ def discovery_schemas() -> dict[str, Any]:
     boolean = {"type": "boolean"}
     nullable_number = {"type": ["number", "null"]}
     pairs = {"type": "array", "items": {"type": "array", "prefixItems": [string, string], "minItems": 2, "maxItems": 2}}
+    stages = {"type": "array", "items": {"$ref": "#/components/schemas/Stage"}}
+    fixed_parts = {**stages, "description": "The named pieces of the fixed cost, in seconds that add up to it."}
+    load = {
+        "load_seconds": {
+            **nullable_number,
+            "description": "The seconds a cold load of the model takes, which the time figure excludes, or null when unmeasured.",
+        },
+        "may_add": {**stages, "description": "A cost that a first run may add and no figure holds, such as a compile."},
+    }
     return {
+        "Stage": {
+            "type": "object",
+            "required": ["name", "seconds"],
+            "properties": {"name": string, "seconds": number},
+        },
         "TemplateFieldTranslation": {
             "type": "object",
             "properties": {"id": string, "label": string, "default": {"type": ["string", "null"]}, "choices": pairs},
@@ -102,6 +116,7 @@ def discovery_schemas() -> dict[str, Any]:
                 "per_reference": number,
                 "strength_scales_steps": boolean,
                 "per_reference_ratio": number,
+                "fixed_parts": fixed_parts,
             },
         },
         "VideoEstimate": {
@@ -123,6 +138,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "forwards": {
                     "type": "integer",
                     "description": "The steps of a model with one stage. 0 means two stages. A number above 0 means the run has no stage 1: it takes that many steps of stage_2 on all the tokens.",
+                },
+                "fixed_parts": {
+                    **stages,
+                    "description": "The named pieces of fixed_seconds less enhance_seconds, in seconds that add up to it.",
                 },
             },
             "description": "The constants behind a clip's time. POST /api/v1/videos/plan applies them to one clip; a client can apply them to every size and length at once.",
@@ -160,6 +179,7 @@ def discovery_schemas() -> dict[str, Any]:
                     "type": "boolean",
                     "description": "False when this model refuses a request that sends X-Studio-Private-Key. Its engine reads the prompt and the references from plaintext files.",
                 },
+                **load,
             },
         },
         "VideoMode": {
@@ -266,6 +286,7 @@ def discovery_schemas() -> dict[str, Any]:
                     "description": "Whether a clip that follows an audio track can also pick LoRAs.",
                 },
                 "estimate": {"$ref": "#/components/schemas/VideoEstimate"},
+                **load,
             },
             "description": "The shapes are a menu: a size can keep any ratio, with each side on the dimension_step grid from min_dimension to max_dimension and no more pixels than the largest shape. Frame counts follow min_frames plus whole multiples of frame_step. Generation templates live here; Looks live inside each mode.",
         },
@@ -288,7 +309,7 @@ def discovery_schemas() -> dict[str, Any]:
         "LoadingPolicy": {
             "type": "object",
             "properties": {
-                "policy": {"type": "string", "examples": ["download_on_first_use"]},
+                "policy": {"type": "string", "examples": ["download_on_prepare"]},
                 "repository": string,
                 "revision": string,
                 "note": string,
@@ -319,6 +340,7 @@ def discovery_schemas() -> dict[str, Any]:
                 "max_seconds": number,
                 "max_batch_items": integer,
                 "loading": {"$ref": "#/components/schemas/LoadingPolicy"},
+                **load,
             },
         },
         "VoiceMode": {
@@ -332,7 +354,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "text_required": string,
                 "params": {"type": "array", "items": {"$ref": "#/components/schemas/VoiceParameter"}},
                 "templates": {"type": "array", "items": {"$ref": "#/components/schemas/VoiceTemplate"}},
-                "estimate": {"type": ["object", "null"], "properties": {"rtf": number, "overhead": number}},
+                "estimate": {
+                    "type": ["object", "null"],
+                    "properties": {"rtf": number, "overhead": number, "fixed_parts": fixed_parts},
+                },
             },
         },
         "VoiceParameter": {

@@ -10,10 +10,14 @@ from studio.l3_interface_adapters.api.openapi import openapi_document
 from studio.l3_interface_adapters.api.prompt_builder import prepare_prompt
 from studio.l3_interface_adapters.api.request_mapper import image_form
 from studio.l3_interface_adapters.controllers.form_controller import plan_request as image_plan_request
+from studio.l3_interface_adapters.controllers.music_controller import music_job
 from studio.l3_interface_adapters.controllers.video_controller import plan_request as video_plan_request
 from studio.l3_interface_adapters.controllers.video_controller import video_job
+from studio.l3_interface_adapters.controllers.voice_controller import voice_job
 from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import ltx25_mlx_capabilities
+from studio.l3_interface_adapters.gateways.voice.drama3.capabilities import drama_capabilities
 
 
 def test_generate_routes_offer_named_payloads_instead_of_generated_defaults():
@@ -313,6 +317,10 @@ def test_every_plan_example_passes_the_checks_of_the_model_it_names():
         request = image_plan_request(image_form(values, body["mode"]))
         options = qwen21_turbo_capabilities().mode(request.mode).parse_options(request.options)
         assert options["resolution"] == "match"
+    for body in examples("/api/v1/voice/plan"):
+        assert voice_job(body, drama_capabilities()).text
+    for body in examples("/api/v1/music/plan"):
+        assert music_job(body, yue2_capabilities()).lyrics
 
 
 def test_model_cleanup_requires_ids_and_a_reviewed_revision():
@@ -323,3 +331,14 @@ def test_model_cleanup_requires_ids_and_a_reviewed_revision():
     assert plan["properties"]["include_runtime"]["default"] is False
     assert remove["required"] == ["models", "revision"]
     assert "get" in paths["/api/v1/model-storage"]
+
+
+def test_the_reference_offers_the_model_list_and_the_prepare_operation():
+    document = openapi_document()
+    schemas = document["components"]["schemas"]
+    kinds = [option["properties"]["kind"]["const"] for option in schemas["OperationRequest"]["oneOf"]]
+
+    assert document["paths"]["/api/v1/models"]["get"]["operationId"] == "listModels"
+    assert "prepare" in kinds
+    assert set(schemas["OperationPrepareRequest"]["properties"]) == {"workspace", "backend"}
+    assert "never downloads" in document["paths"]["/api/v1/operations"]["post"]["description"]

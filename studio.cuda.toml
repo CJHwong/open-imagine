@@ -1,11 +1,11 @@
-# The NVIDIA setup. Nothing here downloads until a model runs.
+# The NVIDIA setup. Nothing here downloads until a model is prepared, and a run never downloads.
 #
 #   uv run studio --config studio.cuda.toml --prepare
 #   uv run studio --config studio.cuda.toml
 #
 # Every engine below runs as a PEP 723 script child with its own pinned environment, so
 # `uv` must be on the server's PATH. [Run on an NVIDIA machine](docs/how-to/set-up-models.md#run-on-an-nvidia-machine)
-# covers the memory each model needs and the packs the first run builds.
+# covers the memory each model needs and the packs a prepare builds.
 
 default_backend = "qwen21_turbo_cuda"
 visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda", "minimax_h3_image_cuda_nvfp4"]
@@ -23,26 +23,33 @@ visible_music_backends = ["yue2_cuda", "yue2_cuda_nvfp4"]
 # encoder and vae, so there is no second model to download or load.
 #
 # Rewrite runs the two prompt cards by name. Remove both lines to hide the toggle. The child
-# keeps one card resident and frees it before the other one loads.
+# keeps one card resident and frees it before the other one loads. 8 holds each card's
+# language model in fp8: 14.8 tokens/s against 10.1 at bf16 on twelve sampled rewrites, with
+# every answer parsed. 0 keeps bf16.
 [qwen21_turbo_cuda]
 quantize = "bf16"
 rewrite_generate_model = "Qwen/Qwen-Image-2.1-PE-T2I"
 rewrite_edit_model = "Qwen/Qwen-Image-2.1-PE-I2I"
+rewrite_quantize = 8
 
 # fp8 removes the grain NVFP4 leaves on this model; see the configuration reference.
 [minimax_h3_image_cuda]
 quantize = "fp8"
 # The release's own prompt enhancer, a 27B. Remove it to hide Rewrite; it loads on the first
-# press and is released before an image run.
+# press and is released before an image run. 8 holds its language model in fp8: 28.4 GiB
+# against 51.0, and an edit at 4.4 tokens/s against 3.6. 0 keeps bf16.
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
+rewrite_quantize = 8
 
-# The same checkpoint packed to NVFP4. fp8 stays the default: the pack is 40% faster and
-# leaves grain that fp8 does not. Its first run on a machine without the pack takes about
-# nine minutes and 104 GiB, because the child writes the 38 GB pack and then loads it; after
-# that a run is 34.3 s against fp8's 57.4.
+# The same checkpoint packed to NVFP4. fp8 is the default: it multiplies in fp8, so a 1024
+# image takes 6.6 s against 21.2 s here, and it leaves no grain. NVFP4 holds about 40 GiB
+# against fp8's 73, so it is the entry for a machine that is short of memory. Its first run
+# on a machine without the pack takes about nine minutes and 104 GiB, because the child
+# writes the 38 GB pack and then loads it.
 [minimax_h3_image_cuda_nvfp4]
 quantize = "nvfp4"
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
+rewrite_quantize = 8
 
 [drama3_cuda]
 checkpoint = "fishaudio/drama-3"

@@ -7,9 +7,23 @@ too, or breaks the promise that the two agree.
 
 from dataclasses import replace
 
+import pytest
+
 from studio.l1_entities.capabilities import Choice, Estimate, ModeSpec, ParamSpec
+from studio.l1_entities.estimate_stages import Stage
 from studio.l1_entities.image_estimate import EXCLUDES, estimate_image
+from studio.l3_interface_adapters.gateways.image.flux2.capabilities import flux2_capabilities
+from studio.l3_interface_adapters.gateways.image.flux3.capabilities import flux3_capabilities
+from studio.l3_interface_adapters.gateways.image.krea2.capabilities import krea2_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image.capabilities import minimax_h3_image_capabilities
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
+    minimax_h3_image_cuda_capabilities,
+)
 from studio.l3_interface_adapters.gateways.image.qwen21.capabilities import qwen21_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen21_cuda.capabilities import qwen21_cuda_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen21_turbo.capabilities import qwen21_turbo_capabilities
+from studio.l3_interface_adapters.gateways.image.qwen_checkpoint.capabilities import qwen_checkpoint_capabilities
+from studio.l3_interface_adapters.gateways.image.viggle_turbo.capabilities import viggle_turbo_capabilities
 
 QWEN21 = qwen21_capabilities("bf16")
 GENERATE = QWEN21.mode("generate")
@@ -152,3 +166,66 @@ def test_a_long_reference_adds_its_ratio_past_square_to_the_step_cost():
     assert seconds(wide, tall, each=True) == 17.5
     # The mask is not a picture: 1 + 1.0 for the mask + 0.5 x 2.
     assert seconds(wide, (64, 640), mask=True) == 30.0
+
+
+def test_the_stages_split_the_total_into_the_fixed_cost_and_the_steps():
+    estimate = estimate_image(GENERATE, options(GENERATE, size="1024x1024"), (), 2)
+
+    # qwen21 pays 3 s for each image, so two images pay 6 s before their steps.
+    assert [(stage.name, stage.seconds) for stage in estimate.stages] == [("fixed", 6.0), ("steps", 271.0)]
+
+
+def test_a_whole_run_pays_its_fixed_stage_once():
+    mode = ModeSpec(id="generate", label="Generate", params=(STEPS,), estimate=Estimate(1.0, 0.0, 20, False))
+
+    assert [stage.seconds for stage in estimate_image(mode, {"steps": 5}, (), 3).stages] == [20.0, 15.0]
+
+
+def test_the_declared_parts_of_the_overhead_are_stages_of_their_own():
+    parts = (Stage("text encode", 1.5), Stage("decode", 0.5))
+    mode = ModeSpec(
+        id="generate", label="Generate", params=(STEPS,), estimate=Estimate(1.0, 0.0, 2.0, True, fixed_parts=parts)
+    )
+
+    stages = estimate_image(mode, {"steps": 5}, (), 3).stages
+
+    assert stages == (Stage("text encode", 4.5), Stage("decode", 1.5), Stage("steps", 15.0))
+
+
+def test_an_overhead_whose_parts_do_not_add_up_is_refused():
+    with pytest.raises(ValueError, match="overhead parts add up"):
+        Estimate(1.0, 0.0, 2.0, True, fixed_parts=(Stage("decode", 0.5),))
+
+
+BUILT_IN = (
+    qwen21_capabilities("bf16"),
+    qwen21_turbo_capabilities(),
+    qwen21_cuda_capabilities("bf16"),
+    krea2_capabilities(),
+    flux2_capabilities("int4"),
+    flux3_capabilities("int4"),
+    viggle_turbo_capabilities("int4"),
+    minimax_h3_image_capabilities(),
+    minimax_h3_image_cuda_capabilities(),
+    minimax_h3_image_cuda_capabilities(badge="nvfp4"),
+    qwen_checkpoint_capabilities("checkpoint", "Checkpoint", badge="bf16"),
+)
+
+
+@pytest.mark.parametrize("capabilities", BUILT_IN, ids=lambda capabilities: capabilities.backend_id)
+@pytest.mark.parametrize("count", [1, 3])
+def test_every_mode_of_every_built_in_model_splits_its_total_exactly(capabilities, count):
+    """At the mode's defaults: the stages add up to the total, and the fixed stages add up
+    to the overhead that the count pays."""
+    for mode in capabilities.modes:
+        references = ((1024, 768),) * mode.min_references
+        estimate = estimate_image(mode, mode.parse_options({}), references, count)
+        model = mode.reference_estimate if references and mode.reference_estimate else mode.estimate
+        if estimate.total_seconds is None or model is None:
+            assert estimate.stages == ()
+            continue
+        fixed = model.overhead * (count if model.overhead_per_image else 1)
+        assert round(sum(stage.seconds for stage in estimate.stages), 1) == estimate.total_seconds
+        assert round(sum(stage.seconds for stage in estimate.stages[:-1]), 1) == round(fixed, 1)
+        assert estimate.stages[-1].name == "steps"
+        assert estimate.stages[-1].seconds >= 0

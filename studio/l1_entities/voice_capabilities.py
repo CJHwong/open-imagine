@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from studio.l1_entities.errors import InvalidJob, UnsupportedMode
+from studio.l1_entities.estimate_stages import Stage, check_parts
 from studio.l1_entities.template_translation import TemplateTranslation
 from studio.l1_entities.voice_job import OptionValue
 
@@ -99,11 +100,16 @@ class Estimate:
 
     `seconds_per_character` lets a mode that follows its script say a time before it
     runs. Its audio length is not known then, and this is the measured length of speech
-    one character of the script produces."""
+    one character of the script produces. `fixed_parts` names the pieces of `overhead`, in
+    seconds that add up to it, for the stages of a plan."""
 
     rtf: float
     overhead: float
     seconds_per_character: float | None = None
+    fixed_parts: tuple[Stage, ...] = ()
+
+    def __post_init__(self):
+        check_parts(self.fixed_parts, self.overhead, "The overhead")
 
 
 @dataclass(frozen=True)
@@ -149,6 +155,10 @@ class Capabilities:
     reference_sample_rate: int = 24000
     max_reference_seconds: float = 120
     description: str = ""
+    # The seconds a cold load takes, which no figure holds, or None when unmeasured, and a
+    # cost that a first run may add.
+    load_seconds: float | None = None
+    may_add: tuple[Stage, ...] = ()
 
     def mode(self, mode_id: str) -> ModeSpec:
         for mode in self.modes:

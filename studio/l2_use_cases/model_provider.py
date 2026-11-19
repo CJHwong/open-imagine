@@ -27,3 +27,6 @@ class ModelProvider:
     """The memory this model holds while it is loaded and idle, from its weight size.
     A boundary policy can keep only a model with this figure, because it cannot count
     the cost of one without it. A run's transient peak still goes through admission."""
+    ready_assets: Callable[[ModelConfigurationGateway], tuple[ModelAsset, ...]] | None = None
+    """Files a prepare builds and a run reads, such as a pack of quantized weights. The
+    model is not ready without them. They stay out of the storage cleanup's scope."""

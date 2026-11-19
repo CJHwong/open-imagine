@@ -533,6 +533,149 @@ Fresh and reloaded output PNGs match their corresponding original-pack output. T
 | nvfp4 / build-and-generate | 332.200 | 106.60 | 17.94 |
 | nvfp4 / cached-reload-and-generate | 64.350 | 17.25 | 73.45 |
 
+### The 19 November speed pass
+
+Each table row ran through the Studio operations API on a DGX Spark, against a server on its
+own port with the revision checked before the run. Times run from submission to terminal
+status and include polling. A figure in the prose that came from driving the engine child
+directly says so.
+
+Image, MiniMax H3-Image fp8 (`minimax_h3_image_cuda`). The fp8 build now multiplies in fp8,
+one scale per row, in the encoder and the transformer. The earlier build held
+weights in fp8 or NVFP4 and widened them on every pass. Six steps, seed 7.
+
+| Request | Before (s) | After (s) |
+| --- | ---: | ---: |
+| generate 1024 × 576 | 38.42 | 4.03 |
+| generate 1024 × 1024 | 41.3 | 6.55 |
+| generate 2048 × 2048 | 57.4 | 30.35 |
+| edit 1024 × 1024, one 512 reference | 52.32 | 20.73 |
+| edit 2048 × 2048, one 512 reference | 68.38 | 57.59 |
+| edit 1024 × 1024, four 512 references | 90.76 | 94.48 |
+| edit to Match, one 2048 reference | 91.0 | 90.2 |
+| first image, pack load included | 95.0 | 43.2 to 58.3 |
+
+An edit with a large reference does not gain, because the reference's tokens join the
+sequence and attention takes most of the time: 77.9 of 88.1 s at 2048, timed in the child. Five prompt and seed
+pairs and one edit looked the same before and after, including the rendered title of a text
+poster. A studio idle with the fp8 model loaded held 77.4 GiB.
+
+The text encoder has 64 layers, and H3 reads the state that enters layer 50. The child now drops layers 51 to 63 and the output head when it builds or loads a pack, so the pack is 59 GiB and a loaded studio holds 8.4 GiB less: 60.4 GiB against 68.8 GiB after the first image. Generate at 1024 and 2048 and the edit to Match gave the same bytes as before, from an old pack and from a new one, and the same time to within 0.3 s. A fresh build and its first image took 99.9 s, and available memory stayed at 53.6 GiB or more. An older pack still loads; the child skips the layers it drops.
+
+Before that change, the pack was 66 GiB. Building it in a script that runs the child's own build took 49.9 s with the checkpoint on disk and
+writing it 43.0 s, and available memory stayed at 45.8 GiB or more. The 17 November build
+fell to 20.3 GiB. Two changes keep it there: each bf16 linear is quantized as it lands, and
+the pack is written one tensor at a time. Without them the W8A8 build fell to 3.9 GiB.
+
+Video, LTX-2.5 BF16 (`ltx25_cuda`), with the transformer's repeated block compiled.
+No prompt enhancement unless the row says so.
+
+| Request | Eager (s) | Compiled (s) |
+| --- | ---: | ---: |
+| 768 × 768, 97 frames, warm | 70.8 | 53.0 |
+| 768 × 768, 97 frames, first run, load included | 119.6 | 111.3 |
+| 1280 × 704, 97 frames, first run at that size | 110.0 | 89.7 |
+| 384 × 384, 25 frames, first run at that size | 7.6 | 12.1 |
+| 384 × 384, 25 frames, repeat | 7.55 | 6.57 |
+| 768 × 768, 97 frames, two keyframes | not run | 53.4 |
+| 768 × 768, 97 frames, prompt enhancement, first run | not run | 120.9 |
+
+Each canvas and length compiles its own graph, and the page offers 30. PyTorch compiles 8 at
+most and runs every later one eager, so the child raises that limit to 64. In one process, the
+tenth and eleventh lengths ran in 62.9 and 79.1 s on their first, compiling run, against 74.1
+and 104.7 s eager before the change.
+
+The child decodes a clip in tiles and hands PyTorch's cached memory back after each clip. A
+clip's peak used to stay in the cache, so a session that grew to 99.7 GiB ran the next long clip
+out of memory. Warm, the second run at each size, with audio and prompt enhancement:
+
+| Clip | 5 s (s) | 10 s (s) | 15 s (s) |
+| --- | ---: | ---: | ---: |
+| 384 × 384 | 26.5 | 42.8 | 59.3 |
+| 512 × 512 | 38.8 | 69.0 | 103.1 |
+| 768 × 768 | 76.5 | 159.8 | 275.5 |
+| 1024 × 576 | 77.5 | 159.9 | 275.3 |
+| 1280 × 704 | 123.6 | 282.5 | 488.5 |
+| 1920 × 1088 | 350.1 | not run | not run |
+
+The 15 s clips at 768 × 768, 1024 × 576 and 1280 × 704 ran out of memory before the tiled
+decode. Driven in the child, the 768 × 768, 15 s clip now peaks at 84.5 GiB with 14 GiB still
+available, and a 5 s clip decodes in 4.4 s against 5.1 s. Tiled and whole frames differ by
+45.3 dB, only where the tiles overlap. After every clip above, the engine held 78.2 GiB, its
+weights. The 384 and 512 rows ran before the tiled decode.
+
+Image, Qwen-Image-2.1 Turbo BF16 (`qwen21_turbo_cuda`), with the transformer compiled for
+dynamic shapes. Warm runs:
+
+| Request | Eager (s) | Compiled (s) |
+| --- | ---: | ---: |
+| generate 768 × 768 | 6.6 | 5.1 |
+| generate 1024 × 1024 | 11.7 | 9.0 |
+| generate 1328 × 1328 | 19.1 | 15.4 |
+| edit 1024, one reference | 14.5 | 12.5 |
+| edit 1344, one reference | 26.6 | 22.8 |
+| edit 1024, ten references | 48.5 | 46.2 |
+| first generate of a fresh studio, load included | 19.2 | 17.5 |
+
+A compile with static shapes gained the same, but each size and prompt length is its own
+sequence length, and it ran out of recompiles by its second size. Dynamic shapes recompiled
+three times over four sizes and two prompt lengths. An empty compile cache adds about 14 s to
+the first image; a warm cache, under 2 s to the first edit. A compiled image is the same scene
+as the eager one, and at 1328 small objects differ as they would with a nearby seed.
+
+The Qwen child also hands PyTorch's cached memory back after each image. Without it, the child
+held 66.7 GiB after a ten-reference edit and kept it. With it, the child held 34.4 to 41.8 GiB,
+and the same requests took the same time: 9.0 against 9.1 s at 1024, 11.7 against 11.8 s for a
+one-reference edit, 44.0 against 43.9 s for ten. The H3 fp8 child kept 4.3 GiB more after a large
+edit, so it does not release.
+
+Prepare, every Spark model with no H3 pack on disk, through `studio --prepare`: 632 s in all,
+with available memory at 26 GiB or more. Qwen 44.6 s, H3 fp8 145.1 s, H3 NVFP4 291.4 s, LTX
+43.6 s, Drama 65.0 s, YuE2 14.5 s, YuE2 NVFP4 26.1 s.
+
+Music, YuE2 transcription (`yue2_cuda`). The child keeps the transcriber after its first use.
+A first transcription took 26.2 s with the child's own load; a cache miss after
+it took 1.55 s, against about 21 s before, timed in the child.
+
+Prompt enhancement, H3-Image's own enhancer, fp8, with its answer opened. Before the opening,
+no generate press in four returned a caption in the child: the card ended its turn first.
+After it, nine generate presses (three requests, three runs each, one in Mandarin) and two
+edits all succeeded, at 159.3 to 229.7 s each. Each press starts a fresh enhancer, because
+the studio releases a rewriter after every rewrite, so each pays the load again; the bf16
+load alone measured 104 to 109 s. A
+press dropped free memory by 55.3 GiB at most: the fp8 path loads bf16 and then quantizes.
+
+The enhancer's load, stage by stage, timed in the child. It holds 28.3 GiB in every row.
+
+| Load path | Read | Decode | To CUDA | To fp8 | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mapped shards, numpy decode | 3.4 s | 92.6 s | 3.0 s | 2.6 s | 112.1 s |
+| Mapped shards, GPU decode | 0.1 s | 107.3 s | 2.9 s | 2.5 s | 117.6 s |
+| One-pass reader, GPU decode, from disk | 14.5 s | 17.1 s | 3.0 s | 2.6 s | 42.2 s |
+| One-pass reader, GPU decode, page cache | 1.1 s | 17.6 s | 3.0 s | 2.6 s | 28.6 s |
+
+The GPU decode alone did not help, because a mapped shard reads its bytes by page faults
+when the decode first touches them, at about 170 MB/s. A reader that takes each tensor's
+bytes in one pass reads the 17.9 GB at about 1.2 GB/s. All 401 packed weights match the
+numpy path byte for byte, read and decoded. Through the studio, with the enhancer's child
+probed, a generate press then took 103.6 s against 171.4 s, and an edit 103.6 s against 176.9 s.
+
+Prompt rewrite, Qwen cards (`qwen21_turbo_cuda`), fp8 with fp8 multiplies, the turn ended at
+`<|im_end|>`, and the answer opened with its JSON key. Ten presses took
+33.7 to 44.3 s each, the first with the card's load. An edit of a poster took 38.2 and 40.8 s,
+against 392.1 and 264.4 s before the answer opening.
+
+These were measured and not adopted. Each ran on the engine child directly, not through the
+API:
+
+- Qwen-Image-2.1 Turbo in fp8 with fp8 multiplies: 15.6 s against 11.3 s at 1024, because
+  the transformer is compute-bound and quantizing each activation costs more than it saves.
+- Drama-3 with its codec decode compiled for dynamic shapes: the decode took 5.96 against 6.29 s
+  for a 30 s paragraph, under 1% of the request, and the first request spent about 90 s
+  compiling.
+- The Qwen rewrite cards with NVFP4 multiplies in the feed-forward layers: 16.0 tokens/s
+  against 14.8 for fp8, for a 4-bit build and one more kernel package.
+
 ## Mac and Spark comparison
 
 These requests use the same public prompts, reference inputs, exposed settings, and seed 7 on both machines.

@@ -6,7 +6,7 @@ For model capabilities and reference requirements, see [Models](../reference/mod
 
 ## Default Image: Qwen Image Turbo
 
-Run an Image generation to download `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir` (about 32.5 GB).
+Press **Download** on the page, or run `uv run studio --prepare`, to download `Qwen/Qwen-Image-2.1-Turbo` into `[qwen21_turbo].model_dir` (about 32.5 GB). A generation never downloads.
 Set that directory before starting if you want another disk or already have the checkpoint.
 
 ## Video: LTX-2.5
@@ -132,7 +132,7 @@ uv run --with huggingface-hub==0.35.3 hf download smcleod/AuK-MLX-8bit \
 ```
 ## Optional Image: Qwen and Viggle Turbo
 
-Use `uv run studio --backend qwen21` to open on full Qwen-Image-2.1. Its approximately 33 GB weights download on first use into the default Hugging Face cache (`HF_HOME` changes the cache root).
+Use `uv run studio --backend qwen21` to open on full Qwen-Image-2.1. Its approximately 33 GB weights download when you prepare it into the default Hugging Face cache (`HF_HOME` changes the cache root).
 Viggle Turbo shares that base and needs its separate adapter. Download the file to `[viggle_turbo].lora_path`:
 
 ```sh
@@ -272,27 +272,32 @@ uv run studio --config studio.cuda.toml --prepare
 uv run studio --config studio.cuda.toml
 ```
 
-`--prepare` loads each configured model, builds its packs and engine environment, then releases it.
-It does not run inference. A first generation can still compile kernels for its shape.
-Without preparation, the first generation also pays for pack and environment setup.
+`--prepare` loads each configured model and its prompt rewriter, builds its packs and engine
+environment, then releases it. It does not run inference. A first
+generation can still compile kernels for its shape. A model whose files are on disk is
+ready, however they got there. A model with a missing file refuses to run; the page offers a
+**Download** for it, which does the same prepare for that one model.
 
 `uv` must be on the server's PATH, because each engine runs as a PEP 723 script child with
 its own pinned environment; YuE2 moves that environment's torch to 2.15 so `mslk` will load.
 
-Weights download on first use, as on the Mac. Two backends keep a pack of quantized weights
+Weights download when a model is prepared, as on the Mac. Two backends keep a pack of quantized weights
 rather than quantizing on every start:
 
 | Pack | Size | First run | Later starts |
 |---|---|---|---|
-| MiniMax H3-Image, fp8 | 51 GB | about 11 minutes | 33.4 s |
+| MiniMax H3-Image, fp8 | 59 GiB | about 100 s to the first image, with the checkpoint on disk | 43 to 58 s to the first image |
 | YuE2, nvfp4 | 1.8 GB | about 2 minutes | 19.1 s |
 
 Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are
 rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
-Asking for another `quantize` builds that quantizer's own pack on the next run.
+A run never builds a pack. If a pack is missing, made for another `quantize`, or out of date
+for the installed torch, the run fails and asks for a prepare, which builds it.
 
-MiniMax H3-Image needs about 55 GiB resident in fp8; its nvfp4 path peaks near 105 GiB, so do
-not offer both quantizers on the same card. `studio.cuda.toml` sets `[memory] policy =
+MiniMax H3-Image needs about 65 GiB resident in fp8, and building its pack keeps at least 45
+GiB of a 121 GiB DGX Spark free; its nvfp4 path peaks near 105 GiB, so do not offer both
+quantizers on the same card. A pack built before fp8 multiplied in fp8 is rebuilt on the
+first run. `studio.cuda.toml` sets `[memory] policy =
 "boundary"`, which keeps a loaded model while the next one fits, so coming back to it costs
 nothing.
 

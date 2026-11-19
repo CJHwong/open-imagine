@@ -15,6 +15,9 @@ class ThreadConfinedBackendGateway(ImageBackendGateway):
     def load(self):
         self._thread.call(self._backend.load)
 
+    def prepare(self):
+        self._thread.call(self._backend.prepare)
+
     def run(self, job, on_step, should_stop):
         return self._thread.call(self._backend.run, job, on_step, should_stop)
 

@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import sys
 import types
 import weakref
@@ -20,6 +21,11 @@ class FakeImage:
         buffer.write(b"png-bytes")
 
 
+def encoder_parts():
+    """What the encoder cut reads: 64 decoder layers under `model.language_model`, and a head."""
+    return {"model": SimpleNamespace(language_model=SimpleNamespace(layers=list(range(64)))), "lm_head": "head"}
+
+
 class FakePipe:
     def __init__(self):
         self.dtype = None
@@ -28,7 +34,10 @@ class FakePipe:
         self.calls = []
         self.moved = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=self.moved.append)
-        self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
+        self.text_encoder = SimpleNamespace(
+            parameters=lambda: [], buffers=lambda: [], to=lambda device: None, **encoder_parts()
+        )
+        self.text_encoder_layer = 50
         self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
         self.components = {
             "transformer": self.transformer,
@@ -68,7 +77,10 @@ class NoCallbackPipe:
         self.loads = []
         self.calls = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
-        self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
+        self.text_encoder = SimpleNamespace(
+            parameters=lambda: [], buffers=lambda: [], to=lambda device: None, **encoder_parts()
+        )
+        self.text_encoder_layer = 50
         self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
         self.components = {
             "transformer": self.transformer,
@@ -97,6 +109,7 @@ def fake_torch(monkeypatch, available=True):
         raising=False,
     )
     monkeypatch.setattr(torch, "Generator", lambda: SimpleNamespace(manual_seed=lambda seed: seed), raising=False)
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Identity=lambda: "identity"), raising=False)
     monkeypatch.setattr(
         torch, "accelerator", SimpleNamespace(memory=SimpleNamespace(empty_host_cache=Mock())), raising=False
     )
@@ -109,10 +122,40 @@ def fake_diffusers(monkeypatch, pipe):
     monkeypatch.setitem(sys.modules, "diffusers", module)
 
 
+class Preference:
+    """torchao's KernelPreference, by value."""
+
+    def __init__(self, value):
+        self.value = value
+
+    TORCH: "Preference"
+
+
+Preference.TORCH = Preference("torch")
+AUTO = Preference("auto")
+
+
 def fake_torchao(monkeypatch, record, name="NVFP4DynamicActivationNVFP4WeightConfig"):
     quantize = types.ModuleType("torchao.quantization")
-    monkeypatch.setattr(quantize, "quantize_", lambda module, config: record.append((module, config)), raising=False)
-    monkeypatch.setattr(quantize, "Float8WeightOnlyConfig", lambda: "fp8-config", raising=False)
+
+    def quantize_(module, config, filter_fn=None):
+        record.append((module, config, filter_fn) if filter_fn else (module, config))
+
+    monkeypatch.setattr(quantize, "quantize_", quantize_, raising=False)
+    monkeypatch.setattr(quantize, "PerRow", lambda dim=-1: ("per-row", dim), raising=False)
+    monkeypatch.setattr(
+        quantize,
+        "Float8DynamicActivationFloat8WeightConfig",
+        lambda granularity, kernel_preference: ("w8a8", granularity, kernel_preference.value),
+        raising=False,
+    )
+    monkeypatch.setattr(quantize, "Float8MMConfig", lambda *values: ("mm", *values), raising=False)
+    preference = types.ModuleType("torchao.quantization.quantize_.common.kernel_preference")
+    monkeypatch.setattr(preference, "KernelPreference", Preference, raising=False)
+    float8 = types.ModuleType("torchao.quantization.quantize_.workflows.float8.float8_tensor")
+    monkeypatch.setattr(float8, "QuantizeTensorToFloat8Kwargs", lambda **values: values, raising=False)
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.common.kernel_preference", preference)
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.workflows.float8.float8_tensor", float8)
     monkeypatch.setattr(quantize, "NVFP4WeightOnlyConfig", lambda: "nvfp4-wo-config", raising=False)
     config = types.ModuleType("torchao.prototype.mx_formats")
     monkeypatch.setattr(config, name, object, raising=False)
@@ -199,6 +242,7 @@ class FakeTensor:
     def __init__(self, name, log):
         self.name = name
         self.log = log
+        self.device = SimpleNamespace(type="cpu")
 
     def data_ptr(self):
         return hash(self.name)
@@ -243,13 +287,56 @@ def test_aliased_weights_move_once_and_stay_shared():
     assert module.parameters()[0].data is module.parameters()[1].data
 
 
-def test_load_can_ask_for_fp8_or_bf16(monkeypatch):
+def test_fp8_lands_the_encoder_and_the_transformer_in_fp8(monkeypatch):
+    """Weight-only fp8 widened every weight on every pass: 39.8 s a 1024 image, against 5.9 s."""
     fake_torch(monkeypatch)
-    fake_diffusers(monkeypatch, FakePipe())
-    recorded = []
-    fake_torchao(monkeypatch, recorded)
-    assert child.load("me/pack", "fp8") is not None
-    assert recorded[1][1] == "fp8-config"
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    landed = []
+    monkeypatch.setattr(child, "land_in_fp8", lambda module, kept=(): landed.append((module, kept)))
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: None)
+    fake_torchao(monkeypatch, [])
+
+    assert child.load("me/pack", "fp8") is pipe
+
+    assert landed == [(pipe.text_encoder, ("visual", "lm_head")), (pipe.transformer, ())]
+
+
+class Linear:
+    def __init__(self, dtype="bfloat16"):
+        self.weight = SimpleNamespace(dtype=dtype)
+
+
+class Tree:
+    def __init__(self, layers):
+        self.layers = layers
+
+    def named_modules(self):
+        return [("", self), *self.layers.items()]
+
+
+def test_land_in_fp8_quantizes_each_chosen_linear_as_it_lands_and_moves_the_rest(monkeypatch):
+    fake_torch(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "nn", SimpleNamespace(Linear=Linear), raising=False)
+    events = []
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: events.append(("move", module)))
+    fake_torchao(monkeypatch, events)
+    chosen, vision, wide, norm = Linear(), Linear(), Linear("float32"), SimpleNamespace()
+    tree = Tree({"layers.0.up": chosen, "visual.qkv": vision, "layers.0.gate": wide, "norm": norm})
+
+    child.land_in_fp8(tree, kept=("visual",))
+
+    assert events == [("move", chosen), (chosen, ("w8a8", ("per-row", -1), "torch")), ("move", tree)]
+
+
+def test_a_weight_already_on_the_device_is_not_moved_again():
+    log = []
+    landed = FakeTensor("w", log)
+    landed.device = SimpleNamespace(type="cuda")
+
+    child.move_by_way_of_memory(FakeModule([landed]), "cuda")
+
+    assert log == []
 
 
 def test_bf16_loads_everything_at_once_and_quantizes_nothing(monkeypatch):
@@ -359,9 +446,30 @@ class Part:
 class Float8Weight:
     """The shape of torchao's Float8Tensor, as the pack sees it."""
 
-    def __init__(self, qdata, scale, block_size=None, dtype=None):
+    def __init__(
+        self,
+        qdata,
+        scale,
+        block_size=None,
+        mm_config=None,
+        act_quant_kwargs=None,
+        kernel_preference=AUTO,
+        dtype=None,
+    ):
         self.qdata, self.scale = qdata, scale
         self.block_size, self.dtype = block_size, dtype
+        self.mm_config, self.act_quant_kwargs = mm_config, act_quant_kwargs
+        self.kernel_preference = kernel_preference
+
+
+W8A8_ACTIVATION = SimpleNamespace(
+    float8_dtype="torch.float8_e4m3fn", granularity=SimpleNamespace(dim=-1), kernel_preference=Preference("torch")
+)
+W8A8_SETTINGS = {
+    "mm_config": [False, True, False],
+    "kernel_preference": "torch",
+    "act_quant": {"float8_dtype": "torch.float8_e4m3fn", "row_dim": -1, "kernel_preference": "torch"},
+}
 
 
 class NVFP4Weight:
@@ -419,13 +527,13 @@ def fake_safetensors(monkeypatch, store):
     module = types.ModuleType("safetensors")
     torch_part = types.ModuleType("safetensors.torch")
 
-    def save_file(tensors, path):
+    def stream(path, parts):
         # The pack is assembled beside the published one and swapped in, so the store is
         # keyed by name and the file it stands for exists where the swap looks.
         Path(path).write_bytes(b"")
-        store[Path(path).name] = dict(tensors)
+        store[Path(path).name] = dict(parts)
 
-    monkeypatch.setattr(torch_part, "save_file", save_file, raising=False)
+    monkeypatch.setattr(child, "stream_safetensors", stream)
 
     @contextlib.contextmanager
     def safe_open(path, framework="pt"):
@@ -438,11 +546,14 @@ def fake_safetensors(monkeypatch, store):
 
 def pack_pipe(transformer, encoder=None, vae=None):
     encoder = encoder or PackModule({})
+    for name, value in encoder_parts().items():
+        setattr(encoder, name, value)
     vae = vae or PackModule({})
     loads = []
     pipe = SimpleNamespace(
         transformer=transformer,
         text_encoder=encoder,
+        text_encoder_layer=50,
         vae=vae,
         components={"transformer": transformer, "text_encoder": encoder, "vae": vae},
         loads=loads,
@@ -500,7 +611,15 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
     scalar = Part("scalar")
     transformer = PackModule(
         {
-            "block.weight": Float8Weight(qdata, scale, block_size=[1, 256], dtype="torch.bfloat16"),
+            "block.weight": Float8Weight(
+                qdata,
+                scale,
+                block_size=[1, 256],
+                mm_config=(False, True, False),
+                act_quant_kwargs=W8A8_ACTIVATION,
+                kernel_preference=Preference("torch"),
+                dtype="torch.bfloat16",
+            ),
             "norm.weight": Part("plain"),
         }
     )
@@ -524,19 +643,17 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
     child.write_pack(pack_pipe(transformer, encoder), tmp_path, manifest)
 
     stored = store["transformer.safetensors"]
-    assert set(stored) == {
-        "transformer.block.weight.qdata",
-        "transformer.block.weight.scale",
-        "transformer.norm.weight",
+    assert stored == {
+        "transformer.block.weight.qdata": qdata,
+        "transformer.block.weight.scale": scale,
+        "transformer.norm.weight": transformer.weights["norm.weight"],
     }
-    assert qdata.route == ["to cpu (non-blocking)"] and scale.route == ["to cpu (non-blocking)"]
-    assert scalar.route == ["to cpu (non-blocking)"]
-    assert transformer.weights["norm.weight"].route == ["to cpu (non-blocking)"]
-    assert sys.modules["torch"].cuda.synchronize.call_count == 6
+    assert store["text_encoder.safetensors"]["text_encoder.proj.weight.per_tensor_scale"] is scalar
     assert manifest["tensors"]["transformer.block.weight"] == {
         "kind": "fp8",
         "block_size": [1, 256],
         "dtype": "torch.bfloat16",
+        **W8A8_SETTINGS,
     }
     assert manifest["tensors"]["transformer.norm.weight"] == {"kind": "plain"}
     assert manifest["tensors"]["text_encoder.proj.weight"]["kind"] == "nvfp4"
@@ -555,12 +672,64 @@ def test_rebuild_restores_fp8(monkeypatch):
     def handle(path, framework="pt"):
         yield SimpleNamespace(get_tensor=lambda key: store["pack.safetensors"][key])
 
-    entry = {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16"}
+    entry = {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16", **W8A8_SETTINGS}
     with handle("x") as opened:
         weight = child.rebuild(entry, "layer.weight", opened, "cuda")
 
     assert isinstance(weight, Float8Weight)
     assert weight.block_size == [1, 256] and weight.dtype == "bfloat16"
+    assert weight.mm_config == ("mm", False, True, False)
+    assert weight.kernel_preference.value == "torch"
+    assert weight.act_quant_kwargs["float8_dtype"] == "fp8"
+    assert weight.act_quant_kwargs["granularity"] == ("per-row", -1)
+    assert weight.act_quant_kwargs["kernel_preference"].value == "torch"
+
+
+def test_an_fp8_weight_keeps_how_it_multiplies_through_the_pack(monkeypatch):
+    """A weight rebuilt without its settings runs weight-only on torchao's automatic kernel."""
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    weight = Float8Weight(
+        Part("q"),
+        Part("s"),
+        block_size=[1, 256],
+        mm_config=(False, True, False),
+        act_quant_kwargs=W8A8_ACTIVATION,
+        kernel_preference=Preference("torch"),
+        dtype="torch.bfloat16",
+    )
+
+    assert child.float8_settings(weight) == W8A8_SETTINGS
+
+
+def test_a_weight_only_fp8_weight_is_stored_without_activation_settings(monkeypatch):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    store = {"layer.weight.qdata": Part("q"), "layer.weight.scale": Part("s")}
+    settings = child.float8_settings(Float8Weight(Part("q"), Part("s"), [1, 256], dtype="torch.bfloat16"))
+
+    weight = child.rebuild(
+        {"kind": "fp8", "block_size": [1, 256], "dtype": "torch.bfloat16", **settings},
+        "layer.weight",
+        SimpleNamespace(get_tensor=store.__getitem__),
+        "cuda",
+    )
+
+    assert settings == {"mm_config": None, "kernel_preference": "auto", "act_quant": None}
+    assert weight.mm_config is None and weight.act_quant_kwargs is None
+    assert weight.kernel_preference.value == "auto"
+
+
+def test_an_fp8_pack_from_before_the_recipe_is_built_again_and_an_nvfp4_one_is_not(monkeypatch, tmp_path):
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    old = {"format": 1, "model": "me/pack", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+
+    assert not child.manifest_matches({**old, "quantize": "fp8"}, child.expected_manifest("me/pack", "fp8"))
+    assert child.manifest_matches({**old, "quantize": "nvfp4"}, child.expected_manifest("me/pack", "nvfp4"))
+    assert child.manifest_matches(
+        {**old, "quantize": "fp8", "recipe": "w8a8-per-row"}, child.expected_manifest("me/pack", "fp8")
+    )
 
 
 def test_rebuild_restores_nvfp4_with_its_scalar(monkeypatch):
@@ -649,6 +818,7 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -669,7 +839,7 @@ def test_load_rebuilds_when_a_component_file_is_missing(monkeypatch, tmp_path):
         json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}})
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -685,7 +855,7 @@ def test_load_rebuilds_when_the_pack_versions_differ(monkeypatch, tmp_path):
         json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.14.0"}})
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
 
 
 def test_bf16_never_uses_a_pack(monkeypatch, tmp_path):
@@ -753,65 +923,154 @@ def test_write_pack_leaves_out_a_missing_scalar(monkeypatch, tmp_path):
     assert manifest["tensors"]["transformer.proj.weight"]["per_tensor_scale"] is False
 
 
-@pytest.mark.parametrize("save_fails", [False, True])
-def test_write_pack_releases_host_copies_before_the_cache_on_success_or_failure(monkeypatch, tmp_path, save_fails):
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_write_pack_releases_host_memory_after_each_file_on_success_or_failure(monkeypatch, tmp_path, write_fails):
     fake_torch(monkeypatch)
     fake_pack_torchao(monkeypatch)
-    fake_safetensors(monkeypatch, {})
-    pending = {"copy": False}
-    captured = []
-    references = []
+    written = []
 
-    class HostTensor:
-        pass
-
-    def transfer(device, non_blocking):
-        assert device == "cpu" and non_blocking
-        pending["copy"] = True
-        return HostTensor()
-
-    def synchronize(device):
-        pending["copy"] = False
-
-    def save(tensors, path):
-        assert not pending["copy"]
-        captured.append(tensors)
-        references.extend(weakref.ref(tensor) for tensor in tensors.values())
-        if save_fails:
+    def stream(path, parts):
+        written.append(list(parts))
+        if write_fails:
             raise OSError("disk full")
         Path(path).write_bytes(b"")
 
-    def release():
-        assert not captured[-1]
-        assert all(reference() is None for reference in references)
-
-    source = SimpleNamespace(device=SimpleNamespace(type="cuda"), to=transfer)
+    monkeypatch.setattr(child, "stream_safetensors", stream)
     torch = sys.modules["torch"]
-    torch.cuda.synchronize.side_effect = synchronize
-    torch.accelerator.memory.empty_host_cache.side_effect = release
-    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", save)
-    expected = pytest.raises(OSError, match="disk full") if save_fails else nullcontext()
+    expected = pytest.raises(OSError, match="disk full") if write_fails else nullcontext()
 
     with expected:
-        child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+        child.write_pack(pack_pipe(PackModule({"weight": Part("w")})), tmp_path, {})
 
-    assert torch.accelerator.memory.empty_host_cache.call_count == (1 if save_fails else 3)
+    assert torch.accelerator.memory.empty_host_cache.call_count == (1 if write_fails else 3)
 
 
-def test_write_pack_releases_unused_device_cache_before_the_first_host_copy(monkeypatch, tmp_path):
+def test_write_pack_releases_unused_device_cache_before_the_first_file(monkeypatch, tmp_path):
     fake_torch(monkeypatch)
     fake_pack_torchao(monkeypatch)
-    fake_safetensors(monkeypatch, {})
     events = []
-    source = SimpleNamespace(
-        device=SimpleNamespace(type="cuda"),
-        to=lambda device, non_blocking: events.append("copy") or object(),
+    monkeypatch.setattr(
+        child, "stream_safetensors", lambda path, parts: events.append("write") or path.write_bytes(b"")
     )
     sys.modules["torch"].cuda.empty_cache.side_effect = lambda: events.append("release device cache")
 
-    child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+    child.write_pack(pack_pipe(PackModule({"weight": Part("w")})), tmp_path, {})
 
-    assert events == ["release device cache", "copy"]
+    assert events == ["release device cache", "write", "write", "write"]
+
+
+class StreamedTensor:
+    """A device tensor as the writer sees it: a dtype, a shape and its bytes."""
+
+    def __init__(self, dtype: str, shape: tuple[int, ...], payload: bytes):
+        self.dtype, self.shape, self.payload = dtype, shape, payload
+
+    def numel(self) -> int:
+        return math.prod(self.shape)
+
+    def element_size(self) -> int:
+        return len(self.payload) // max(self.numel(), 1) if self.payload else 2
+
+    def contiguous(self):
+        return self
+
+    def reshape(self, *shape):
+        return self
+
+    def view(self, dtype):
+        return self
+
+    def numpy(self):
+        return self
+
+    def tobytes(self) -> bytes:
+        return self.payload
+
+
+def streamed(monkeypatch):
+    fake_torch(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "uint8", "uint8", raising=False)
+    monkeypatch.setattr(child, "copy_to_host", lambda tensor: tensor)
+
+
+def test_a_streamed_file_has_the_safetensors_layout(monkeypatch, tmp_path):
+    """An 8-byte little-endian header length, a JSON header padded to 8 bytes, then the bytes."""
+    streamed(monkeypatch)
+    parts = [
+        ("a.qdata", StreamedTensor("torch.float8_e4m3fn", (2, 3), b"abcdef")),
+        ("a.scale", StreamedTensor("torch.float32", (2, 1), b"12345678")),
+        ("b.empty1", StreamedTensor("torch.bfloat16", (0, 4), b"")),
+    ]
+    path = tmp_path / "part.safetensors"
+
+    child.stream_safetensors(path, parts)
+
+    raw = path.read_bytes()
+    length = int.from_bytes(raw[:8], "little")
+    header = json.loads(raw[8 : 8 + length])
+    unpadded = len(json.dumps(header, separators=(",", ":")))
+    assert unpadded % 8 != 0, "the case must need padding"
+    assert length == unpadded + (-unpadded % 8)
+    assert raw[8 + unpadded : 8 + length] == b" " * (length - unpadded)
+    assert header == {
+        "a.qdata": {"dtype": "F8_E4M3", "shape": [2, 3], "data_offsets": [0, 6]},
+        "a.scale": {"dtype": "F32", "shape": [2, 1], "data_offsets": [6, 14]},
+        "b.empty1": {"dtype": "BF16", "shape": [0, 4], "data_offsets": [14, 14]},
+    }
+    assert raw[8 + length :] == b"abcdef12345678"
+
+
+def test_a_streamed_file_reads_back_as_safetensors_wrote_it(tmp_path):
+    """Every dtype a pack holds, read back by the real reader, equal to the bytes written."""
+    torch = pytest.importorskip("torch")
+    safe_open = pytest.importorskip("safetensors").safe_open
+
+    parts = [
+        ("fp8.qdata", torch.randn(3, 16).to(torch.float8_e4m3fn)),
+        ("fp8.scale", torch.rand(3, 1)),
+        ("nvfp4.qdata", torch.randint(0, 255, (4, 8), dtype=torch.uint8)),
+        ("plain.weight", torch.randn(5, 7, dtype=torch.bfloat16).t()),
+        ("plain.scalar", torch.tensor(0.5)),
+        ("plain.index", torch.arange(6)),
+        ("plain.empty", torch.zeros(0, 4, dtype=torch.float16)),
+    ]
+    path = tmp_path / "part.safetensors"
+
+    child.stream_safetensors(path, parts)
+
+    with safe_open(str(path), framework="pt") as handle:
+        assert sorted(handle.keys()) == sorted(key for key, _ in parts)
+        for key, tensor in parts:
+            read = handle.get_tensor(key)
+            assert read.dtype == tensor.dtype and read.shape == tensor.shape
+            expected = tensor.contiguous().reshape(-1).view(torch.uint8)
+            assert torch.equal(read.reshape(-1).view(torch.uint8), expected), key
+
+
+def test_a_streamed_file_holds_one_tensor_on_the_host_at_a_time(monkeypatch, tmp_path):
+    """The host copy of one tensor is freed before the next tensor leaves the device."""
+    streamed(monkeypatch)
+    alive = []
+
+    def copy(tensor):
+        assert all(reference() is None for reference in alive)
+        host = StreamedTensor(tensor.dtype, tensor.shape, tensor.payload)
+        alive.append(weakref.ref(host))
+        return host
+
+    monkeypatch.setattr(child, "copy_to_host", copy)
+    parts = [(name, StreamedTensor("torch.float32", (1,), b"abcd")) for name in ("a", "b")]
+
+    child.stream_safetensors(tmp_path / "part.safetensors", parts)
+
+    assert len(alive) == 2
+
+
+def test_a_dtype_the_pack_cannot_name_is_refused(monkeypatch):
+    streamed(monkeypatch)
+
+    with pytest.raises(ValueError, match=r"cannot store odd as torch\.complex64"):
+        child.stream_safetensors(Path("unused"), [("odd", StreamedTensor("torch.complex64", (1,), b"12345678"))])
 
 
 def test_an_unknown_weight_kind_stops_the_rebuild(monkeypatch):
@@ -890,7 +1149,7 @@ def test_a_failed_pack_write_does_not_fail_the_run(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
     monkeypatch.setattr(child, "write_pack", refuse)
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert "could not write the pack: No space left on device" in capsys.readouterr().err
 
 
@@ -1092,13 +1351,13 @@ def test_a_pack_that_dies_while_it_is_written_is_not_published(monkeypatch, tmp_
 
     written = []
 
-    def half_then_die(tensors, path):
+    def half_then_die(path, parts):
         Path(path).write_bytes(b"")
         written.append(path)
         if len(written) == 2:
             raise OSError("the disk went away")
 
-    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", half_then_die, raising=False)
+    monkeypatch.setattr(child, "stream_safetensors", half_then_die)
     transformer = PackModule({"norm.weight": Part("plain")})
 
     with pytest.raises(OSError, match="the disk went away"):
@@ -1214,6 +1473,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -1222,7 +1482,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
     )
     (tmp_path / "transformer.safetensors").write_text("truncated")
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -1243,6 +1503,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
                 "format": 1,
                 "model": "me/pack",
                 "quantize": "fp8",
+                "recipe": "w8a8-per-row",
                 "versions": {"torch": "2.15.0"},
                 "source": "abc123",
                 "files": files,
@@ -1255,7 +1516,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
 
     monkeypatch.setattr(child, "load_packed", refuse)
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
     assert not tmp_path.exists()
     assert list(tmp_path.parent.glob(f"{tmp_path.name}.corrupt-*")), "the bad pack is kept out of the way"
@@ -1272,11 +1533,18 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
         (tmp_path / f"{name}.safetensors").write_text("")
     (tmp_path / "pack.json").write_text(
         json.dumps(
-            {"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+            {
+                "format": 1,
+                "model": "me/pack",
+                "quantize": "fp8",
+                "recipe": "w8a8-per-row",
+                "versions": {"torch": "2.15.0"},
+                "source": "abc123",
+            }
         )
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -1357,7 +1625,7 @@ def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp
     reasons = iter(["there is no readable pack", None])
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: next(reasons, None))
 
-    assert child.load("me/pack", "fp8", tmp_path) == "packed"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "packed"
     assert built == [], "the waited-for pack is used instead of building again"
 
 
@@ -1413,7 +1681,7 @@ def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "load_packed", refuse)
 
     with pytest.raises(ValueError, match="truncated"):
-        child.load("me/pack", "fp8", tmp_path)
+        child.load("me/pack", "fp8", tmp_path, may_build=True)
 
 
 def test_the_running_check_answers_for_this_process_and_a_dead_one():
@@ -1422,3 +1690,107 @@ def test_the_running_check_answers_for_this_process_and_a_dead_one():
     assert child._running(os.getpid()) is True
     assert child._running(4194303) is False
     assert child._running(1) is True, "another user's process is there, we just may not signal it"
+
+
+def test_the_encoder_keeps_the_layers_up_to_the_state_h3_reads(monkeypatch):
+    """H3 reads `hidden_states[50]`, the input of layer 50, so layers 0 to 50 stay."""
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+
+    child.drop_unread_encoder_parts(pipe)
+
+    assert pipe.text_encoder.model.language_model.layers == list(range(51))
+    assert pipe.text_encoder.lm_head == "identity"
+
+
+@pytest.mark.parametrize("quantize", ["nvfp4", "fp8", "bf16"])
+def test_every_build_drops_the_unread_encoder_parts(monkeypatch, quantize):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    fake_torchao(monkeypatch, [])
+    monkeypatch.setattr(child, "land_in_fp8", lambda module, kept=(): None)
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: None)
+
+    child.build("me/pack", quantize)
+
+    assert len(pipe.text_encoder.model.language_model.layers) == 51
+
+
+def test_load_packed_reads_no_weight_of_a_dropped_layer(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    pipe = pack_pipe(PackModule({}))
+    fake_diffusers(monkeypatch, pipe)
+    store = {str(tmp_path / f"{name}.safetensors"): {} for name in child.PACK_COMPONENTS}
+    fake_safetensors(monkeypatch, store)
+
+    child.load_packed("me/pack", tmp_path, {"tensors": {}})
+
+    assert len(pipe.text_encoder.model.language_model.layers) == 51
+
+
+def test_a_run_never_builds_a_stale_pack(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    (tmp_path / "pack.json").write_text(
+        json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.14.0"}})
+    )
+
+    with pytest.raises(child.PackNotReady, match=r"prepare the model again.*another model, version"):
+        child.load("me/pack", "fp8", tmp_path)
+
+    assert built == []
+
+
+def test_a_run_whose_pack_will_not_load_leaves_it_in_place(monkeypatch, tmp_path):
+    moved = []
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    monkeypatch.setattr(child, "quarantine", moved.append)
+
+    def refuse(model, directory, manifest):
+        raise ValueError("the weights are truncated")
+
+    monkeypatch.setattr(child, "load_packed", refuse)
+
+    with pytest.raises(child.PackNotReady, match="did not load: the weights are truncated"):
+        child.load("me/pack", "fp8", tmp_path)
+
+    assert moved == []
+
+
+def test_main_says_why_a_run_found_no_pack_and_stops(monkeypatch, capsys):
+    fake_torch(monkeypatch)
+    seen = []
+
+    def refuse(model, quantize, root, may_build=False):
+        seen.append(may_build)
+        raise child.PackNotReady(child.PACK_NOT_READY)
+
+    monkeypatch.setattr(child, "load", refuse)
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "fp8", "--pack-dir", "/packs"])
+
+    assert child.main() == 3
+    assert child.PACK_NOT_READY in capsys.readouterr().err
+    assert seen == [False]
+
+
+def test_main_lets_a_prepare_build(monkeypatch):
+    fake_torch(monkeypatch)
+    seen = []
+
+    def stop_after_load(model, quantize, root, may_build=False):
+        seen.append(may_build)
+        raise child.PackNotReady("stop here")
+
+    monkeypatch.setattr(child, "load", stop_after_load)
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "fp8", "--pack-dir", "/packs", "--may-build"])
+
+    child.main()
+
+    assert seen == [True]

@@ -90,3 +90,17 @@ def test_a_blank_backend_reads_the_active_model_and_leaves_it_active():
 def test_a_model_that_is_not_offered_gets_no_plan(backend_id):
     with pytest.raises(InvalidJob, match=f"No video model is offered as {backend_id}"):
         PlanVideoUseCase(catalog_with()).capabilities(backend_id)
+
+
+def test_a_plan_carries_the_load_and_the_first_run_cost_that_the_model_declares():
+    from studio.l1_entities.estimate_stages import Stage
+
+    catalog = catalog_with()
+    backend = catalog.get("video-fake")
+    compile_cost = (Stage("compile a new shape", 60.0),)
+    backend._capabilities = replace(backend.capabilities(), load_seconds=40.0, may_add=compile_cost)
+
+    estimate = PlanVideoUseCase(catalog).execute(request()).estimate
+
+    assert (estimate.load_seconds, estimate.may_add) == (40.0, compile_cost)
+    assert [stage.name for stage in estimate.stages] == ["fixed", "generation"]
