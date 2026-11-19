@@ -207,6 +207,14 @@ Cold requests took 46.1 and 31.1 seconds. The cache cannot explain that differen
 The BF16 engine already loads generator weights lazily. Its constructor performs setup before transcription.
 The NVFP4 path loads packed generator weights earlier; this change preserves that lifecycle.
 
+A cache miss on CUDA used to start a new process that loaded the transcriber, MERT and
+SheetSage2, for every recording, which took about 21 seconds of each request. The child now
+loads them on its first transcription and keeps them, 2.5 GiB in fp32, until it is released.
+On the DGX Spark, three transcriptions in one child took 29.95, 20.50 and 20.72 seconds
+before and 8.41, 1.01 and 1.09 seconds after; the first includes the 3.7-second load. The
+scores matched byte for byte. Through Studio, a first transcription took 26.2 seconds with the
+child's own load, and a cache miss after it took 1.55 seconds.
+
 No generation-time estimate is shown: duration itself is generated, and a short
 sample does not establish a cost fit for a full song.
 

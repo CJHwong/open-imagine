@@ -533,6 +533,81 @@ Fresh and reloaded output PNGs match their corresponding original-pack output. T
 | nvfp4 / build-and-generate | 332.200 | 106.60 | 17.94 |
 | nvfp4 / cached-reload-and-generate | 64.350 | 17.25 | 73.45 |
 
+### The 19 November speed pass
+
+Each table row ran through the Studio operations API on a DGX Spark, against a server on its
+own port with the revision checked before the run. Times run from submission to terminal
+status and include polling. A figure in the prose that came from driving the engine child
+directly says so.
+
+Image, MiniMax H3-Image fp8 (`minimax_h3_image_cuda`). The fp8 build now multiplies in fp8,
+one scale per row, in the encoder and the transformer. The earlier build held
+weights in fp8 or NVFP4 and widened them on every pass. Six steps, seed 7.
+
+| Request | Before (s) | After (s) |
+| --- | ---: | ---: |
+| generate 1024 × 576 | 38.42 | 4.03 |
+| generate 1024 × 1024 | 41.3 | 6.55 |
+| generate 2048 × 2048 | 57.4 | 30.35 |
+| edit 1024 × 1024, one 512 reference | 52.32 | 20.73 |
+| edit 2048 × 2048, one 512 reference | 68.38 | 57.59 |
+| edit 1024 × 1024, four 512 references | 90.76 | 94.48 |
+| edit to Match, one 2048 reference | 91.0 | 90.2 |
+| first image, pack load included | 95.0 | 43.2 to 58.3 |
+
+An edit with a large reference does not gain, because the reference's tokens join the
+sequence and attention takes most of the time: 77.9 of 88.1 s at 2048, timed in the child. Five prompt and seed
+pairs and one edit looked the same before and after, including the rendered title of a text
+poster. A studio idle with the fp8 model loaded held 77.4 GiB.
+
+The pack is 66 GiB. Building it in a script that runs the child's own build took 49.9 s with the checkpoint on disk and
+writing it 43.0 s, and available memory stayed at 45.8 GiB or more. The 17 November build
+fell to 20.3 GiB. Two changes keep it there: each bf16 linear is quantized as it lands, and
+the pack is written one tensor at a time. Without them the W8A8 build fell to 3.9 GiB.
+
+Video, LTX-2.5 BF16 (`ltx25_cuda`), with the transformer's repeated block compiled.
+No prompt enhancement unless the row says so.
+
+| Request | Eager (s) | Compiled (s) |
+| --- | ---: | ---: |
+| 768 × 768, 97 frames, warm | 70.8 | 53.0 |
+| 768 × 768, 97 frames, first run, load included | 119.6 | 111.3 |
+| 1280 × 704, 97 frames, first run at that size | 110.0 | 89.7 |
+| 384 × 384, 25 frames, first run at that size | 7.6 | 12.1 |
+| 384 × 384, 25 frames, repeat | 7.55 | 6.57 |
+| 768 × 768, 97 frames, two keyframes | not run | 53.4 |
+| 768 × 768, 97 frames, prompt enhancement, first run | not run | 120.9 |
+
+Music, YuE2 transcription (`yue2_cuda`). The child keeps the transcriber after its first use.
+A first transcription took 26.2 s with the child's own load; a cache miss after
+it took 1.55 s, against about 21 s before, timed in the child.
+
+Prompt enhancement, H3-Image's own enhancer, fp8, with its answer opened. Before the opening,
+no generate press in four returned a caption in the child: the card ended its turn first.
+After it, nine generate presses (three requests, three runs each, one in Mandarin) and two
+edits all succeeded, at 159.3 to 229.7 s each. Each press starts a fresh enhancer, because
+the studio releases a rewriter after every rewrite, so each pays the load again; the bf16
+load alone measured 104 to 109 s. A
+press dropped free memory by 55.3 GiB at most: the fp8 path loads bf16 and then quantizes.
+
+Prompt rewrite, Qwen cards (`qwen21_turbo_cuda`), fp8 with fp8 multiplies, the turn ended at
+`<|im_end|>`, and the answer opened with its JSON key. Ten presses took
+33.7 to 44.3 s each, the first with the card's load. An edit of a poster took 38.2 and 40.8 s,
+against 392.1 and 264.4 s before the answer opening.
+
+These were measured and not adopted. Each ran on the engine child directly, not through the
+API:
+
+- Qwen-Image-2.1 Turbo in fp8 with fp8 multiplies: 15.6 s against 11.3 s at 1024, because
+  the transformer is compute-bound and quantizing each activation costs more than it saves.
+- Qwen-Image-2.1 Turbo with its repeated block compiled: 8.8 s against 11.3 s at 1024 after
+  the first run, but every new shape pays the compile, an edit's shape follows its reference,
+  and an edit gained 4%.
+- The Qwen rewrite cards with NVFP4 multiplies in the feed-forward layers: 16.0 tokens/s
+  against 14.8 for fp8, for a 4-bit build and one more kernel package.
+- Decoding the H3 enhancer's NVFP4 weights on the GPU: bit-identical to the CPU decode, and
+  the load stayed at 109 s, so the decode is not what the load waits on.
+
 ## Mac and Spark comparison
 
 These requests use the same public prompts, reference inputs, exposed settings, and seed 7 on both machines.

@@ -22,7 +22,7 @@ FLUX.3, H3-Image MLX, and LTX MLX use per-call processes. Base Qwen can rebuild 
 |---|---|---|
 | Qwen-Image-2.1 Turbo | `qwen21_turbo`, bf16 | `qwen21_turbo_cuda`, bf16 |
 | Qwen-Image-2.1 | `qwen21`, bf16 | none |
-| MiniMax H3-Image | `minimax_h3_image`, int8 | `minimax_h3_image_cuda`, fp8 weight-only; `minimax_h3_image_cuda_nvfp4`, NVFP4 |
+| MiniMax H3-Image | `minimax_h3_image`, int8 | `minimax_h3_image_cuda`, fp8 weights and activations; `minimax_h3_image_cuda_nvfp4`, NVFP4 |
 | LTX-2.5 | `ltx25_mlx`, q8 | `ltx25_cuda`, bf16 |
 | LTX-2.3 | `ltx23_mlx`, q8 | none |
 | MiniMax H3 | `minimax_h3`, q8 | none |
