@@ -4,9 +4,10 @@ from studio.l3_interface_adapters.api.visual_prompt_guides import IMAGE_PROMPT_R
 from studio.l3_interface_adapters.api.voice_prompt_guides import VOICE_START_HERE
 
 GUIDANCE = {
+    "listModels": "Check this before a run. A model whose state is not ready refuses every run with 409. Start kind=prepare on startOperation for it, with its workspace and backend, and poll that operation; bytes grows while it downloads. Read-only; private-key headers are refused.",
     "inspectModelStorage": "Inspect declared downloads, including hidden optional models. Read-only; private-key headers are refused. Stub servers report unavailable.",
     "modelStoragePlan": "Preview cleanup only when the user asks to remove downloads. Send model IDs and optional include_runtime=false. Review remove and retain entries, ownership, locations and bytes. Shared assets require every owner selected. External, installed-plugin and overlapping paths are protected. No files are deleted by this request.",
-    "modelStorageRemove": "Remove only the user-reviewed model selection. Send the same models/runtime choice and plan revision. Changed files invalidate the review; active work returns 409. Weights can download again. Runtime removal is opt-in. This excludes generated media and configured user LoRAs. Private-key headers are refused.",
+    "modelStorageRemove": "Remove only the user-reviewed model selection. Send the same models/runtime choice and plan revision. Changed files invalidate the review; active work returns 409. A model whose files are removed needs kind=prepare again before it runs. Runtime removal is opt-in. This excludes generated media and configured user LoRAs. Private-key headers are refused.",
     "readSettings": (
         "Read the app-wide memory policy. require_memory_estimate defaults to false. "
         "It applies to all workspaces and callers. This endpoint refuses private-key headers."
@@ -54,8 +55,8 @@ GUIDANCE = {
         "202 means accepted, not successful: validation, model loading, and inference may fail in the worker. "
         "Only one operation owns model memory; 409 means busy and nothing was queued. "
         "When memory checks are enabled, an unmeasured setup returns 503 before acceptance. Measured requests check available memory before execution. When checks are disabled, Studio skips all memory admission checks. "
-        "Model loading/download policy "
-        "matches the page. Public results expire after 10 minutes, 32 operations, or 256 MiB, and on restart. Private results stay encrypted on disk for one hour and support repeated downloads. "
+        "A run never downloads: a model that is not prepared returns 409 naming kind=prepare, which downloads, packs "
+        "and loads that model and its prompt rewriter once and takes no private key. Public results expire after 10 minutes, 32 operations, or 256 MiB, and on restart. Private results stay encrypted on disk for one hour and support repeated downloads. "
         "API batches need no browser continuation; legacy page image batches reserve their next item for 30 seconds."
     ),
     "deletePrivateOperation": (

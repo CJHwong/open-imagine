@@ -166,3 +166,27 @@ def test_the_cache_line_names_each_mode(monkeypatch):
 
     assert line == "Rewriters: generate cached, edit cached"
     assert rewriter.rewriter_cache(Config({}), "qwen21_turbo_cuda") == ""
+
+
+def test_a_prepare_asks_each_card_for_one_token_and_then_stops_the_child():
+    child = Mock()
+    child.request.return_value = {"text": "x"}
+    gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i", "edit": "me/i2i"})
+
+    gateway.prepare()
+
+    asked = [call.args[0] for call in child.request.call_args_list]
+    assert [payload["role"] for payload in asked] == ["generate", "edit"]
+    assert all(payload["max_tokens"] == 1 and payload["references"] == [] for payload in asked)
+    child.stop.assert_called_once_with()
+
+
+def test_a_card_that_cannot_load_fails_the_prepare_and_still_stops_the_child():
+    child = Mock()
+    child.request.return_value = {"error": "no such repo"}
+    gateway = rewriter.Qwen21CudaRewriter(child, {"generate": "me/t2i"})
+
+    with pytest.raises(InvalidJob, match="no such repo"):
+        gateway.prepare()
+
+    child.stop.assert_called_once_with()

@@ -257,7 +257,7 @@ def main():
         if args.allow_origin:
             print("Pages at " + ", ".join(args.allow_origin) + " may post too.", flush=True)
         print(
-            "Models load on first use. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
+            "Models load on first use, once prepared. Switching workspaces releases inactive model memory. Ctrl-C to stop.\n",
             flush=True,
         )
         server.expire = studio.expire

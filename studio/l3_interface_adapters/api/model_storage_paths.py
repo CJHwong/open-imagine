@@ -27,6 +27,19 @@ def model_storage_paths():
             }
         }
     }
+    paths["/api/v1/models"] = {
+        "get": {
+            "tags": ["studio"],
+            "operationId": "listModels",
+            "summary": "List each offered model and whether it is prepared",
+            "description": "Read-only, and loads nothing. state is ready, missing or preparing. bytes counts "
+            "the declared downloads already on disk; it grows while a prepare downloads. missing names the "
+            "declared downloads that are absent. A preparing model carries the id of its prepare operation. "
+            "A model is ready once a prepare under its current weight settings succeeded and its declared "
+            "files are still there. Private-key headers are refused.",
+            "responses": {"200": {"description": "The models, in workspace order: image, video, voice, music."}},
+        }
+    }
     for action, summary in (
         ("plan", "Preview cleanup without deleting files"),
         ("remove", "Remove a reviewed selection while Studio is idle"),
@@ -45,7 +58,7 @@ def model_storage_paths():
                 "tags": ["studio"],
                 "operationId": "modelStorage" + action.title(),
                 "summary": summary,
-                "description": "Send model IDs, never filesystem paths. Shared assets require every owning model selected. Runtime removal is opt-in. External, symlinked, overlapping and installed-plugin checkpoint assets are protected. Removal requires the inventory revision returned by plan; changed files invalidate it. This deletes downloads, not generated media or configured user LoRAs. Missing weights may download again on the next run. Private-key headers are refused.",
+                "description": "Send model IDs, never filesystem paths. Shared assets require every owning model selected. Runtime removal is opt-in. External, symlinked, overlapping and installed-plugin checkpoint assets are protected. Removal requires the inventory revision returned by plan; changed files invalidate it. This deletes downloads, not generated media or configured user LoRAs. A model whose files are removed must be prepared again before it runs. Private-key headers are refused.",
                 "requestBody": {"required": True, "content": {"application/json": {"schema": schema}}},
                 "responses": responses,
             }

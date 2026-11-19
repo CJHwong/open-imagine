@@ -109,7 +109,7 @@ def cache_line(models: Mapping[str, str]) -> str:
     if not missing:
         return f"Rewriters: {modes}"
     each = "each " if missing > 1 else ""
-    return f"Rewriters: {modes} ({REWRITER_SIZE} {each}on first use)"
+    return f"Rewriters: {modes} ({REWRITER_SIZE} {each}to prepare)"
 
 
 def _quantize(model, config: dict, bits: int) -> None:
@@ -209,6 +209,14 @@ class Qwen21Rewriter(PromptRewriterGateway):
             return
         self._resident = None
         release_mlx_buffers()
+
+    def prepare(self) -> None:
+        """Load each card once, which fetches it and quantizes it, then free it."""
+        try:
+            for mode in self._models:
+                self._resident_for(mode)
+        finally:
+            self.release()
 
     def _resident_for(self, mode: str) -> tuple:
         if self._resident is not None and self._resident[0] == mode:

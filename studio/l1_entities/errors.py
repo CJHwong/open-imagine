@@ -56,3 +56,7 @@ class BackendChanged(StudioError):
 
 class OperationMissing(StudioError, LookupError):
     """The operation is unknown or its retained result expired."""
+
+
+class ModelNotReady(StudioError):
+    """The model's files are not prepared, and a run never downloads or packs them."""

@@ -2663,3 +2663,54 @@ def test_a_refused_body_that_outlives_its_deadline_closes_the_connection(monkeyp
     target = discard_with([b"a" * 10], 10)
 
     assert target.close_connection is True
+
+
+def test_a_model_that_is_not_prepared_answers_409_until_its_prepare_operation_ends(tmp_path):
+    """The whole path on a real server: the models route, the refusal of a run, the
+    prepare as an operation, and the run that the prepare lets through."""
+    from studio.l4_frameworks_and_drivers.model_readiness_gateway import FileModelReadinessGateway, ModelBundle
+
+    image = FakeBackendGateway()
+    video = FakeVideoBackendGateway("video-fake", "Fake video")
+    readiness = FileModelReadinessGateway(
+        {"fake": ModelBundle("f1"), "video-fake": ModelBundle("f2")}, tmp_path / "prepared.json", tmp_path
+    )
+    studio = assemble_studio(
+        {"fake": image},
+        {"fake": fast(StubPromptRewriterGateway())},
+        "fake",
+        ("fake",),
+        video_backends={"video-fake": video},
+        default_video_id="video-fake",
+        visible_video_ids=("video-fake",),
+        readiness=readiness,
+    )
+    server = ThreadingHTTPServer(("127.0.0.1", 0), studio.handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status, _, body = call(server, "/api/v1/models")
+        assert status == 200
+        assert [(one["id"], one["state"]) for one in json.loads(body)["models"]] == [
+            ("fake", "missing"),
+            ("video-fake", "missing"),
+        ]
+        assert call(server, "/api/v1/models", **{"X-Studio-Private-Key": "private-test"})[0] == 400
+        status, _, body = post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "a pear"})
+        assert status == 409 and "--prepare" in json.loads(body)["error"]
+        status, _, body = post_json(server, "/api/v1/videos/generate", {"prompt": "a pear"})
+        assert status == 409 and "video-fake is not downloaded yet" in json.loads(body)["error"]
+
+        status, _, body = post_json(server, "/api/v1/operations", {"kind": "prepare", "backend": "fake"})
+        assert status == 202
+        operation = json.loads(body)
+        deadline = time.monotonic() + 10
+        while studio.operations.get(operation["id"])["status"] != "succeeded" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        status, _, body = call(server, f"/api/v1/operations/{operation['id']}/result")
+        assert json.loads(body) == {"backend": "fake", "state": "ready", "bytes": 0}
+        assert image.events[:2] == ["load", "release"]
+        assert post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "a pear"})[0] == 202
+    finally:
+        server.shutdown()
+        server.server_close()
+        studio.shutdown()

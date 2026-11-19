@@ -323,3 +323,14 @@ def test_model_cleanup_requires_ids_and_a_reviewed_revision():
     assert plan["properties"]["include_runtime"]["default"] is False
     assert remove["required"] == ["models", "revision"]
     assert "get" in paths["/api/v1/model-storage"]
+
+
+def test_the_reference_offers_the_model_list_and_the_prepare_operation():
+    document = openapi_document()
+    schemas = document["components"]["schemas"]
+    kinds = [option["properties"]["kind"]["const"] for option in schemas["OperationRequest"]["oneOf"]]
+
+    assert document["paths"]["/api/v1/models"]["get"]["operationId"] == "listModels"
+    assert "prepare" in kinds
+    assert set(schemas["OperationPrepareRequest"]["properties"]) == {"workspace", "backend"}
+    assert "never downloads" in document["paths"]["/api/v1/operations"]["post"]["description"]

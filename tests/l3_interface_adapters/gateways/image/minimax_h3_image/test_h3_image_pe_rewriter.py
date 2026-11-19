@@ -79,3 +79,23 @@ def test_release_stops_the_child():
     gateway._child = Mock()
     gateway.release()
     gateway._child.stop.assert_called_once()
+
+
+def test_a_prepare_starts_the_enhancer_and_stops_it_once_it_is_loaded():
+    gateway = rewriter()
+    gateway._child = Mock()
+
+    gateway.prepare()
+
+    assert [call[0] for call in gateway._child.method_calls] == ["wait_ready", "stop"]
+
+
+def test_a_prepare_whose_load_fails_still_stops_the_child():
+    gateway = rewriter()
+    gateway._child = Mock()
+    gateway._child.wait_ready.side_effect = RuntimeError("the engine stopped while loading")
+
+    with pytest.raises(RuntimeError, match="stopped while loading"):
+        gateway.prepare()
+
+    gateway._child.stop.assert_called_once_with()

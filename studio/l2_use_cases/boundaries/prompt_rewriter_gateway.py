@@ -47,3 +47,10 @@ class PromptRewriterGateway(ABC):
     @abstractmethod
     def release(self) -> None:
         """Free the model memory. The next rewrite brings it back."""
+
+    def prepare(self) -> None:  # noqa: B027  # a rewriter with nothing to fetch keeps this
+        """Fetch and load each mode's weights once, then free them, so no rewrite downloads.
+
+        A rewriter that has no weights of its own, or whose weights arrive with its engine,
+        has nothing to do here.
+        """

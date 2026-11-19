@@ -4,28 +4,40 @@ import time
 from collections.abc import Callable, Sequence
 
 from studio.l2_use_cases.boundaries.model_lifecycle_gateway import ModelLifecycleGateway
+from studio.l2_use_cases.boundaries.model_readiness_gateway import ModelReadinessGateway
+from studio.l2_use_cases.boundaries.prompt_rewriter_gateway import PromptRewriterGateway
+
+Target = tuple[str, ModelLifecycleGateway, PromptRewriterGateway | None]
 
 
 class PrepareModelsUseCase:
-    """Load each model in turn and free it before the next one loads.
+    """Load each model and its prompt rewriter in turn, and free each before the next loads.
 
-    A first load can build a pack of quantized weights or compile kernels for this
-    machine, and a caller that would rather not pay for that inside a first generation
-    runs this instead. A model is released even when its load fails, so one broken engine
-    does not leave the memory of the others taken.
+    A first load can download weights, build a pack of quantized weights or compile kernels
+    for this machine, and a run never does that, so this command does it for every model at
+    once. A model is released even when its load fails, so one broken engine does not leave
+    the memory of the others taken. A model whose engine and rewriter both loaded is
+    recorded as ready, the same record the page's Download writes.
     """
+
+    def __init__(self, readiness: ModelReadinessGateway | None = None):
+        self._readiness = readiness
 
     def execute(
         self,
-        targets: Sequence[tuple[str, ModelLifecycleGateway]],
+        targets: Sequence[Target],
         on_start: Callable[[str], None] = lambda backend_id: None,
     ) -> list[tuple[str, float]]:
         """Prepare each target and report how long each one took, in order."""
         prepared: list[tuple[str, float]] = []
-        for backend_id, model in targets:
+        for backend_id, model, rewriter in targets:
             on_start(backend_id)
             started = time.monotonic()
             _prepare_model(backend_id, model)
+            if rewriter is not None:
+                rewriter.prepare()
+            if self._readiness is not None:
+                self._readiness.mark_prepared(backend_id)
             prepared.append((backend_id, time.monotonic() - started))
         return prepared
 

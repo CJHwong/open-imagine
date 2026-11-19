@@ -24,16 +24,20 @@ from dataclasses import asdict, replace
 from typing import Any
 
 from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.model_readiness import PREPARING, READY
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.operation import OperationOutput
 from studio.l1_entities.rewrite_progress import RewriteProgress
 from studio.l1_entities.run_progress import RunProgress
 from studio.l1_entities.video_job import VideoResult
 from studio.l1_entities.voice_job import SpeechResult
+from studio.l2_use_cases.boundaries.model_readiness_gateway import ModelReadinessGateway
 from studio.l2_use_cases.boundaries.operation_gateway import OperationGateway
 from studio.l2_use_cases.boundaries.studio_settings_gateway import StudioSettingsGateway
 from studio.l2_use_cases.complete_operation_use_case import CompleteOperationUseCase
+from studio.l2_use_cases.model_readiness_gate import require_ready
 from studio.l2_use_cases.prepare_batch_use_case import BATCH_LIMIT, PrepareBatchUseCase
+from studio.l2_use_cases.prepare_model_use_case import PrepareModelUseCase
 from studio.l2_use_cases.run_image_use_case import RunImageResponse
 from studio.l3_interface_adapters.api.audio_trim import trim_audio
 from studio.l3_interface_adapters.api.openapi import openapi_document
@@ -72,6 +76,8 @@ class JsonApi:
         resource_admission: ResourceAdmission | None = None,
         memory_status: Callable[[], dict[str, object]] | None = None,
         build: dict[str, object] | None = None,
+        prepare: PrepareModelUseCase | None = None,
+        readiness: ModelReadinessGateway | None = None,
     ) -> None:
         self._controller = controller
         self._video = video
@@ -86,6 +92,10 @@ class JsonApi:
         self._remove_assets = remove_assets
         self._memory_status = memory_status
         self._build = build or {}
+        self._prepare = prepare
+        self._readiness = readiness
+        # The stage of each running prepare, for its operation's progress.
+        self._prepare_stages: dict[str, str] = {}
 
     def model_storage(self):
         if self._inspect_storage is None:
@@ -194,8 +204,10 @@ class JsonApi:
         self, payload: Mapping[str, object], *, source: str = "api", owner: str = "", queued: bool = False
     ) -> dict[str, Any]:
         kind = payload.get("kind")
+        if kind == "prepare":
+            return self._reserve_prepare(payload, source=source, owner=owner, queued=queued)
         if kind not in ("image", "video", "rewrite", "voice", "music"):
-            raise InvalidJob("kind must be image, video, voice, music or rewrite")
+            raise InvalidJob("kind must be image, video, voice, music, rewrite or prepare")
         workspace = payload.get("workspace") or (kind if kind in ("video", "voice", "music") else "image")
         if workspace not in ("image", "video", "voice", "music"):
             raise InvalidJob("workspace must be image, video, voice or music")
@@ -229,6 +241,10 @@ class JsonApi:
         document = self.studio().get(workspace)
         backend = payload.get("backend") or (document["active"] if document else "")
         model = next((one["name"] for one in document["backends"] if one["id"] == backend), "") if document else ""
+        if self._readiness is not None:
+            # Refused here, before a queue slot is taken, and again where the run claims
+            # the model, because the files can go while a request waits.
+            require_ready(self._readiness, str(backend))
         if owner and kind == "image":
             self._refuse_plaintext_engine(str(backend))
         batch_metadata = {}
@@ -295,7 +311,7 @@ class JsonApi:
     def _admit(self, operation: Mapping[str, Any], payload: Mapping[str, object]) -> None:
         """Check a queued request when its turn comes, not when it was pushed, so a
         request that waited for memory can use the memory that is free now."""
-        if self._resource_admission is None or operation["kind"] == "rewrite":
+        if self._resource_admission is None or operation["kind"] in ("rewrite", "prepare"):
             return
         resource_payload = {
             **payload,
@@ -397,6 +413,8 @@ class JsonApi:
                 return self._image_run(body, mode)
             if kind == "video":
                 return self._video_run(body, mode)
+            if kind == "prepare":
+                return self._run_prepare(operation["id"], str(body["backend"]))
             return rewrite_document(self._controller.rewrite(rewrite_form(body, operation["workspace"])))
 
         return self.complete(operation["id"], action, observed=operation)
@@ -417,7 +435,11 @@ class JsonApi:
         position = self._operations.queue_position(operation["id"])
         if position is not None:
             operation["queue_position"] = position
-        if operation["status"] in ("running", "stopping"):
+        if operation["kind"] == "prepare":
+            running = operation["status"] in ("running", "stopping")
+            stage = self._prepare_stages.get(operation["id"], "starting") if running else operation["status"]
+            operation["progress"] = {"running": running, "stage": stage, "step": 0, "total": 0}
+        elif operation["status"] in ("running", "stopping"):
             operation["progress"] = (
                 self.rewrite_state(viewer, operation["id"])
                 if operation["kind"] == "rewrite"
@@ -435,6 +457,90 @@ class JsonApi:
         elif operation["source"] == "ui" and operation["kind"] == "image":
             operation["progress"] = native_image_progress(operation["progress"])
         return operation
+
+    def _reserve_prepare(self, payload: Mapping[str, object], *, source: str, owner: str, queued: bool):
+        """A prepare is an operation like a run: it takes the one slot, waits in the queue,
+        reports its stage and stops through the same cancel. It carries no words of the
+        caller, so it has nothing to keep private, and it takes no private key."""
+        if self._prepare is None:
+            raise InvalidJob("This studio prepares no models.")
+        if owner:
+            raise InvalidJob("A prepare takes no X-Studio-Private-Key. Send it without the header.")
+        workspace = payload.get("workspace") or "image"
+        document = self.studio().get(workspace) if workspace in ("image", "video", "voice", "music") else None
+        if document is None:
+            raise InvalidJob("workspace must be image, video, voice or music, and offered by this studio")
+        backend = payload.get("backend") or document["active"]
+        names = {one["id"]: one["name"] for one in document["backends"]}
+        if backend not in names:
+            raise InvalidJob(f"The {workspace} workspace offers no model called {backend!r}.")
+        record = self._operations.begin(
+            {
+                "payload_bytes": 0,
+                "kind": "prepare",
+                "source": source,
+                "workspace": workspace,
+                "mode": "prepare",
+                "backend": backend,
+                "model": names[backend],
+                "prompt": "",
+                "width": None,
+                "height": None,
+                "num_frames": None,
+                "frame_rate": None,
+                "settings": {},
+                "client_id": payload.get("client_id", ""),
+                "library_id": "",
+                "owner": "",
+            },
+            queued=queued,
+        )
+        reserved = operation_document(record)
+        position = self._operations.queue_position(reserved["id"])
+        if position is not None:
+            reserved["queue_position"] = position
+        return reserved
+
+    def _run_prepare(self, operation_id: str, backend_id: str) -> dict[str, Any]:
+        assert self._prepare is not None  # a prepare is reserved only when one is wired
+
+        def on_stage(stage: str) -> None:
+            self._prepare_stages[operation_id] = stage
+
+        try:
+            readiness = self._prepare.execute(backend_id, on_stage, self.cancellation_requested)
+        finally:
+            self._prepare_stages.pop(operation_id, None)
+        return {"backend": backend_id, "state": readiness.state, "bytes": readiness.bytes_on_disk}
+
+    def models(self) -> dict[str, Any]:
+        """Each offered model and whether its files are prepared, read without loading one.
+
+        A model whose prepare is queued or running reads as preparing, with that
+        operation's id, so a page that reloads finds the download it started.
+        """
+        preparing = {
+            one["backend"]: one["id"]
+            for one in self._operations.recent()
+            if one["kind"] == "prepare" and one["status"] in ("queued", "running", "stopping")
+        }
+        studio = self.studio()
+        models = []
+        for workspace in ("image", "video", "voice", "music"):
+            document = studio.get(workspace)
+            for backend in document["backends"] if document else ():
+                models.append(self._model_entry(workspace, backend, preparing.get(backend["id"])))
+        return {"models": models}
+
+    def _model_entry(self, workspace: str, backend: Mapping[str, Any], operation_id: str | None) -> dict[str, Any]:
+        entry: dict[str, Any] = {"id": backend["id"], "workspace": workspace, "name": backend["name"]}
+        if self._readiness is None:
+            return {**entry, "state": READY, "bytes": 0, "missing": []}
+        readiness = self._readiness.readiness(backend["id"])
+        entry.update(state=readiness.state, bytes=readiness.bytes_on_disk, missing=list(readiness.missing))
+        if operation_id is not None:
+            entry.update(state=PREPARING, operation=operation_id)
+        return entry
 
     def operation_result(self, operation_id: str, viewer: str = ""):
         self._readable(operation_id, viewer)

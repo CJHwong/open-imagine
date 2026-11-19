@@ -84,3 +84,14 @@ def test_a_failure_on_the_gpu_thread_reaches_the_caller():
     rewriter.rewrite.side_effect = RuntimeError("no weights")
     with pytest.raises(RuntimeError, match="no weights"):
         ThreadConfinedPromptRewriter(rewriter, GpuThread()).rewrite("a cat", "generate", (), Mock(), Mock())
+
+
+def test_a_prepare_runs_on_the_gpu_thread():
+    seen = []
+    rewriter = Mock()
+    rewriter.prepare.side_effect = lambda: seen.append(threading.get_ident())
+
+    ThreadConfinedPromptRewriter(rewriter, GpuThread()).prepare()
+
+    assert len(seen) == 1
+    assert seen[0] != threading.get_ident()

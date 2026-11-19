@@ -22,3 +22,6 @@ class ThreadConfinedPromptRewriter(PromptRewriterGateway):
 
     def release(self):
         self._thread.call(self._rewriter.release)
+
+    def prepare(self):
+        self._thread.call(self._rewriter.prepare)

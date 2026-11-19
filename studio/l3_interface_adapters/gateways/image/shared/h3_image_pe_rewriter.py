@@ -53,3 +53,10 @@ class H3ImagePeRewriter(PromptRewriterGateway):
 
     def release(self) -> None:
         self._child.stop()
+
+    def prepare(self) -> None:
+        """The child loads the enhancer as it starts, fetching what the cache lacks."""
+        try:
+            self._child.wait_ready()
+        finally:
+            self._child.stop()

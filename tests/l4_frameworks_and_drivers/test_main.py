@@ -735,7 +735,7 @@ def test_a_checkpoint_gets_a_stub_rewriter_on_the_stub_and_hidden_ones_are_not_i
     studio = main.create_studio(checkpoint_settings(tmp_path), stub=True, plugins=install(monkeypatch, entries))
     try:
         assert studio.catalog.get("example_qwen").capabilities().name == "Example Qwen checkpoint"
-        catalog = studio.rewriter._rewriter  # ty: ignore[unresolved-attribute] - the thread wrapper's catalog
+        catalog = studio.rewriter._rewriter._rewriter  # ty: ignore[unresolved-attribute] - thread wrapper, gate, catalog
         assert isinstance(catalog._rewriters["example_qwen"], StubPromptRewriterGateway)
     finally:
         studio.shutdown()
@@ -902,12 +902,25 @@ def test_every_cuda_provider_declares_a_footprint():
     assert missing == []
 
 
+class Marks:
+    """The record of prepared models, kept in the test: a real one writes beside the
+    user's settings file."""
+
+    def __init__(self):
+        self.marked = []
+
+    def mark_prepared(self, backend_id):
+        self.marked.append(backend_id)
+
+
 def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
     from types import SimpleNamespace
 
     from studio.l4_frameworks_and_drivers import main
 
     calls = []
+    marks = Marks()
+    monkeypatch.setattr(main, "model_readiness", lambda config: marks)
 
     class Model:
         def load(self):
@@ -922,7 +935,14 @@ def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
         dependencies.append((execute_process, services))
         return Model()
 
-    providers = [SimpleNamespace(backend_id=name, create=create) for name in ("a", "b", "c")]
+    class Rewriter:
+        def prepare(self):
+            calls.append("rewriter")
+
+    providers = [
+        SimpleNamespace(backend_id=name, create=create, rewriter=rewriter)
+        for name, rewriter in (("a", lambda config, name, services: Rewriter()), ("b", None), ("c", None))
+    ]
     monkeypatch.setattr(main, "BUILTIN_PROVIDERS", providers)
     config = SimpleNamespace(
         visible_backends=("a",),
@@ -934,7 +954,8 @@ def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
     report = main.prepare_models(config)
 
     assert [name for name, _ in report] == ["a", "b"]
-    assert calls == ["load", "release", "load", "release"]
+    assert calls == ["load", "release", "rewriter", "load", "release"]
+    assert marks.marked == ["a", "b"]
     assert len(dependencies) == 2
     assert dependencies[0][1] is dependencies[1][1]
     assert all(execute is services.run_process for execute, services in dependencies)
@@ -960,11 +981,16 @@ def test_prepare_constructs_real_provider_factories_with_fake_lifecycles(monkeyp
         )
     lifecycle = main.PrepareModelsUseCase.execute
     calls = []
+    rewritten = set()
+    monkeypatch.setattr(main, "model_readiness", lambda config: Marks())
 
     def execute(use_case, targets, on_start):
-        for name, model in targets:
+        for name, model, rewriter in targets:
             monkeypatch.setattr(model, "load", lambda name=name: calls.append((name, "load")))
             monkeypatch.setattr(model, "release", lambda name=name: calls.append((name, "release")))
+            if rewriter is not None:
+                rewritten.add(name)
+                monkeypatch.setattr(rewriter, "prepare", lambda name=name: calls.append((name, "rewriter")))
         return lifecycle(use_case, targets, on_start)
 
     monkeypatch.setattr(main.PrepareModelsUseCase, "execute", execute)
@@ -978,4 +1004,23 @@ def test_prepare_constructs_real_provider_factories_with_fake_lifecycles(monkeyp
         + config.visible_music_backends
     )
     assert {name for name, _ in report} == expected
-    assert calls == [event for name, _ in report for event in [(name, "load"), (name, "release")]]
+    assert calls == [
+        event
+        for name, _ in report
+        for event in [(name, "load"), (name, "release"), *([(name, "rewriter")] if name in rewritten else [])]
+    ]
+
+
+def test_the_record_of_prepared_models_sits_beside_the_settings_file(tmp_path):
+    from studio.l4_frameworks_and_drivers import main
+
+    config = replace(
+        load_config(Path(__file__).resolve().parents[2] / "studio.cuda.toml"),
+        settings_path=tmp_path / "settings.json",
+    )
+    readiness = main.model_readiness(config)
+
+    assert not readiness.readiness("qwen21_turbo_cuda").ready
+    readiness.mark_prepared("qwen21_turbo_cuda")
+    assert "qwen21_turbo_cuda" in (tmp_path / "prepared-models.json").read_text()
+    assert main.model_readiness(replace(config, settings_path=None)).readiness("qwen21_turbo_cuda").state == "missing"

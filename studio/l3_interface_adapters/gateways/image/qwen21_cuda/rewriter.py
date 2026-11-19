@@ -85,6 +85,18 @@ class Qwen21CudaRewriter(PromptRewriterGateway):
     def release(self) -> None:
         self._child.stop()
 
+    def prepare(self) -> None:
+        """Ask each card for one token, because the child loads a card when it is asked for
+        one. That load is the download; the token is the cheapest question that causes it."""
+        try:
+            for mode in self._models:
+                payload = {"role": mode, "system": "", "user": "a", "references": [], "max_tokens": 1}
+                reply = self._child.request(payload, lambda *_: None, lambda: False)
+                if "error" in reply:
+                    raise InvalidJob(str(reply["error"]))
+        finally:
+            self._child.stop()
+
 
 def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
     models = rewrite_models(config, backend_id)

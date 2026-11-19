@@ -3,7 +3,7 @@
 import base64
 import threading
 from dataclasses import replace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -1797,3 +1797,167 @@ def test_a_queued_request_records_the_media_it_holds():
     assert queued["queue_position"] == 1
     assert "payload_bytes" not in queued
     assert api._operations.get(queued["id"])["payload_bytes"] > 100
+
+
+class Readiness:
+    def __init__(self, ready=()):
+        self.ready = set(ready)
+
+    def readiness(self, backend_id):
+        from studio.l1_entities.model_readiness import MISSING, READY, ModelReadiness
+
+        if backend_id in self.ready:
+            return ModelReadiness(backend_id, READY, 9)
+        return ModelReadiness(backend_id, MISSING, 4, ("Weights",))
+
+    def mark_prepared(self, backend_id):
+        self.ready.add(backend_id)
+
+
+class Prepare:
+    """The prepare use case, reading its own operation while it runs."""
+
+    def __init__(self, readiness, holder):
+        self._readiness = readiness
+        self._holder = holder
+        self.seen = []
+
+    def execute(self, backend_id, on_stage, should_stop):
+        api = self._holder["api"]
+        active = api.state()["active"]
+        self.seen.append(active["progress"]["stage"])
+        self.seen.append(api.models()["models"][0]["state"])
+        on_stage("engine")
+        self.seen.append(api.operation(active["id"])["progress"]["stage"])
+        self.seen.append(should_stop())
+        self._readiness.mark_prepared(backend_id)
+        return self._readiness.readiness(backend_id)
+
+
+def prepared_api(readiness=None, prepare=True, max_queue=0, resource_admission=None):
+    operations = InMemoryOperationGateway(max_queue=max_queue)
+    holder = {}
+    use_case = Prepare(readiness, holder) if prepare else None
+    holder["api"] = JsonApi(
+        FakeController(),
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+        prepare=cast(Any, use_case),
+        readiness=readiness,
+        resource_admission=resource_admission,
+    )
+    return holder["api"], use_case
+
+
+def test_the_models_route_names_each_offered_model_and_its_files():
+    api, _ = prepared_api(Readiness())
+
+    assert api.models() == {
+        "models": [
+            {"id": "fake", "workspace": "image", "name": "Fake", "state": "missing", "bytes": 4, "missing": ["Weights"]}
+        ]
+    }
+
+
+def test_a_studio_with_no_record_reads_every_model_as_ready():
+    api, _ = prepared_api(None, prepare=False)
+
+    assert api.models()["models"][0] == {
+        "id": "fake",
+        "workspace": "image",
+        "name": "Fake",
+        "state": "ready",
+        "bytes": 0,
+        "missing": [],
+    }
+
+
+def test_a_run_for_a_model_that_is_not_prepared_is_refused_before_it_takes_the_slot():
+    from studio.l1_entities.errors import ModelNotReady
+
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(ModelNotReady, match="fake is not downloaded yet"):
+        api.reserve({"kind": "image", "prompt": "pear"})
+    with pytest.raises(ModelNotReady):
+        api.reserve({"kind": "rewrite", "prompt": "pear"})
+
+    assert api.state()["operations"] == []
+
+
+def test_a_prepare_is_an_operation_that_reports_its_stage_and_leaves_the_model_ready():
+    readiness = Readiness()
+    api, prepare = prepared_api(readiness)
+
+    operation = api.reserve({"kind": "prepare", "backend": "fake"})
+    assert operation["kind"] == "prepare" and operation["model"] == "Fake"
+    api.execute_operation(operation, {"kind": "prepare", "backend": "fake"})
+
+    assert prepare.seen == ["starting", "preparing", "engine", False]
+    assert api.operation_result(operation["id"]) == {"backend": "fake", "state": "ready", "bytes": 9}
+    assert api.operation(operation["id"])["progress"] == {"running": False, "stage": "succeeded", "step": 0, "total": 0}
+    assert api.models()["models"][0]["state"] == "ready"
+    assert api.reserve({"kind": "image", "prompt": "pear"})["kind"] == "image"
+
+
+def test_a_prepare_names_the_active_model_when_it_names_none():
+    api, _ = prepared_api(Readiness())
+
+    assert api.reserve({"kind": "prepare"})["backend"] == "fake"
+
+
+def test_a_queued_prepare_reads_as_preparing_and_skips_resource_admission():
+    from unittest.mock import Mock
+
+    admission = Mock()
+    api, _ = prepared_api(Readiness({"fake"}), max_queue=2, resource_admission=admission)
+    first = api.reserve({"kind": "prepare"}, queued=True)
+    second = api.reserve({"kind": "prepare"}, queued=True)
+
+    assert second["queue_position"] == 1
+    assert api.models()["models"][0] == {
+        "id": "fake",
+        "workspace": "image",
+        "name": "Fake",
+        "state": "preparing",
+        "bytes": 9,
+        "missing": [],
+        "operation": first["id"],
+    }
+    api.execute_operation(first, {"kind": "prepare"})
+    api.execute_operation(second, {"kind": "prepare"})
+
+    assert api.operation(second["id"])["status"] == "succeeded"
+    admission.assert_not_called()
+    admission.require.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("payload", "owner", "message"),
+    [
+        ({"kind": "prepare", "workspace": "voice"}, "", "workspace must be"),
+        ({"kind": "prepare", "workspace": "sculpture"}, "", "workspace must be"),
+        ({"kind": "prepare", "backend": "flux9"}, "", "no model called 'flux9'"),
+        ({"kind": "prepare"}, "k" * 40, "X-Studio-Private-Key"),
+    ],
+)
+def test_a_prepare_refuses_what_it_cannot_do(payload, owner, message):
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(InvalidJob, match=message):
+        api.reserve(payload, owner=owner)
+
+
+def test_a_studio_without_a_prepare_refuses_one():
+    api, _ = prepared_api(Readiness(), prepare=False)
+
+    with pytest.raises(InvalidJob, match="prepares no models"):
+        api.reserve({"kind": "prepare"})
+
+
+def test_an_unknown_kind_names_prepare_among_the_kinds():
+    api, _ = prepared_api(Readiness())
+
+    with pytest.raises(InvalidJob, match="rewrite or prepare"):
+        api.reserve({"kind": "sculpture"})

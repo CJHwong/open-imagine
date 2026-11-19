@@ -122,11 +122,11 @@ def test_the_line_names_every_mode_and_the_size_of_whatever_is_missing():
     with heavy_modules(cache_stubs({"Qwen/PE-T2I", "Qwen/PE-I2I"})):
         assert cache_line(models) == "Rewriters: generate cached, edit cached"
     with heavy_modules(cache_stubs({"Qwen/PE-T2I"})):
-        assert cache_line(models) == "Rewriters: generate cached, edit not fetched (18.84 GB on first use)"
+        assert cache_line(models) == "Rewriters: generate cached, edit not fetched (18.84 GB to prepare)"
     with heavy_modules(cache_stubs({"Qwen/PE-I2I"})):
-        assert cache_line(models) == "Rewriters: generate not fetched, edit cached (18.84 GB on first use)"
+        assert cache_line(models) == "Rewriters: generate not fetched, edit cached (18.84 GB to prepare)"
     with heavy_modules(cache_stubs(set())):
-        assert cache_line(models) == "Rewriters: generate not fetched, edit not fetched (18.84 GB each on first use)"
+        assert cache_line(models) == "Rewriters: generate not fetched, edit not fetched (18.84 GB each to prepare)"
 
 
 def test_the_system_prompt_is_read_from_the_weights_repo(system_prompt):
@@ -460,3 +460,26 @@ def test_the_rewriter_reads_a_smaller_copy_than_the_engine_keeps(system_prompt):
     assert sent.size == (1155, 866)
     with Image.open(io.BytesIO(reference.png)) as kept:
         assert kept.size == (2000, 1500)
+
+
+def test_a_prepare_loads_each_card_in_turn_and_frees_the_last(monkeypatch):
+    rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I", "edit": "Qwen/PE-I2I"})
+    events = []
+    monkeypatch.setattr(rewriter, "_resident_for", lambda mode: events.append(f"load {mode}"))
+    monkeypatch.setattr(rewriter, "release", lambda: events.append("release"))
+
+    rewriter.prepare()
+
+    assert events == ["load generate", "load edit", "release"]
+
+
+def test_a_card_that_fails_to_load_still_frees_what_is_resident(monkeypatch):
+    rewriter = Qwen21Rewriter({"generate": "Qwen/PE-T2I"})
+    released = []
+    monkeypatch.setattr(rewriter, "_resident_for", Mock(side_effect=OSError("no network")))
+    monkeypatch.setattr(rewriter, "release", lambda: released.append(True))
+
+    with pytest.raises(OSError, match="no network"):
+        rewriter.prepare()
+
+    assert released == [True]
