@@ -174,3 +174,18 @@ def test_reference_workflows_refuse_a_conflicting_supplied_score(mode):
 
 def test_whitespace_only_score_is_absent():
     assert music_job({**PAYLOAD, "abc": "  \n", "cot": "off"}, CAPS).abc == ""
+
+
+def test_a_music_plan_makes_the_run_s_checks_and_runs_nothing():
+    run, catalog = Mock(), Mock()
+    catalog.active_id.return_value = "yue2"
+    catalog.get.return_value.capabilities.return_value = CAPS
+    controller = MusicController(run, catalog, Mock())
+
+    response = controller.plan(PAYLOAD)
+
+    assert (response.backend, response.mode, response.count) == ("yue2", "generate", 1)
+    assert response.estimate.total_seconds is not None
+    run.execute.assert_not_called()
+    with pytest.raises(InvalidJob, match="steps must be"):
+        controller.plan({**PAYLOAD, "steps": 7})

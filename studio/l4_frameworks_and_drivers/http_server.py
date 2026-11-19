@@ -576,6 +576,10 @@ def make_handler(
                 body, status = self._api_result(lambda: api.image_plan(self._read_json()))
             elif path == "/api/v1/videos/plan":
                 body, status = self._api_result(lambda: api.video_plan(self._read_json()))
+            elif path == "/api/v1/voice/plan":
+                body, status = self._api_result(lambda: api.voice_plan(self._read_json()))
+            elif path == "/api/v1/music/plan":
+                body, status = self._api_result(lambda: api.music_plan(self._read_json()))
             elif path == "/api/v1/images/rewrite":
                 body, status = self._api_result(lambda: api.image_rewrite(self._read_json()))
             elif path == "/api/v1/videos/rewrite":

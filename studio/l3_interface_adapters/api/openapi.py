@@ -1358,6 +1358,20 @@ def plan_paths() -> dict[str, Any]:
                 "Check a video request and estimate its time",
                 {"503": _error("The studio serves no video model")},
             ),
+            (
+                "voice",
+                "VoiceRequest",
+                "planVoice",
+                "Check a voice request and estimate its time",
+                {"503": _error("The studio serves no voice model")},
+            ),
+            (
+                "music",
+                "MusicRequest",
+                "planMusic",
+                "Check a music request and estimate its time",
+                {"503": _error("The studio serves no music model")},
+            ),
         )
     }
 
@@ -1420,7 +1434,7 @@ def plan_schemas() -> dict[str, Any]:
             "properties": {
                 "backend": {"type": "string"},
                 "mode": {"type": "string"},
-                "count": {"type": "integer", "description": "The images or clips that the request makes"},
+                "count": {"type": "integer", "description": "The images, clips or sounds that the request makes"},
                 "effective_options": {
                     "type": "object",
                     "additionalProperties": True,
@@ -1432,7 +1446,8 @@ def plan_schemas() -> dict[str, Any]:
         },
         "PlanEstimate": {
             "type": "object",
-            "required": ["basis", "steps", "width", "height", "reference_count", "total_seconds", "excludes"],
+            "description": "steps, width and height come with an image or a clip, and audio_seconds with voice.",
+            "required": ["basis", "reference_count", "total_seconds", "excludes", "stages", "with_load_seconds"],
             "properties": {
                 "basis": {
                     "type": "string",
@@ -1451,6 +1466,28 @@ def plan_schemas() -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "The time that the figure does not hold",
+                },
+                "audio_seconds": {**seconds, "description": "The length of speech that a voice figure reads"},
+                "stages": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Stage"},
+                    "description": "total_seconds in named parts that add up to it: the fixed cost, by the parts "
+                    "the model declares or as one fixed stage, then steps or generation",
+                },
+                "load_seconds": {**seconds, "description": "The model's declared cold load, or null when unmeasured"},
+                "resident": {
+                    "type": ["boolean", "null"],
+                    "description": "Whether the studio holds the model now, as GET /api/v1/state lists it",
+                },
+                "with_load_seconds": {
+                    **seconds,
+                    "description": "total_seconds with the load when the model is not held and the figure excludes "
+                    "the load. Null when that load is unmeasured",
+                },
+                "may_add": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Stage"},
+                    "description": "A cost that a first run may add, such as a compile. No total holds it",
                 },
             },
         },
@@ -1923,6 +1960,11 @@ def music_schemas() -> dict[str, Any]:
                 "max_batch": {"type": "integer", "description": "Most songs one BatchRequest may ask for"},
                 "description": {"type": "string"},
                 "loading_note": {"type": "string", "description": "What to install before the first generation"},
+                "load_seconds": {
+                    "type": ["number", "null"],
+                    "description": "The seconds a cold load of the model takes, or null when unmeasured",
+                },
+                "may_add": {"type": "array", "items": {"$ref": "#/components/schemas/Stage"}},
             },
         },
     }

@@ -8,6 +8,7 @@ from dataclasses import replace
 
 import pytest
 
+from studio.l1_entities.estimate_stages import Stage
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoEstimate
 from studio.l1_entities.video_estimate import FAST_MODE, estimate_clip, run_seconds, tokens
 
@@ -140,3 +141,61 @@ def test_a_model_with_one_stage_takes_its_own_steps_on_all_the_tokens():
     assert (figure.steps, figure.setup_seconds, figure.total_seconds) == (6, 20.0, 170.0)
     # An effect keeps its own steps.
     assert estimate_clip(model, 960, 544, 121, adapter=EFFECT).steps == 8
+
+
+def named(estimate):
+    return [(stage.name, stage.seconds) for stage in estimate.stages]
+
+
+def test_a_clip_without_declared_parts_has_a_fixed_stage_and_its_generation():
+    assert named(estimate_clip(FLAT, 960, 544, 121)) == [("fixed", 60.0), ("generation", 30.0)]
+    assert named(estimate_clip(FLAT, 960, 544, 121, enhance=False)) == [("fixed", 40.0), ("generation", 30.0)]
+    assert estimate_clip(None, 960, 544, 121).stages == ()
+
+
+PARTS = replace(FLAT, fixed_parts=(Stage("transformer load", 30.0), Stage("decoder load", 10.0)))
+
+
+def test_the_declared_parts_take_the_prompt_pass_as_a_stage_when_the_clip_pays_it():
+    assert named(estimate_clip(PARTS, 960, 544, 121)) == [
+        ("transformer load", 30.0),
+        ("decoder load", 10.0),
+        ("prompt pass", 20.0),
+        ("generation", 30.0),
+    ]
+    assert named(estimate_clip(PARTS, 960, 544, 121, enhance=False)) == [
+        ("transformer load", 30.0),
+        ("decoder load", 10.0),
+        ("generation", 30.0),
+    ]
+    # An edit is never enhanced.
+    assert named(estimate_clip(PARTS, 256, 256, 9, adapter=EFFECT))[:2] == [
+        ("transformer load", 30.0),
+        ("decoder load", 10.0),
+    ]
+    assert named(estimate_clip(replace(PARTS, enhance_seconds=0.0, fixed_seconds=40.0), 960, 544, 121))[2] == (
+        "generation",
+        30.0,
+    )
+
+
+def test_the_declared_parts_split_the_fixed_cost_without_the_prompt_pass():
+    with pytest.raises(ValueError, match=r"fixed cost parts add up to 60 s, not the 40 s"):
+        replace(FLAT, fixed_parts=(Stage("loads", 60.0),))
+
+
+@pytest.mark.parametrize("frames", [9, 25, 121])
+@pytest.mark.parametrize("side", [256, 544, 960])
+@pytest.mark.parametrize("enhance", [True, False])
+@pytest.mark.parametrize("adapter", [None, EFFECT])
+def test_the_stages_add_up_to_the_rounded_total_and_none_is_negative(frames, side, enhance, adapter):
+    """A total to the nearest 10 s can sit below the fixed cost it holds, so the stages follow
+    the rounded fixed figure that the estimate reports."""
+    model = replace(
+        PARTS, fixed_parts=(Stage("transformer load", 31.0), Stage("decoder load", 3.7)), fixed_seconds=54.7
+    )
+    estimate = estimate_clip(model, side, side, frames, enhance=enhance, adapter=adapter, loras=1)
+
+    assert round(sum(stage.seconds for stage in estimate.stages), 1) == estimate.total_seconds
+    assert round(sum(stage.seconds for stage in estimate.stages[:-1]), 1) == estimate.setup_seconds
+    assert all(stage.seconds >= 0 for stage in estimate.stages)

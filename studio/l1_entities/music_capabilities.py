@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from studio.l1_entities.estimate_stages import Stage, check_parts
+
 
 @dataclass(frozen=True)
 class MusicEstimate:
@@ -17,6 +19,12 @@ class MusicEstimate:
     plan_seconds: float
     cover_seconds: float
     transcribe_seconds: float
+    fixed_parts: tuple[Stage, ...] = ()
+    """The pieces of `generate_base_seconds`, in seconds that add up to it, for the stages of
+    a plan. The other modes have one measured figure each, which a plan does not split."""
+
+    def __post_init__(self):
+        check_parts(self.fixed_parts, self.generate_base_seconds, "The generate base")
 
     def seconds(self, mode: str, lyrics_characters: int = 0, instrumental: bool = False) -> float | None:
         """The measured figure for one request, or None for a mode this estimate does not hold."""
@@ -53,3 +61,7 @@ class MusicCapabilities:
     description: str = "Songs from style and sectioned lyrics, with optional ABC composition."
     loading_note: str = "Install the pinned YuE environment and weights before generating."
     estimate: MusicEstimate | None = None
+    # The seconds a cold load takes, which no figure holds, or None when unmeasured, and a
+    # cost that a first run may add.
+    load_seconds: float | None = None
+    may_add: tuple[Stage, ...] = ()

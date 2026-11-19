@@ -1261,6 +1261,22 @@ def test_voice_capabilities_and_wav_routes(voice_served):
     assert post_json(voice_served, "/api/v1/voice/generate", {"text": ""})[0] == 400
 
 
+def test_the_voice_plan_route_answers_the_figure_without_a_run_and_refuses_a_private_key(voice_served):
+    body = {"mode": "design", "text": "Hello", "voice": "a calm narrator", "seconds": 4}
+    status, _, answer = post_json(voice_served, "/api/v1/voice/plan", body)
+
+    assert status == 200
+    plan = json.loads(answer)
+    assert (plan["backend"], plan["mode"], plan["count"]) == ("auk", "design", 1)
+    assert plan["estimate"]["audio_seconds"] == 4.0
+    assert json.loads(call(voice_served, "/api/v1/state")[2])["operations"] == []
+    assert post_json(voice_served, "/api/v1/voice/plan", {**body, "text": ""})[0] == 400
+    private = call(
+        voice_served, "/api/v1/voice/plan", json.dumps(body).encode(), **{"Content-Type": "application/json"}, **PRIVATE
+    )
+    assert private[0] == 400 and "only with POST /api/v1/operations" in json.loads(private[2])["error"]
+
+
 def test_batch_item_routes_return_retained_outputs(voice_served):
     import time
 

@@ -98,3 +98,20 @@ def test_a_blank_backend_plans_on_the_active_one_and_a_named_one_leaves_it_activ
 def test_a_plan_refuses_what_a_run_refuses(fields, error, message):
     with pytest.raises(error, match=message):
         plan(**fields)
+
+
+def test_a_plan_carries_the_load_and_the_first_run_cost_that_the_model_declares():
+    from studio.l1_entities.estimate_stages import Stage
+
+    catalog = catalog_with()
+    fake = catalog.get("fake")
+    fake.caps = replace(fake.caps, load_seconds=14.0, may_add=(Stage("compile", 30.0),))
+
+    estimate = (
+        PlanImageUseCase(catalog)
+        .execute(PlanImageRequest(mode="edit", options={}, reference_sizes=((512, 512),)))
+        .estimate
+    )
+
+    assert (estimate.load_seconds, estimate.may_add) == (14.0, (Stage("compile", 30.0),))
+    assert [stage.name for stage in estimate.stages] == ["fixed", "steps"]

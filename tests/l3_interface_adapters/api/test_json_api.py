@@ -1173,8 +1173,35 @@ def test_an_image_plan_reads_the_body_of_a_run_through_its_prompt_step():
             "setup_seconds": 1.0,
             "total_seconds": 5.0,
             "excludes": ["weight download", "model load", "queue wait"],
+            "stages": [],
+            "load_seconds": None,
+            "resident": None,
+            "with_load_seconds": None,
+            "may_add": [],
         },
     }
+
+
+def test_a_plan_reads_whether_the_model_is_held_from_the_list_the_state_route_reports():
+    from studio.l1_entities.image_estimate import ImageEstimate
+    from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
+
+    class Cold(PlanningController):
+        def plan(self, form):
+            estimate = ImageEstimate("constants", 4, 512, 512, 0, 2.0, 1.0, 3.0, load_seconds=12.0)
+            return PlanImageResponse("fake", "generate", 1, {}, (), False, estimate)
+
+    held = {"policy": "boundary", "boundary_gib": 10.0, "resident": ["fake"]}
+    cold = {**held, "resident": ["other"]}
+
+    warm = api_for(Cold(), memory_status=lambda: held).image_plan({})["estimate"]
+    first = api_for(Cold(), memory_status=lambda: cold).image_plan({})["estimate"]
+
+    assert (warm["resident"], warm["with_load_seconds"], warm["load_seconds"]) == (True, 3.0, 12.0)
+    assert "model load" in warm["excludes"]
+    assert (first["resident"], first["with_load_seconds"]) == (False, 15.0)
+    assert first["excludes"] == ["weight download", "queue wait"]
+    assert first["total_seconds"] == warm["total_seconds"] == 3.0
 
 
 def test_an_image_plan_refuses_a_backend_that_is_not_an_id():
@@ -1203,6 +1230,57 @@ def test_a_video_plan_is_the_video_controller_s_plan_as_a_document():
     assert document["effective_options"] == {"width": 960, "loras": [{"id": "motion", "strength": 0.5}]}
     assert document["estimate"]["excludes"] == ["queue wait"]
     assert document["estimate"]["total_seconds"] == 280.0
+
+
+def test_voice_and_music_plans_answer_the_run_s_settings_and_time_without_a_run():
+    from unittest.mock import Mock
+
+    from studio.l3_interface_adapters.controllers.music_controller import MusicController
+    from studio.l3_interface_adapters.controllers.voice_controller import VoiceController
+    from studio.l3_interface_adapters.gateways.music.yue2.capabilities import yue2_capabilities
+    from studio.l3_interface_adapters.gateways.voice.auk_runtime.capabilities import auk_capabilities
+
+    run, catalog = Mock(), Mock()
+    catalog.active_id.return_value = "yue2"
+    catalog.get.return_value.capabilities.return_value = replace(yue2_capabilities(), load_seconds=60.0)
+    held = {"policy": "immediate", "boundary_gib": None, "resident": ["auk"]}
+    api = api_for(
+        FakeController(),
+        voice=VoiceController(run, auk_capabilities("flash")),
+        music=MusicController(run, catalog, Mock()),
+        memory_status=lambda: held,
+    )
+
+    voice = api.voice_plan({"mode": "design", "text": "Hello", "voice": "A warm voice", "seconds": 4, "seed": 9})
+    music = api.music_plan({"style": "piano pop", "lyrics": "[Verse]\nA quiet road"})
+
+    assert (voice["backend"], voice["mode"], voice["count"]) == ("auk", "design", 1)
+    assert "seed" not in voice["effective_options"]
+    assert (voice["estimate"]["resident"], voice["estimate"]["audio_seconds"]) == (True, 4.0)
+    assert voice["estimate"]["with_load_seconds"] == voice["estimate"]["total_seconds"]
+    assert [stage["name"] for stage in voice["estimate"]["stages"]] == ["fixed", "generation"]
+    assert music["estimate"]["resident"] is False
+    assert music["estimate"]["with_load_seconds"] == round(music["estimate"]["total_seconds"] + 60.0, 1)
+    assert "model load" not in music["estimate"]["excludes"]
+    run.execute.assert_not_called()
+
+
+def test_a_voice_or_music_plan_for_a_model_that_does_not_exist_is_a_bad_request():
+    from unittest.mock import Mock
+
+    from studio.l1_entities.errors import UnknownBackend
+    from studio.l3_interface_adapters.controllers.music_controller import MusicController
+
+    catalog = Mock()
+    catalog.get.side_effect = UnknownBackend("no music backend registered as ghost")
+    api = api_for(FakeController(), voice=FakeVoice(), music=MusicController(Mock(), catalog, Mock()))
+
+    with pytest.raises(InvalidJob, match="No music model is offered as ghost"):
+        api.music_plan({"backend": "ghost", "style": "pop", "lyrics": "la"})
+    with pytest.raises(StudioError, match="Music generation is not configured"):
+        api_for(FakeController()).music_plan({})
+    with pytest.raises(StudioError, match="Voice generation is not configured"):
+        api_for(FakeController()).voice_plan({})
 
 
 @pytest.mark.parametrize(

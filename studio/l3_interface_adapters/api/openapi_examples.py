@@ -239,6 +239,32 @@ def rewrite_examples(workspace: str) -> dict[str, Any]:
 
 def plan_examples(workspace: str) -> dict[str, Any]:
     """A plan takes the body of a run, so each example is a run's body with the media left out."""
+    if workspace == "voice":
+        return {
+            "script": {
+                "summary": "Estimate a Drama-3 script",
+                "description": "The figure reads the length of speech that the script produces. A mode that "
+                "takes a reference needs it here as well, because the plan makes the run's own checks.",
+                "value": {
+                    "backend": "drama3",
+                    "mode": "generate",
+                    "text": "The next train leaves from platform three.",
+                },
+            }
+        }
+    if workspace == "music":
+        return {
+            "song": {
+                "summary": "Estimate a song",
+                "description": "The figure grows with the lyrics; the engine chooses the song's length.",
+                "value": {
+                    "backend": "yue2",
+                    "mode": "generate",
+                    "style": "English piano pop at 100 BPM",
+                    "lyrics": "[Verse]\nMorning light across the bay",
+                },
+            }
+        }
     if workspace == "videos":
         return {
             "clip_with_a_track": {

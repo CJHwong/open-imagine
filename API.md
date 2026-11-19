@@ -542,8 +542,8 @@ Then submit the chosen `backend` in the generation request.
 
 ## Plan a request
 
-Send the body of a run to `POST /api/v1/images/plan` or `POST /api/v1/videos/plan`.
-One route serves both modes, so add `"mode": "edit"` to the body of an edit.
+Send the body of a run to `POST /api/v1/images/plan`, `POST /api/v1/videos/plan`, `POST /api/v1/voice/plan` or `POST /api/v1/music/plan`.
+One route serves every mode of its workspace, so add `"mode": "edit"` to the body of an edit.
 The server runs the same checks as the run, but it does not run the model.
 It does not switch the active model, take the GPU, or record an operation.
 It answers while another run holds the GPU.
@@ -569,7 +569,12 @@ curl -sS http://localhost:8765/api/v1/images/plan \
     "per_item_seconds": 70.3,
     "setup_seconds": 0.0,
     "total_seconds": 140.7,
-    "excludes": ["weight download", "model load", "queue wait"]
+    "excludes": ["weight download", "model load", "queue wait"],
+    "stages": [{"name": "fixed", "seconds": 43.8}, {"name": "steps", "seconds": 96.9}],
+    "load_seconds": null,
+    "resident": false,
+    "with_load_seconds": null,
+    "may_add": []
   }
 }
 ```
@@ -577,14 +582,46 @@ curl -sS http://localhost:8765/api/v1/images/plan \
 A request that the run refuses gets the same `400` error from the plan.
 A model that the studio does not offer also gets `400`.
 An image plan for more than 16 images gets `400`, because a JSON run stops at 16.
+A plan route refuses `X-Studio-Private-Key` with `400`, the same as every route except `POST /api/v1/operations`.
 
 | Field | Meaning |
 |---|---|
-| `count` | The images or clips that the request makes. One result for each reference multiplies it. |
+| `count` | The images, clips or sounds that the request makes. One result for each reference multiplies it. |
 | `effective_options` | Every setting of the mode, with each default filled in. Send it back to the run as it is. |
 | `estimate.basis` | `constants`, `provisional`, or `unavailable`. |
 | `estimate.total_seconds` | The time of the whole request, or `null` when the basis is `unavailable`. |
 | `estimate.excludes` | The time that the figure does not hold. |
+| `estimate.stages` | `total_seconds` in named parts. See "Stages". |
+| `estimate.load_seconds` | The model's measured cold load, or `null` when no run measured it. |
+| `estimate.resident` | Whether the studio holds the model now, as `GET /api/v1/state` lists it under `studio.memory.resident`. |
+| `estimate.with_load_seconds` | The time with the model load. See "Load". |
+| `estimate.may_add` | Costs that a first run may add, such as a compile for a new shape. No figure holds them. |
+
+### Stages
+
+The stages add up to `total_seconds` exactly.
+The fixed cost comes first: one `fixed` stage, or the parts that the model declares, such as a text encode.
+The last stage grows with the request: `steps` for an image, `generation` for a clip, a voice clip or a song.
+An image pays its fixed cost once for each image or once for the request, as the model says.
+A clip that runs the prompt enhancer shows it as a `prompt pass` stage when the model declares its parts.
+
+Each figure is rounded, so the server distributes the rounding:
+
+1. The fixed stages split the rounded fixed figure that the estimate reports, such as `setup_seconds` of a clip. Each part is scaled to it and rounded to 0.1 s. The largest part takes what is left.
+2. The last stage is `total_seconds` less the fixed figure.
+
+A clip's total is rounded to 10 s, so its parts can differ from the declared parts by up to 5 s.
+
+### Load
+
+`with_load_seconds` is:
+
+1. `total_seconds` when the model is resident.
+2. `total_seconds` when the figure already holds the load. A clip's fixed cost holds its loads, so `excludes` does not name `model load`.
+3. `total_seconds` plus `load_seconds` when the model is not resident and the load is measured. Then `model load` leaves `excludes`.
+4. `null` when the model is not resident and no run measured its load. A figure without the load would be too low.
+
+A plan does not load the model to find out. It reads the list that the state route reports.
 
 A plan needs no prompt and no media.
 For an image, send `reference_sizes` as `[width, height]` pairs in place of `references`.
@@ -607,6 +644,37 @@ Expect an error of about 10 to 40%. The fit counts these parts of a clip:
 The figure counts Fast mode at the default speed and adds `Fast mode speedup` to `excludes`.
 No run measured the time that Fast mode saves.
 The constants are in the `estimate` field of each video model's capabilities.
+
+A voice or music figure is the figure that the voice or music form shows beside its run button.
+A voice plan needs the run's whole body, with its reference when the mode needs one, because the plan makes the run's own checks.
+A voice figure reads the length of speech in `estimate.audio_seconds`: the mode's `seconds`, or the length that the script produces.
+A song figure grows with the lyrics only. The engine picks the song's length.
+`effective_options` holds the settings of the voice mode, such as `voice` and `ref_text`, or the settings of the song.
+It leaves out the script, the style, the lyrics, the score, the media and a drawn seed.
+A voice or music plan finds its model as the run does, so it also answers for a registered model that the picker hides.
+
+```json
+{
+  "backend": "drama3_cuda",
+  "mode": "generate",
+  "count": 1,
+  "effective_options": {"temperature": 0.7, "top_p": 0.7, "top_k": 30, "max_tokens": 2048},
+  "estimate": {
+    "basis": "constants",
+    "reference_count": 0,
+    "audio_seconds": 3.2,
+    "per_item_seconds": 4.5,
+    "setup_seconds": 0.3,
+    "total_seconds": 4.8,
+    "excludes": ["weight download", "model load", "queue wait"],
+    "stages": [{"name": "fixed", "seconds": 0.3}, {"name": "generation", "seconds": 4.5}],
+    "load_seconds": null,
+    "resident": false,
+    "with_load_seconds": null,
+    "may_add": []
+  }
+}
+```
 
 ## Cut an audio selection
 

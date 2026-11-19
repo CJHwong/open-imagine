@@ -6,9 +6,11 @@ import time
 from dataclasses import asdict
 from typing import Any
 
+from studio.l1_entities.estimate_stages import with_residency
 from studio.l1_entities.lora import LoraUse
 from studio.l1_entities.run_progress import RunProgress
 from studio.l2_use_cases.describe_studio_use_case import StudioView
+from studio.l2_use_cases.plan_audio_use_case import PlanAudioResponse
 from studio.l2_use_cases.plan_image_use_case import PlanImageResponse
 from studio.l2_use_cases.plan_video_use_case import PlanVideoResponse
 from studio.l2_use_cases.rewrite_prompt_use_case import RewriteResponse
@@ -33,14 +35,19 @@ def image_document(response: RunImageResponse) -> dict[str, Any]:
     }
 
 
-def plan_document(response: PlanImageResponse | PlanVideoResponse) -> dict[str, Any]:
+def plan_document(
+    response: PlanImageResponse | PlanVideoResponse | PlanAudioResponse, resident: bool | None = None
+) -> dict[str, Any]:
     """What a run would do. The LoRAs join the settings when the model offers any, so a
-    caller can send `effective_options` back to the run route as they are."""
+    caller can send `effective_options` back to the run route as they are. `resident` says
+    whether the studio holds the model now, and None when the studio does not say."""
     options = dict(response.effective_options)
     if response.offers_loras:
         options["loras"] = lora_document(response.loras)
-    estimate = asdict(response.estimate)
+    estimate = asdict(with_residency(response.estimate, resident))
     estimate["excludes"] = list(estimate["excludes"])
+    estimate["stages"] = list(estimate["stages"])
+    estimate["may_add"] = list(estimate["may_add"])
     return {
         "backend": response.backend,
         "mode": response.mode,

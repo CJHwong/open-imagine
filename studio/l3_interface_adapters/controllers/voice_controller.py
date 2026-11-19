@@ -12,6 +12,7 @@ import soundfile
 
 from studio.l1_entities.errors import InvalidJob, UnknownBackend
 from studio.l1_entities.voice_job import ReferenceAudio, SpeechJob
+from studio.l2_use_cases.plan_audio_use_case import PlanAudioResponse, plan_speech
 from studio.l2_use_cases.run_voice_use_case import RunVoiceUseCase
 
 MAX_AUDIO_BYTES = 32 * 1024 * 1024
@@ -37,6 +38,11 @@ class VoiceController:
     def validate(self, payload: Mapping) -> SpeechJob:
         backend_id = self._backend_id(payload)
         return voice_job(payload, self.model_capabilities(backend_id))
+
+    def plan(self, payload: Mapping) -> PlanAudioResponse:
+        """What the run of this body would do: the run's own checks, and no run."""
+        backend_id, capabilities = self._selected(payload)
+        return plan_speech(backend_id, capabilities, voice_job(payload, capabilities))
 
     def run(self, payload: Mapping):
         backend_id, capabilities = self._selected(payload)

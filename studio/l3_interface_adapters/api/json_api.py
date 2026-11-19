@@ -853,7 +853,7 @@ class JsonApi:
         if stand_in:
             del body["references"]
         body.pop("per_reference_prompts", None)
-        document = plan_document(self._controller.plan(image_form(body, mode)))
+        document = self._plan_document(self._controller.plan(image_form(body, mode)))
         # A run over the JSON API stops at this many images, so a plan refuses more.
         if document["count"] > BATCH_LIMIT:
             raise InvalidJob(f"A batch may hold at most {BATCH_LIMIT} images.")
@@ -863,7 +863,31 @@ class JsonApi:
         """What the run of this body would do, on the video model it names or the active one.
         Like an image plan, it switches nothing and records no operation."""
         mode = str(payload.get("mode") or "generate")
-        return plan_document(self._video_backend().plan(self._plan_payload(payload, mode, "video")))
+        return self._plan_document(self._video_backend().plan(self._plan_payload(payload, mode, "video")))
+
+    def voice_plan(self, payload: Mapping[str, object]) -> dict[str, Any]:
+        """What the voice run of this body would do. Like an image plan, it switches nothing
+        and records no operation."""
+        return self._audio_plan(self._voice_backend(), payload, "voice")
+
+    def music_plan(self, payload: Mapping[str, object]) -> dict[str, Any]:
+        """What the music run of this body would do. Like an image plan, it switches nothing
+        and records no operation."""
+        return self._audio_plan(self._music_backend(), payload, "music")
+
+    def _audio_plan(self, controller, payload: Mapping[str, object], workspace: str) -> dict[str, Any]:
+        try:
+            return self._plan_document(controller.plan(payload))
+        except UnknownBackend as error:
+            raise InvalidJob(f"No {workspace} model is offered as {payload.get('backend')}.") from error
+
+    def _plan_document(self, response) -> dict[str, Any]:
+        """The plan, with whether the studio holds its model now, from the list that the
+        state route reports."""
+        if self._memory_status is None:
+            return plan_document(response, None)
+        resident: Any = self._memory_status()["resident"]
+        return plan_document(response, response.backend in resident)
 
     def _plan_payload(self, payload: Mapping[str, object], mode: str, workspace: str) -> dict[str, Any]:
         """The body after the run's prompt step. The step reads the model's Looks first, so a

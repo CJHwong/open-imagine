@@ -161,6 +161,16 @@ GUIDANCE = {
         "basis is provisional: read it as a "
         "range of about 10 to 40%, not a promise."
     ),
+    "planVoice": (
+        "Use this before a voice run to check the request and estimate its time. Send the body that "
+        "generateVoice would take, with its reference when the mode needs one. It switches no model and records "
+        "no operation. total_seconds is the figure that the voice form shows."
+    ),
+    "planMusic": (
+        "Use this before a music run to check the request and estimate its time. Send the body that "
+        "generateMusic would take. It switches no model and records no operation. total_seconds is the figure "
+        "that the music form shows."
+    ),
     "rewriteImagePrompt": (
         "Use this to expand a rough image prompt or explain a referenced image before generation. "
         "Send prompt and optional image references; read the returned prompt and optional size suggestion. "
