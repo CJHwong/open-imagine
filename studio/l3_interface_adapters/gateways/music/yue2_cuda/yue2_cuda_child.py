@@ -142,9 +142,13 @@ def transcriber(extras_dir: Path):
     # binary under a longer name, so a link with that name goes first on PATH.
     binaries = Path(extras_dir).expanduser() / "bin"
     binaries.mkdir(parents=True, exist_ok=True)
+    # The link outlives the environment it points into, so it follows the binary when uv
+    # rebuilds that environment somewhere else.
     link = binaries / "ffmpeg"
-    if not link.is_symlink():
-        link.symlink_to(imageio_ffmpeg.get_ffmpeg_exe())
+    target = imageio_ffmpeg.get_ffmpeg_exe()
+    if not link.is_symlink() or os.readlink(link) != target:
+        link.unlink(missing_ok=True)
+        link.symlink_to(target)
     os.environ["PATH"] = os.pathsep.join([str(binaries), os.environ.get("PATH", "")])
     sys.path.insert(0, str(directory))
     import abc_tools

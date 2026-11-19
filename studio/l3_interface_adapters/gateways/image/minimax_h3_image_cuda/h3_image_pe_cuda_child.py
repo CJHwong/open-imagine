@@ -223,7 +223,12 @@ def reference_image(raw: bytes):
         return found.convert("RGB")
 
 
-def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS, opening: str = "") -> str:
+def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS) -> str:
+    return write(processor, model, messages, images, max_tokens)[0]
+
+
+def write(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS, opening: str = "") -> tuple[str, bool]:
+    """The answer, and whether the card ended it before the token limit did."""
     import torch
 
     if images:
@@ -243,7 +248,9 @@ def ask(processor, model, messages, images=(), max_tokens: int = MAX_TOKENS, ope
             top_p=0.95,
             top_k=20,
         )
-    return opening + processor.batch_decode(written[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True)[0]
+    prompt_length = inputs["input_ids"].shape[1]
+    answer = processor.batch_decode(written[:, prompt_length:], skip_special_tokens=True)[0]
+    return opening + answer, written.shape[1] - prompt_length < max_tokens
 
 
 def unclosed_caption(text: str) -> dict:
@@ -269,11 +276,14 @@ def generate(processor, model, job: dict, prompt_dir: Path) -> dict:
         raise ValueError("Write a prompt before asking for a longer one.")
     pictures = [base64.b64decode(raw) for raw in job.get("images") or []]
     if kind == "generate":
-        text = ask(processor, model, image_messages(prompt_dir, prompt), opening=CAPTION_OPENING)
-        try:
-            return caption_reply(text, "aspect_ratio")
-        except ValueError:
-            return unclosed_caption(text)
+        text, finished = write(processor, model, image_messages(prompt_dir, prompt), opening=CAPTION_OPENING)
+        # An answer the card closed all but its last brace still holds its ratio.
+        for candidate in (text, text + "}"):
+            with contextlib.suppress(ValueError):
+                return caption_reply(candidate, "aspect_ratio")
+        if not finished:
+            raise ValueError("The prompt enhancer reached its token limit before it closed the caption.")
+        return unclosed_caption(text)
     if kind == "edit":
         ratio = str(job.get("ratio") or "adaptive")
         messages = edit_messages(prompt_dir, prompt, [picture_ratio(raw) for raw in pictures], ratio)

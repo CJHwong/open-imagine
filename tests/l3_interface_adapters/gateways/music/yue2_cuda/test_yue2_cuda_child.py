@@ -931,6 +931,17 @@ def test_an_existing_ffmpeg_link_is_kept(monkeypatch, tmp_path):
     assert (tmp_path / "bin" / "ffmpeg").resolve() == (tmp_path / "ffmpeg").resolve()
 
 
+def test_a_link_into_a_rebuilt_environment_follows_the_binary(monkeypatch, tmp_path):
+    """uv can rebuild the environment elsewhere; the old link would point at nothing."""
+    fake_transcriber(monkeypatch, tmp_path, FakeSheetSage({"abc": "X:1\n"}))
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "ffmpeg").symlink_to(tmp_path / "gone" / "ffmpeg")
+
+    child.transcribe({"reference_audio": base64.b64encode(b"audio").decode()}, tmp_path)
+
+    assert os.readlink(tmp_path / "bin" / "ffmpeg") == str(tmp_path / "ffmpeg")
+
+
 @pytest.mark.parametrize(
     ("result", "writes_score", "message"),
     [

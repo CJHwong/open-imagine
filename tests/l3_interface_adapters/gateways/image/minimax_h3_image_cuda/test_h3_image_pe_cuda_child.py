@@ -53,6 +53,8 @@ class FakeInputs(dict):
 
 
 class Written:
+    shape = (1, 9)
+
     def __getitem__(self, key):
         return "tokens"
 
@@ -171,6 +173,28 @@ def test_a_caption_the_card_left_open_is_read_as_the_caption(monkeypatch, tmp_pa
     reply = child.generate(processor, model, {"kind": "generate", "prompt": "a poster"}, templates(tmp_path))
 
     assert reply == {"prompt": caption, "ratio": None}
+
+
+def test_an_answer_short_of_its_last_brace_keeps_its_ratio(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    continuation = 'a caption", "aspect_ratio": "16:9"'
+    monkeypatch.setattr(processor, "batch_decode", lambda written, skip_special_tokens: [continuation])
+
+    reply = child.generate(processor, model, {"kind": "generate", "prompt": "a pear"}, templates(tmp_path))
+
+    assert reply == {"prompt": "a caption", "ratio": "16:9"}
+
+
+def test_a_caption_cut_off_by_the_token_limit_is_refused(monkeypatch, tmp_path):
+    """Only the card's own end of turn makes an open caption whole."""
+    fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    monkeypatch.setattr(processor, "batch_decode", lambda written, skip_special_tokens: ["A poster that stops mid"])
+    monkeypatch.setattr(Written, "shape", (1, 5 + child.MAX_TOKENS))
+
+    with pytest.raises(ValueError, match="token limit"):
+        child.generate(processor, model, {"kind": "generate", "prompt": "a poster"}, templates(tmp_path))
 
 
 @pytest.mark.parametrize(
