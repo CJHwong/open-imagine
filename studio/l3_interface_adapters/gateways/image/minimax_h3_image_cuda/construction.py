@@ -18,7 +18,22 @@ from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoP
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 DEFAULT_MODEL = "MiniMaxAI/MiniMax-H3-Image"
-DEFAULT_PACK_DIR = "~/.cache/open-imagine/h3-pack"
+# A pack is one model at one precision, so each precision keeps its own folder. Sharing one
+# let a prepare of the NVFP4 entry overwrite the FP8 entry's pack on 2026-11-19. FP8 keeps
+# the folder it always had, so an existing FP8 pack stays where it is.
+DEFAULT_PACK_DIRS = {
+    "fp8": "~/.cache/open-imagine/h3-pack",
+    "nvfp4": "~/.cache/open-imagine/h3-pack-nvfp4",
+}
+
+
+def pack_root(settings, quantize: str) -> Path:
+    """The folder that holds this precision's packs, unless the section names its own. A
+    bf16 child reads no pack, so it takes the FP8 folder only to fill its argument."""
+    default = DEFAULT_PACK_DIRS.get(quantize, DEFAULT_PACK_DIRS["fp8"])
+    return Path(str(settings.get("pack_dir", default))).expanduser()
+
+
 # The release's own prompt enhancer, the same one the MLX setup converts. A Hub repo id or a
 # local folder that already holds it; empty or absent hides the page's Rewrite toggle.
 DEFAULT_REWRITE_MODEL = "MiniMaxAI/MiniMax-H3-Image-PE"
@@ -71,11 +86,11 @@ def pack_assets_for(backend_id: str):
 
     def assets(config: ModelConfigurationGateway) -> tuple[ModelAsset, ...]:
         settings = config.backend(backend_id)
-        if str(settings.get("quantize", default_quantize)) == "bf16":
+        quantize = str(settings.get("quantize", default_quantize))
+        if quantize == "bf16":
             return ()
         model = str(settings.get("model", DEFAULT_MODEL))
-        root = Path(str(settings.get("pack_dir", DEFAULT_PACK_DIR))).expanduser()
-        return (ModelAsset("Pack", str(root / model.replace("/", "--")), "pack"),)
+        return (ModelAsset("Pack", str(pack_root(settings, quantize) / model.replace("/", "--")), "pack"),)
 
     return assets
 
@@ -94,7 +109,6 @@ def backend_factory(backend_id: str):
                 f"[{backend_id}].quantize is {quantize!r}; it must be one of {', '.join(sorted(QUANTIZERS))}."
             )
         script = Path(__file__).with_name("minimax_h3_image_cuda_child.py")
-        pack_dir = str(settings.get("pack_dir", DEFAULT_PACK_DIR))
         command = [
             uv_launcher(),
             "run",
@@ -107,7 +121,7 @@ def backend_factory(backend_id: str):
             "--quantize",
             quantize,
             "--pack-dir",
-            str(Path(pack_dir).expanduser()),
+            str(pack_root(settings, quantize)),
         ]
         # Only a prepare starts the child that may build a pack; a run's child refuses to.
         return MinimaxH3ImageCudaBackendGateway(
