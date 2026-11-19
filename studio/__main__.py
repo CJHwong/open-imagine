@@ -176,13 +176,22 @@ def parse_args():
     return parser.parse_args()
 
 
+STOP_SIGNALS = (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)
+
+
 def stop_on_signal(signum, frame):
-    """Turn a termination request into the orderly stop Ctrl-C gets.
+    """Turn a termination request into one orderly stop.
 
     SIGTERM's default ends the process at once, so the engine children, each in its own
     session, keep the GPU. Raising here lands in the handler that shuts down and closes
     the socket. SIGHUP is the same story when a terminal window closes.
+
+    The stop often arrives twice: `uv run` forwards the SIGTERM its group already got, and
+    Ctrl-C reaches every process in the terminal's group. A repeat raised while the first
+    was being handled skipped the cleanup, so the first one turns the rest off.
     """
+    for number in STOP_SIGNALS:
+        signal.signal(number, signal.SIG_IGN)
     raise KeyboardInterrupt
 
 
@@ -232,8 +241,7 @@ def main():
     # interrupt Ctrl-C does, and the one finally below closes both, whether the start
     # failed at the port, at the phone listener or after serving for hours.
     server = None
-    previous = [(number, signal.signal(number, stop_on_signal)) for number in (signal.SIGTERM, signal.SIGHUP)]
-    interrupt = signal.getsignal(signal.SIGINT)
+    previous = [(number, signal.signal(number, stop_on_signal)) for number in STOP_SIGNALS]
     try:
         # Bind before loading. The weights take a minute, and a busy port found
         # after that minute is a waste. Anything that connects during the load
@@ -267,17 +275,16 @@ def main():
         except KeyboardInterrupt:
             print("\nStopped.")
     finally:
-        # The stop often arrives twice: `uv run` forwards the SIGTERM its group already got,
-        # and Ctrl-C reaches every process in the terminal's group. A repeat raised inside
-        # shutdown() abandoned the engine children, which keep the GPU in their own sessions.
-        for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        # A stop that did not come from a signal turns the signals off here, so none can cut
+        # the cleanup short.
+        for number in STOP_SIGNALS:
             signal.signal(number, signal.SIG_IGN)
         try:
             studio.shutdown()
             if server is not None:
                 server.server_close()
         finally:
-            for number, handler in [*previous, (signal.SIGINT, interrupt)]:
+            for number, handler in previous:
                 signal.signal(number, handler)
 
 
