@@ -193,6 +193,8 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert "png_base64" in lines[0]
     assert lines[1]["error"].startswith("KeyError")
+    # Each job, the failed one too, hands the cached memory back.
+    assert sys.modules["torch"].cuda.empty_cache.call_count == 2
 
 
 class FakeTensor:

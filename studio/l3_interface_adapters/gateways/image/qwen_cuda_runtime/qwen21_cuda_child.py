@@ -196,6 +196,11 @@ def main() -> int:
             answer({**run(pipe, job), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
+        finally:
+            # PyTorch keeps a run's peak in its cache. On the DGX Spark the child held 68.4 GiB
+            # after a ten-reference edit and still 68.4 GiB after the next 512 image, which needs
+            # 34.1 GiB.
+            torch.cuda.empty_cache()
     return 0
 
 
