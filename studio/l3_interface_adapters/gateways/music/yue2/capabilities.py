@@ -29,6 +29,6 @@ def yue2_capabilities():
         "yue2",
         "YuE2",
         "Q8 AR / BF16 audio",
-        description="Complete songs from style and lyrics, with editable melody and chords.",
+        description="Full songs in Chinese or English with an editable score: change the melody and chords, or cover a recording. Runs on MLX.",
         estimate=ESTIMATE,
     )

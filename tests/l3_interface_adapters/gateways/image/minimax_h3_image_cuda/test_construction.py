@@ -48,7 +48,7 @@ def test_the_second_entry_runs_the_pack(monkeypatch):
 
     assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
     assert gateway.capabilities().backend_id == "minimax_h3_image_cuda_nvfp4"
-    assert gateway.capabilities().name == "MiniMax H3-Image (CUDA, NVFP4)"
+    assert gateway.capabilities().name == "MiniMax H3-Image NVFP4"
     assert NVFP4_PROVIDER.resident_gib == 40.0
 
 

@@ -84,7 +84,7 @@ with delayed_stub() as url, sync_playwright() as p:
     page.click("#media-video-mode")
     page.wait_for_selector("#video-prompt")
     page.click("#backend-toggle")
-    page.get_by_role("menuitemradio", name="LTX-2.5", exact=True).click()
+    page.get_by_role("menuitemradio", name="LTX-2.5", exact=True).filter(has_text="Runs on MLX.").click()
     page.locator("#video-advanced").evaluate("el=>el.open=true")
     page.wait_for_selector("#video-fast-mode")
     check("Fast mode defaults off", page.get_attribute("#video-fast-mode", "aria-pressed") == "false")

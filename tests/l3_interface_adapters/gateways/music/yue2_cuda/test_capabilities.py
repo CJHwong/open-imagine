@@ -16,7 +16,7 @@ def test_the_cuda_engine_offers_generate_and_plan_only():
 
 
 def test_the_badge_names_the_build_that_runs():
-    assert yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 (CUDA, NVFP4)", "nvfp4").badge == "nvfp4"
+    assert yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 NVFP4", "nvfp4").badge == "nvfp4"
     assert yue2_cuda_capabilities().badge == "bf16"
 
 
@@ -27,7 +27,7 @@ def test_the_form_refuses_the_lyric_the_engine_would_refuse():
 
 
 def test_the_packed_entry_reads_the_pack_s_sweep():
-    estimate = yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 (CUDA, NVFP4)", "nvfp4").estimate
+    estimate = yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 NVFP4", "nvfp4").estimate
     assert estimate is not None
 
     # 483 characters sang 164.5 s, and the line through the four pack runs reads 136.9 s.

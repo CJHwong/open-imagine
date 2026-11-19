@@ -76,7 +76,14 @@ BF16_ESTIMATE = MusicEstimate(
 ESTIMATES = {"bf16": BF16_ESTIMATE, "nvfp4": NVFP4_ESTIMATE}
 
 
-def yue2_cuda_capabilities(backend_id: str = "yue2_cuda", name: str = "YuE2 (CUDA)", badge: str = "bf16"):
+# backend id -> what sets the entry apart in the picker, which shows no badge.
+DESCRIPTIONS = {
+    "yue2_cuda": "Full songs with an editable score of melody and chords, and covers, for lyrics up to 600 characters. Runs on CUDA.",
+    "yue2_cuda_nvfp4": "YuE2 with 4-bit lyric stages, about three times faster than bf16, with the same score editing and covers. Runs on CUDA.",
+}
+
+
+def yue2_cuda_capabilities(backend_id: str = "yue2_cuda", name: str = "YuE2", badge: str = "bf16"):
     """The record for one entry. `badge` is the build the child was started with, so a
     section that overrides it shows the figure measured on that build. The fp8 build has no
     sweep of its own, and it measured within 9% of bf16 per second of audio, so it reads the
@@ -85,7 +92,7 @@ def yue2_cuda_capabilities(backend_id: str = "yue2_cuda", name: str = "YuE2 (CUD
         backend_id,
         name,
         badge,
-        description="Complete songs from style and lyrics, with melody, chord and cover from a recording.",
+        description=DESCRIPTIONS.get(backend_id, DESCRIPTIONS["yue2_cuda"]),
         # The engine stops past this count, so the form refuses the same request the engine
         # would. The shared record's 20000 is the model's own figure, not this engine's.
         max_lyrics_characters=MAX_LYRICS_CHARACTERS,

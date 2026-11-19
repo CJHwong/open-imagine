@@ -107,5 +107,5 @@ def flux2_capabilities(badge: str) -> Capabilities:
         badge=badge,
         modes=(GENERATE, EDIT),
         max_batch=MAX_BATCH,
-        description="Diverse image generation and editing with multiple references.",
+        description="The undistilled 9B base, for the widest variety of looks, with edits that blend up to 4 references. Runs on MLX.",
     )

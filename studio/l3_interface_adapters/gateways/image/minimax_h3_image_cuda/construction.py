@@ -59,8 +59,8 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
 # above its resident figure: the run that loaded it from the pack dropped free memory by
 # 104.21 GiB on 2026-11-15, because the weights travel through host memory.
 BUILDS = {
-    "minimax_h3_image_cuda": ("MiniMax H3-Image (CUDA)", "fp8", 65.0),
-    "minimax_h3_image_cuda_nvfp4": ("MiniMax H3-Image (CUDA, NVFP4)", "nvfp4", 40.0),
+    "minimax_h3_image_cuda": ("MiniMax H3-Image FP8", "fp8", 65.0),
+    "minimax_h3_image_cuda_nvfp4": ("MiniMax H3-Image NVFP4", "nvfp4", 40.0),
 }
 
 

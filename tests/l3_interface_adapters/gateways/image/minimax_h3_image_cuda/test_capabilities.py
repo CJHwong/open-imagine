@@ -6,9 +6,7 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilit
 
 
 def test_the_h3_backend_offers_generate_at_six_fixed_steps():
-    capabilities = minimax_h3_image_cuda_capabilities(
-        "minimax_h3_image_cuda_nvfp4", "MiniMax H3-Image (CUDA, NVFP4)", "nvfp4"
-    )
+    capabilities = minimax_h3_image_cuda_capabilities("minimax_h3_image_cuda_nvfp4", "MiniMax H3-Image NVFP4", "nvfp4")
 
     assert capabilities.backend_id == "minimax_h3_image_cuda_nvfp4"
     assert capabilities.badge == "nvfp4"

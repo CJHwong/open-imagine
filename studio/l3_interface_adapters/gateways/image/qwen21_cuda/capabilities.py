@@ -108,12 +108,12 @@ TURBO_EDIT = ModeSpec(
 def qwen21_cuda_capabilities(badge: str) -> Capabilities:
     return Capabilities(
         backend_id="qwen21_turbo_cuda",
-        name="Qwen-Image-2.1-Turbo (CUDA)",
+        name="Qwen-Image-2.1-Turbo",
         badge=badge,
         modes=(
             replace(TURBO_GENERATE, estimate=GENERATE_ESTIMATE),
             replace(TURBO_EDIT, estimate=EDIT_ESTIMATE),
         ),
         max_batch=MAX_BATCH,
-        description="Image generation and reference edits on an NVIDIA GPU.",
+        description="Qwen's own accelerated checkpoint on an NVIDIA GPU: eight steps for generation and edits with up to 10 references. Runs on CUDA.",
     )

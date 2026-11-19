@@ -90,5 +90,5 @@ def krea2_capabilities(badge: str = "int8") -> Capabilities:
         badge=badge,
         modes=(GENERATE,),
         max_batch=MAX_BATCH,
-        description="Polished images with varied styles for creative exploration.",
+        description="Krea's eight-step distill for fast style exploration, from a prompt or one starting picture. Runs on MLX.",
     )

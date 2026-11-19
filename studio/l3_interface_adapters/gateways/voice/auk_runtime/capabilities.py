@@ -316,9 +316,9 @@ def auk_capabilities(variant: str) -> Capabilities:
         name="AuK Flash" if variant == "flash" else "AuK",
         badge="int8",
         description=(
-            "Fast voice design, cloning, and recording edits in four steps."
+            "Tencent's 1.5B speech model distilled to four steps: voice design, cloning and recording edits for quick takes. Runs on MLX."
             if variant == "flash"
-            else "Voice design, cloning, and recording edits, with a focus on quality."
+            else "The base AuK with adjustable steps and guidance, for the best voice design, cloning and recording edits. Runs on MLX."
         ),
         max_batch=16,
         modes=(

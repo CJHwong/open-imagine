@@ -25,8 +25,8 @@ DEFAULT_PACK_DIR = "~/.cache/open-imagine/yue2-nvfp4"
 # quarters the lyrics stages. Both from the measured first run of each build, DGX Spark,
 # 2026-11-15.
 BUILDS = {
-    "yue2_cuda": ("YuE2 (CUDA)", "bf16", 18.1),
-    "yue2_cuda_nvfp4": ("YuE2 (CUDA, NVFP4)", "nvfp4", 9.1),
+    "yue2_cuda": ("YuE2", "bf16", 18.1),
+    "yue2_cuda_nvfp4": ("YuE2 NVFP4", "nvfp4", 9.1),
 }
 
 QUANTIZERS = {"bf16", "fp8", "nvfp4"}

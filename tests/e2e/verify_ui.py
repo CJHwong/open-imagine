@@ -341,7 +341,7 @@ with sync_playwright() as playwright:
     default.goto(URL)
     started_on = default.evaluate("() => STUDIO.backend.name")
     default.click("#backend-toggle")
-    default.get_by_role("menuitemradio", name=TURBO, exact=True).click()
+    default.get_by_role("menuitemradio", name=TURBO, exact=True).filter(has_text="Runs on MLX.").click()
     default.wait_for_function(toggle_reads(TURBO), timeout=180000)
     turbo_steps = default.input_value("#steps")
     check(
@@ -2081,8 +2081,8 @@ with sync_playwright() as playwright:
     # assistive technology on purpose, so it is read as text of the row it is in.
     check(
         "each model says what it is before you switch to it",
-        "Precise image edits and readable text" in tab.get_by_role("menuitemradio", name=FIRST, exact=True).inner_text()
-        and "six steps" in tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
+        "legible lettering" in tab.get_by_role("menuitemradio", name=FIRST, exact=True).inner_text()
+        and "six-step distill" in tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
         tab.get_by_role("menuitemradio", name=SECOND, exact=True).inner_text(),
     )
     tab.get_by_role("menuitemradio", name=SECOND, exact=True).click()
