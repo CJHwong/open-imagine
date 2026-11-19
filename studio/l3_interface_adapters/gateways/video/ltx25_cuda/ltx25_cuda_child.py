@@ -124,6 +124,10 @@ def load(model: str):
     # on the first call of each canvas and frame count, inside that run. On the DGX Spark a
     # 768 x 768, 97-frame clip took 70.8 s eager, 65.6 s on its first compiled run and 53.6
     # s after; the transformer alone went from 60.4 s to 43.0 s.
+    # Each canvas and frame count is its own graph, and the page offers 30 of them. Dynamo
+    # stops at 8 and runs every later one eager: on the DGX Spark the tenth count in one
+    # session hit the limit, and the transformer runs about 40% slower eager. 64 leaves room.
+    torch._dynamo.config.recompile_limit = 64
     pipe.transformer.compile_repeated_blocks(fullgraph=False, dynamic=False)
     # A whole long clip decodes in one piece and peaks past the machine: on the DGX Spark a
     # 768 x 768, 361-frame clip left 5 GiB free, and in tiles 14 GiB. Tiles decoded a 121-frame

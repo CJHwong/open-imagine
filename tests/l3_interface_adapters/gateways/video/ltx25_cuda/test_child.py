@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from studio.l3_interface_adapters.gateways.video.ltx25_cuda import ltx25_cuda_child as child
+from studio.l3_interface_adapters.gateways.video.shared.capabilities import SHAPES
 
 
 class EmptyModule:
@@ -72,6 +73,7 @@ def fake_world(monkeypatch, pipe, available=True):
     monkeypatch.setattr(
         torch, "Generator", lambda device=None: SimpleNamespace(manual_seed=lambda seed: seed), raising=False
     )
+    monkeypatch.setattr(torch, "_dynamo", SimpleNamespace(config=SimpleNamespace(recompile_limit=8)), raising=False)
     monkeypatch.setitem(sys.modules, "torch", torch)
 
     diffusers = types.ModuleType("diffusers")
@@ -162,6 +164,18 @@ def test_load_compiles_the_repeated_transformer_block_once(monkeypatch):
     child.load("me/pack")
 
     assert transformer.compiled == [{"fullgraph": False, "dynamic": False}]
+
+
+def test_load_lets_every_canvas_and_length_the_page_offers_stay_compiled(monkeypatch):
+    """Dynamo's default of 8 graphs ran the tenth canvas and length of a session eager."""
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+
+    child.load("me/pack")
+
+    pixel_counts = {shape.width * shape.height for shape in SHAPES}
+    lengths = 3  # 5, 10 and 15 seconds
+    assert sys.modules["torch"]._dynamo.config.recompile_limit >= len(pixel_counts) * lengths
 
 
 def test_load_decodes_the_clip_in_tiles(monkeypatch):
