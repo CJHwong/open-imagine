@@ -590,6 +590,21 @@ the studio releases a rewriter after every rewrite, so each pays the load again;
 load alone measured 104 to 109 s. A
 press dropped free memory by 55.3 GiB at most: the fp8 path loads bf16 and then quantizes.
 
+The enhancer's load, stage by stage, timed in the child. It holds 28.3 GiB in every row.
+
+| Load path | Read | Decode | To CUDA | To fp8 | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mapped shards, numpy decode | 3.4 s | 92.6 s | 3.0 s | 2.6 s | 112.1 s |
+| Mapped shards, GPU decode | 0.1 s | 107.3 s | 2.9 s | 2.5 s | 117.6 s |
+| One-pass reader, GPU decode, from disk | 14.5 s | 17.1 s | 3.0 s | 2.6 s | 42.2 s |
+| One-pass reader, GPU decode, page cache | 1.1 s | 17.6 s | 3.0 s | 2.6 s | 28.6 s |
+
+The GPU decode alone did not help, because a mapped shard reads its bytes by page faults
+when the decode first touches them, at about 170 MB/s. A reader that takes each tensor's
+bytes in one pass reads the 17.9 GB at about 1.2 GB/s. All 401 packed weights match the
+numpy path byte for byte, read and decoded. Through the studio, with the enhancer's child
+probed, a generate press then took 103.6 s against 171.4 s, and an edit 103.6 s against 176.9 s.
+
 Prompt rewrite, Qwen cards (`qwen21_turbo_cuda`), fp8 with fp8 multiplies, the turn ended at
 `<|im_end|>`, and the answer opened with its JSON key. Ten presses took
 33.7 to 44.3 s each, the first with the card's load. An edit of a poster took 38.2 and 40.8 s,
@@ -605,8 +620,6 @@ API:
   and an edit gained 4%.
 - The Qwen rewrite cards with NVFP4 multiplies in the feed-forward layers: 16.0 tokens/s
   against 14.8 for fp8, for a 4-bit build and one more kernel package.
-- Decoding the H3 enhancer's NVFP4 weights on the GPU: bit-identical to the CPU decode, and
-  the load stayed at 109 s, so the decode is not what the load waits on.
 
 ## Mac and Spark comparison
 
