@@ -501,13 +501,13 @@ def fake_safetensors(monkeypatch, store):
     module = types.ModuleType("safetensors")
     torch_part = types.ModuleType("safetensors.torch")
 
-    def save_file(tensors, path):
+    def stream(path, parts):
         # The pack is assembled beside the published one and swapped in, so the store is
         # keyed by name and the file it stands for exists where the swap looks.
         Path(path).write_bytes(b"")
-        store[Path(path).name] = dict(tensors)
+        store[Path(path).name] = dict(parts)
 
-    monkeypatch.setattr(torch_part, "save_file", save_file, raising=False)
+    monkeypatch.setattr(child, "stream_safetensors", stream)
 
     @contextlib.contextmanager
     def safe_open(path, framework="pt"):
@@ -614,15 +614,12 @@ def test_write_pack_stores_each_kind_and_its_manifest(monkeypatch, tmp_path):
     child.write_pack(pack_pipe(transformer, encoder), tmp_path, manifest)
 
     stored = store["transformer.safetensors"]
-    assert set(stored) == {
-        "transformer.block.weight.qdata",
-        "transformer.block.weight.scale",
-        "transformer.norm.weight",
+    assert stored == {
+        "transformer.block.weight.qdata": qdata,
+        "transformer.block.weight.scale": scale,
+        "transformer.norm.weight": transformer.weights["norm.weight"],
     }
-    assert qdata.route == ["to cpu (non-blocking)"] and scale.route == ["to cpu (non-blocking)"]
-    assert scalar.route == ["to cpu (non-blocking)"]
-    assert transformer.weights["norm.weight"].route == ["to cpu (non-blocking)"]
-    assert sys.modules["torch"].cuda.synchronize.call_count == 6
+    assert store["text_encoder.safetensors"]["text_encoder.proj.weight.per_tensor_scale"] is scalar
     assert manifest["tensors"]["transformer.block.weight"] == {
         "kind": "fp8",
         "block_size": [1, 256],
@@ -897,65 +894,94 @@ def test_write_pack_leaves_out_a_missing_scalar(monkeypatch, tmp_path):
     assert manifest["tensors"]["transformer.proj.weight"]["per_tensor_scale"] is False
 
 
-@pytest.mark.parametrize("save_fails", [False, True])
-def test_write_pack_releases_host_copies_before_the_cache_on_success_or_failure(monkeypatch, tmp_path, save_fails):
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_write_pack_releases_host_memory_after_each_file_on_success_or_failure(monkeypatch, tmp_path, write_fails):
     fake_torch(monkeypatch)
     fake_pack_torchao(monkeypatch)
-    fake_safetensors(monkeypatch, {})
-    pending = {"copy": False}
-    captured = []
-    references = []
+    written = []
 
-    class HostTensor:
-        pass
-
-    def transfer(device, non_blocking):
-        assert device == "cpu" and non_blocking
-        pending["copy"] = True
-        return HostTensor()
-
-    def synchronize(device):
-        pending["copy"] = False
-
-    def save(tensors, path):
-        assert not pending["copy"]
-        captured.append(tensors)
-        references.extend(weakref.ref(tensor) for tensor in tensors.values())
-        if save_fails:
+    def stream(path, parts):
+        written.append(list(parts))
+        if write_fails:
             raise OSError("disk full")
         Path(path).write_bytes(b"")
 
-    def release():
-        assert not captured[-1]
-        assert all(reference() is None for reference in references)
-
-    source = SimpleNamespace(device=SimpleNamespace(type="cuda"), to=transfer)
+    monkeypatch.setattr(child, "stream_safetensors", stream)
     torch = sys.modules["torch"]
-    torch.cuda.synchronize.side_effect = synchronize
-    torch.accelerator.memory.empty_host_cache.side_effect = release
-    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", save)
-    expected = pytest.raises(OSError, match="disk full") if save_fails else nullcontext()
+    expected = pytest.raises(OSError, match="disk full") if write_fails else nullcontext()
 
     with expected:
-        child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+        child.write_pack(pack_pipe(PackModule({"weight": Part("w")})), tmp_path, {})
 
-    assert torch.accelerator.memory.empty_host_cache.call_count == (1 if save_fails else 3)
+    assert torch.accelerator.memory.empty_host_cache.call_count == (1 if write_fails else 3)
 
 
-def test_write_pack_releases_unused_device_cache_before_the_first_host_copy(monkeypatch, tmp_path):
+def test_write_pack_releases_unused_device_cache_before_the_first_file(monkeypatch, tmp_path):
     fake_torch(monkeypatch)
     fake_pack_torchao(monkeypatch)
-    fake_safetensors(monkeypatch, {})
     events = []
-    source = SimpleNamespace(
-        device=SimpleNamespace(type="cuda"),
-        to=lambda device, non_blocking: events.append("copy") or object(),
+    monkeypatch.setattr(
+        child, "stream_safetensors", lambda path, parts: events.append("write") or path.write_bytes(b"")
     )
     sys.modules["torch"].cuda.empty_cache.side_effect = lambda: events.append("release device cache")
 
-    child.write_pack(pack_pipe(PackModule({"weight": source})), tmp_path, {})
+    child.write_pack(pack_pipe(PackModule({"weight": Part("w")})), tmp_path, {})
 
-    assert events == ["release device cache", "copy"]
+    assert events == ["release device cache", "write", "write", "write"]
+
+
+def test_a_streamed_file_reads_back_as_safetensors_wrote_it(tmp_path):
+    """Every dtype a pack holds, read back by the real reader, equal to the bytes written."""
+    import torch
+    from safetensors import safe_open
+
+    parts = [
+        ("fp8.qdata", torch.randn(3, 16).to(torch.float8_e4m3fn)),
+        ("fp8.scale", torch.rand(3, 1)),
+        ("nvfp4.qdata", torch.randint(0, 255, (4, 8), dtype=torch.uint8)),
+        ("plain.weight", torch.randn(5, 7, dtype=torch.bfloat16).t()),
+        ("plain.scalar", torch.tensor(0.5)),
+        ("plain.index", torch.arange(6)),
+        ("plain.empty", torch.zeros(0, 4, dtype=torch.float16)),
+    ]
+    path = tmp_path / "part.safetensors"
+
+    child.stream_safetensors(path, parts)
+
+    with safe_open(str(path), framework="pt") as handle:
+        assert sorted(handle.keys()) == sorted(key for key, _ in parts)
+        for key, tensor in parts:
+            read = handle.get_tensor(key)
+            assert read.dtype == tensor.dtype and read.shape == tensor.shape
+            assert torch.equal(read.reshape(-1).view(torch.uint8), tensor.contiguous().reshape(-1).view(torch.uint8)), (
+                key
+            )
+
+
+def test_a_streamed_file_holds_one_tensor_on_the_host_at_a_time(monkeypatch, tmp_path):
+    """The host copy of one tensor is freed before the next tensor leaves the device."""
+    import torch
+
+    alive = []
+
+    def copy(tensor):
+        assert all(reference() is None for reference in alive)
+        host = tensor.clone()
+        alive.append(weakref.ref(host))
+        return host
+
+    monkeypatch.setattr(child, "copy_to_host", copy)
+
+    child.stream_safetensors(tmp_path / "part.safetensors", [("a", torch.zeros(1024)), ("b", torch.zeros(1024))])
+
+    assert len(alive) == 2
+
+
+def test_a_dtype_the_pack_cannot_name_is_refused():
+    import torch
+
+    with pytest.raises(ValueError, match=r"cannot store odd as torch\.complex64"):
+        child.stream_safetensors(Path("unused"), [("odd", torch.zeros(1, dtype=torch.complex64))])
 
 
 def test_an_unknown_weight_kind_stops_the_rebuild(monkeypatch):
@@ -1236,13 +1262,13 @@ def test_a_pack_that_dies_while_it_is_written_is_not_published(monkeypatch, tmp_
 
     written = []
 
-    def half_then_die(tensors, path):
+    def half_then_die(path, parts):
         Path(path).write_bytes(b"")
         written.append(path)
         if len(written) == 2:
             raise OSError("the disk went away")
 
-    monkeypatch.setattr(sys.modules["safetensors.torch"], "save_file", half_then_die, raising=False)
+    monkeypatch.setattr(child, "stream_safetensors", half_then_die)
     transformer = PackModule({"norm.weight": Part("plain")})
 
     with pytest.raises(OSError, match="the disk went away"):

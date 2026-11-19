@@ -383,10 +383,56 @@ def copy_to_host(tensor):
     return copied
 
 
+SAFETENSORS_DTYPES = {
+    "torch.bfloat16": "BF16",
+    "torch.float16": "F16",
+    "torch.float32": "F32",
+    "torch.float8_e4m3fn": "F8_E4M3",
+    "torch.uint8": "U8",
+    "torch.int32": "I32",
+    "torch.int64": "I64",
+    "torch.bool": "BOOL",
+}
+
+
+def stream_safetensors(path: Path, parts: list) -> None:
+    """safetensors' own layout, written one tensor at a time.
+
+    `save_file` takes every tensor of a file at once, so a component's whole host copy stood
+    beside its device copy. While the W8A8 pack was written that took the DGX Spark to 4.0
+    GiB available. Here one tensor is on the host at a time, and `safe_open` reads the file
+    as it reads one `save_file` wrote.
+    """
+
+    header = {}
+    offset = 0
+    for key, tensor in parts:
+        kind = SAFETENSORS_DTYPES.get(str(tensor.dtype))
+        if kind is None:
+            raise ValueError(f"the pack cannot store {key} as {tensor.dtype}")
+        size = tensor.numel() * tensor.element_size()
+        header[key] = {"dtype": kind, "shape": list(tensor.shape), "data_offsets": [offset, offset + size]}
+        offset += size
+    encoded = json.dumps(header, separators=(",", ":")).encode()
+    encoded += b" " * (-len(encoded) % 8)
+    with open(path, "wb") as sink:
+        sink.write(len(encoded).to_bytes(8, "little"))
+        sink.write(encoded)
+        for _, tensor in parts:
+            write_tensor(sink, tensor)
+
+
+def write_tensor(sink, tensor) -> None:
+    """One tensor's bytes; its host copy is gone when this returns."""
+    import torch
+
+    host = copy_to_host(tensor).contiguous().reshape(-1)
+    sink.write(host.view(torch.uint8).numpy().tobytes())
+
+
 def write_pack(pipe, directory: Path, manifest: dict) -> None:
     """One safetensors file per component, assembled beside the pack in use and swapped in."""
     import torch
-    from safetensors.torch import save_file
 
     staging = staging_directory(directory)
     torch.cuda.empty_cache()
@@ -400,10 +446,10 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
             kind = weight_kind(weight)
             entry = {"kind": kind}
             if kind == "nvfp4":
-                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
-                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
+                tensors[f"{key}.qdata"] = weight.qdata
+                tensors[f"{key}.scale"] = weight.scale
                 if weight.per_tensor_scale is not None:
-                    tensors[f"{key}.per_tensor_scale"] = copy_to_host(weight.per_tensor_scale)
+                    tensors[f"{key}.per_tensor_scale"] = weight.per_tensor_scale
                 entry.update(
                     {
                         "block_size": weight.block_size,
@@ -415,14 +461,14 @@ def write_pack(pipe, directory: Path, manifest: dict) -> None:
                     }
                 )
             elif kind == "fp8":
-                tensors[f"{key}.qdata"] = copy_to_host(weight.qdata)
-                tensors[f"{key}.scale"] = copy_to_host(weight.scale)
+                tensors[f"{key}.qdata"] = weight.qdata
+                tensors[f"{key}.scale"] = weight.scale
                 entry.update({"block_size": weight.block_size, "dtype": str(weight.dtype), **float8_settings(weight)})
             else:
-                tensors[key] = copy_to_host(weight)
+                tensors[key] = weight
             entries[key] = entry
         try:
-            save_file(tensors, str(staging / f"{component_name}.safetensors"))
+            stream_safetensors(staging / f"{component_name}.safetensors", list(tensors.items()))
         finally:
             tensors.clear()
             torch.accelerator.memory.empty_host_cache()
