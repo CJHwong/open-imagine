@@ -623,6 +623,12 @@ three times over four sizes and two prompt lengths. An empty compile cache adds 
 the first image; a warm cache, under 2 s to the first edit. A compiled image is the same scene
 as the eager one, and at 1328 small objects differ as they would with a nearby seed.
 
+The Qwen child also hands PyTorch's cached memory back after each image. Without it, the child
+held 66.7 GiB after a ten-reference edit and kept it. With it, the child held 34.4 to 41.8 GiB,
+and the same requests took the same time: 9.0 against 9.1 s at 1024, 11.7 against 11.8 s for a
+one-reference edit, 44.0 against 43.9 s for ten. The H3 fp8 child kept 4.3 GiB more after a large
+edit, so it does not release.
+
 Prepare, every Spark model with no H3 pack on disk, through `studio --prepare`: 632 s in all,
 with available memory at 26 GiB or more. Qwen 44.6 s, H3 fp8 145.1 s, H3 NVFP4 291.4 s, LTX
 43.6 s, Drama 65.0 s, YuE2 14.5 s, YuE2 NVFP4 26.1 s.
@@ -664,6 +670,9 @@ API:
 
 - Qwen-Image-2.1 Turbo in fp8 with fp8 multiplies: 15.6 s against 11.3 s at 1024, because
   the transformer is compute-bound and quantizing each activation costs more than it saves.
+- Drama-3 with its codec decode compiled for dynamic shapes: the decode took 5.96 against 6.29 s
+  for a 30 s paragraph, under 1% of the request, and the first request spent about 90 s
+  compiling.
 - The Qwen rewrite cards with NVFP4 multiplies in the feed-forward layers: 16.0 tokens/s
   against 14.8 for fp8, for a 4-bit build and one more kernel package.
 
