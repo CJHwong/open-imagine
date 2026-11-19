@@ -21,6 +21,11 @@ class FakeImage:
         buffer.write(b"png-bytes")
 
 
+def encoder_parts():
+    """What the encoder cut reads: 64 decoder layers under `model.language_model`, and a head."""
+    return {"model": SimpleNamespace(language_model=SimpleNamespace(layers=list(range(64)))), "lm_head": "head"}
+
+
 class FakePipe:
     def __init__(self):
         self.dtype = None
@@ -29,7 +34,10 @@ class FakePipe:
         self.calls = []
         self.moved = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=self.moved.append)
-        self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
+        self.text_encoder = SimpleNamespace(
+            parameters=lambda: [], buffers=lambda: [], to=lambda device: None, **encoder_parts()
+        )
+        self.text_encoder_layer = 50
         self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
         self.components = {
             "transformer": self.transformer,
@@ -69,7 +77,10 @@ class NoCallbackPipe:
         self.loads = []
         self.calls = []
         self.transformer = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
-        self.text_encoder = SimpleNamespace(parameters=lambda: [], buffers=lambda: [], to=lambda device: None)
+        self.text_encoder = SimpleNamespace(
+            parameters=lambda: [], buffers=lambda: [], to=lambda device: None, **encoder_parts()
+        )
+        self.text_encoder_layer = 50
         self.vae = SimpleNamespace(parameters=lambda: [], buffers=lambda: [])
         self.components = {
             "transformer": self.transformer,
@@ -98,6 +109,7 @@ def fake_torch(monkeypatch, available=True):
         raising=False,
     )
     monkeypatch.setattr(torch, "Generator", lambda: SimpleNamespace(manual_seed=lambda seed: seed), raising=False)
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Identity=lambda: "identity"), raising=False)
     monkeypatch.setattr(
         torch, "accelerator", SimpleNamespace(memory=SimpleNamespace(empty_host_cache=Mock())), raising=False
     )
@@ -534,11 +546,14 @@ def fake_safetensors(monkeypatch, store):
 
 def pack_pipe(transformer, encoder=None, vae=None):
     encoder = encoder or PackModule({})
+    for name, value in encoder_parts().items():
+        setattr(encoder, name, value)
     vae = vae or PackModule({})
     loads = []
     pipe = SimpleNamespace(
         transformer=transformer,
         text_encoder=encoder,
+        text_encoder_layer=50,
         vae=vae,
         components={"transformer": transformer, "text_encoder": encoder, "vae": vae},
         loads=loads,
@@ -1675,3 +1690,41 @@ def test_the_running_check_answers_for_this_process_and_a_dead_one():
     assert child._running(os.getpid()) is True
     assert child._running(4194303) is False
     assert child._running(1) is True, "another user's process is there, we just may not signal it"
+
+
+def test_the_encoder_keeps_the_layers_up_to_the_state_h3_reads(monkeypatch):
+    """H3 reads `hidden_states[50]`, the input of layer 50, so layers 0 to 50 stay."""
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+
+    child.drop_unread_encoder_parts(pipe)
+
+    assert pipe.text_encoder.model.language_model.layers == list(range(51))
+    assert pipe.text_encoder.lm_head == "identity"
+
+
+@pytest.mark.parametrize("quantize", ["nvfp4", "fp8", "bf16"])
+def test_every_build_drops_the_unread_encoder_parts(monkeypatch, quantize):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+    fake_diffusers(monkeypatch, pipe)
+    fake_torchao(monkeypatch, [])
+    monkeypatch.setattr(child, "land_in_fp8", lambda module, kept=(): None)
+    monkeypatch.setattr(child, "move_by_way_of_memory", lambda module, device: None)
+
+    child.build("me/pack", quantize)
+
+    assert len(pipe.text_encoder.model.language_model.layers) == 51
+
+
+def test_load_packed_reads_no_weight_of_a_dropped_layer(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    fake_pack_torchao(monkeypatch)
+    pipe = pack_pipe(PackModule({}))
+    fake_diffusers(monkeypatch, pipe)
+    store = {str(tmp_path / f"{name}.safetensors"): {} for name in child.PACK_COMPONENTS}
+    fake_safetensors(monkeypatch, store)
+
+    child.load_packed("me/pack", tmp_path, {"tensors": {}})
+
+    assert len(pipe.text_encoder.model.language_model.layers) == 51

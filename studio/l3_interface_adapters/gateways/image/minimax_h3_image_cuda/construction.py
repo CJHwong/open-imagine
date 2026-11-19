@@ -50,14 +50,15 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
 
 
 # backend id -> (name in the picker, the build this entry runs, its resident memory in GiB).
-# fp8 is 70.3 GB of packed weights, fp8 in the encoder and the transformer, plus the run's
+# fp8 was 70.3 GB of packed weights, fp8 in the encoder and the transformer, plus the run's
 # own buffers; a studio idle with it loaded had 77.4 GiB less free memory than before it
-# started, on 2026-11-19. The NVFP4 pack is 38 GB on disk, so it holds less. Both read on
-# the same basis. The NVFP4 load peaks well
+# started, on 2026-11-19. Dropping the encoder layers and head that H3 never reads took
+# 8.4 GiB off that: 68.8 against 60.4 GiB, measured the same way on the same day. The NVFP4
+# pack is 38 GB on disk, so it holds less. Both read on the same basis. The NVFP4 load peaks well
 # above its resident figure: the run that loaded it from the pack dropped free memory by
 # 104.21 GiB on 2026-11-15, because the weights travel through host memory.
 BUILDS = {
-    "minimax_h3_image_cuda": ("MiniMax H3-Image (CUDA)", "fp8", 73.0),
+    "minimax_h3_image_cuda": ("MiniMax H3-Image (CUDA)", "fp8", 65.0),
     "minimax_h3_image_cuda_nvfp4": ("MiniMax H3-Image (CUDA, NVFP4)", "nvfp4", 40.0),
 }
 

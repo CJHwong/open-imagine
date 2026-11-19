@@ -534,6 +534,22 @@ def rebuild(entry: dict, key: str, handle, device: str):
     raise SystemExit(f"the pack holds a weight of kind {entry['kind']!r}, which this child cannot rebuild")
 
 
+def drop_unread_encoder_parts(pipe) -> None:
+    """Remove the encoder layers and the head that H3 never reads.
+
+    H3 conditions on `hidden_states[pipe.text_encoder_layer]`, 50, of its 64-layer Qwen3-VL
+    encoder, and reads it off `text_encoder.model`, so the language-model head never runs.
+    `hidden_states[k]` is the input of layer k, so the first 51 layers give that state
+    unchanged and still before the final norm; the 13 after it only cost time and memory.
+    A pack written with every layer still loads, because its extra tensors are never read.
+    """
+    import torch
+
+    encoder = component(pipe, "text_encoder")
+    del encoder.model.language_model.layers[pipe.text_encoder_layer + 1 :]
+    encoder.lm_head = torch.nn.Identity()
+
+
 def load_packed(model: str, directory: Path, manifest: dict):
     """Build the components empty and give them the weights the pack holds."""
     import torch
@@ -544,6 +560,7 @@ def load_packed(model: str, directory: Path, manifest: dict):
     pipe = ModularPipeline.from_pretrained(local_snapshot(model))
     pipe.load_components(names=list(PACK_COMPONENTS), device_map="meta")
     pipe.load_components(names=["processor", "tokenizer", "scheduler"], dtype=torch.bfloat16, device_map="cpu")
+    drop_unread_encoder_parts(pipe)
     say(f"built empty in {time.time() - started:.1f}s")
     for component_name in PACK_COMPONENTS:
         module = component(pipe, component_name)
@@ -621,6 +638,7 @@ def build(model: str, quantize: str):
     say(f"loaded the pipeline shell in {time.time() - started:.1f}s")
     if quantize == "bf16":
         pipe.load_components(dtype=torch.bfloat16, device_map="cuda")
+        drop_unread_encoder_parts(pipe)
         return pipe
 
     # The encoder first, alone, then quantized, then the transformer. Loading both at
@@ -631,6 +649,7 @@ def build(model: str, quantize: str):
 
     pipe.load_components(names=["text_encoder"], dtype=torch.bfloat16, device_map="cpu")
     say(f"encoder loaded in {time.time() - started:.1f}s")
+    drop_unread_encoder_parts(pipe)
     encoder = component(pipe, "text_encoder")
     if quantize == "nvfp4":
         quantize_(encoder, NVFP4WeightOnlyConfig())

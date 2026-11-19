@@ -560,7 +560,9 @@ sequence and attention takes most of the time: 77.9 of 88.1 s at 2048, timed in 
 pairs and one edit looked the same before and after, including the rendered title of a text
 poster. A studio idle with the fp8 model loaded held 77.4 GiB.
 
-The pack is 66 GiB. Building it in a script that runs the child's own build took 49.9 s with the checkpoint on disk and
+The text encoder has 64 layers, and H3 reads the state that enters layer 50. The child now drops layers 51 to 63 and the output head when it builds or loads a pack, so the pack is 59 GiB and a loaded studio holds 8.4 GiB less: 60.4 GiB against 68.8 GiB after the first image. Generate at 1024 and 2048 and the edit to Match gave the same bytes as before, from an old pack and from a new one, and the same time to within 0.3 s. A fresh build and its first image took 99.9 s, and available memory stayed at 53.6 GiB or more. An older pack still loads; the child skips the layers it drops.
+
+Before that change, the pack was 66 GiB. Building it in a script that runs the child's own build took 49.9 s with the checkpoint on disk and
 writing it 43.0 s, and available memory stayed at 45.8 GiB or more. The 17 November build
 fell to 20.3 GiB. Two changes keep it there: each bf16 linear is quantized as it lands, and
 the pack is written one tensor at a time. Without them the W8A8 build fell to 3.9 GiB.

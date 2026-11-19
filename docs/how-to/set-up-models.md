@@ -284,14 +284,14 @@ rather than quantizing on every start:
 
 | Pack | Size | First run | Later starts |
 |---|---|---|---|
-| MiniMax H3-Image, fp8 | 66 GiB | about 2.5 minutes, with the checkpoint on disk | 43 to 58 s to the first image |
+| MiniMax H3-Image, fp8 | 59 GiB | about 100 s to the first image, with the checkpoint on disk | 43 to 58 s to the first image |
 | YuE2, nvfp4 | 1.8 GB | about 2 minutes | 19.1 s |
 
 Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are
 rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
 Asking for another `quantize` builds that quantizer's own pack on the next run.
 
-MiniMax H3-Image needs about 73 GiB resident in fp8, and building its pack keeps at least 45
+MiniMax H3-Image needs about 65 GiB resident in fp8, and building its pack keeps at least 45
 GiB of a 121 GiB DGX Spark free; its nvfp4 path peaks near 105 GiB, so do not offer both
 quantizers on the same card. A pack built before fp8 multiplied in fp8 is rebuilt on the
 first run. `studio.cuda.toml` sets `[memory] policy =
