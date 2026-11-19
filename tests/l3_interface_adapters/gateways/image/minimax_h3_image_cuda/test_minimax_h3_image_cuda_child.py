@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import sys
 import types
 import weakref
@@ -943,10 +944,71 @@ def test_write_pack_releases_unused_device_cache_before_the_first_file(monkeypat
     assert events == ["release device cache", "write", "write", "write"]
 
 
+class StreamedTensor:
+    """A device tensor as the writer sees it: a dtype, a shape and its bytes."""
+
+    def __init__(self, dtype: str, shape: tuple[int, ...], payload: bytes):
+        self.dtype, self.shape, self.payload = dtype, shape, payload
+
+    def numel(self) -> int:
+        return math.prod(self.shape)
+
+    def element_size(self) -> int:
+        return len(self.payload) // max(self.numel(), 1) if self.payload else 2
+
+    def contiguous(self):
+        return self
+
+    def reshape(self, *shape):
+        return self
+
+    def view(self, dtype):
+        return self
+
+    def numpy(self):
+        return self
+
+    def tobytes(self) -> bytes:
+        return self.payload
+
+
+def streamed(monkeypatch):
+    fake_torch(monkeypatch)
+    monkeypatch.setattr(sys.modules["torch"], "uint8", "uint8", raising=False)
+    monkeypatch.setattr(child, "copy_to_host", lambda tensor: tensor)
+
+
+def test_a_streamed_file_has_the_safetensors_layout(monkeypatch, tmp_path):
+    """An 8-byte little-endian header length, a JSON header padded to 8 bytes, then the bytes."""
+    streamed(monkeypatch)
+    parts = [
+        ("a.qdata", StreamedTensor("torch.float8_e4m3fn", (2, 3), b"abcdef")),
+        ("a.scale", StreamedTensor("torch.float32", (2, 1), b"12345678")),
+        ("b.empty1", StreamedTensor("torch.bfloat16", (0, 4), b"")),
+    ]
+    path = tmp_path / "part.safetensors"
+
+    child.stream_safetensors(path, parts)
+
+    raw = path.read_bytes()
+    length = int.from_bytes(raw[:8], "little")
+    header = json.loads(raw[8 : 8 + length])
+    unpadded = len(json.dumps(header, separators=(",", ":")))
+    assert unpadded % 8 != 0, "the case must need padding"
+    assert length == unpadded + (-unpadded % 8)
+    assert raw[8 + unpadded : 8 + length] == b" " * (length - unpadded)
+    assert header == {
+        "a.qdata": {"dtype": "F8_E4M3", "shape": [2, 3], "data_offsets": [0, 6]},
+        "a.scale": {"dtype": "F32", "shape": [2, 1], "data_offsets": [6, 14]},
+        "b.empty1": {"dtype": "BF16", "shape": [0, 4], "data_offsets": [14, 14]},
+    }
+    assert raw[8 + length :] == b"abcdef12345678"
+
+
 def test_a_streamed_file_reads_back_as_safetensors_wrote_it(tmp_path):
     """Every dtype a pack holds, read back by the real reader, equal to the bytes written."""
-    import torch
-    from safetensors import safe_open
+    torch = pytest.importorskip("torch")
+    safe_open = pytest.importorskip("safetensors").safe_open
 
     parts = [
         ("fp8.qdata", torch.randn(3, 16).to(torch.float8_e4m3fn)),
@@ -966,35 +1028,34 @@ def test_a_streamed_file_reads_back_as_safetensors_wrote_it(tmp_path):
         for key, tensor in parts:
             read = handle.get_tensor(key)
             assert read.dtype == tensor.dtype and read.shape == tensor.shape
-            assert torch.equal(read.reshape(-1).view(torch.uint8), tensor.contiguous().reshape(-1).view(torch.uint8)), (
-                key
-            )
+            expected = tensor.contiguous().reshape(-1).view(torch.uint8)
+            assert torch.equal(read.reshape(-1).view(torch.uint8), expected), key
 
 
 def test_a_streamed_file_holds_one_tensor_on_the_host_at_a_time(monkeypatch, tmp_path):
     """The host copy of one tensor is freed before the next tensor leaves the device."""
-    import torch
-
+    streamed(monkeypatch)
     alive = []
 
     def copy(tensor):
         assert all(reference() is None for reference in alive)
-        host = tensor.clone()
+        host = StreamedTensor(tensor.dtype, tensor.shape, tensor.payload)
         alive.append(weakref.ref(host))
         return host
 
     monkeypatch.setattr(child, "copy_to_host", copy)
+    parts = [(name, StreamedTensor("torch.float32", (1,), b"abcd")) for name in ("a", "b")]
 
-    child.stream_safetensors(tmp_path / "part.safetensors", [("a", torch.zeros(1024)), ("b", torch.zeros(1024))])
+    child.stream_safetensors(tmp_path / "part.safetensors", parts)
 
     assert len(alive) == 2
 
 
-def test_a_dtype_the_pack_cannot_name_is_refused():
-    import torch
+def test_a_dtype_the_pack_cannot_name_is_refused(monkeypatch):
+    streamed(monkeypatch)
 
     with pytest.raises(ValueError, match=r"cannot store odd as torch\.complex64"):
-        child.stream_safetensors(Path("unused"), [("odd", torch.zeros(1, dtype=torch.complex64))])
+        child.stream_safetensors(Path("unused"), [("odd", StreamedTensor("torch.complex64", (1,), b"12345678"))])
 
 
 def test_an_unknown_weight_kind_stops_the_rebuild(monkeypatch):
