@@ -69,9 +69,13 @@ class FakeProcessor:
 
     def __call__(self, text, images, return_tensors):
         self.images = images or []
+        self.text = text
         return self.inputs
 
     def batch_decode(self, written, skip_special_tokens):
+        """The card continues from an opening when it was given one."""
+        if self.text[0].endswith(child.CAPTION_OPENING):
+            return ['a longer caption", "aspect_ratio": "3:2"}']
         return ['{"expanded_caption": "a longer caption", "aspect_ratio": "3:2", "target_aspect_ratio": "2:3"}']
 
 
@@ -148,6 +152,38 @@ def test_a_generate_job_uses_the_cards_own_system_and_task_text(monkeypatch, tmp
 
     assert reply == {"prompt": "a longer caption", "ratio": "3:2"}
     assert processor.template_content == "Request: a pear"
+    assert processor.text == ['formatted{"expanded_caption":"']
+
+
+@pytest.mark.parametrize(
+    ("continuation", "caption"),
+    [
+        ('A poster that reads \\"Blue Hour\\" in gold.', 'A poster that reads "Blue Hour" in gold.'),
+        ('A poster in gold."}', "A poster in gold."),
+    ],
+)
+def test_a_caption_the_card_left_open_is_read_as_the_caption(monkeypatch, tmp_path, continuation, caption):
+    """One poster answer in four ended its turn inside the caption string."""
+    fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    monkeypatch.setattr(processor, "batch_decode", lambda written, skip_special_tokens: [continuation])
+
+    reply = child.generate(processor, model, {"kind": "generate", "prompt": "a poster"}, templates(tmp_path))
+
+    assert reply == {"prompt": caption, "ratio": None}
+
+
+@pytest.mark.parametrize(
+    ("continuation", "message"),
+    [('a caption", "aspect_ratio": "3:2', "no JSON object"), ("   ", "an empty caption")],
+)
+def test_an_open_answer_that_is_not_a_caption_still_fails(monkeypatch, tmp_path, continuation, message):
+    fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    monkeypatch.setattr(processor, "batch_decode", lambda written, skip_special_tokens: [continuation])
+
+    with pytest.raises(ValueError, match=message):
+        child.generate(processor, model, {"kind": "generate", "prompt": "a pear"}, templates(tmp_path))
 
 
 def test_an_edit_job_labels_each_picture_and_keeps_the_requested_ratio(monkeypatch, tmp_path):
@@ -166,6 +202,7 @@ def test_an_edit_job_labels_each_picture_and_keeps_the_requested_ratio(monkeypat
     assert processor.template_content[0] == {"type": "image"}
     assert len(processor.images) == 1
     assert reply == {"prompt": "a longer caption", "ratio": "2:3"}
+    assert processor.text == ["formatted"]
 
 
 def test_cuda_chat_template_receives_each_image_marker_without_mutating_messages(monkeypatch):
@@ -240,6 +277,75 @@ def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys, t
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     assert lines[0].get("prompt") == "a longer caption", lines
     assert lines[1]["error"].startswith("ValueError")
+
+
+def test_main_loads_the_enhancer_at_the_precision_it_is_given(monkeypatch, tmp_path):
+    fake_torch(monkeypatch)
+    loaded = []
+    monkeypatch.setattr(child, "load", lambda model, quantize: loaded.append((model, quantize)) or (None, None))
+    monkeypatch.setattr(sys, "argv", ["child", "--prompt-dir", str(tmp_path), "--quantize", "fp8"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    assert child.main() == 0
+    assert loaded == [("MiniMaxAI/MiniMax-H3-Image-PE", "fp8")]
+
+
+def test_load_at_fp8_quantizes_the_language_model(monkeypatch):
+    """bf16 held 51.0 GiB and wrote 3.6 tokens a second; fp8 held 28.4 GiB and wrote 4.4."""
+    torch = fake_torch(monkeypatch)
+    processor, model = FakeProcessor(), FakeModel()
+    fake_transformers(monkeypatch, processor, model)
+    quantized = []
+    monkeypatch.setattr(child, "to_fp8", quantized.append)
+
+    child.load("me/pe", "fp8")
+    assert quantized == [model]
+    child.load("me/pe")
+    assert quantized == [model]
+    torch.cuda.empty_cache.assert_called_once()
+
+
+class Linear:
+    def __init__(self, dtype="bfloat16"):
+        self.weight = SimpleNamespace(dtype=dtype)
+
+
+def test_fp8_takes_the_language_models_bf16_linears(monkeypatch):
+    torch = fake_torch(monkeypatch)
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Linear=Linear), raising=False)
+
+    assert child.language_linear(Linear(), "model.language_model.layers.0.mlp.up_proj")
+    assert not child.language_linear(Linear(), "model.visual.blocks.0.attn.qkv")
+    assert not child.language_linear(Linear(), "lm_head")
+    assert not child.language_linear(Linear("float32"), "model.language_model.layers.0.mlp.up_proj")
+    assert not child.language_linear(SimpleNamespace(), "model.norm")
+
+
+def test_to_fp8_sends_the_row_scaled_config_and_the_filter(monkeypatch):
+    recorded = []
+    quantization = types.ModuleType("torchao.quantization")
+    monkeypatch.setattr(quantization, "PerRow", lambda: "per-row", raising=False)
+    monkeypatch.setattr(
+        quantization,
+        "Float8DynamicActivationFloat8WeightConfig",
+        lambda granularity, kernel_preference: (granularity, kernel_preference),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        quantization,
+        "quantize_",
+        lambda weights, config, filter_fn: recorded.append((weights, config, filter_fn)),
+        raising=False,
+    )
+    preference = types.ModuleType("torchao.quantization.quantize_.common.kernel_preference")
+    monkeypatch.setattr(preference, "KernelPreference", SimpleNamespace(TORCH="torch"), raising=False)
+    monkeypatch.setitem(sys.modules, "torchao", types.ModuleType("torchao"))
+    monkeypatch.setitem(sys.modules, "torchao.quantization", quantization)
+    monkeypatch.setitem(sys.modules, "torchao.quantization.quantize_.common.kernel_preference", preference)
+
+    child.to_fp8("weights")
+
+    assert recorded == [("weights", ("per-row", "torch"), child.language_linear)]
 
 
 def test_local_snapshot_prefers_the_cached_directory(monkeypatch, tmp_path):

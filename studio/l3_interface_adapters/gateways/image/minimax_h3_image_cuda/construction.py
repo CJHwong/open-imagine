@@ -12,6 +12,7 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h
 )
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.storage_assets import storage_assets_for
 from studio.l3_interface_adapters.gateways.image.shared.h3_image_pe_rewriter import H3ImagePeRewriter
+from studio.l3_interface_adapters.gateways.image.shared.rewrite_precision import rewrite_precision
 from studio.l3_interface_adapters.gateways.no_prompt_rewriter_gateway import NoPromptRewriterGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
@@ -43,7 +44,9 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
     if not model:
         return NoPromptRewriterGateway()
     script = Path(__file__).with_name("h3_image_pe_cuda_child.py")
-    return H3ImagePeRewriter([uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model])
+    precision = rewrite_precision(config, backend_id)
+    command = [uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model]
+    return H3ImagePeRewriter([*command, "--quantize", precision])
 
 
 # backend id -> (name in the picker, the build this entry runs, its resident memory in GiB).

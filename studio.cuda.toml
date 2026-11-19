@@ -36,8 +36,10 @@ rewrite_quantize = 8
 [minimax_h3_image_cuda]
 quantize = "fp8"
 # The release's own prompt enhancer, a 27B. Remove it to hide Rewrite; it loads on the first
-# press and is released before an image run.
+# press and is released before an image run. 8 holds its language model in fp8: 28.4 GiB
+# against 51.0, and an edit at 4.4 tokens/s against 3.6. 0 keeps bf16.
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
+rewrite_quantize = 8
 
 # The same checkpoint packed to NVFP4. fp8 stays the default: the pack is 40% faster and
 # leaves grain that fp8 does not. Its first run on a machine without the pack takes about

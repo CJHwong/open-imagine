@@ -81,7 +81,26 @@ def test_the_section_can_name_the_prompt_enhancer(monkeypatch):
     gateway = construction.build_rewriter(Config({"rewrite_model": "me/pe"}), "minimax_h3_image_cuda")
 
     assert gateway.modes() == ("generate", "edit")
-    assert gateway._child._command[-2:] == ["--model", "me/pe"]
+    assert gateway._child._command[-4:] == ["--model", "me/pe", "--quantize", "bf16"]
+
+
+def test_the_section_can_hold_the_prompt_enhancer_in_fp8(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = construction.build_rewriter(
+        Config({"rewrite_model": "me/pe", "rewrite_quantize": 8}), "minimax_h3_image_cuda"
+    )
+
+    assert gateway._child._command[-2:] == ["--quantize", "fp8"]
+
+
+def test_the_enhancer_refuses_a_width_it_cannot_hold(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    with pytest.raises(
+        ModelConfigurationError, match=r"rewrite_quantize under \[minimax_h3_image_cuda\] must be 0 or 8"
+    ):
+        construction.build_rewriter(Config({"rewrite_model": "me/pe", "rewrite_quantize": 4}), "minimax_h3_image_cuda")
 
 
 def test_without_the_setting_the_page_offers_no_rewrite():
