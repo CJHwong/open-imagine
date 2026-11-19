@@ -69,6 +69,8 @@ def test_release_stops_the_child():
 
 
 def test_progress_reaches_the_caller_and_a_missing_cancelled_is_allowed():
+    """The caller takes (step, total, phase). The first order passed (1, step, total), so the
+    page read "step 1 of 2", then "of 3", and so on while the sampler ran."""
     child = Mock()
 
     def request(payload, on_step, should_stop):
@@ -80,7 +82,7 @@ def test_progress_reaches_the_caller_and_a_missing_cancelled_is_allowed():
 
     Ltx25CudaBackendGateway(child).run(job(), progress, None)
 
-    progress.assert_called_once_with(1, 3, 30)
+    progress.assert_called_once_with(3, 30, 1)
 
 
 def test_a_run_without_cancellation_still_reaches_the_child():
