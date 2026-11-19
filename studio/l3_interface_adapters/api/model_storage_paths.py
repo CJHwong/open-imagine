@@ -35,8 +35,8 @@ def model_storage_paths():
             "description": "Read-only, and loads nothing. state is ready, missing or preparing. bytes counts "
             "the declared downloads already on disk; it grows while a prepare downloads. missing names the "
             "declared downloads that are absent. A preparing model carries the id of its prepare operation. "
-            "A model is ready once a prepare under its current weight settings succeeded and its declared "
-            "files are still there. Private-key headers are refused.",
+            "A model is ready when every file it declares is on disk, however it got there. A pack that a "
+            "run found out of date reads missing until a prepare succeeds. Private-key headers are refused.",
             "responses": {"200": {"description": "The models, in workspace order: image, video, voice, music."}},
         }
     }

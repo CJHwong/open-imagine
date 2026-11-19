@@ -839,7 +839,7 @@ def test_load_rebuilds_when_a_component_file_is_missing(monkeypatch, tmp_path):
         json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}})
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -855,7 +855,7 @@ def test_load_rebuilds_when_the_pack_versions_differ(monkeypatch, tmp_path):
         json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.14.0"}})
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
 
 
 def test_bf16_never_uses_a_pack(monkeypatch, tmp_path):
@@ -1149,7 +1149,7 @@ def test_a_failed_pack_write_does_not_fail_the_run(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
     monkeypatch.setattr(child, "write_pack", refuse)
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert "could not write the pack: No space left on device" in capsys.readouterr().err
 
 
@@ -1482,7 +1482,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
     )
     (tmp_path / "transformer.safetensors").write_text("truncated")
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -1516,7 +1516,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
 
     monkeypatch.setattr(child, "load_packed", refuse)
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
     assert not tmp_path.exists()
     assert list(tmp_path.parent.glob(f"{tmp_path.name}.corrupt-*")), "the bad pack is kept out of the way"
@@ -1544,7 +1544,7 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
         )
     )
 
-    assert child.load("me/pack", "fp8", tmp_path) == "built"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
     assert built == ["fp8"]
 
 
@@ -1625,7 +1625,7 @@ def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp
     reasons = iter(["there is no readable pack", None])
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: next(reasons, None))
 
-    assert child.load("me/pack", "fp8", tmp_path) == "packed"
+    assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "packed"
     assert built == [], "the waited-for pack is used instead of building again"
 
 
@@ -1681,7 +1681,7 @@ def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "load_packed", refuse)
 
     with pytest.raises(ValueError, match="truncated"):
-        child.load("me/pack", "fp8", tmp_path)
+        child.load("me/pack", "fp8", tmp_path, may_build=True)
 
 
 def test_the_running_check_answers_for_this_process_and_a_dead_one():
@@ -1728,3 +1728,69 @@ def test_load_packed_reads_no_weight_of_a_dropped_layer(monkeypatch, tmp_path):
     child.load_packed("me/pack", tmp_path, {"tensors": {}})
 
     assert len(pipe.text_encoder.model.language_model.layers) == 51
+
+
+def test_a_run_never_builds_a_stale_pack(monkeypatch, tmp_path):
+    built = []
+    monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    (tmp_path / "pack.json").write_text(
+        json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.14.0"}})
+    )
+
+    with pytest.raises(child.PackNotReady, match=r"prepare the model again.*another model, version"):
+        child.load("me/pack", "fp8", tmp_path)
+
+    assert built == []
+
+
+def test_a_run_whose_pack_will_not_load_leaves_it_in_place(monkeypatch, tmp_path):
+    moved = []
+    monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
+    monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
+    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
+    monkeypatch.setattr(child, "quarantine", moved.append)
+
+    def refuse(model, directory, manifest):
+        raise ValueError("the weights are truncated")
+
+    monkeypatch.setattr(child, "load_packed", refuse)
+
+    with pytest.raises(child.PackNotReady, match="did not load: the weights are truncated"):
+        child.load("me/pack", "fp8", tmp_path)
+
+    assert moved == []
+
+
+def test_main_says_why_a_run_found_no_pack_and_stops(monkeypatch, capsys):
+    fake_torch(monkeypatch)
+    seen = []
+
+    def refuse(model, quantize, root, may_build=False):
+        seen.append(may_build)
+        raise child.PackNotReady(child.PACK_NOT_READY)
+
+    monkeypatch.setattr(child, "load", refuse)
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "fp8", "--pack-dir", "/packs"])
+
+    assert child.main() == 3
+    assert child.PACK_NOT_READY in capsys.readouterr().err
+    assert seen == [False]
+
+
+def test_main_lets_a_prepare_build(monkeypatch):
+    fake_torch(monkeypatch)
+    seen = []
+
+    def stop_after_load(model, quantize, root, may_build=False):
+        seen.append(may_build)
+        raise child.PackNotReady("stop here")
+
+    monkeypatch.setattr(child, "load", stop_after_load)
+    monkeypatch.setattr(sys, "argv", ["child", "--quantize", "fp8", "--pack-dir", "/packs", "--may-build"])
+
+    child.main()
+
+    assert seen == [True]

@@ -19,6 +19,9 @@ class Readiness(ModelReadinessGateway):
     def mark_prepared(self, backend_id):
         self.ready.add(backend_id)
 
+    def mark_unprepared(self, backend_id):
+        self.ready.discard(backend_id)
+
 
 class Residency(ModelResidencyGateway):
     def __init__(self):

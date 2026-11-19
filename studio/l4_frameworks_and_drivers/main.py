@@ -128,10 +128,8 @@ def _configured(config) -> set[str]:
 
 
 def model_readiness(config) -> FileModelReadinessGateway:
-    """The record of prepared models sits beside the settings file, so one studio and its
-    `--prepare` read the same record."""
-    record = config.settings_path.with_name("prepared-models.json") if config.settings_path is not None else None
-    return FileModelReadinessGateway(model_bundles(BUILTIN_PROVIDERS, config, _configured(config)), record, hub_cache())
+    """Each configured built-in model's files, read from disk on every question."""
+    return FileModelReadinessGateway(model_bundles(BUILTIN_PROVIDERS, config, _configured(config)), hub_cache())
 
 
 def prepare_models(config, on_start=lambda backend_id: None) -> list[tuple[str, float]]:
@@ -409,8 +407,8 @@ def assemble_studio(
 ) -> Studio:
     """Wire both model catalogs and one shared model-memory slot."""
     settings = settings if settings is not None else InMemoryStudioSettingsGateway()
-    # No record and no bundle: every model is ready, which is what the stub and a test want.
-    readiness = readiness if readiness is not None else FileModelReadinessGateway({}, None, Path())
+    # No declared files: every model is ready, which is what the stub and a test want.
+    readiness = readiness if readiness is not None else FileModelReadinessGateway({}, Path())
     gpu = GpuThread()
     engine_lock = threading.Lock()
     confined = {name: ThreadConfinedBackendGateway(backend, gpu) for name, backend in backends.items()}

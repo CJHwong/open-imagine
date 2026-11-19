@@ -105,3 +105,22 @@ def test_the_enhancer_refuses_a_width_it_cannot_hold(monkeypatch):
 
 def test_without_the_setting_the_page_offers_no_rewrite():
     assert construction.build_rewriter(Config({}), "minimax_h3_image_cuda").modes() == ()
+
+
+def test_only_the_prepare_child_may_build_a_pack(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+
+    gateway = backend_factory("minimax_h3_image_cuda")(Config({}))
+
+    assert "--may-build" not in gateway._child._command
+    assert gateway._prepare_child._command == [*gateway._child._command, "--may-build"]
+
+
+def test_the_pack_is_a_file_a_run_needs_unless_the_entry_runs_bf16():
+    from studio.l1_entities.model_asset import ModelAsset
+
+    assert PROVIDER.ready_assets is not None
+    assert NVFP4_PROVIDER.ready_assets is not None
+    folder = os.path.join(os.path.expanduser("~/packs"), DEFAULT_MODEL.replace("/", "--"))
+    assert PROVIDER.ready_assets(Config({"pack_dir": "~/packs"})) == (ModelAsset("Pack", folder, "pack"),)
+    assert NVFP4_PROVIDER.ready_assets(Config({"quantize": "bf16"})) == ()

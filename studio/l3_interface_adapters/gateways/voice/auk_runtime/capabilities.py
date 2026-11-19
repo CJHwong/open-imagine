@@ -307,7 +307,7 @@ def auk_capabilities(variant: str) -> Capabilities:
     estimate = Estimate(rtf=rtf, overhead=overhead)
     return Capabilities(
         loading=LoadingPolicy(
-            policy="download_on_first_use",
+            policy="download_on_prepare",
             repository="smcleod/AuK-MLX-8bit",
             revision="abffd38adf7d9f0a94822e7c153e0c4ef70ef213",
             note="The first Voice run downloads pinned weights if missing. Later runs reuse the cache.",

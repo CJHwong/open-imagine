@@ -288,7 +288,7 @@ def discovery_schemas() -> dict[str, Any]:
         "LoadingPolicy": {
             "type": "object",
             "properties": {
-                "policy": {"type": "string", "examples": ["download_on_first_use"]},
+                "policy": {"type": "string", "examples": ["download_on_prepare"]},
                 "repository": string,
                 "revision": string,
                 "note": string,

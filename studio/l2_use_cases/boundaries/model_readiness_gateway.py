@@ -4,18 +4,21 @@ from studio.l1_entities.model_readiness import ModelReadiness
 
 
 class ModelReadinessGateway(ABC):
-    """What a model needs on disk before it runs, and the record of a prepare that proved it.
+    """Whether a model's files are on disk, so a run can load it without a download.
 
-    A model is ready when a prepare loaded its whole selection, the engine and its prompt
-    rewriter, and the files that prepare read are still there. The record is what makes
-    the answer honest: only a load proves that every file an engine fetches is present,
-    because an engine can fetch more than its declared repository.
+    The files decide. The one thing they cannot show is a pack that is present but out
+    of date for this machine, so a run that finds one marks the model until a prepare
+    succeeds.
     """
 
     @abstractmethod
     def readiness(self, backend_id: str) -> ModelReadiness:
-        """This model's state from its files and its record. Loads nothing."""
+        """This model's state from its files. Loads nothing."""
 
     @abstractmethod
     def mark_prepared(self, backend_id: str) -> None:
-        """Record that a prepare loaded this model's selection under its current settings."""
+        """A prepare loaded this model: forget any out-of-date mark."""
+
+    @abstractmethod
+    def mark_unprepared(self, backend_id: str) -> None:
+        """A run found this model's files present but unusable: it needs a prepare."""

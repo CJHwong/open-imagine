@@ -145,3 +145,56 @@ def test_a_run_sends_the_edit_payload_for_an_edit():
 
     assert (result.width, result.height) == (2048, 1152)
     child.request.assert_called_once_with(edit_payload(edit_job()), on_step, should_stop)
+
+
+def test_a_child_that_found_no_usable_pack_is_a_model_out_of_date():
+    from studio.l1_entities.errors import ModelOutOfDate
+
+    child = Mock()
+    child.wait_ready.side_effect = RuntimeError(
+        "the engine stopped while loading. It last said: the H3 pack is missing or out of date for this "
+        "torch build; prepare the model again (there is no readable pack)"
+    )
+    gateway = MinimaxH3ImageCudaBackendGateway(child, name="H3")
+
+    with pytest.raises(ModelOutOfDate, match=r"H3: the H3 pack is missing.*press Download"):
+        gateway.load()
+
+
+def test_any_other_load_failure_stays_what_it_was():
+    child = Mock()
+    child.wait_ready.side_effect = RuntimeError("the engine loading timed out")
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        MinimaxH3ImageCudaBackendGateway(child).load()
+
+
+def test_a_prepare_frees_the_run_child_then_loads_and_stops_the_one_that_may_build():
+    events = Mock()
+    gateway = MinimaxH3ImageCudaBackendGateway(events.run_child, prepare_child=events.prepare_child)
+
+    gateway.prepare()
+
+    assert [call[0] for call in events.method_calls] == [
+        "run_child.stop",
+        "prepare_child.wait_ready",
+        "prepare_child.stop",
+    ]
+
+
+def test_a_failed_prepare_still_stops_its_child():
+    prepare_child = Mock()
+    prepare_child.wait_ready.side_effect = RuntimeError("no network")
+
+    with pytest.raises(RuntimeError, match="no network"):
+        MinimaxH3ImageCudaBackendGateway(Mock(), prepare_child=prepare_child).prepare()
+
+    prepare_child.stop.assert_called_once_with()
+
+
+def test_a_gateway_with_no_prepare_child_prepares_by_loading():
+    child = Mock()
+
+    MinimaxH3ImageCudaBackendGateway(child).prepare()
+
+    child.wait_ready.assert_called_once_with()

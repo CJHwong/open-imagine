@@ -57,7 +57,7 @@ class PrepareModelUseCase:
             on_stage(ENGINE)
             self._residency.claim(backend_id)
             try:
-                model.load()
+                model.prepare()
             finally:
                 self._residency.release_active()
             rewriter = self._rewriters.get(backend_id)

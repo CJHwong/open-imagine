@@ -60,3 +60,8 @@ class OperationMissing(StudioError, LookupError):
 
 class ModelNotReady(StudioError):
     """The model's files are not prepared, and a run never downloads or packs them."""
+
+
+class ModelOutOfDate(ModelNotReady):
+    """The model's files are present, but its engine found them unusable on this machine,
+    such as a pack built by another torch. Only a prepare may build them again."""

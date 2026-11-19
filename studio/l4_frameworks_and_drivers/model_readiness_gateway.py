@@ -1,11 +1,8 @@
-"""Read each model's declared downloads on disk, and keep the record of what a prepare proved."""
+"""Read each model's declared files on disk to tell whether it can run without a download."""
 
-import hashlib
-import json
 import os
 import threading
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from studio.l1_entities.model_asset import ModelAsset
@@ -13,40 +10,29 @@ from studio.l1_entities.model_readiness import MISSING, READY, ModelReadiness
 from studio.l2_use_cases.boundaries.model_readiness_gateway import ModelReadinessGateway
 
 REQUIRED_KINDS = ("weights", "pack")
-
-
-@dataclass(frozen=True)
-class ModelBundle:
-    """What one model's selection reads, and a digest of the settings that chose it.
-
-    A changed setting, such as a precision that needs another pack, changes the digest,
-    and the model needs a prepare again.
-    """
-
-    fingerprint: str
-    assets: tuple[ModelAsset, ...] = ()
+PACK_MANIFEST = "pack.json"
+STALE = "Pack for this build"
+"""The label a model carries while a run has found its pack out of date."""
 
 
 class FileModelReadinessGateway(ModelReadinessGateway):
-    """Ready means a prepare under these settings succeeded and its declared files remain.
+    """Ready means every declared file of the model is on disk.
 
-    A model with no bundle declares nothing to fetch, such as a plugin or the stub's fake
-    engines, and is always ready. `record_path` None keeps the record in memory.
+    A model that declares nothing, such as a plugin or the stub's fake engines, is ready.
+    A pack is present when its directory holds a `pack.json`. A pack can be present and
+    still out of date for this machine's torch build, which only its engine can tell; a
+    run that finds that marks the model, in memory, until a prepare succeeds.
     """
 
-    def __init__(self, bundles: Mapping[str, ModelBundle], record_path: Path | None, hub_cache: Path):
+    def __init__(self, bundles: Mapping[str, tuple[ModelAsset, ...]], hub_cache: Path):
         self._bundles = dict(bundles)
-        self._record_path = record_path
         self._hub_cache = hub_cache
         self._lock = threading.Lock()
-        self._memory: dict[str, str] = {}
+        self._stale: set[str] = set()
 
     def readiness(self, backend_id: str) -> ModelReadiness:
-        bundle = self._bundles.get(backend_id)
-        if bundle is None:
-            return ModelReadiness(backend_id, READY)
         present, missing = 0, []
-        for asset in bundle.assets:
+        for asset in self._bundles.get(backend_id, ()):
             if asset.kind not in REQUIRED_KINDS:
                 continue
             size = self._size(asset)
@@ -54,40 +40,18 @@ class FileModelReadinessGateway(ModelReadinessGateway):
                 missing.append(asset.label)
             else:
                 present += size
-        recorded = self._record().get(backend_id) == bundle.fingerprint
-        state = READY if recorded and not missing else MISSING
-        return ModelReadiness(backend_id, state, present, tuple(missing))
+        with self._lock:
+            if backend_id in self._stale:
+                missing.append(STALE)
+        return ModelReadiness(backend_id, MISSING if missing else READY, present, tuple(missing))
 
     def mark_prepared(self, backend_id: str) -> None:
-        bundle = self._bundles.get(backend_id)
-        if bundle is None:
-            return
         with self._lock:
-            record = self._record()
-            record[backend_id] = bundle.fingerprint
-            self._write(record)
+            self._stale.discard(backend_id)
 
-    def _record(self) -> dict[str, str]:
-        if self._record_path is None:
-            return dict(self._memory)
-        try:
-            document = json.loads(self._record_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            # A missing or damaged record costs one more prepare per model, not a studio
-            # that cannot start.
-            return {}
-        if not isinstance(document, dict):
-            return {}
-        return {key: value for key, value in document.items() if isinstance(value, str)}
-
-    def _write(self, record: dict[str, str]) -> None:
-        if self._record_path is None:
-            self._memory = dict(record)
-            return
-        self._record_path.parent.mkdir(parents=True, exist_ok=True)
-        scratch = self._record_path.with_suffix(".tmp")
-        scratch.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
-        scratch.replace(self._record_path)
+    def mark_unprepared(self, backend_id: str) -> None:
+        with self._lock:
+            self._stale.add(backend_id)
 
     def _size(self, asset: ModelAsset) -> int | None:
         """The bytes this asset holds on disk, or None when it is not there."""
@@ -98,6 +62,8 @@ class FileModelReadinessGateway(ModelReadinessGateway):
                 return None
             return _bytes_under(repository / "blobs")
         path = Path(asset.location).expanduser()
+        if asset.kind == "pack":
+            return _bytes_under(path) if (path / PACK_MANIFEST).is_file() else None
         if path.is_file():
             return path.stat().st_size
         if path.is_dir() and any(path.iterdir()):
@@ -105,34 +71,16 @@ class FileModelReadinessGateway(ModelReadinessGateway):
         return None
 
 
-WEIGHT_SETTINGS = (
-    "model",
-    "model_dir",
-    "quantize",
-    "pack_dir",
-    "rewrite_model",
-    "rewrite_generate_model",
-    "rewrite_edit_model",
-    "rewrite_precision",
-)
-"""The settings that choose which files a model reads. A change to one of these needs a
-new prepare; a change to a default step count or a LoRA list does not."""
-
-
-def model_bundles(providers, config, offered) -> dict[str, ModelBundle]:
-    """One bundle for each offered built-in model: its declared downloads, and a digest of
-    those and of the settings that choose its files."""
+def model_bundles(providers, config, offered) -> dict[str, tuple[ModelAsset, ...]]:
+    """The files each offered built-in model reads: its declared downloads, and the files a
+    prepare builds that a run then reads, such as a pack of quantized weights."""
     bundles = {}
     for provider in providers:
         if provider.backend_id not in offered:
             continue
-        assets = provider.storage_assets(config) if provider.storage_assets is not None else ()
-        settings = config.backend(provider.backend_id)
-        chosen = {key: settings[key] for key in WEIGHT_SETTINGS if key in settings}
-        described = json.dumps(
-            [provider.backend_id, chosen, [asdict(asset) for asset in assets]], sort_keys=True, default=str
-        )
-        bundles[provider.backend_id] = ModelBundle(hashlib.sha256(described.encode()).hexdigest()[:16], assets)
+        declared = provider.storage_assets(config) if provider.storage_assets is not None else ()
+        built = provider.ready_assets(config) if provider.ready_assets is not None else ()
+        bundles[provider.backend_id] = (*declared, *built)
     return bundles
 
 

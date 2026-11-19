@@ -1242,7 +1242,7 @@ def voice_served():
 def test_voice_capabilities_and_wav_routes(voice_served):
     status, _, body = call(voice_served, "/api/v1/voice/capabilities")
     assert status == 200 and json.loads(body)["name"] == "AuK Flash"
-    assert json.loads(body)["loading"]["policy"] == "download_on_first_use"
+    assert json.loads(body)["loading"]["policy"] == "download_on_prepare"
     url = f"http://127.0.0.1:{voice_served.server_address[1]}/api/v1/voice/generate"
     request = urllib.request.Request(
         url,
@@ -2668,12 +2668,27 @@ def test_a_refused_body_that_outlives_its_deadline_closes_the_connection(monkeyp
 def test_a_model_that_is_not_prepared_answers_409_until_its_prepare_operation_ends(tmp_path):
     """The whole path on a real server: the models route, the refusal of a run, the
     prepare as an operation, and the run that the prepare lets through."""
-    from studio.l4_frameworks_and_drivers.model_readiness_gateway import FileModelReadinessGateway, ModelBundle
+    from studio.l1_entities.model_asset import ModelAsset
+    from studio.l4_frameworks_and_drivers.model_readiness_gateway import FileModelReadinessGateway
 
-    image = FakeBackendGateway()
+    weights = tmp_path / "fake-weights"
+
+    class Downloading(FakeBackendGateway):
+        """A first load that fetches its weights, as a real engine's does."""
+
+        def load(self):
+            super().load()
+            weights.mkdir(exist_ok=True)
+            (weights / "model.safetensors").write_bytes(b"weights")
+
+    image = Downloading()
     video = FakeVideoBackendGateway("video-fake", "Fake video")
     readiness = FileModelReadinessGateway(
-        {"fake": ModelBundle("f1"), "video-fake": ModelBundle("f2")}, tmp_path / "prepared.json", tmp_path
+        {
+            "fake": (ModelAsset("Weights", str(weights)),),
+            "video-fake": (ModelAsset("Weights", str(tmp_path / "video-weights")),),
+        },
+        tmp_path,
     )
     studio = assemble_studio(
         {"fake": image},
@@ -2707,7 +2722,7 @@ def test_a_model_that_is_not_prepared_answers_409_until_its_prepare_operation_en
         while studio.operations.get(operation["id"])["status"] != "succeeded" and time.monotonic() < deadline:
             time.sleep(0.01)
         status, _, body = call(server, f"/api/v1/operations/{operation['id']}/result")
-        assert json.loads(body) == {"backend": "fake", "state": "ready", "bytes": 0}
+        assert json.loads(body) == {"backend": "fake", "state": "ready", "bytes": 7}
         assert image.events[:2] == ["load", "release"]
         assert post_json(server, "/api/v1/operations", {"kind": "image", "prompt": "a pear"})[0] == 202
     finally:

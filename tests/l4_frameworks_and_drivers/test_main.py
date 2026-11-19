@@ -923,7 +923,7 @@ def test_prepare_models_builds_and_frees_every_configured_model(monkeypatch):
     monkeypatch.setattr(main, "model_readiness", lambda config: marks)
 
     class Model:
-        def load(self):
+        def prepare(self):
             calls.append("load")
 
         def release(self):
@@ -986,7 +986,9 @@ def test_prepare_constructs_real_provider_factories_with_fake_lifecycles(monkeyp
 
     def execute(use_case, targets, on_start):
         for name, model, rewriter in targets:
-            monkeypatch.setattr(model, "load", lambda name=name: calls.append((name, "load")))
+            monkeypatch.setattr(model, "prepare", lambda name=name: calls.append((name, "load")))
+            # A run's load would start the real engine; a prepare must never reach it.
+            monkeypatch.setattr(model, "load", lambda name=name: calls.append((name, "run load")))
             monkeypatch.setattr(model, "release", lambda name=name: calls.append((name, "release")))
             if rewriter is not None:
                 rewritten.add(name)
@@ -1011,16 +1013,14 @@ def test_prepare_constructs_real_provider_factories_with_fake_lifecycles(monkeyp
     ]
 
 
-def test_the_record_of_prepared_models_sits_beside_the_settings_file(tmp_path):
+def test_a_configured_model_is_ready_once_its_files_are_on_disk(monkeypatch, tmp_path):
     from studio.l4_frameworks_and_drivers import main
 
-    config = replace(
-        load_config(Path(__file__).resolve().parents[2] / "studio.cuda.toml"),
-        settings_path=tmp_path / "settings.json",
-    )
-    readiness = main.model_readiness(config)
+    monkeypatch.setattr(main, "hub_cache", lambda: tmp_path)
+    config = load_config(Path(__file__).resolve().parents[2] / "studio.cuda.toml")
 
-    assert not readiness.readiness("qwen21_turbo_cuda").ready
-    readiness.mark_prepared("qwen21_turbo_cuda")
-    assert "qwen21_turbo_cuda" in (tmp_path / "prepared-models.json").read_text()
-    assert main.model_readiness(replace(config, settings_path=None)).readiness("qwen21_turbo_cuda").state == "missing"
+    assert main.model_readiness(config).readiness("qwen21_turbo_cuda").missing == ("Weights",)
+    snapshot = tmp_path / "models--Qwen--Qwen-Image-2.1-Turbo" / "snapshots" / "rev"
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}")
+    assert main.model_readiness(config).readiness("qwen21_turbo_cuda").ready

@@ -1,7 +1,7 @@
 // The Download that takes the run button's place while the picked model is not on disk.
 //
-// A run never downloads or packs a model: the server refuses one for a model no prepare
-// has proved. So when the model a workspace has picked is not ready, the page sets
+// A run never downloads or packs a model: the server refuses one for a model whose files
+// are not on disk. So when the model a workspace has picked is not ready, the page sets
 // `data-model-missing` on the body, the stylesheet hides that workspace's run footer, and
 // this footer offers what the model needs instead. A prepare is an operation like a run,
 // so it waits in the same queue and stops through the same cancel route.
@@ -41,8 +41,17 @@ class ModelDownload extends LitElement {
     this.models = [];
     this.active = {};
     this.following = '';
-    this.watcher = new MutationObserver(() => this.pick());
-    this.watcher.observe(document.body, {attributes: true, attributeFilter: ['data-media']});
+    // A run can end because its engine found the files out of date, such as a pack from
+    // another torch. The server then reads the model as missing, so the list is read
+    // again whenever a run ends.
+    this.wasBusy = document.body.classList.contains('busy');
+    this.watcher = new MutationObserver(() => {
+      const busy = document.body.classList.contains('busy');
+      if (this.wasBusy && !busy) this.refresh();
+      else this.pick();
+      this.wasBusy = busy;
+    });
+    this.watcher.observe(document.body, {attributes: true, attributeFilter: ['data-media', 'class']});
     this.refresh();
   }
 

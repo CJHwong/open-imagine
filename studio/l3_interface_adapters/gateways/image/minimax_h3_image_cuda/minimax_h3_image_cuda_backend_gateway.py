@@ -1,6 +1,6 @@
 import base64
 
-from studio.l1_entities.errors import InvalidJob
+from studio.l1_entities.errors import InvalidJob, ModelOutOfDate
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilities import (
@@ -11,6 +11,9 @@ from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 
 MAX_MATCH_PIXELS = 2048 * 2048
 MAX_REFERENCE_RATIO = 4
+PACK_NOT_READY = "the H3 pack is missing or out of date for this torch build"
+"""What the child says when a run finds no usable pack. The child is a script of its own,
+so the words are the contract between the two."""
 
 
 def validate_reference_aspect(width: int, height: int) -> None:
@@ -78,11 +81,13 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         self,
         child: StdioChild,
         *,
+        prepare_child: StdioChild | None = None,
         backend_id: str = "minimax_h3_image_cuda",
         name: str = "MiniMax H3-Image (CUDA)",
         badge: str = "fp8",
     ):
         self._child = child
+        self._prepare_child = prepare_child
         self._backend_id = backend_id
         self._name = name
         self._badge = badge
@@ -91,7 +96,27 @@ class MinimaxH3ImageCudaBackendGateway(ImageBackendGateway):
         return minimax_h3_image_cuda_capabilities(self._backend_id, self._name, self._badge)
 
     def load(self):
-        self._child.wait_ready()
+        try:
+            self._child.wait_ready()
+        except RuntimeError as error:
+            if PACK_NOT_READY not in str(error):
+                raise
+            raise ModelOutOfDate(
+                f"{self._name}: {PACK_NOT_READY}. Prepare the model again: press Download, or run "
+                "`uv run studio --prepare`."
+            ) from error
+
+    def prepare(self):
+        """Start the child that may build the pack, wait for it to load, and stop it. The
+        next run's child then finds the pack."""
+        if self._prepare_child is None:
+            self.load()
+            return
+        self._child.stop()
+        try:
+            self._prepare_child.wait_ready()
+        finally:
+            self._prepare_child.stop()
 
     def run(self, job: ImageJob, on_step, should_stop):
         payload = edit_payload(job) if job.mode == "edit" else generate_payload(job)

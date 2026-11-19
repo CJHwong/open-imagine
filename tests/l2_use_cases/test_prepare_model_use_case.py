@@ -23,6 +23,10 @@ class Model(ModelLifecycleGateway):
     def release(self):
         self._log.append("release")
 
+    def prepare(self):
+        self._log.append("prepare")
+        self.load()
+
 
 class Rewriter:
     def __init__(self, log):
@@ -55,6 +59,9 @@ class Readiness(ModelReadinessGateway):
         self._log.append(f"mark {backend_id}")
         self.ready.add(backend_id)
 
+    def mark_unprepared(self, backend_id):
+        self.ready.discard(backend_id)
+
 
 def build(log, model=None, rewriters=None, lock=None):
     return PrepareModelUseCase(
@@ -71,7 +78,7 @@ def test_the_engine_loads_and_goes_before_the_rewriter_and_the_model_is_recorded
 
     readiness = build(log).execute("qwen", stages.append)
 
-    assert log == ["claim qwen", "load", "release_active", "rewriter", "mark qwen"]
+    assert log == ["claim qwen", "prepare", "load", "release_active", "rewriter", "mark qwen"]
     assert stages == [ENGINE, REWRITER]
     assert readiness == ModelReadiness("qwen", READY, 7)
 
@@ -81,7 +88,7 @@ def test_a_model_without_a_rewriter_is_recorded_after_its_engine():
 
     build(log, rewriters={}).execute("qwen")
 
-    assert log == ["claim qwen", "load", "release_active", "mark qwen"]
+    assert log == ["claim qwen", "prepare", "load", "release_active", "mark qwen"]
 
 
 def test_a_failed_load_frees_the_engine_and_records_nothing():
@@ -90,7 +97,7 @@ def test_a_failed_load_frees_the_engine_and_records_nothing():
     with pytest.raises(RuntimeError, match="no network"):
         build(log, model=Model(log, RuntimeError("no network"))).execute("qwen")
 
-    assert log == ["claim qwen", "load", "release_active"]
+    assert log == ["claim qwen", "prepare", "load", "release_active"]
 
 
 def test_a_stop_before_the_engine_loads_nothing():
@@ -109,7 +116,7 @@ def test_a_stop_after_the_engine_skips_the_rewriter_and_records_nothing():
     with pytest.raises(Cancelled):
         build(log).execute("qwen", should_stop=lambda: next(asked))
 
-    assert log == ["claim qwen", "load", "release_active"]
+    assert log == ["claim qwen", "prepare", "load", "release_active"]
 
 
 def test_an_unknown_model_is_refused():

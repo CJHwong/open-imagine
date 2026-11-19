@@ -586,7 +586,16 @@ def load_packed(model: str, directory: Path, manifest: dict):
     return pipe
 
 
-def load(model: str, quantize: str, root: Path | None = None):
+PACK_NOT_READY = "the H3 pack is missing or out of date for this torch build; prepare the model again"
+
+
+class PackNotReady(RuntimeError):
+    """A run found no usable pack, and only a prepare may build one."""
+
+
+def load(model: str, quantize: str, root: Path | None = None, may_build: bool = False):
+    """Load from the pack. Only a child started by a prepare (`may_build`) builds a missing
+    or out-of-date pack, because a build takes minutes and tens of GiB a run never pays."""
     if quantize not in ("nvfp4", "fp8", "bf16"):
         raise SystemExit(f"quantize must be nvfp4, fp8 or bf16, not {quantize}")
     if quantize == "bf16" or root is None:
@@ -598,6 +607,8 @@ def load(model: str, quantize: str, root: Path | None = None):
         attempt += 1
         recover(directory)
         reason = pack_state(directory, expected)
+        if reason is not None and not may_build:
+            raise PackNotReady(f"{PACK_NOT_READY} ({reason})")
         if reason is not None:
             with pack_lock(directory):
                 # Another studio may have published a pack while this one waited.
@@ -611,6 +622,8 @@ def load(model: str, quantize: str, root: Path | None = None):
         except Exception as error:
             # A pack that will not load is a cache fault, not a reason to stop. Move it
             # aside and build once; a second failure raises with nothing left to try.
+            if not may_build:
+                raise PackNotReady(f"{PACK_NOT_READY} (the pack did not load: {error})") from error
             if attempt == 2:
                 raise
             say(f"the pack did not load ({error}), so it is built again")
@@ -756,6 +769,7 @@ def main() -> int:
     parser.add_argument("--model", default="MiniMaxAI/MiniMax-H3-Image")
     parser.add_argument("--quantize", default="nvfp4", choices=["nvfp4", "fp8", "bf16"])
     parser.add_argument("--pack-dir", default="")
+    parser.add_argument("--may-build", action="store_true", help="build a missing pack; only a prepare passes it")
     arguments = parser.parse_args()
     import torch
 
@@ -763,7 +777,11 @@ def main() -> int:
         say("CUDA is not available in this environment")
         return 2
     pack_dir = Path(arguments.pack_dir) if arguments.pack_dir else None
-    pipe = load(arguments.model, arguments.quantize, pack_dir)
+    try:
+        pipe = load(arguments.model, arguments.quantize, pack_dir, may_build=arguments.may_build)
+    except PackNotReady as error:
+        say(str(error))
+        return 3
     say("ready")
     for line in sys.stdin:
         line = line.strip()

@@ -23,7 +23,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
 from typing import Any
 
-from studio.l1_entities.errors import BackendBusy, Cancelled, InvalidJob, OperationMissing, StudioError, UnknownBackend
+from studio.l1_entities.errors import (
+    BackendBusy,
+    Cancelled,
+    InvalidJob,
+    ModelOutOfDate,
+    OperationMissing,
+    StudioError,
+    UnknownBackend,
+)
 from studio.l1_entities.model_readiness import PREPARING, READY
 from studio.l1_entities.music_job import MusicResult
 from studio.l1_entities.operation import OperationOutput
@@ -352,7 +360,14 @@ class JsonApi:
         self, operation_id: str, action: Callable, serialize: Callable | None = None, observed: dict | None = None
     ):
         def adapted_action():
-            result = action()
+            try:
+                result = action()
+            except ModelOutOfDate:
+                # The files are there, so only the engine could tell. Until a prepare
+                # builds them again, the model reads as missing and the page offers it.
+                if self._readiness is not None:
+                    self._readiness.mark_unprepared(self._operations.get(operation_id)["backend"])
+                raise
             return OperationOutput(result, serialize(result) if serialize else result)
 
         completed = self._completion.execute(operation_id, adapted_action)

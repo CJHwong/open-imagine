@@ -4,6 +4,7 @@ import os
 import shutil
 from pathlib import Path
 
+from studio.l1_entities.model_asset import ModelAsset
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
@@ -63,6 +64,22 @@ BUILDS = {
 }
 
 
+def pack_assets_for(backend_id: str):
+    """The pack a run reads, where the child writes it: the pack root, then the model's
+    folder. A bf16 run quantizes nothing, so it reads no pack."""
+    _, default_quantize, _ = BUILDS[backend_id]
+
+    def assets(config: ModelConfigurationGateway) -> tuple[ModelAsset, ...]:
+        settings = config.backend(backend_id)
+        if str(settings.get("quantize", default_quantize)) == "bf16":
+            return ()
+        model = str(settings.get("model", DEFAULT_MODEL))
+        root = Path(str(settings.get("pack_dir", DEFAULT_PACK_DIR))).expanduser()
+        return (ModelAsset("Pack", str(root / model.replace("/", "--")), "pack"),)
+
+    return assets
+
+
 def backend_factory(backend_id: str):
     """The factory for one entry. The entry names the build it runs, and its own section
     keeps the model, the packing and the enhancer."""
@@ -92,7 +109,14 @@ def backend_factory(backend_id: str):
             "--pack-dir",
             str(Path(pack_dir).expanduser()),
         ]
-        return MinimaxH3ImageCudaBackendGateway(StdioChild(command), backend_id=backend_id, name=name, badge=quantize)
+        # Only a prepare starts the child that may build a pack; a run's child refuses to.
+        return MinimaxH3ImageCudaBackendGateway(
+            StdioChild(command),
+            prepare_child=StdioChild([*command, "--may-build"]),
+            backend_id=backend_id,
+            name=name,
+            badge=quantize,
+        )
 
     return build
 
@@ -103,6 +127,7 @@ PROVIDER = ModelProvider(
     backend_factory("minimax_h3_image_cuda"),
     engine="cuda",
     storage_assets=storage_assets_for("minimax_h3_image_cuda"),
+    ready_assets=pack_assets_for("minimax_h3_image_cuda"),
     storage_name="MiniMax-H3-Image",
     rewriter=build_rewriter,
     resident_gib=BUILDS["minimax_h3_image_cuda"][2],
@@ -114,6 +139,7 @@ NVFP4_PROVIDER = ModelProvider(
     backend_factory("minimax_h3_image_cuda_nvfp4"),
     engine="cuda",
     storage_assets=storage_assets_for("minimax_h3_image_cuda_nvfp4"),
+    ready_assets=pack_assets_for("minimax_h3_image_cuda_nvfp4"),
     storage_name="MiniMax-H3-Image",
     rewriter=build_rewriter,
     resident_gib=BUILDS["minimax_h3_image_cuda_nvfp4"][2],

@@ -44,7 +44,7 @@ class PrepareModelsUseCase:
 
 def _prepare_model(backend_id: str, model: ModelLifecycleGateway) -> None:
     try:
-        model.load()
+        model.prepare()
     except BaseException as load_error:
         try:
             model.release()

@@ -1813,6 +1813,9 @@ class Readiness:
     def mark_prepared(self, backend_id):
         self.ready.add(backend_id)
 
+    def mark_unprepared(self, backend_id):
+        self.ready.discard(backend_id)
+
 
 class Prepare:
     """The prepare use case, reading its own operation while it runs."""
@@ -1961,3 +1964,45 @@ def test_an_unknown_kind_names_prepare_among_the_kinds():
 
     with pytest.raises(InvalidJob, match="rewrite or prepare"):
         api.reserve({"kind": "sculpture"})
+
+
+def test_a_run_whose_engine_finds_its_files_out_of_date_marks_the_model_for_a_prepare():
+    from studio.l1_entities.errors import ModelOutOfDate
+
+    unprepared = []
+
+    class Watched(Readiness):
+        def mark_unprepared(self, backend_id):
+            unprepared.append(backend_id)
+
+    readiness = Watched({"fake"})
+    operations = InMemoryOperationGateway()
+
+    def stale(form):
+        raise ModelOutOfDate("the H3 pack is missing or out of date for this torch build")
+
+    api = JsonApi(
+        FakeController(run=stale),
+        operations=operations,
+        completion=CompleteOperationUseCase(operations),
+        batches=PrepareBatchUseCase(),
+        readiness=cast(Any, readiness),
+    )
+
+    with pytest.raises(ModelOutOfDate):
+        api.image_run({"prompt": "pear"}, "generate")
+
+    assert unprepared == ["fake"]
+    assert api.state()["operations"][0]["status"] == "failed"
+
+
+def test_an_out_of_date_run_in_a_studio_with_no_readiness_only_fails():
+    from studio.l1_entities.errors import ModelOutOfDate
+
+    def stale(form):
+        raise ModelOutOfDate("stale")
+
+    api = api_for(FakeController(run=stale))
+
+    with pytest.raises(ModelOutOfDate):
+        api.image_run({"prompt": "pear"}, "generate")

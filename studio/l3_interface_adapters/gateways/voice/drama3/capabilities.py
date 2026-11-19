@@ -85,7 +85,7 @@ def drama_capabilities():
         reference_sample_rate=44100,
         max_reference_seconds=15,
         loading=LoadingPolicy(
-            "download_on_first_use",
+            "download_on_prepare",
             "mlx-community/fish-audio-drama-3-8bit",
             "fedc7cc92bab5a180709cbaae6208d10b390bb97",
             "The first run downloads about 42 GB of pinned weights. Duration follows the script. Delivery cues go inside square brackets. Unconditioned Chinese can fail to finish; try a reference voice or another seed.",

@@ -86,7 +86,7 @@ def test_controller_maps_single_and_batch_requests():
     assert controller.run_batch([payload], completed, started, cancelled) == run.execute_batch.return_value
     assert controller.capabilities()["max_batch_items"] == 16
     assert controller.capabilities()["max_batch"] == controller.capabilities()["max_batch_items"]
-    assert controller.capabilities()["loading"]["policy"] == "download_on_first_use"
+    assert controller.capabilities()["loading"]["policy"] == "download_on_prepare"
 
 
 def test_validate_checks_a_voice_request_without_running_the_model():
