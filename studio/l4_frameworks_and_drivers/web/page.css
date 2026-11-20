@@ -229,7 +229,9 @@
   #backend-toggle:focus-visible { outline: 1.5px solid var(--accent); }
   #backend-toggle:disabled { cursor: default; }
   #backend-toggle:disabled .icon { display: none; }
-  #backend-menu { left: 0; right: auto; }
+  /* Each model carries a sentence of description, which wraps to five lines at the shared
+     menu width. */
+  #backend-menu { left: 0; right: auto; width: min(360px, calc(100vw - 24px)); }
   #backend-menu [aria-checked=false] .icon, #theme-menu [aria-checked=false] .icon { visibility: hidden; }
 
   /* The light box is lit in both themes, so everything on it takes light
