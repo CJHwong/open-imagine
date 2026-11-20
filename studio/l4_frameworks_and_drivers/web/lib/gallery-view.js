@@ -22,3 +22,9 @@ export function preferredGalleryId(workspace, entries, keeping = true) {
 export function galleryBatch(identity, isOperation = false) {
   return typeof identity === 'string' ? identity.match(/^(.*):\d+$/)?.[1] || (isOperation ? identity : '') : '';
 }
+// After a removal, the item that takes its place on screen: the one after it, or the one before
+// it when it was the last. `ids` is in the order the gallery shows.
+export function neighbourOf(ids, id) {
+  const index = ids.indexOf(id);
+  return index < 0 ? undefined : ids[index + 1] ?? ids[index - 1];
+}

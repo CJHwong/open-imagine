@@ -423,6 +423,7 @@ class VoiceStudio extends LitElement {
     if (this.locked) return;
     if (!this.capabilities.modes.some(candidate => candidate.id === mode)) return;
     if (!this.capabilities.modes.find(candidate => candidate.id === mode)?.min_references) this.finishRecording();
+    if (mode !== this.mode) this.pausePlayback();
     this.mode = mode;
     this.templateName = '';
     this.fieldValues = {};
