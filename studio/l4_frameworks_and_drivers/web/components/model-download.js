@@ -22,6 +22,13 @@ async function readJson(path) {
   return answer.json();
 }
 
+// The two readiness labels for a pack that is on disk but out of date (API.md). When they are
+// all that is missing, the files are there and a prepare rebuilds them; nothing downloads.
+function outOfDate(model) {
+  const missing = model.missing || [];
+  return missing.length > 0 && missing.every(label => label.startsWith('Pack out of date') || label === 'Pack for this build');
+}
+
 function onDisk(bytes) {
   if (!bytes) return t('page.download.none');
   return t('page.download.on_disk', {size: number(bytes / 1e9, {maximumFractionDigits: 1})});
@@ -153,14 +160,15 @@ class ModelDownload extends LitElement {
   render() {
     if (!this.model) return html``;
     const preparing = Boolean(this.stage);
+    const stale = outOfDate(this.model);
     return html`<div class="footer download-footer">
       <p class="download-note" role="status">${this.error
         ? html`<span class="download-error">${this.error}</span>`
-        : t('page.download.note', {model: this.model.name})}</p>
+        : t(stale ? 'page.download.stale_note' : 'page.download.note', {model: this.model.name})}</p>
       <div class="download-actions">
         <button type="button" class="run-button" id="model-download-button" ?disabled=${preparing}
           @click=${() => this.download()}>
-          <span class="main">${preparing ? this.stageLabel() : t('page.download.button')}</span>
+          <span class="main">${preparing ? this.stageLabel() : t(stale ? 'page.download.prepare_again' : 'page.download.button')}</span>
           <span class="sub num">${onDisk(this.model.bytes)}</span>
         </button>
         ${preparing ? html`<button type="button" class="download-cancel" ?disabled=${this.stage === 'stopping'}

@@ -298,8 +298,7 @@ A run never builds a pack. If a pack is missing, made for another `quantize`, or
 for the installed torch, the run fails and asks for a prepare, which builds it.
 
 MiniMax H3-Image needs about 65 GiB resident in fp8, and building its pack keeps at least 45
-GiB of a 121 GiB DGX Spark free; its nvfp4 path peaks near 105 GiB, so do not offer both
-quantizers on the same card. A pack built before fp8 multiplied in fp8 is rebuilt on the
+GiB of a 121 GiB DGX Spark free. A pack built before fp8 multiplied in fp8 is rebuilt on the
 first run. `studio.cuda.toml` sets `[memory] policy =
 "boundary"`, which keeps a loaded model while the next one fits, so coming back to it costs
 nothing.
