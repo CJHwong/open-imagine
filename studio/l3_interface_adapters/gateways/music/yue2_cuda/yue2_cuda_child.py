@@ -661,6 +661,25 @@ class Worker:
         return run(self.pipe, job, self.extras_dir, transcriber=self.transcribe)
 
 
+def reporters():
+    """Step lines for the studio, in the MLX child's shape. `step 0/0` ends the loading
+    stage; generated tokens count up with no total, as a song has none; the synthesis and
+    decode stages report their own done and total. Every 16th token keeps the pipe quiet."""
+    tokens = 0
+
+    def on_token(_phase, _token):
+        nonlocal tokens
+        tokens += 1
+        if tokens == 1 or tokens % 16 == 0:
+            say(f"step {tokens}/0")
+
+    def on_progress(_stage, done, total):
+        say(f"step {done}/{total}")
+
+    say("step 0/0")
+    return on_token, on_progress
+
+
 def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     """The engine's sampling overrides reach both stages, as they do on the MLX backend.
 
@@ -668,6 +687,7 @@ def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     controls are accepted and silently ignored on this engine.
     """
     mode = job.get("mode", "generate")
+    on_token, on_progress = reporters()
     transcribed = {}
     if mode in {"transcribe", "cover"}:
         score, transcribed = transcribe(job, extras_dir) if transcriber is None else transcriber(job)
@@ -679,7 +699,7 @@ def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     sampling = job.get("sampling") or {}
     plan_sampling = {"abc_sampling": sampling} if sampling else {}
     if job.get("mode", "generate") == "plan":
-        plan = pipe.plan(**request_for(job), **plan_sampling)
+        plan = pipe.plan(**request_for(job), **plan_sampling, on_token=on_token)
         return {"score": getattr(plan, "abc", "") or "", "metadata": {"mode": "plan"}}
     import soundfile
 
@@ -688,7 +708,7 @@ def run(pipe, job: dict, extras_dir: Path, *, transcriber=None) -> dict:
     if "steps" in job:
         pipe.generation_config = replace(previous_config, ode_steps=job["steps"])
     try:
-        song = pipe(**request_for(job), **song_sampling)
+        song = pipe(**request_for(job), **song_sampling, on_token=on_token, on_progress=on_progress)
     finally:
         pipe.generation_config = previous_config
     buffer = io.BytesIO()

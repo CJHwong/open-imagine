@@ -604,6 +604,41 @@ def test_a_supplied_score_travels_and_a_blank_one_does_not():
     assert "abc" not in child.request_for(job(abc="   "))
 
 
+class ReportingPipe(FakePipe):
+    """Drives the engine's hooks the way its song call does: a token per output, then the
+    synthesis and decode stages with their own totals."""
+
+    def plan(self, **request):
+        for _ in range(3):
+            request["on_token"]("abc", 1)
+        return super().plan(**request)
+
+    def __call__(self, **request):
+        for _ in range(40):
+            request["on_token"]("semantic", 1)
+        for done in range(1, 9):
+            request["on_progress"]("nar", done, 8)
+        request["on_progress"]("vae", 1, 1)
+        return super().__call__(**request)
+
+
+def test_a_run_reports_its_tokens_and_steps_as_the_studio_reads_them(monkeypatch, capsys):
+    """The page sat on 'loading the model' for a whole song: the child printed no step."""
+    from studio.l3_interface_adapters.gateways.stdio_child import STEP_LINE
+
+    pipe = ReportingPipe()
+    fake_modules(monkeypatch, pipe=pipe)
+
+    child.run(pipe, job(), Path("/tmp/yue2-extras"))
+    child.run(pipe, job(mode="plan"), Path("/tmp/yue2-extras"))
+
+    lines = capsys.readouterr().err.encode().splitlines()
+    matches = [match for match in map(STEP_LINE.search, lines) if match is not None]
+    steps = [(int(match.group(1)), int(match.group(2))) for match in matches]
+    song = [(0, 0), (1, 0), (16, 0), (32, 0), *((done, 8) for done in range(1, 9)), (1, 1)]
+    assert steps == [*song, (0, 0), (1, 0)]
+
+
 def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch):
     pipe = FakePipe()
     fake_modules(monkeypatch, pipe=pipe)
