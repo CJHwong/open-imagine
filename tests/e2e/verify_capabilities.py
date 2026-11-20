@@ -453,7 +453,7 @@ def main():
         # H3 offers its named sizes in both modes and Match only in Edit.
         page.click("label[for=mode-generate]")
         page.click("#backend-toggle")
-        page.get_by_role("menuitemradio", name="MiniMax H3-Image", exact=True).click()
+        page.get_by_role("menuitemradio", name="MiniMax H3-Image", exact=True).filter(has_text="Runs on MLX.").click()
         page.wait_for_function("STUDIO.backend.id === 'minimax_h3_image'")
         shapes = "nodes => nodes.map(node => node.dataset.ratio)"
         options = "nodes => nodes.map(node => node.value)"
