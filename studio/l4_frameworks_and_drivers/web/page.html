@@ -677,6 +677,9 @@
       if (capabilities.fast_mode_note && typeof capabilities.fast_mode_note === 'string' && typeof backend === 'string') {
         capabilities.fast_mode_note = label('fastmode', backend, capabilities.fast_mode_note);
       }
+      if (capabilities.audio_track_note && typeof capabilities.audio_track_note === 'string' && typeof backend === 'string') {
+        capabilities.audio_track_note = label('audiotrack', backend, capabilities.audio_track_note);
+      }
       // The note a model shows before its first load belongs to the backend that wrote it.
       if (capabilities.loading && typeof capabilities.loading.note === 'string' && typeof backend === 'string') {
         capabilities.loading.note = label('loading', backend + '.note', capabilities.loading.note);
@@ -1702,6 +1705,10 @@
     if (!videoCapabilities()?.can_skip_audio) button.setAttribute('aria-pressed', 'true');
     const supported = Boolean(videoCapabilities()?.can_skip_audio) && videoModeInForce().id === 'generate';
     document.getElementById('video-audio-field').hidden = !supported;
+    // A backend whose clip does not carry the track says what the track does instead.
+    const note = videoCapabilities()?.audio_track_note;
+    document.getElementById('video-audio-note').textContent =
+      typeof note === 'string' && note ? note : window.studioI18n.t('page.video.audioTrackNote');
     if (!supported) return;
     // A run that follows a track keeps it, so the switch is off the table while one is set.
     button.disabled = Boolean(videoStudio.audio);

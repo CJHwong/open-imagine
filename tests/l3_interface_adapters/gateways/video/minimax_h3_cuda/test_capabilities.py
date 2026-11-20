@@ -24,3 +24,8 @@ def test_the_form_takes_two_stills_a_track_and_fast_mode():
     capabilities = minimax_h3_cuda_capabilities()
     assert capabilities.mode("generate").accepts_audio and capabilities.max_references == 2
     assert capabilities.fast_mode and capabilities.can_skip_audio and capabilities.precision == "nvfp4"
+
+
+def test_the_audio_note_says_the_clip_does_not_carry_the_track():
+    """The form's own note promises the track; this backend returns the sound it generated."""
+    assert "does not carry it" in minimax_h3_cuda_capabilities().audio_track_note

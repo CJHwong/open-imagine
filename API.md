@@ -958,7 +958,10 @@ change. Check the backend's `can_skip_audio` capability before using it.
 ```
 
 Default true; it must be a JSON boolean. Generate only: an Edit takes no audio, and a run that
-follows an audio track keeps that track, so the pair is refused. A batch may set it per item.
+follows an audio track keeps that track, so the pair is refused. A backend that sends
+`audio_track_note` in its capabilities treats the track another way, and the note says how; the
+page shows it under the switch. MiniMax H3 on CUDA reads the track as a voice or a sound to
+follow and returns the sound it generated, not timed to the track. A batch may set it per item.
 The UI names the option Audio track and offers it in Advanced on a Generate run.
 
 ## LoRAs

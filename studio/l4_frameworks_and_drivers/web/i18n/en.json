@@ -1638,6 +1638,7 @@
   "form.rewrite.waitRun": "Wait for the current task to finish before using Rewrite.",
   "label.fastmode.minimax_h3": "Uses half the denoising steps with the same weights. It is faster, but details and motion may differ. Supports clips up to the size of 1024 x 576 at 124 frames with one keyframe.",
   "label.fastmode.minimax_h3_cuda": "Runs 20 denoise steps instead of 50 on the same weights. Faster; details and motion may differ.",
+  "label.audiotrack.minimax_h3_cuda": "Turn off to generate a silent video and skip audio processing. An audio track steers the sound the model generates; the clip is not timed to the track and does not carry it.",
   "image.region.example.blue_background": "change the background to blue",
   "image.region.example.darker": "make this part darker",
   "image.region.example.remove_object": "remove the object here",

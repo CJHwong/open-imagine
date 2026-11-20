@@ -473,7 +473,7 @@ had 62 GiB less free memory than before its first clip.
 | generate, text, first clip of the child, load included | 226.7 | Decoded |
 | generate, text, warm | 82.3 | Decoded |
 | generate, first and last frame, warm | 88.5 | Decoded |
-| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded |
+| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded; this run muxed the input track, which `502393f` replaced with the generated sound at no change to the run |
 | generate, 50 steps, cancelled at 60 s | 62.1 | Cancelled at step 19 |
 
 The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)

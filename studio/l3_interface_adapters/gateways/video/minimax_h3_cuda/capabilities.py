@@ -79,6 +79,10 @@ CAPABILITIES = VideoCapabilities(
     fast_mode=True,
     # The page's zh-TW table repeats this text under label.fastmode.minimax_h3_cuda. Change both.
     fast_mode_note="Runs 20 denoise steps instead of 50 on the same weights. Faster; details and motion may differ.",
+    audio_track_note=(
+        "Turn off to generate a silent video and skip audio processing. An audio track steers the sound the "
+        "model generates; the clip is not timed to the track and does not carry it."
+    ),
     can_skip_audio=True,
 )
 
