@@ -51,6 +51,16 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+try:  # a script run puts its own folder on the path, and the spec sits there
+    import yue2_pack_spec as pack_spec  # ty: ignore[unresolved-import]
+except ImportError:  # the studio's tests import this as a package module
+    from studio.l3_interface_adapters.gateways.music.yue2_cuda import yue2_pack_spec as pack_spec
+
+declared_manifest = pack_spec.expected_manifest
+NVFP4_OPTIONS = pack_spec.NVFP4_OPTIONS
+source_revision = pack_spec.source_revision
+version_mismatch = pack_spec.version_mismatch
+
 
 def say(message: str) -> None:
     print(message, file=sys.stderr, flush=True)
@@ -259,7 +269,6 @@ QUANTIZERS = {"bf16", "fp8", "nvfp4"}
 and `nvfp4` is torchao's fp4 weights with fp4 activations, served from a pack."""
 
 ENGINE_QUANTIZATION = {"bf16": "none", "fp8": "fp8"}
-PACK_FORMAT = 1
 
 
 def versions() -> dict:
@@ -280,7 +289,7 @@ def quantize_ar(module) -> None:
     from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
     from torchao.quantization import quantize_
 
-    quantize_(module, NVFP4DynamicActivationNVFP4WeightConfig())
+    quantize_(module, NVFP4DynamicActivationNVFP4WeightConfig(**NVFP4_OPTIONS))
 
 
 def packed_layers(model) -> list[str]:
@@ -295,28 +304,9 @@ def packed_layers(model) -> list[str]:
 
 
 def expected_manifest(model_name: str) -> dict:
-    """Every field of a pack that must match before it is trusted."""
-    from torchao.prototype.mx_formats.inference_workflow import (
-        NVFP4DynamicActivationNVFP4WeightConfig,
-    )
-
-    config = NVFP4DynamicActivationNVFP4WeightConfig()
-    return {
-        "format": PACK_FORMAT,
-        "model": model_name,
-        "versions": versions(),
-        "source": source_revision(model_name),
-        "block_size": 16,
-        "orig_dtype": "torch.bfloat16",
-        "is_swizzled_scales": True,
-        "use_triton_kernel": config.use_triton_kernel,
-        "act_quant": {
-            "block_size": 16,
-            "is_swizzled_scales": True,
-            "use_triton_kernel": config.use_triton_kernel,
-            "use_dynamic_per_tensor_scale": config.use_dynamic_per_tensor_scale,
-        },
-    }
+    """The declared manifest for this model on this machine. `main` has already checked that
+    the imported packages are the declared ones, so a pack built here records the same."""
+    return declared_manifest(model_name, source_revision(model_name))
 
 
 def manifest_matches(manifest: dict, expected: dict) -> bool:
@@ -325,42 +315,6 @@ def manifest_matches(manifest: dict, expected: dict) -> bool:
 
 def pack_path(root: Path, model_name: str) -> Path:
     return Path(root) / model_name.replace("/", "--")
-
-
-def source_revision(model: str) -> str:
-    """The committed snapshot this model resolves to, when this machine can name one.
-
-    The cache writes `refs/main`, and that is the commit the engine's loader takes. Counting
-    snapshot directories answered `unknown` as soon as a second one was cached, which let a
-    pack built from one revision serve another. A local folder is named by each file's
-    path, size and modification time: a rewrite changes the identity even at the same
-    length, and hashing every shard on every start would cost minutes.
-    """
-    try:
-        from huggingface_hub.constants import HF_HUB_CACHE
-    except ImportError:  # the unit tests run without the engine's packages
-        HF_HUB_CACHE = ""
-    if HF_HUB_CACHE:
-        root = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
-        reference = root / "refs" / "main"
-        if reference.is_file():
-            commit = reference.read_text().strip()
-            if (root / "snapshots" / commit).is_dir():
-                return commit
-        snapshots = root / "snapshots"
-        if snapshots.is_dir():
-            commits = sorted(one.name for one in snapshots.iterdir() if one.is_dir())
-            if len(commits) == 1:
-                return commits[0]
-    local = Path(model).expanduser()
-    if local.is_dir():
-        digest = hashlib.sha256()
-        for path in sorted(local.rglob("*")):
-            if path.is_file():
-                stat = path.stat()
-                digest.update(f"{path.relative_to(local)}:{stat.st_size}:{stat.st_mtime_ns}".encode())
-        return "local:" + digest.hexdigest()[:16]
-    return "unknown"
 
 
 def staging_directory(directory: Path) -> Path:
@@ -730,6 +684,10 @@ def main() -> int:
     arguments = parser.parse_args()
     import torch
 
+    mismatch = version_mismatch(versions())
+    if mismatch:
+        say(f"This environment is not the one the script declares: {mismatch}.")
+        return 2
     if not torch.cuda.is_available():
         say("CUDA is not available in this environment")
         return 2

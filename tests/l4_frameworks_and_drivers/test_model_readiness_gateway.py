@@ -1,3 +1,5 @@
+import json
+
 from studio.l1_entities.model_asset import ModelAsset
 from studio.l1_entities.model_readiness import MISSING, READY, ModelReadiness
 from studio.l4_frameworks_and_drivers.model_readiness_gateway import (
@@ -62,6 +64,62 @@ def test_a_pack_without_its_manifest_is_missing(tmp_path):
     (pack / "transformer.safetensors").write_bytes(b"half written")
 
     assert gateway(tmp_path, {"h3": (ModelAsset("Pack", str(pack), "pack"),)}).readiness("h3").missing == ("Pack",)
+
+
+VERSIONS = {"torch": "2.15.0+cu132", "torchao": "0.18.0"}
+WANTED = {"format": 1, "versions": VERSIONS, "source": "abc"}
+
+
+def pack_with(tmp_path, manifest):
+    pack = tmp_path / "pack"
+    pack.mkdir(parents=True)
+    (pack / "pack.json").write_text(manifest if isinstance(manifest, str) else json.dumps(manifest))
+    (pack / "weights.safetensors").write_bytes(b"x" * 10)
+    return ModelAsset("Pack", str(pack), "pack", expected=lambda: WANTED)
+
+
+def test_a_pack_whose_manifest_holds_what_the_engine_checks_is_ready(tmp_path):
+    asset = pack_with(tmp_path, {**WANTED, "files": {"weights.safetensors": 10}})
+
+    readiness = gateway(tmp_path, {"h3": (asset,)}).readiness("h3")
+
+    assert readiness.ready and readiness.missing == ()
+
+
+def test_a_pack_from_another_torch_is_missing_and_says_which_version(tmp_path):
+    asset = pack_with(tmp_path, {**WANTED, "versions": {"torch": "2.14.1+cu130", "torchao": "0.18.0"}})
+
+    readiness = gateway(tmp_path, {"h3": (asset,)}).readiness("h3")
+
+    assert readiness.state == MISSING
+    assert readiness.missing == ("Pack out of date (versions.torch is 2.14.1+cu130, this build needs 2.15.0+cu132)",)
+    # The files are still on disk, and the page says how much a prepare replaces.
+    assert readiness.bytes_on_disk > 0
+
+
+def test_a_pack_from_another_snapshot_names_the_field(tmp_path):
+    asset = pack_with(tmp_path, {**WANTED, "source": "old"})
+
+    assert gateway(tmp_path, {"h3": (asset,)}).readiness("h3").missing == (
+        "Pack out of date (source is old, this build needs abc)",
+    )
+
+
+def test_a_nested_field_with_an_extra_entry_still_differs_and_is_named_whole(tmp_path):
+    versions = {**VERSIONS, "mslk": "1.4.0"}
+    asset = pack_with(tmp_path, {**WANTED, "versions": versions})
+
+    assert gateway(tmp_path, {"h3": (asset,)}).readiness("h3").missing == (
+        f"Pack out of date (versions is {versions}, this build needs {VERSIONS})",
+    )
+
+
+def test_a_pack_manifest_that_cannot_be_read_or_is_not_a_manifest_is_missing(tmp_path):
+    unreadable = gateway(tmp_path / "a", {"h3": (pack_with(tmp_path / "a", "{half"),)}).readiness("h3")
+    listed = gateway(tmp_path / "b", {"h3": (pack_with(tmp_path / "b", "[]"),)}).readiness("h3")
+
+    assert unreadable.missing == ("Pack out of date (its pack.json cannot be read)",)
+    assert listed.missing == ("Pack out of date (its pack.json is not a manifest)",)
 
 
 def test_a_link_inside_a_folder_is_not_counted_twice(tmp_path):

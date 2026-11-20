@@ -8,6 +8,7 @@ from studio.l1_entities.model_asset import ModelAsset
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import h3_pack_spec
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.minimax_h3_image_cuda_backend_gateway import (
     MinimaxH3ImageCudaBackendGateway,
 )
@@ -79,7 +80,8 @@ BUILDS = {
 
 def pack_assets_for(backend_id: str):
     """The pack a run reads, where the child writes it: the pack root, then the model's
-    folder. A bf16 run quantizes nothing, so it reads no pack."""
+    folder, with the manifest the child will check. A bf16 run quantizes nothing, so it
+    reads no pack."""
     _, default_quantize, _ = BUILDS[backend_id]
 
     def assets(config: ModelConfigurationGateway) -> tuple[ModelAsset, ...]:
@@ -88,7 +90,12 @@ def pack_assets_for(backend_id: str):
         if quantize == "bf16":
             return ()
         model = str(settings.get("model", DEFAULT_MODEL))
-        return (ModelAsset("Pack", str(pack_root(settings, quantize) / model.replace("/", "--")), "pack"),)
+
+        def expected():
+            return h3_pack_spec.expected_manifest(model, quantize, h3_pack_spec.source_revision(model))
+
+        folder = str(pack_root(settings, quantize) / model.replace("/", "--"))
+        return (ModelAsset("Pack", folder, "pack", expected=expected),)
 
     return assets
 

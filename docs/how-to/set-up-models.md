@@ -291,6 +291,9 @@ rather than quantizing on every start:
 
 Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and both are
 rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
+Each engine pins those versions exactly and refuses to start with others, so the studio
+compares a pack with them without starting the engine. An out-of-date pack reads as not
+downloaded as soon as the model is picked, and Download builds it again.
 A run never builds a pack. If a pack is missing, made for another `quantize`, or out of date
 for the installed torch, the run fails and asks for a prepare, which builds it.
 
