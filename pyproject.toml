@@ -56,6 +56,7 @@ exclude = [
     "studio/l3_interface_adapters/gateways/image/qwen_cuda_runtime/qwen21_cuda_child.py",
     "studio/l3_interface_adapters/gateways/image/minimax_h3_image_cuda/minimax_h3_image_cuda_child.py",
     "studio/l3_interface_adapters/gateways/video/ltx25_cuda/ltx25_cuda_child.py",
+    "studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/minimax_h3_cuda_child.py",
     "studio/l3_interface_adapters/gateways/voice/auk_runtime/auk_child.py",
     "studio/l3_interface_adapters/gateways/music/yue2/yue2_mlx_child.py",
     "studio/l3_interface_adapters/gateways/music/yue2_cuda/yue2_cuda_child.py",

@@ -29,6 +29,7 @@ from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import 
 from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import (
     FLASH_CAPABILITIES as minimax_h3_flash_capabilities,
 )
+from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.capabilities import minimax_h3_cuda_capabilities
 from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
     ltx23_mlx_capabilities,
     ltx25_mlx_capabilities,
@@ -75,6 +76,7 @@ def all_capabilities():
         qwen21_cuda_capabilities("bf16"),
         minimax_h3_image_cuda_capabilities(),
         ltx25_cuda_capabilities(),
+        minimax_h3_cuda_capabilities(),
         drama_cuda_capabilities(),
         yue2_cuda_capabilities(),
         yue2_cuda_capabilities("yue2_cuda_nvfp4", "YuE2 NVFP4", "nvfp4"),
