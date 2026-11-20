@@ -1904,8 +1904,22 @@ with sync_playwright() as playwright:
       window.__realGet = IDBObjectStore.prototype.get;
       IDBObjectStore.prototype.get = function () { throw new Error('the store refused the read'); };
     }""")
+    notice = "An image from another tab did not load"
+    notices = page.locator("#toasts").inner_text().count(notice)
     run_once(tab, "a pear the store will not read", steps=1)
-    page.wait_for_timeout(2500)
+    # This page reads the pear twice: once from the store, which fails, and once as the
+    # result of the other tab's run, fetched on its own clock. The count is the strip's
+    # only once both have landed, so wait for them rather than for a fixed time.
+    page.wait_for_function(
+        "([text, before]) => document.getElementById('toasts').innerText.split(text).length - 1 > before",
+        arg=[notice, notices],
+        timeout=30000,
+    )
+    page.wait_for_function(
+        "count => Number((document.getElementById('strip-note').innerText.match(/(\\d+) images?/) || [])[1] || 0) === count",
+        arg=frames(tab),
+        timeout=30000,
+    )
     check(
         "an image another tab cannot read back is reported instead of lost",
         is_new_message(page, before, "An image from another tab did not load"),
