@@ -126,8 +126,9 @@ class RewritePromptUseCase:
             raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
         started = 0.0
         progress_started = False
-        host = rewriter.resident_in()
+        host = None
         try:
+            host = rewriter.resident_in()
             started = self._clock()
             if host is None:
                 self._residency.release()

@@ -497,7 +497,7 @@ def assemble_studio(
             rewrite_progress,
             video_rewriter=video_rewriter,
             engine_lock=engine_lock,
-            residency=residency,
+            residency=gated,
         ),
         read_rewrite_progress=ReadRewriteProgressUseCase(rewrite_progress),
         cancel_rewrite=CancelRewriteUseCase(rewrite_progress),

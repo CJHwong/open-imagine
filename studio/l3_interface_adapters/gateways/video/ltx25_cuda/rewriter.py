@@ -19,9 +19,12 @@ from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 BACKEND_ID = "ltx25_cuda"
 
 
-def _picture_key(references) -> str | None:
-    """The first keyframe's picture, which is the one the enhancer reads."""
-    return hashlib.sha256(references[0].png).hexdigest() if references else None
+def _digest(prompt: str, references) -> str:
+    """The prompt and the first keyframe, the one the enhancer reads, as one digest. The
+    record keeps this and never the words, so a private caller's prompt leaves no copy."""
+    digest = hashlib.sha256(prompt.encode("utf-8"))
+    digest.update(b"\0" + (hashlib.sha256(references[0].png).digest() if references else b""))
+    return digest.hexdigest()
 
 
 class RewrittenPrompts:
@@ -29,21 +32,21 @@ class RewrittenPrompts:
 
     A run whose prompt is one of them skips the enhancer, the same way the MLX path does:
     enhancing an enhanced prompt again would change the words the page showed. The record
-    lives in memory only and keeps the latest prompts.
+    lives in memory only, holds digests rather than words, and keeps the latest prompts.
     """
 
     LIMIT = 128
 
     def __init__(self):
-        self._written: OrderedDict[tuple[str, str | None], None] = OrderedDict()
+        self._written: OrderedDict[str, None] = OrderedDict()
 
     def add(self, prompt: str, references) -> None:
-        self._written[prompt, _picture_key(references)] = None
+        self._written[_digest(prompt, references)] = None
         while len(self._written) > self.LIMIT:
             self._written.popitem(last=False)
 
     def wrote(self, prompt: str, references) -> bool:
-        return (prompt, _picture_key(references)) in self._written
+        return _digest(prompt, references) in self._written
 
 
 class Ltx25CudaRewriter(PromptRewriterGateway):

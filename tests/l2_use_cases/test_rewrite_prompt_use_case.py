@@ -430,3 +430,14 @@ def test_a_cancelled_rewrite_inside_a_model_frees_it_because_the_cancel_stopped_
 
 def test_a_rewriter_is_a_second_model_unless_it_says_otherwise():
     assert Rewriter(PromptRewrite(prompt="longer")).resident_in() is None
+
+
+def test_a_rewriter_that_cannot_name_its_model_gives_the_lock_back():
+    class Broken(Rewriter):
+        def resident_in(self):
+            raise StudioError("no host")
+
+    runner = use_case(Catalog(), Broken(PromptRewrite(prompt="longer")), residency=Residency())
+    with pytest.raises(StudioError, match="no host"):
+        runner.execute(RewriteRequest(prompt="a cat", mode="generate"))
+    assert runner._engine_lock.acquire(blocking=False)

@@ -2,6 +2,7 @@
 
 import os
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
@@ -23,29 +24,42 @@ def uv_launcher() -> str:
     return found
 
 
-def _new_child(config: ModelConfigurationGateway) -> tuple[StdioChild, RewrittenPrompts]:
+@dataclass(frozen=True)
+class SharedChild:
+    """The video child, and the record of the prompts its enhancer wrote."""
+
+    child: StdioChild
+    rewritten: RewrittenPrompts = field(default_factory=RewrittenPrompts)
+
+
+def _new_child(config: ModelConfigurationGateway) -> SharedChild:
     model = str(config.backend("ltx25_cuda").get("model", DEFAULT_MODEL))
     script = Path(__file__).with_name("ltx25_cuda_child.py")
-    command = [uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model]
-    return StdioChild(command), RewrittenPrompts()
+    return SharedChild(
+        StdioChild([uv_launcher(), "run", "--python", "3.12", "--script", str(script), "--model", model])
+    )
 
 
-def _resident(config: ModelConfigurationGateway, services) -> tuple[StdioChild, RewrittenPrompts]:
+def _resident(config: ModelConfigurationGateway, services) -> SharedChild:
     """The child the backend and its rewriter share in one studio. The enhancer is part of the
-    video pipeline, so a second child would hold the video model twice."""
+    video pipeline, so a second child would hold the video model twice. A build outside a
+    studio, which only a test or a single backend makes, gets a child of its own."""
     if services is None:
         return _new_child(config)
-    if "ltx25_cuda" not in services.shared:
-        services.shared["ltx25_cuda"] = _new_child(config)
-    return services.shared["ltx25_cuda"]
+    shared = services.shared.get("ltx25_cuda")
+    if not isinstance(shared, SharedChild):
+        shared = services.shared["ltx25_cuda"] = _new_child(config)
+    return shared
 
 
 def ltx25_cuda_backend(config: ModelConfigurationGateway, services=None, **_):
-    return Ltx25CudaBackendGateway(*_resident(config, services))
+    shared = _resident(config, services)
+    return Ltx25CudaBackendGateway(shared.child, shared.rewritten)
 
 
 def build_rewriter(config: ModelConfigurationGateway, backend_id: str, *, services=None, **_):
-    return Ltx25CudaRewriter(*_resident(config, services))
+    shared = _resident(config, services)
+    return Ltx25CudaRewriter(shared.child, shared.rewritten)
 
 
 PROVIDER = ModelProvider(

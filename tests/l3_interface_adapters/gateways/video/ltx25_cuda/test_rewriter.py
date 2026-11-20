@@ -84,3 +84,11 @@ def test_the_record_keeps_only_the_latest_prompts():
         rewritten.add(f"prompt {index}", ())
     assert not rewritten.wrote("prompt 0", ())
     assert rewritten.wrote(f"prompt {RewrittenPrompts.LIMIT}", ())
+
+
+def test_the_record_keeps_no_words_of_a_prompt():
+    """A private caller's rewrite passes through here too, and AGENTS.md allows no copy."""
+    rewritten = RewrittenPrompts()
+    rewritten.add("A secret lighthouse at dusk.", (ReferenceImage(b"key", 4, 4),))
+    held = repr(rewritten._written)
+    assert "lighthouse" not in held and "key" not in held.replace("'", " ").split()
