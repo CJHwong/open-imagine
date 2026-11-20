@@ -64,6 +64,9 @@ class ReadyPromptRewriter(PromptRewriterGateway):
         require_ready(self._readiness, self._active_id())
         return self._rewriter.rewrite(prompt, mode, references, on_writing, should_stop)
 
+    def resident_in(self) -> str | None:
+        return self._rewriter.resident_in()
+
     def release(self) -> None:
         self._rewriter.release()
 
