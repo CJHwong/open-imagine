@@ -462,6 +462,34 @@ The following LTX-2.5 requests use BF16, 97 frames, 24 fps, audio, and prompt en
 | 768×768 | Fresh child; includes model loading | 114.041 |
 | 1280×704 | Model resident; first request at this size | 121.371 |
 
+#### MiniMax H3 CUDA (`minimax_h3_cuda`)
+
+Measured on 2026-11-20 through the Studio operations API, from commit `3076ad7`: 512 × 288, 124
+frames, seed 7, one request at a time, in Fast mode (20 steps) except the cancelled run. An idle studio with the model loaded
+had 62 GiB less free memory than before its first clip.
+
+| Request | Time (s) | Result |
+| --- | --- | --- |
+| generate, text, first clip of the child, load included | 226.7 | Decoded |
+| generate, text, warm | 82.3 | Decoded |
+| generate, first and last frame, warm | 88.5 | Decoded |
+| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded; this run muxed the input track, which `502393f` replaced with the generated sound at no change to the run |
+| generate, 50 steps, cancelled at 60 s | 62.1 | Cancelled at step 19 |
+
+The estimate's fit came from five more warm runs on 2026-11-21, from commit `502393f`: text, Fast
+mode, seed 7. A step is the gap between two step reports.
+
+| Request | Time per step (s) | Time (s) | Result |
+| --- | --- | --- | --- |
+| generate, 512 × 288, 124 frames | 3.30 | 79.5 | Decoded |
+| generate, 512 × 512, 124 frames | 6.14 | 145.0 | Decoded |
+| generate, 1024 × 576, 124 frames | 17.86 | 380.8 | Decoded |
+| generate, 1280 × 704, 124 frames | 33.09 | 716.7 | Decoded |
+| generate, 512 × 288, 345 frames | 11.52 | 271.3 | Decoded |
+
+The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)
+hold the FP8 and NVFP4 comparison and the load measurements.
+
 ### Voice
 
 #### Drama-3 CUDA (`drama3_cuda`)

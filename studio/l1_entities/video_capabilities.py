@@ -211,6 +211,9 @@ class VideoCapabilities:
     The clip's audio is generated jointly with the video. The engine can skip the
     decode and the mux, which saves that work and writes a silent MP4. An Edit has
     no such choice: its output is the clip it was given, and it takes no audio input."""
+    audio_track_note: str = ""
+    """What the audio switch and an audio track do on this backend, in the form's words. Empty
+    keeps the form's own note, which says a clip that follows a track keeps it."""
     loras: tuple[Lora, ...] = ()
     """The LoRAs a clip can pick, in every mode. A model that offers none hides the picker."""
     max_loras: int = 0

@@ -66,8 +66,9 @@ class VideoJob:
     edit: VideoEdit | None = None
     """Set for a run that changes a clip, and None for one that draws a clip."""
     audio: VideoAudio | None = None
-    """Set for a run whose clip follows a track. The pipeline freezes the track and returns
-    it in the output unchanged, so the run reads it as timing and mood, not as a source."""
+    """Set for a run whose clip follows a track. On most backends the pipeline freezes the track
+    and returns it in the output unchanged, so the run reads it as timing and mood, not as a
+    source. A backend that sends `audio_track_note` reads it another way, which the note says."""
     fast_mode: bool = False
     """Use reduced transformer compute precision for this render; weights stay unchanged."""
     include_audio: bool = True

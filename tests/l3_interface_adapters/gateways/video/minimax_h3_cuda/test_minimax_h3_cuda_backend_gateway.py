@@ -1,0 +1,119 @@
+import base64
+from dataclasses import replace
+from unittest.mock import Mock
+
+import pytest
+
+from studio.l1_entities.errors import Cancelled, InvalidJob
+from studio.l1_entities.lora import LoraUse
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference
+from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.minimax_h3_cuda_backend_gateway import (
+    MinimaxH3CudaBackendGateway,
+    clip_payload,
+)
+
+
+def job(**overrides):
+    return replace(VideoJob(prompt="a fox", width=512, height=288, num_frames=124, frame_rate=24, seed=7), **overrides)
+
+
+def still(frame, png=b"png"):
+    return VideoReference(name="still.png", png=png, frame_index=frame, strength=1.0)
+
+
+def encoded(data):
+    return base64.b64encode(data).decode("ascii")
+
+
+def test_text_runs_the_released_fifty_steps_and_fast_mode_twenty():
+    assert clip_payload(job()) == {
+        "prompt": "a fox",
+        "width": 512,
+        "height": 288,
+        "frames": 124,
+        "seed": 7,
+        "steps": 50,
+        "include_audio": True,
+    }
+    assert clip_payload(job(fast_mode=True))["steps"] == 20
+    assert clip_payload(job(seed=None))["seed"] == 0
+
+
+def test_a_still_on_the_first_or_last_frame_is_that_keyframe():
+    payload = clip_payload(job(references=(still(0, b"a"), still(123, b"b"))))
+
+    assert (payload["first"], payload["last"]) == (encoded(b"a"), encoded(b"b"))
+    assert "pictures" not in payload
+    assert "last" not in clip_payload(job(references=(still(0),)))
+    assert "first" not in clip_payload(job(references=(still(123),)))
+
+
+def test_a_still_between_the_ends_is_refused_with_where_it_may_go():
+    with pytest.raises(InvalidJob, match="Move the still at frame 60 to frame 0 or 123"):
+        clip_payload(job(references=(still(60),)))
+
+
+def test_two_stills_on_one_frame_are_refused_rather_than_one_dropped():
+    with pytest.raises(InvalidJob, match="one still per frame"):
+        clip_payload(job(references=(still(0, b"a"), still(0, b"b"))))
+
+
+def test_a_track_turns_every_still_into_a_picture_and_carries_the_track():
+    track = VideoAudio(data=b"wav", name="voice.wav")
+    payload = clip_payload(job(audio=track, references=(still(60, b"a"), still(0, b"b"))))
+
+    assert payload["audio"] == encoded(b"wav")
+    assert payload["pictures"] == [encoded(b"a"), encoded(b"b")]
+    assert "first" not in payload
+
+
+def test_a_track_without_a_still_is_refused_before_the_child_sees_it():
+    with pytest.raises(InvalidJob, match="needs a still with an audio track"):
+        clip_payload(job(audio=VideoAudio(data=b"wav", name="voice.wav")))
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"edit": VideoEdit(adapter="a", strength=1.0, lora_file="", clip=b"", clip_name="c")}, "Edit"),
+        ({"loras": (LoraUse("style", 1.0),)}, "LoRAs"),
+    ],
+)
+def test_what_this_engine_cannot_run_is_refused(change, message):
+    with pytest.raises(InvalidJob, match=message):
+        clip_payload(job(**change))
+
+
+def test_a_run_reports_steps_and_returns_the_clip():
+    child = Mock()
+
+    def request(payload, on_step, cancelled):
+        on_step(1, 49)
+        return {"mp4": encoded(b"mp4"), "width": 512, "height": 288, "frames": 124}
+
+    child.request.side_effect = request
+    progress = Mock()
+    gateway = MinimaxH3CudaBackendGateway(child)
+
+    result = gateway.run(job(), progress, lambda: False)
+
+    assert (result.mp4, result.width, result.height, result.num_frames, result.seed) == (b"mp4", 512, 288, 124, 7)
+    progress.assert_called_once_with(1, 49, 1)
+    assert gateway.run(job()).mp4 == b"mp4"
+    assert gateway.capabilities().backend_id == "minimax_h3_cuda"
+
+
+def test_a_cancelled_job_never_reaches_the_child():
+    child = Mock()
+    with pytest.raises(Cancelled):
+        MinimaxH3CudaBackendGateway(child).run(job(), None, lambda: True)
+    child.request.assert_not_called()
+
+
+def test_load_waits_for_the_child_and_release_stops_it():
+    child = Mock()
+    gateway = MinimaxH3CudaBackendGateway(child)
+    gateway.load()
+    gateway.release()
+    child.wait_ready.assert_called_once()
+    child.stop.assert_called_once()

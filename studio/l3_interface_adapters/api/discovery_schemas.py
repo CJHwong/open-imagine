@@ -278,6 +278,10 @@ def discovery_schemas() -> dict[str, Any]:
                     "type": "boolean",
                     "description": "A Generate run can write a silent clip and skip the audio decode and mux.",
                 },
+                "audio_track_note": {
+                    "type": "string",
+                    "description": "What an audio track does on this backend. Empty means the clip keeps the track.",
+                },
                 "max_audio_megabytes": number,
                 "loras": {"type": "array", "items": {"$ref": "#/components/schemas/Lora"}},
                 "max_loras": {"type": "integer", "description": "How many LoRAs one request can pick."},

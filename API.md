@@ -148,7 +148,7 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 | Copy | How long it lasts |
 |---|---|
 | Prompt and inputs in the engine's memory | Until the run ends |
-| Scratch files in the system temp folder, from FLUX3, Qwen edit, MiniMax H3-Image, LTX video, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them. MiniMax H3-Image writes the prompt and settings in `request.json`, and one `reference-N.png` per reference |
+| Scratch files in the system temp folder, from FLUX3, Qwen edit, MiniMax H3-Image, LTX video, MiniMax H3 on CUDA, voice, Music reference transcription and the video prompt enhancer | Until the run ends. A crash or `kill -9` can leave them. MiniMax H3-Image writes the prompt and settings in `request.json`, and one `reference-N.png` per reference |
 | The prompt on the command line of an LTX video child | Until the clip is done. The process list shows it |
 | Music reference transcription score and exports in worker memory | Until another reference/task replaces them or the worker unloads |
 | The encoding of each prompt in the Qwen engines' `prompt_cache`, with the prompt text as its key | Until the model unloads |
@@ -156,8 +156,9 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 The key keeps your work from other callers.
 It does not keep your work from a person who can read the memory, disk or process list of this machine.
 
-The optional built-in MiniMax H3 backend transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
+The optional built-in MiniMax H3 backend on MLX (`minimax_h3`) transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
 It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
+MiniMax H3 on CUDA (`minimax_h3_cuda`) keeps the prompt, the stills and the track in memory, and writes the finished MP4 to a scratch file while it encodes it.
 Its results follow the same private ownership and encrypted retention rules as other Video results.
 
 ## Prompt aids and reference inputs
@@ -916,6 +917,12 @@ takes Fast mode only at 73 frames. A backend like this sends `fast_mode_note` in
 its Fast mode does. The page shows that sentence in place of its own. An empty `fast_mode_note`
 means the LTX-2.5 path.
 
+MiniMax H3 on CUDA (`minimax_h3_cuda`) runs 20 steps in Fast mode instead of the release's 50,
+at any size. It takes a still only at `frame_index` 0 or the last frame. With an `audio` track
+it needs one or two stills, which it reads as pictures of what to show wherever they sit. The
+track steers the sound the model generates, as a voice or a sound to follow; the clip is not
+timed to it and does not carry it. A track with no still fails with an error that asks for one.
+
 ```json
 {
   "kind": "video",
@@ -951,7 +958,10 @@ change. Check the backend's `can_skip_audio` capability before using it.
 ```
 
 Default true; it must be a JSON boolean. Generate only: an Edit takes no audio, and a run that
-follows an audio track keeps that track, so the pair is refused. A batch may set it per item.
+follows an audio track keeps that track, so the pair is refused. A backend that sends
+`audio_track_note` in its capabilities treats the track another way, and the note says how; the
+page shows it under the switch. MiniMax H3 on CUDA reads the track as a voice or a sound to
+follow and returns the sound it generated, not timed to the track. A batch may set it per item.
 The UI names the option Audio track and offers it in Advanced on a Generate run.
 
 ## LoRAs
