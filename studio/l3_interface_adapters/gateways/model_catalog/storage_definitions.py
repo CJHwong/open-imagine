@@ -9,7 +9,12 @@ def storage_definitions(providers, plugins, config):
             provider.backend_id,
             provider.storage_name or provider.backend_id,
             provider.kind,
-            provider.storage_assets(config),
+            # A pack a prepare builds is the model's own file too, so the list counts it and
+            # removing the model removes it.
+            (
+                *provider.storage_assets(config),
+                *(provider.ready_assets(config) if provider.ready_assets is not None else ()),
+            ),
         )
         for provider in providers
         if provider.storage_assets is not None
