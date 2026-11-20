@@ -29,3 +29,13 @@ def test_the_form_takes_two_stills_a_track_and_fast_mode():
 def test_the_audio_note_says_the_clip_does_not_carry_the_track():
     """The form's own note promises the track; this backend returns the sound it generated."""
     assert "does not carry it" in minimax_h3_cuda_capabilities().audio_track_note
+
+
+def test_the_estimate_reads_the_measured_full_run_from_its_fast_runs():
+    """1024 x 576 at 124 frames took 380.8 s in Fast mode: 19 forwards of 17.86 s and a 40.9 s
+    tail. The figure counts the 49 forwards of a full run, about 920 s."""
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    figure = estimate_clip(minimax_h3_cuda_capabilities().estimate, 1024, 576, 124)
+    assert figure.steps == 49 and figure.total_seconds is not None
+    assert abs(figure.total_seconds - (19 * 17.86 + 30 * 17.86 + 40.9)) / figure.total_seconds < 0.08

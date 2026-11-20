@@ -6,7 +6,7 @@ keyframes of the MLX backend have no place here. An audio track goes through the
 workflow, which also takes the stills as pictures of what to show, and refuses a track alone.
 """
 
-from studio.l1_entities.video_capabilities import VideoCapabilities, VideoMode, VideoShape
+from studio.l1_entities.video_capabilities import VideoCapabilities, VideoEstimate, VideoMode, VideoShape
 
 # The released checkpoint takes 50 sigma points, which is 49 transformer calls: the default of
 # diffusers and of SGLang alike. The weights are guidance-distilled, not step-distilled, so 50
@@ -19,6 +19,33 @@ FAST_STEPS = 20
 MIN_FRAMES = 124
 MAX_FRAMES = 345
 MAX_STILLS = 2
+
+# Measured on the DGX Spark on 2026-11-21 through the Studio API: text, seed 7, sound on, Fast
+# mode (19 forwards), warm, one run at a time. A step is the gap between two step reports; the
+# tail is the time after the last forward, which is the decode and the mux.
+#
+#   size          frames  tokens  step    tail    total   this fit at 19 forwards
+#   512 x 288      124     2.30    3.30 s  16.3 s   79.5 s   80.6 s
+#   512 x 512      124     4.10    6.14 s  27.6 s  145.0 s  150.3 s
+#   1024 x 576     124     9.22   17.86 s  40.9 s  380.8 s  400.8 s
+#   1280 x 704     124    14.08   33.09 s  87.5 s  716.7 s  711.1 s
+#   512 x 288      345     6.34   11.52 s  51.8 s  271.3 s  250.8 s
+#
+# A forward costs 1.248 N + 0.0781 N^2 seconds over N thousand latent tokens, counted on the
+# LTX grid of `video_estimate.tokens`. The decode costs 4.9 s plus 0.70 s per megapixel of all
+# the frames. The fit reads each run within 8%. The figure counts the 49 forwards of a full run;
+# Fast mode takes 19, which the figure names and does not count. A picture and a track ran 4.4
+# times a text clip at 512 x 288 (360.6 s against 82.3 s), and a first and last frame added 8%.
+ESTIMATE = VideoEstimate(
+    load=(0.0, 0.0),
+    stage_1=(0.0, 0.0),
+    stage_2=(1.248, 0.0781),
+    decode=(4.9, 0.70),
+    fixed_seconds=0.6,
+    guided_factor=4.4,
+    forwards=STEPS - 1,
+    excludes=("weight download", "queue wait", "the first load, about 135 s", "keyframe rows"),
+)
 
 GENERATE = VideoMode(
     "generate",
@@ -47,7 +74,7 @@ SHAPES = (
 #   picture and track, 512 x 288   17.5 to 19.2 s
 #
 # A reference run costs five times a text run of the same size: the picture and the track are
-# rows of the same sequence. Three sizes are not measured yet, so no estimate is declared.
+# rows of the same sequence. ESTIMATE above holds the fit.
 CAPABILITIES = VideoCapabilities(
     backend_id="minimax_h3_cuda",
     name="MiniMax H3",
@@ -84,6 +111,7 @@ CAPABILITIES = VideoCapabilities(
         "model generates; the clip is not timed to the track and does not carry it."
     ),
     can_skip_audio=True,
+    estimate=ESTIMATE,
 )
 
 

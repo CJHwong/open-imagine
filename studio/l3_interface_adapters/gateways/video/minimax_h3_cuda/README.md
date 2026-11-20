@@ -51,4 +51,5 @@ cost is the reference rows, not memory pressure.
 | Cancel during a 50-step run | stopped at step 19 within 2 s |
 
 A studio idle with the model loaded had 62 GiB less free memory than before its first clip.
-No time estimate is declared yet: the cost is measured at two sizes, not three.
+The time estimate is fitted on five Fast text runs from 512 × 288 to 1280 × 704, and reads each within 8%.
+It counts a full 50-step run, so a Fast clip takes about 40% of the figure.
