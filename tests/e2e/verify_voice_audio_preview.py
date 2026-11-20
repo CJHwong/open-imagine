@@ -1,4 +1,10 @@
-"""Check Voice range selection and explicit audio handoffs on the studio stub."""
+"""Check Voice range selection and explicit audio handoffs on the studio stub.
+
+It switches to auk_base, which only an all-backends stub offers:
+
+    uv run studio --stub --all-backends --port <port>
+    uv run --with playwright python tests/e2e/verify_voice_audio_preview.py <port>
+"""
 
 import base64
 import io

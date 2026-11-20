@@ -1,4 +1,10 @@
-"""Check the single Voice preview and the gallery of retained audio takes."""
+"""Check the single Voice preview and the gallery of retained audio takes.
+
+It switches to auk_base, which only an all-backends stub offers:
+
+    uv run studio --stub --all-backends --port <port>
+    uv run --with playwright python tests/e2e/verify_voice_gallery.py <port>
+"""
 
 import sys
 
@@ -90,7 +96,8 @@ with sync_playwright() as tool:
     check("full clip removal uses the shared icon action", page.locator("#voice-selected-remove.icon-btn").count() == 1)
     check("audio details have no separate Info action", page.locator("#voice-selected-info").count() == 0)
     page.set_viewport_size({"width": 390, "height": 700})
-    page.locator(".voice-output-description").click()
+    # A phone's preview pane hides the clip's text and offers Details, which opens the same sheet.
+    page.locator("#voice-output-details .preview-details-toggle").click()
     sheet = page.locator("#voice-details-sheet")
     check(
         "clip details open an accessible sheet",
@@ -110,16 +117,19 @@ with sync_playwright() as tool:
     )
     page.keyboard.press("Escape")
     check(
-        "Escape restores focus to clip details",
+        "Escape restores focus to the Details control",
         sheet.is_hidden()
-        and page.locator(".voice-output-description").evaluate("button => button === document.activeElement"),
+        and page.locator("#voice-output-details .preview-details-toggle").evaluate(
+            "button => button === document.activeElement"
+        ),
     )
+    # A desktop shows the description, and it opens the details from the keyboard.
+    page.set_viewport_size({"width": 1440, "height": 1000})
     page.locator(".voice-output-description").press("Enter")
     sheet.wait_for(state="visible")
     check("the description opens details from the keyboard", sheet.is_visible())
     page.locator("#voice-details-close").click()
     check("the details close control returns to the preview", sheet.is_hidden())
-    page.set_viewport_size({"width": 1440, "height": 1000})
     page.evaluate("""async () => {
       document.getElementById('voice-audio-preview').querySelector('button[aria-label="Play"]').click();
       document.querySelector('.voice-clip[aria-label="Select audio 2"]').click();
