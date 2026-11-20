@@ -79,9 +79,16 @@ def check_case(browser, base, clip, width, locale, failures):
         case + "/native-controls-hide-fullscreen",
         player.get_attribute("controlslist"),
     )
-    page.locator(".video-play-overlay").click()
+    overlay = page.locator(".video-play-overlay")
+    # The native button works on a clip that has not played, so the studio's own stays away.
+    record(failures, overlay.is_hidden(), case + "/one-play-button-before-playing", "overlay shown")
+    # At the end the native button does not answer, so the studio's own appears there.
+    player.evaluate("video => { video.currentTime = video.duration; }")
+    expect(overlay).to_be_visible(timeout=5000)
+    overlay.click()
     page.wait_for_function(
-        "!document.querySelector('#video-preview').paused && document.querySelector('#video-preview').currentTime > 0.05",
+        "!document.querySelector('#video-preview').paused && document.querySelector('#video-preview').currentTime > 0.05"
+        " && document.querySelector('#video-preview').currentTime < 3",
         timeout=5000,
     )
     played = player.evaluate("video => video.currentTime")
@@ -99,6 +106,7 @@ def check_case(browser, base, clip, width, locale, failures):
     )
     paused = player.evaluate("video => video.currentTime")
     page.wait_for_timeout(200)
+    record(failures, overlay.is_hidden(), case + "/one-play-button-when-paused", "overlay shown")
     record(
         failures,
         player.evaluate("video => video.paused") and abs(player.evaluate("video => video.currentTime") - paused) < 0.02,
