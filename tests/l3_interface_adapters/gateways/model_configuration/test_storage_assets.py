@@ -97,6 +97,8 @@ def test_a_pack_a_prepare_builds_is_listed_and_removable_with_its_model():
     roots = {os.path.expanduser(root) for provider in BUILTIN_PROVIDERS for root in provider.storage_roots}
 
     assert rows["yue2_cuda"][0] == "YuE2" and rows["yue2_cuda_nvfp4"][0] == "YuE2 NVFP4"
+    # A row reads as the picker does.
+    assert rows["minimax_h3_image_cuda"][0] == "MiniMax H3-Image"
     for model_id, folder in (
         ("yue2_cuda_nvfp4", "~/.cache/open-imagine/yue2-nvfp4"),
         ("minimax_h3_image_cuda", "~/.cache/open-imagine/h3-pack"),
