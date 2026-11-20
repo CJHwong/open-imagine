@@ -13,7 +13,7 @@ import {pencilLoop} from './gallery-marker.js';
 import './gallery-browser.js';
 import './gallery-window.js';
 import './gallery-tile.js';
-import {galleryBatch, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
+import {galleryBatch, neighbourOf, preferredGalleryId, rememberGalleryView} from '../lib/gallery-view.js';
 import {openRunSheet} from '../lib/run-sheet.js';
 import {t, plural, label} from '../lib/i18n.js';
 import {spell} from '../lib/time-format.js';
@@ -813,7 +813,10 @@ class VoiceStudio extends LitElement {
     this.invalidateTrack();
     this.removed.add(id);
     this.saveRemovals();
-    if (this.selectedId === id) { this.player.pause(); this.selectedId = null; }
+    if (this.selectedId === id) {
+      this.player.pause();
+      this.selectedId = neighbourOf(this.galleryEntries().filter(entry => !entry.pending).map(entry => entry.id), id) ?? null;
+    }
     this.segments.forEach(segment => segment.takes.filter(take => take.id === id).forEach(take => this.releaseUrl(take.url)));
     this.segments = this.segments.map(segment => ({...segment, takes: segment.takes.filter(take => take.id !== id),
       selected: segment.selected === id ? segment.takes.find(take => take.id !== id)?.id || null : segment.selected}))
