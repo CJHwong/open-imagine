@@ -462,6 +462,23 @@ The following LTX-2.5 requests use BF16, 97 frames, 24 fps, audio, and prompt en
 | 768×768 | Fresh child; includes model loading | 114.041 |
 | 1280×704 | Model resident; first request at this size | 121.371 |
 
+#### MiniMax H3 CUDA (`minimax_h3_cuda`)
+
+Measured on 2026-11-20 through the Studio operations API, from commit `3076ad7`: 512 × 288, 124
+frames, Fast mode (20 steps), seed 7, one request at a time. An idle studio with the model loaded
+had 62 GiB less free memory than before its first clip.
+
+| Request | Time (s) | Result |
+| --- | --- | --- |
+| generate, text, first clip of the child, load included | 226.7 | Decoded |
+| generate, text, warm | 82.3 | Decoded |
+| generate, first and last frame, warm | 88.5 | Decoded |
+| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded; the clip keeps the track |
+| generate, 50 steps, cancelled at 60 s | 62.1 | Cancelled at step 19 |
+
+The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)
+hold the FP8 and NVFP4 comparison and the load measurements.
+
 ### Voice
 
 #### Drama-3 CUDA (`drama3_cuda`)

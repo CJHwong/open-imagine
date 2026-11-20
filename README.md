@@ -30,6 +30,9 @@ Video builds its engine on the first run and needs [ffmpeg and the model terms](
 LTX-2.5 on CUDA supports Generate with text, keyframes, and optional generated sound.
 It refuses Edit, source audio, and Fast mode.
 
+MiniMax H3 on CUDA supports Generate with text, a first or last frame, or pictures with an audio track.
+It refuses Edit and LoRAs.
+
 ## Android app
 
 The [phone app](apps/phone/README.md) opens the same studio page through an encrypted connection.

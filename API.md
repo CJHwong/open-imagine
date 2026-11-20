@@ -916,6 +916,11 @@ takes Fast mode only at 73 frames. A backend like this sends `fast_mode_note` in
 its Fast mode does. The page shows that sentence in place of its own. An empty `fast_mode_note`
 means the LTX-2.5 path.
 
+MiniMax H3 on CUDA (`minimax_h3_cuda`) runs 20 steps in Fast mode instead of the release's 50,
+at any size. It takes a still only at `frame_index` 0 or the last frame. With an `audio` track
+it needs one or two stills, which it reads as pictures of what to show wherever they sit, and
+the clip keeps the track as its sound. A track with no still fails with an error that asks for one.
+
 ```json
 {
   "kind": "video",

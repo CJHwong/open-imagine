@@ -39,7 +39,7 @@ PROVIDER = ModelProvider(
     engine="cuda",
     storage_assets=storage_assets,
     storage_name="MiniMax H3",
-    # The encoder and both transformers in NVFP4 held 56.3 GiB on the DGX Spark, and a run
-    # peaked at 64.0 GiB, measured through diffusers directly on 2026-11-20.
-    resident_gib=60.0,
+    # A studio idle with the model loaded had 62 GiB less free memory than before its first
+    # clip, on the DGX Spark on 2026-11-20. The weights alone are 56.3 GiB.
+    resident_gib=62.0,
 )

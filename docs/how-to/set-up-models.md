@@ -303,6 +303,10 @@ the same way. `studio.cuda.toml` sets `[memory] policy =
 "boundary"`, which keeps a loaded model while the next one fits, so coming back to it costs
 nothing.
 
+MiniMax H3 video downloads 134 GB on its first start and keeps no pack: each start lands the
+encoder and both transformers in NVFP4 from the bf16 files, about 2 minutes on the DGX Spark,
+and the loaded model holds about 62 GiB.
+
 The measured time and memory of every case is in
 [measured memory and time](../reference/measured-memory-and-time.md).
 
