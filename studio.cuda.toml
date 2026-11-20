@@ -60,8 +60,8 @@ quantize = "nvfp4"
 
 # MiniMax H3, text or a first and last frame to a 5 to 14 s clip with sound, and pictures with
 # an audio track through the reference workflow. The encoder and both transformers land in
-# NVFP4 from the bf16 release: 2.0 to 2.2 times as fast as FP8 per step, 56.3 GiB held against
-# 93.6 with both in FP8. The first start downloads 134 GB.
+# NVFP4 from the bf16 release: 1.9 to 2.3 times as fast as FP8 per step, 56.3 GiB held against
+# 93.6 with both in FP8. The first start downloads 196 GiB.
 [minimax_h3_cuda]
 model = "MiniMaxAI/MiniMax-H3"
 

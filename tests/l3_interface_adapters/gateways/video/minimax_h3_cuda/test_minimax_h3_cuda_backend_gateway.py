@@ -53,6 +53,11 @@ def test_a_still_between_the_ends_is_refused_with_where_it_may_go():
         clip_payload(job(references=(still(60),)))
 
 
+def test_two_stills_on_one_frame_are_refused_rather_than_one_dropped():
+    with pytest.raises(InvalidJob, match="one still per frame"):
+        clip_payload(job(references=(still(0, b"a"), still(0, b"b"))))
+
+
 def test_a_track_turns_every_still_into_a_picture_and_carries_the_track():
     track = VideoAudio(data=b"wav", name="voice.wav")
     payload = clip_payload(job(audio=track, references=(still(60, b"a"), still(0, b"b"))))

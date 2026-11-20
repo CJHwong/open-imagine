@@ -25,6 +25,7 @@ def clip_payload(job: VideoJob) -> dict:
     Without a track, a still is a keyframe, and the pipeline takes one only as the first or the
     last frame. With a track the clip runs the reference workflow: each still becomes a picture
     of what to show, wherever the page placed it, and the pipeline refuses a track on its own.
+    The track steers the sound the model generates; the clip is not timed to it.
     """
     if job.edit is not None:
         raise InvalidJob("MiniMax H3 on CUDA does not support Edit.")
@@ -48,6 +49,9 @@ def clip_payload(job: VideoJob) -> dict:
         payload["pictures"] = [_png(reference) for reference in job.references]
         return payload
     last = job.num_frames - 1
+    frames = [reference.frame_index for reference in job.references]
+    if len(set(frames)) < len(frames):
+        raise InvalidJob("MiniMax H3 on CUDA takes one still per frame. Remove the second still on the same frame.")
     for reference in job.references:
         if reference.frame_index not in (0, last):
             raise InvalidJob(

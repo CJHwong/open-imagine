@@ -8,9 +8,12 @@ text alone is `t2va`, a first or last frame is `fl2va`, and pictures with an aud
 ## What it takes
 
 - Text, with a still on the first frame, the last frame, or both. A still on any other frame
-  is refused: the pipeline takes keyframes only at the ends.
-- An audio track with one or two stills. The stills become pictures of what to show, and the
-  clip keeps the track as its sound. The pipeline refuses a track with no picture.
+  is refused: the pipeline takes keyframes only at the ends. The still that sets the canvas is
+  cover-cropped to it, because the pipeline would stretch it.
+- An audio track with one or two stills. The stills become pictures of what to show. The
+  track steers the sound the model generates, as a voice or a sound to follow, but the
+  pipeline places it before the clip on its own clock, so the picture is not timed to it and
+  the clip carries the generated sound. The pipeline refuses a track with no picture.
 - 124 to 345 frames at 24 fps, which is 5 to 14.4 s. The pipeline refuses under 5 s.
 - 50 steps, the release's own count, or 20 in Fast mode.
 

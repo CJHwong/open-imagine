@@ -465,7 +465,7 @@ The following LTX-2.5 requests use BF16, 97 frames, 24 fps, audio, and prompt en
 #### MiniMax H3 CUDA (`minimax_h3_cuda`)
 
 Measured on 2026-11-20 through the Studio operations API, from commit `3076ad7`: 512 × 288, 124
-frames, Fast mode (20 steps), seed 7, one request at a time. An idle studio with the model loaded
+frames, seed 7, one request at a time, in Fast mode (20 steps) except the cancelled run. An idle studio with the model loaded
 had 62 GiB less free memory than before its first clip.
 
 | Request | Time (s) | Result |
@@ -473,7 +473,7 @@ had 62 GiB less free memory than before its first clip.
 | generate, text, first clip of the child, load included | 226.7 | Decoded |
 | generate, text, warm | 82.3 | Decoded |
 | generate, first and last frame, warm | 88.5 | Decoded |
-| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded; the clip keeps the track |
+| generate, one picture and a 5 s audio track, warm | 360.6 | Decoded |
 | generate, 50 steps, cancelled at 60 s | 62.1 | Cancelled at step 19 |
 
 The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)

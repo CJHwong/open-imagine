@@ -27,14 +27,19 @@ The pipeline is diffusers' modular `MiniMaxH3Blocks`, which picks its workflow p
 the inputs: text alone is `t2va`, a first or last frame is `fl2va`, and pictures with a track
 are `ref2va`. The last runs on its own transformer, so the child holds both.
 
-The checkpoint is 62 GB of each transformer and 62 GB of encoder in bfloat16, more than the
+The checkpoint is 62 GiB of each transformer and 63 GiB of encoder in bfloat16, more than the
 DGX Spark holds. Every linear lands on the device one at a time and is quantized to NVFP4 W4A4
 as it lands, so the bf16 copy is never whole on the device. Measured there on 2026-11-20: the
 encoder and both transformers held 56.3 GiB, and free memory never fell under 48.7 GiB while
 they loaded, in 133 s from the bf16 files. A pack of the quantized weights would save part of
-that load and nothing else, so there is none. Against FP8, NVFP4 ran each step 2.0 to 2.2
-times as fast, held 24 GiB less, and drew frames with no visible grain at 512 x 288 and
-1024 x 576.
+that load and nothing else, so there is none. Against FP8, NVFP4 ran each step 1.9 to 2.3
+times as fast, held 37 GiB less with both transformers, and drew frames with no visible grain
+at 512 x 288 and 1024 x 576.
+
+An audio track is a reference, not the clip's soundtrack. The pipeline places a reference
+before the clip on its own clock, so the picture is not timed to the track; the sound the
+model generates with the frames is conditioned on it, as a voice or a sound to follow. The
+clip keeps that generated sound.
 
 The encoder is cut after layer 50, the one H3 reads, and its head is dropped.
 """
@@ -193,19 +198,34 @@ def picture(encoded: str):
         return found.convert("RGB")
 
 
-def decode_track(encoded: str, rate: int):
-    """The track as stereo float samples at the audio VAE's rate, decoded in memory."""
+def fitted(image, width: int, height: int):
+    """Cover-crop a keyframe to the canvas. The pipeline stretches the still that sets the
+    canvas, so a 4:3 photo on a 16:9 clip came out a third wider."""
+    from PIL import Image, ImageOps
+
+    return ImageOps.fit(image, (width, height), Image.Resampling.LANCZOS)
+
+
+def decode_track(encoded: str, rate: int, limit: int):
+    """The track as stereo float samples at the audio VAE's rate, decoded in memory and only
+    as far as the clip: the pipeline cuts a reference to the clip's length anyway."""
     import av
     import numpy as np
 
-    pieces = []
+    pieces, kept = [], 0
     with av.open(io.BytesIO(base64.b64decode(encoded))) as container:
         resampler = av.AudioResampler(format="fltp", layout="stereo", rate=rate)
-        for frame in [*container.decode(audio=0), None]:
-            pieces.extend(resampled.to_ndarray() for resampled in resampler.resample(frame))
+        for frame in container.decode(audio=0):
+            for resampled in resampler.resample(frame):
+                pieces.append(resampled.to_ndarray())
+                kept += pieces[-1].shape[1]
+            if kept >= limit:
+                break
+        else:
+            pieces.extend(resampled.to_ndarray() for resampled in resampler.resample(None))
     if not pieces:
         raise ValueError("The audio track holds no sound this child can decode.")
-    return np.concatenate(pieces, axis=1).astype("float32")
+    return np.concatenate(pieces, axis=1)[:, :limit].astype("float32")
 
 
 STEP = {"count": 0, "total": 0}
@@ -246,30 +266,28 @@ def run(pipe, job: dict) -> dict:
         "generator": torch.Generator().manual_seed(int(job["seed"])),
         "output": ["videos", "audio", "sampling_rate"],
     }
-    track = None
+    width, height = arguments["width"], arguments["height"]
     if job.get("audio"):
         from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3AudioReference, MiniMaxH3ImageReference
 
         rate = int(pipe.audio_sampling_rate)
-        track = decode_track(job["audio"], rate)
+        track = decode_track(job["audio"], rate, round(frames / 24 * rate))
         arguments["references"] = [
             *(MiniMaxH3ImageReference(image=picture(encoded)) for encoded in job["pictures"]),
             MiniMaxH3AudioReference(audio=torch.from_numpy(track), sample_rate=rate),
         ]
     else:
+        # The still that sets the canvas is the first, or the last when it is alone. The
+        # pipeline crops the other one of a pair itself, by the released arithmetic.
         if job.get("first"):
-            arguments["image"] = picture(job["first"])
+            arguments["image"] = fitted(picture(job["first"]), width, height)
         if job.get("last"):
-            arguments["last_image"] = picture(job["last"])
+            last = picture(job["last"])
+            arguments["last_image"] = last if job.get("first") else fitted(last, width, height)
     result = pipe(**arguments)
     video = result["videos"][0]
     rate = int(result["sampling_rate"])
-    sound = None
-    if track is not None:
-        # The clip keeps the track it followed, cut to the clip's length.
-        sound = torch.from_numpy(track[:, : round(len(video) / 24 * rate)])
-    elif job.get("include_audio", True):
-        sound = result["audio"][0]
+    sound = result["audio"][0] if job.get("include_audio", True) else None
     payload = encode(video, sound, rate if sound is not None else None)
     width, height = video[0].size
     return {

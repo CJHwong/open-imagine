@@ -21,9 +21,9 @@ def fake_module(name: str, **attributes) -> types.ModuleType:
     return module
 
 
-def png(color=(255, 0, 0)) -> str:
+def png(color=(255, 0, 0), size=(8, 8)) -> str:
     buffer = io.BytesIO()
-    Image.new("RGB", (8, 8), color).save(buffer, format="PNG")
+    Image.new("RGB", size, color).save(buffer, format="PNG")
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
@@ -154,8 +154,8 @@ def world(monkeypatch, tmp_path):
     return record
 
 
-def fake_av(monkeypatch, planes):
-    """PyAV with one decoded frame, whose resampled planes are `planes`, then the flush."""
+def fake_av(monkeypatch, planes, frames=1):
+    """PyAV with `frames` decoded frames, each resampled to `planes`, then the flush."""
 
     class Container:
         def __init__(self, source):
@@ -168,15 +168,17 @@ def fake_av(monkeypatch, planes):
             return False
 
         def decode(self, audio):
-            return ["frame"] if planes is not None else []
+            return ["frame"] * frames if planes is not None else []
 
     class Resampler:
         def __init__(self, format, layout, rate):
             self.settings = (format, layout, rate)
 
         def resample(self, frame):
-            if frame is None or planes is None:
+            if planes is None:
                 return []
+            if frame is None:
+                return [SimpleNamespace(to_ndarray=lambda: planes[:, :1] * 0)]
             return [SimpleNamespace(to_ndarray=lambda: planes)]
 
     monkeypatch.setitem(sys.modules, "av", fake_module("av", open=Container, AudioResampler=Resampler))
@@ -292,32 +294,46 @@ def test_a_silent_clip_writes_no_sound(world):
     assert world.encoded[-1][2:] == (None, None)
 
 
-def test_keyframes_go_in_as_the_first_and_last_image(world):
+def test_the_still_that_sets_the_canvas_is_cover_cropped_and_its_follower_is_not(world):
+    """The pipeline stretches the anchor still: a 4:3 photo on a 16:9 clip came out a third wider."""
     pipe = child.load("m", "/local")
-    child.run(pipe, {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0, "first": png()})
-    assert pipe.calls[-1]["image"].size == (8, 8) and "last_image" not in pipe.calls[-1]
-    child.run(pipe, {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0, "last": png()})
-    assert pipe.calls[-1]["last_image"].size == (8, 8) and "image" not in pipe.calls[-1]
+    job = {"prompt": "p", "width": 32, "height": 18, "frames": 124, "steps": 2, "seed": 0}
+    wide, square = png(size=(40, 30)), png(size=(20, 20))
+    child.run(pipe, {**job, "first": wide})
+    assert pipe.calls[-1]["image"].size == (32, 18) and "last_image" not in pipe.calls[-1]
+    child.run(pipe, {**job, "last": wide})
+    assert pipe.calls[-1]["last_image"].size == (32, 18) and "image" not in pipe.calls[-1]
+    child.run(pipe, {**job, "first": wide, "last": square})
+    assert pipe.calls[-1]["image"].size == (32, 18) and pipe.calls[-1]["last_image"].size == (20, 20)
 
 
-def test_a_track_runs_the_reference_workflow_and_the_clip_keeps_the_track(world, monkeypatch):
-    planes = np.ones((2, 32000 * 10), dtype=np.float32)
-    fake_av(monkeypatch, planes)
+def test_a_track_runs_the_reference_workflow_and_the_clip_carries_the_generated_sound(world, monkeypatch):
+    """The pipeline puts a reference before the clip on its own clock, so the picture is not timed
+    to the track; the sound generated with the frames is the one that matches them."""
+    fake_av(monkeypatch, np.ones((2, 32000 * 10), dtype=np.float32))
     pipe = child.load("m", "/local")
     job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0}
     child.run(pipe, {**job, "pictures": [png(), png((0, 0, 255))], "audio": base64.b64encode(b"wav").decode()})
 
     references = pipe.calls[-1]["references"]
     assert references[:2] == [("picture", (8, 8)), ("picture", (8, 8))]
-    assert references[2][0] == "track" and references[2][2] == 32000
-    # The track is cut to the clip: 124 frames at 24 fps.
-    assert world.encoded[-1][2] == ("tensor", (2, round(124 / 24 * 32000)))
+    # The track is decoded only as far as the clip: 124 frames at 24 fps.
+    assert references[2] == ("track", ("tensor", (2, round(124 / 24 * 32000))), 32000)
+    assert world.encoded[-1][2:] == ("generated sound", 32000)
+
+
+def test_decoding_stops_at_the_clip_and_a_short_track_is_flushed_whole(world, monkeypatch):
+    fake_av(monkeypatch, np.ones((2, 1000), dtype=np.float32), frames=50)
+    assert child.decode_track(base64.b64encode(b"wav").decode(), 32000, 2500).shape == (2, 2500)
+    fake_av(monkeypatch, np.ones((2, 1000), dtype=np.float32), frames=2)
+    # Two frames and the resampler's flush, short of the limit.
+    assert child.decode_track(base64.b64encode(b"wav").decode(), 32000, 9000).shape == (2, 2001)
 
 
 def test_a_track_with_no_sound_is_refused(world, monkeypatch):
     fake_av(monkeypatch, None)
     with pytest.raises(ValueError, match="holds no sound"):
-        child.decode_track(base64.b64encode(b"wav").decode(), 32000)
+        child.decode_track(base64.b64encode(b"wav").decode(), 32000, 100)
 
 
 def test_main_answers_each_job_and_turns_a_failure_into_an_error_reply(world, monkeypatch, capsys):
