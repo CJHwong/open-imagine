@@ -293,13 +293,13 @@ Both sit under `~/.cache/open-imagine/` unless `pack_dir` says otherwise, and bo
 rebuilt when the torch, torchao or mslk versions change. Deleting one costs only its rebuild.
 Each engine pins those versions exactly and refuses to start with others, so the studio
 compares a pack with them without starting the engine. An out-of-date pack reads as not
-downloaded as soon as the model is picked, and Download builds it again.
+out of date as soon as the model is picked, and Prepare again builds it.
 A run never builds a pack. If a pack is missing, made for another `quantize`, or out of date
 for the installed torch, the run fails and asks for a prepare, which builds it.
 
 MiniMax H3-Image needs about 65 GiB resident in fp8, and building its pack keeps at least 45
-GiB of a 121 GiB DGX Spark free. A pack built before fp8 multiplied in fp8 is rebuilt on the
-first run. `studio.cuda.toml` sets `[memory] policy =
+GiB of a 121 GiB DGX Spark free. A pack built before fp8 multiplied in fp8 reads as out of date
+the same way. `studio.cuda.toml` sets `[memory] policy =
 "boundary"`, which keeps a loaded model while the next one fits, so coming back to it costs
 nothing.
 
