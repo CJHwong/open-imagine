@@ -33,9 +33,9 @@ from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
 # in 76.3 s and the Mac in 117.9 s. The fixed cost is the part that does not travel between
 # machines, so each one fits its own.
 #
-# `enhance_seconds` is zero here because no run on this machine timed the prompt enhancer
-# alone. A run with enhancement off is estimated at the same figure, which is honest about
-# what was measured.
+# `enhance_seconds` is the enhancer's pass inside a Generate. On 2026-11-20, at 384 x 384 and
+# 25 frames, a prompt the enhancer had to lengthen took 9.1 s and one it had written already,
+# which skips the pass, 6.5 s; the NVFP4 enhancer with its compiled decode accounts for the 2.6 s.
 #
 # Refit on 2026-11-19, with the transformer compiled and the decode tiled, on the warm second
 # run of 16 clips from 384 x 384 to 1920 x 1088 and 5 to 15 s: 0.426 of the figure plus 13.4 s
@@ -43,6 +43,7 @@ from studio.l3_interface_adapters.gateways.video.shared.capabilities import (
 # ran before the tiled decode, which moves a decode by under a second.
 CLIP_SCALE = 0.426
 CLIP_FIXED_SECONDS = 13.4
+ENHANCE_SECONDS = 2.6
 
 
 def ltx25_cuda_estimate() -> VideoEstimate:
@@ -52,7 +53,7 @@ def ltx25_cuda_estimate() -> VideoEstimate:
         scale=CLIP_SCALE,
         pack_factor=1.0,
         fixed_seconds=CLIP_FIXED_SECONDS,
-        enhance_seconds=0.0,
+        enhance_seconds=ENHANCE_SECONDS,
     )
 
 

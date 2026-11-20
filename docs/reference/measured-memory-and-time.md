@@ -735,6 +735,7 @@ These are component checks, not full request times. They use the final optimized
 | YuE2 CUDA transcription cache hit | Spark, same 20-second reference and task | 1.068 s HTTP; 0.07597 s native | 9.76 GiB sampled peak RSS |
 | LTX-2.5 CUDA encoding | Spark, saved 1280 × 704 frames | 1.347 s median | 1.902 GiB peak process memory |
 | H3 video encoding | M1 Pro, 97 frames at 1280 × 704 | 5.96 s median | 2.96 MiB peak traced Python allocation |
+| LTX-2.5 CUDA prompt rewrite | Spark, warm child, NVFP4 enhancer with a static cache | 2.5 to 3.0 s | 7.14 GiB enhancer peak, inside the video child |
 | H3-Image CUDA pack rewrite | Spark, existing FP8 pack, excluding quantization and fsync | 48.407 s | 45.96 GiB sampled peak process memory |
 
 The encoding tests use three runs per path. The H3 video figure excludes the frame array and FFmpeg memory.

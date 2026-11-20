@@ -20,6 +20,9 @@ class ThreadConfinedPromptRewriter(PromptRewriterGateway):
     def rewrite(self, prompt, mode, references, on_writing, should_stop):
         return self._thread.call(self._rewriter.rewrite, prompt, mode, references, on_writing, should_stop)
 
+    def resident_in(self):
+        return self._rewriter.resident_in()
+
     def release(self):
         self._thread.call(self._rewriter.release)
 

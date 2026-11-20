@@ -57,3 +57,31 @@ def test_live_ltx25_cuda_returns_a_clip():
         server.shutdown()
         thread.join()
         server.server_close()
+
+
+@pytest.mark.live
+def test_live_ltx25_cuda_rewrites_in_the_video_child_and_its_clip_skips_the_second_pass():
+    from unittest.mock import Mock
+
+    from studio.l1_entities.video_job import VideoJob
+    from studio.l2_use_cases.model_services import ModelServices
+    from studio.l3_interface_adapters.gateways.video.ltx25_cuda.construction import build_rewriter
+
+    config = load_config(Path(__file__).resolve().parents[5] / "studio.toml")
+    services = ModelServices(Mock())
+    backend = ltx25_cuda_backend(config, services=services)
+    rewriter = build_rewriter(config, "ltx25_cuda", services=services)
+    try:
+        prompt = "A red sailboat crosses calm water. Fixed camera."
+        rewrite = rewriter.rewrite(prompt, "generate", (), lambda: None, lambda: False)
+        process = backend._child._proc
+        assert len(rewrite.prompt.split()) > len(prompt.split())
+        assert backend._rewritten.wrote(rewrite.prompt, ())
+
+        job = VideoJob(prompt=rewrite.prompt, width=384, height=384, num_frames=25, frame_rate=24, seed=7, enhance=True)
+        clip = backend.run(job)
+
+        assert clip.mp4[4:8] == b"ftyp"
+        assert backend._child._proc is process
+    finally:
+        backend.release()

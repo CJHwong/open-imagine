@@ -1024,3 +1024,25 @@ def test_a_configured_model_is_ready_once_its_files_are_on_disk(monkeypatch, tmp
     snapshot.mkdir(parents=True)
     (snapshot / "config.json").write_text("{}")
     assert main.model_readiness(config).readiness("qwen21_turbo_cuda").ready
+
+
+def test_the_cuda_ltx_backend_and_its_rewriter_share_one_child_in_a_studio(tmp_path: Path):
+    """The studio builds both with one ModelServices. Two children would each load the 80 GB
+    video model, the second one for every rewrite."""
+    from studio.l2_use_cases.model_services import ModelServices
+    from studio.l4_frameworks_and_drivers import main
+
+    config = settings(
+        tmp_path,
+        'default_backend = "qwen21"\ndefault_video_backend = "ltx25_cuda"\n'
+        'visible_video_backends = ["ltx25_cuda"]\n[qwen21]\nquantize = 0\n',
+    )
+    services = ModelServices(Mock())
+
+    backend = build_video_backends(config, services=services)["ltx25_cuda"]
+    rewriter = main._build_rewriters(
+        config, None, False, execute_process=Mock(), services=services, kind="video", names=("ltx25_cuda",)
+    )["ltx25_cuda"]
+
+    assert rewriter._child is backend._child
+    assert rewriter.resident_in() == "ltx25_cuda"

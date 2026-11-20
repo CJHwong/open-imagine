@@ -40,6 +40,9 @@ class CatalogPromptRewriterGateway(PromptRewriterGateway):
     ) -> PromptRewrite:
         return self._active().rewrite(prompt, mode, references, on_writing, should_stop)
 
+    def resident_in(self) -> str | None:
+        return self._active().resident_in()
+
     def release(self) -> None:
         for rewriter in self._rewriters.values():
             rewriter.release()

@@ -109,3 +109,11 @@ def test_the_rewriter_gate_passes_its_other_calls_through():
 
     inner.release.assert_called_once_with()
     inner.prepare.assert_called_once_with()
+
+
+def test_the_model_a_rewriter_runs_inside_passes_through_the_gate():
+    """Without it the rewrite use case reads None and frees every model, the video child the
+    LTX-2.5 enhancer runs in included: a rewrite after a clip then reloaded 80 GB."""
+    inner = Mock()
+    inner.resident_in.return_value = "ltx25_cuda"
+    assert ReadyPromptRewriter(inner, Mock(), lambda: "ltx25_cuda").resident_in() == "ltx25_cuda"

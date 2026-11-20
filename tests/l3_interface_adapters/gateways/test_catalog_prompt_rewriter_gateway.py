@@ -52,3 +52,10 @@ def test_release_frees_every_backends_rewriter():
     first, second = Rewriter(), Rewriter()
     CatalogPromptRewriterGateway({"first": first, "second": second}, Catalog("first")).release()
     assert first.releases == 1 and second.releases == 1
+
+
+def test_the_model_a_rewriter_runs_inside_follows_the_backend_in_force():
+    inside = Mock()
+    inside.resident_in.return_value = "first"
+    assert CatalogPromptRewriterGateway({"first": inside}, Catalog("first")).resident_in() == "first"
+    assert CatalogPromptRewriterGateway({"first": inside}, Catalog("second")).resident_in() is None

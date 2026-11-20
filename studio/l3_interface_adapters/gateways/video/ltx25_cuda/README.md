@@ -42,6 +42,32 @@ These did not win, and are not used. They were measured on the child directly, n
 - Attention backends. The transformer's 60.4 s became 61.2 s on cuDNN and 69.5 s on the
   memory-efficient kernel.
 
+## Prompt enhancer, 2026-11-20
+
+The checkpoint's enhancer is `google/gemma-4-E2B-it`, the `prompt_enhancer` component, 9.5 GiB in bf16. It stays resident in the video child, so Rewrite is a request to that child and loads no second model. Its chat template keeps thinking off, and the raw answer starts with the prompt.
+
+The decode was measured alone on a DGX Spark, with the pipeline's own instructions, padding and greedy settings, on three prompts after a warm-up:
+
+| Enhancer | Tokens/s | Memory | First call |
+|---|---:|---:|---:|
+| bf16, eager | 27.7 | 9.52 GiB | |
+| NVFP4 W4A4, eager | 23.8 | 7.03 GiB | |
+| bf16, static cache | 33.7 | 9.65 GiB | 40.7 s |
+| NVFP4 W4A4, static cache | 60.0 | 7.14 GiB | 27.9 s |
+
+The child takes the last row. NVFP4 alone is slower, because each step quantizes its activations; the static cache lets the decode step compile, and the narrower multiply then wins. The NVFP4 rewrites kept every element of each prompt and ran a little shorter, 117 to 168 tokens against 141 to 207. The first call pays the compile once per child.
+
+Through the Studio API, at 384 × 384 and 25 frames:
+
+| Request | Time |
+|---|---:|
+| First rewrite, the video model loading with it | 56.2 s |
+| Later rewrites | 2.5 to 3.0 s |
+| Clip of a prompt the enhancer wrote, so the pass is skipped | 6.5 s |
+| Clip of a raw prompt, enhanced inside the call | 9.1 s |
+
+One child served every request: a rewrite claims the video model and frees nothing.
+
 ## Stage experiment, 2026-11-15
 
 The experiment uses the Studio operations API on a DGX Spark. It uses `diffusers==0.43.0`, BF16 weights, seed 7, 97 frames, and 24 frames per second. Prompt enhancement and audio remain enabled.
