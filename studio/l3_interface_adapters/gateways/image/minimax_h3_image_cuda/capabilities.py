@@ -94,13 +94,12 @@ EDIT = ModeSpec(
 
 # backend id -> what sets the build apart in the picker, which shows no badge.
 DESCRIPTIONS = {
-    "minimax_h3_image_cuda": "The 33B instruction-following model in six steps, with FP8 math for speed and edits from up to 4 references. Runs on CUDA.",
-    "minimax_h3_image_cuda_nvfp4": "The same six-step H3-Image with 4-bit NVFP4 weights, for less memory than FP8. Runs on CUDA.",
+    "minimax_h3_image_cuda": "A 33B model known for close instruction following, run in FP8 for speed: six steps up to 4 MP, and edits from up to 4 references. Runs on CUDA.",
 }
 
 
 def minimax_h3_image_cuda_capabilities(
-    backend_id: str = "minimax_h3_image_cuda", name: str = "MiniMax H3-Image FP8", badge: str = "fp8"
+    backend_id: str = "minimax_h3_image_cuda", name: str = "MiniMax H3-Image", badge: str = "fp8"
 ) -> Capabilities:
     """The record for one build. A build no run measured takes the fp8 figures."""
     generate_estimate, edit_estimate = ESTIMATES.get(badge, ESTIMATES["fp8"])

@@ -6,10 +6,11 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.capabilit
 
 
 def test_the_h3_backend_offers_generate_at_six_fixed_steps():
-    capabilities = minimax_h3_image_cuda_capabilities("minimax_h3_image_cuda_nvfp4", "MiniMax H3-Image NVFP4", "nvfp4")
+    capabilities = minimax_h3_image_cuda_capabilities()
 
-    assert capabilities.backend_id == "minimax_h3_image_cuda_nvfp4"
-    assert capabilities.badge == "nvfp4"
+    assert capabilities.backend_id == "minimax_h3_image_cuda"
+    assert capabilities.name == "MiniMax H3-Image"
+    assert capabilities.badge == "fp8"
     assert [mode.id for mode in capabilities.modes] == ["generate", "edit"]
     steps = next(param for param in capabilities.modes[0].params if param.id == "steps")
     assert (steps.default, steps.minimum, steps.maximum) == (6, 6, 6)

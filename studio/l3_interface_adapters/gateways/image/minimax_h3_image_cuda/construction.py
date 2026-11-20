@@ -69,13 +69,11 @@ def build_rewriter(config: ModelConfigurationGateway, backend_id: str, **_):
 # fp8 was 70.3 GB of packed weights, fp8 in the encoder and the transformer, plus the run's
 # own buffers; a studio idle with it loaded had 77.4 GiB less free memory than before it
 # started, on 2026-11-19. Dropping the encoder layers and head that H3 never reads took
-# 8.4 GiB off that: 68.8 against 60.4 GiB, measured the same way on the same day. The NVFP4
-# pack is 38 GB on disk, so it holds less. Both read on the same basis. The NVFP4 load peaks well
-# above its resident figure: the run that loaded it from the pack dropped free memory by
-# 104.21 GiB on 2026-11-15, because the weights travel through host memory.
+# 8.4 GiB off that: 68.8 against 60.4 GiB, measured the same way on the same day.
+# The NVFP4 entry was dropped on 2026-11-20: it ran faster at large sizes and held less memory,
+# but its pictures were too grainy to use. `quantize = "nvfp4"` still selects that build.
 BUILDS = {
-    "minimax_h3_image_cuda": ("MiniMax H3-Image FP8", "fp8", 65.0),
-    "minimax_h3_image_cuda_nvfp4": ("MiniMax H3-Image NVFP4", "nvfp4", 40.0),
+    "minimax_h3_image_cuda": ("MiniMax H3-Image", "fp8", 65.0),
 }
 
 
@@ -145,16 +143,4 @@ PROVIDER = ModelProvider(
     storage_name="MiniMax-H3-Image",
     rewriter=build_rewriter,
     resident_gib=BUILDS["minimax_h3_image_cuda"][2],
-)
-
-NVFP4_PROVIDER = ModelProvider(
-    "minimax_h3_image_cuda_nvfp4",
-    "image",
-    backend_factory("minimax_h3_image_cuda_nvfp4"),
-    engine="cuda",
-    storage_assets=storage_assets_for("minimax_h3_image_cuda_nvfp4"),
-    ready_assets=pack_assets_for("minimax_h3_image_cuda_nvfp4"),
-    storage_name="MiniMax-H3-Image",
-    rewriter=build_rewriter,
-    resident_gib=BUILDS["minimax_h3_image_cuda_nvfp4"][2],
 )

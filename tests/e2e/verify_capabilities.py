@@ -520,7 +520,7 @@ def main():
             page.inner_text("#go-sub"),
         )
         page.click("#backend-toggle")
-        page.get_by_role("menuitemradio", name="MiniMax H3-Image FP8", exact=True).click()
+        page.get_by_role("menuitemradio", name="MiniMax H3-Image", exact=True).filter(has_text="Runs on CUDA.").click()
         page.wait_for_function("STUDIO.backend.id === 'minimax_h3_image_cuda'")
         page.click("label[for=mode-edit]")
         page.locator('size-chips button[data-ratio="match"]').click()

@@ -8,7 +8,7 @@
 # covers the memory each model needs and the packs a prepare builds.
 
 default_backend = "qwen21_turbo_cuda"
-visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda", "minimax_h3_image_cuda_nvfp4"]
+visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
 default_video_backend = "ltx25_cuda"
 visible_video_backends = ["ltx25_cuda"]
 default_voice_backend = "drama3_cuda"
@@ -41,15 +41,8 @@ quantize = "fp8"
 rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
 rewrite_quantize = 8
 
-# The same checkpoint packed to NVFP4. fp8 is the default: it multiplies in fp8, so a 1024
-# image takes 6.6 s against 21.2 s here, and it leaves no grain. NVFP4 holds about 40 GiB
-# against fp8's 73, so it is the entry for a machine that is short of memory. Its first run
-# on a machine without the pack takes about nine minutes and 104 GiB, because the child
-# writes the 38 GB pack and then loads it.
-[minimax_h3_image_cuda_nvfp4]
-quantize = "nvfp4"
-rewrite_model = "MiniMaxAI/MiniMax-H3-Image-PE"
-rewrite_quantize = 8
+# The NVFP4 entry was dropped on 2026-11-20. It held about 40 GiB against fp8's 73 and ran a
+# 1024 image in 21.2 s against 6.6, but its pictures were too grainy to use.
 
 [drama3_cuda]
 checkpoint = "fishaudio/drama-3"

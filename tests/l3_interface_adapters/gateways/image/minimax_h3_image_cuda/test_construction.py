@@ -6,7 +6,6 @@ from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import construction
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
     DEFAULT_MODEL,
-    NVFP4_PROVIDER,
     PROVIDER,
     backend_factory,
 )
@@ -40,19 +39,17 @@ def test_the_default_entry_runs_fp8(monkeypatch):
     assert gateway.capabilities().badge == "fp8"
 
 
-def test_the_second_entry_runs_the_pack(monkeypatch):
-    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+def test_fp8_is_the_only_entry_and_its_name_leaves_the_engine_to_the_description():
+    """The NVFP4 entry was dropped for its grain; a section can still set it."""
+    from studio.l3_interface_adapters.gateways.model_catalog.registry import BUILTIN_PROVIDERS
 
-    gateway = backend_factory("minimax_h3_image_cuda_nvfp4")(Config({}))
-
-    assert gateway._child._command[-6:-2] == ["--model", DEFAULT_MODEL, "--quantize", "nvfp4"]
-    assert gateway.capabilities().backend_id == "minimax_h3_image_cuda_nvfp4"
-    assert gateway.capabilities().name == "MiniMax H3-Image NVFP4"
-    assert NVFP4_PROVIDER.resident_gib == 40.0
+    ids = [provider.backend_id for provider in BUILTIN_PROVIDERS if provider.backend_id.startswith("minimax_h3_image")]
+    assert sorted(ids) == ["minimax_h3_image", "minimax_h3_image_cuda"]
+    assert construction.BUILDS == {"minimax_h3_image_cuda": ("MiniMax H3-Image", "fp8", 65.0)}
 
 
 def test_each_precision_keeps_its_own_pack_unless_a_section_names_one(monkeypatch):
-    """The two entries read the same model. Sharing one default folder let a prepare of one
+    """Each precision reads the same model. Sharing one default folder let a prepare of one
     build overwrite the other's pack, so each then refused to run until prepared again."""
     from studio.l1_entities.model_asset import ModelAsset
 
@@ -61,14 +58,13 @@ def test_each_precision_keeps_its_own_pack_unless_a_section_names_one(monkeypatc
     fp8 = os.path.expanduser("~/.cache/open-imagine/h3-pack")
     nvfp4 = os.path.expanduser("~/.cache/open-imagine/h3-pack-nvfp4")
     assert PROVIDER.ready_assets is not None
-    assert NVFP4_PROVIDER.ready_assets is not None
 
     assert backend_factory("minimax_h3_image_cuda")(Config({}))._child._command[-1] == fp8
-    assert backend_factory("minimax_h3_image_cuda_nvfp4")(Config({}))._child._command[-1] == nvfp4
+    assert backend_factory("minimax_h3_image_cuda")(Config({"quantize": "nvfp4"}))._child._command[-1] == nvfp4
     assert PROVIDER.ready_assets(Config({})) == (ModelAsset("Pack", os.path.join(fp8, folder), "pack"),)
-    assert NVFP4_PROVIDER.ready_assets(Config({})) == (ModelAsset("Pack", os.path.join(nvfp4, folder), "pack"),)
-    # The precision decides, not the entry: an entry set to the other build shares its pack.
-    assert PROVIDER.ready_assets(Config({"quantize": "nvfp4"})) == NVFP4_PROVIDER.ready_assets(Config({}))
+    assert PROVIDER.ready_assets(Config({"quantize": "nvfp4"})) == (
+        ModelAsset("Pack", os.path.join(nvfp4, folder), "pack"),
+    )
     # A bf16 entry reads no pack; its child still takes a folder for the argument.
     assert backend_factory("minimax_h3_image_cuda")(Config({"quantize": "bf16"}))._child._command[-1] == fp8
 
@@ -141,7 +137,6 @@ def test_the_pack_is_a_file_a_run_needs_unless_the_entry_runs_bf16():
     from studio.l1_entities.model_asset import ModelAsset
 
     assert PROVIDER.ready_assets is not None
-    assert NVFP4_PROVIDER.ready_assets is not None
     folder = os.path.join(os.path.expanduser("~/packs"), DEFAULT_MODEL.replace("/", "--"))
     assert PROVIDER.ready_assets(Config({"pack_dir": "~/packs"})) == (ModelAsset("Pack", folder, "pack"),)
-    assert NVFP4_PROVIDER.ready_assets(Config({"quantize": "bf16"})) == ()
+    assert PROVIDER.ready_assets(Config({"quantize": "bf16"})) == ()
