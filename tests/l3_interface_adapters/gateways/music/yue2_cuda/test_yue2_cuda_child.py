@@ -13,6 +13,7 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l3_interface_adapters.gateways.music.yue2_cuda import yue2_cuda_child as child
+from studio.l3_interface_adapters.gateways.music.yue2_cuda.yue2_pack_spec import RUNTIME_VERSIONS
 
 
 class StubTensor:
@@ -123,8 +124,10 @@ class FakeKwargs:
 
 
 class FakeConfig:
-    use_triton_kernel = True
-    use_dynamic_per_tensor_scale = True
+    """torchao's config, holding the options it was given and no defaults of its own."""
+
+    def __init__(self, **options):
+        self.options = options
 
 
 def fake_modules(monkeypatch, *, pipe=None, model=None, recorded=None, shards=None):
@@ -136,6 +139,7 @@ def fake_modules(monkeypatch, *, pipe=None, model=None, recorded=None, shards=No
         shards = {}
 
     torch = types.ModuleType("torch")
+    monkeypatch.setattr(torch, "__version__", RUNTIME_VERSIONS["torch"], raising=False)
     monkeypatch.setattr(torch, "bfloat16", "torch.bfloat16", raising=False)
     monkeypatch.setattr(torch, "float32", "torch.float32", raising=False)
     monkeypatch.setattr(
@@ -173,11 +177,11 @@ def fake_modules(monkeypatch, *, pipe=None, model=None, recorded=None, shards=No
     monkeypatch.setitem(sys.modules, "yue2.modeling_yue2", modeling)
 
     mslk = types.ModuleType("mslk")
-    monkeypatch.setattr(mslk, "__version__", "1.4.0", raising=False)
+    monkeypatch.setattr(mslk, "__version__", RUNTIME_VERSIONS["mslk"], raising=False)
     monkeypatch.setitem(sys.modules, "mslk", mslk)
 
     torchao = types.ModuleType("torchao")
-    monkeypatch.setattr(torchao, "__version__", "0.18.0", raising=False)
+    monkeypatch.setattr(torchao, "__version__", RUNTIME_VERSIONS["torchao"], raising=False)
     quantization = types.ModuleType("torchao.quantization")
     monkeypatch.setattr(
         quantization,
@@ -277,9 +281,8 @@ def quantized_linears():
 
 def test_versions_names_each_package(monkeypatch):
     recorded = fake_modules(monkeypatch)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
 
-    assert child.versions() == {"torch": "2.15.0", "torchao": "0.18.0", "mslk": "1.4.0"}
+    assert child.versions() == {"torch": "2.15.0+cu132", "torchao": "0.18.0", "mslk": "1.4.0+cu130"}
     assert recorded["quantized"] == []
 
 
@@ -292,6 +295,8 @@ def test_quantize_ar_puts_both_operands_in_fp4(monkeypatch):
     assert len(recorded["quantized"]) == 1
     assert recorded["quantized"][0][0] is module
     assert isinstance(recorded["quantized"][0][1], FakeConfig)
+    # Both options are stated, so a pack never depends on a later release's defaults.
+    assert recorded["quantized"][0][1].options == {"use_triton_kernel": True, "use_dynamic_per_tensor_scale": True}
 
 
 def test_packed_layers_finds_only_the_fp4_linears(monkeypatch):
@@ -305,19 +310,17 @@ def test_packed_layers_finds_only_the_fp4_linears(monkeypatch):
 
 def test_the_expected_manifest_carries_the_configuration(monkeypatch):
     fake_modules(monkeypatch)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
 
     manifest = child.expected_manifest("m-a-p/YuE2-3B")
 
     assert manifest["model"] == "m-a-p/YuE2-3B"
-    assert manifest["versions"]["mslk"] == "1.4.0"
+    assert manifest["versions"]["mslk"] == "1.4.0+cu130"
     assert manifest["act_quant"]["use_triton_kernel"] is True
     assert manifest["orig_dtype"] == "torch.bfloat16"
 
 
 def test_a_manifest_matches_only_when_every_field_agrees(monkeypatch):
     fake_modules(monkeypatch)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     expected = child.expected_manifest("m-a-p/YuE2-3B")
 
     assert child.manifest_matches({**expected, "layers": ["a"]}, expected) is True
@@ -485,7 +488,6 @@ def test_the_first_fp4_run_builds_the_pack(monkeypatch, tmp_path):
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
 
     result = child.load_packed("m-a-p/YuE2-3B", tmp_path)
 
@@ -500,7 +502,6 @@ def test_a_matching_pack_is_served_without_touching_the_checkpoint_weights(monke
     model = FakeModel({"layer": FakeLinear()})
     pipe = FakePipe(model=None, model_dir=tmp_path / "checkpoint")
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     manifest = {
@@ -529,7 +530,6 @@ def test_a_pack_from_another_version_is_rebuilt(monkeypatch, tmp_path):
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     (directory / "pack.json").write_text(
@@ -602,6 +602,41 @@ def test_the_request_marks_an_instrumental_style():
 def test_a_supplied_score_travels_and_a_blank_one_does_not():
     assert child.request_for(job(abc="X:1"))["abc"] == "X:1"
     assert "abc" not in child.request_for(job(abc="   "))
+
+
+class ReportingPipe(FakePipe):
+    """Drives the engine's hooks the way its song call does: a token per output, then the
+    synthesis and decode stages with their own totals."""
+
+    def plan(self, **request):
+        for _ in range(3):
+            request["on_token"]("abc", 1)
+        return super().plan(**request)
+
+    def __call__(self, **request):
+        for _ in range(40):
+            request["on_token"]("semantic", 1)
+        for done in range(1, 9):
+            request["on_progress"]("nar", done, 8)
+        request["on_progress"]("vae", 1, 1)
+        return super().__call__(**request)
+
+
+def test_a_run_reports_its_tokens_and_steps_as_the_studio_reads_them(monkeypatch, capsys):
+    """The page sat on 'loading the model' for a whole song: the child printed no step."""
+    from studio.l3_interface_adapters.gateways.stdio_child import STEP_LINE
+
+    pipe = ReportingPipe()
+    fake_modules(monkeypatch, pipe=pipe)
+
+    child.run(pipe, job(), Path("/tmp/yue2-extras"))
+    child.run(pipe, job(mode="plan"), Path("/tmp/yue2-extras"))
+
+    lines = capsys.readouterr().err.encode().splitlines()
+    matches = [match for match in map(STEP_LINE.search, lines) if match is not None]
+    steps = [(int(match.group(1)), int(match.group(2))) for match in matches]
+    song = [(0, 0), (1, 0), (16, 0), (32, 0), *((done, 8) for done in range(1, 9)), (1, 1)]
+    assert steps == [*song, (0, 0), (1, 0)]
 
 
 def test_a_generate_job_returns_wav_bytes_and_the_score(monkeypatch):
@@ -1210,7 +1245,6 @@ def test_a_matching_manifest_without_its_weights_is_rebuilt(monkeypatch, tmp_pat
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     manifest = {**child.expected_manifest("m-a-p/YuE2-3B"), "layers": ["layer"]}
@@ -1227,7 +1261,6 @@ def test_a_pack_from_another_snapshot_is_rebuilt(monkeypatch, tmp_path):
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     monkeypatch.setattr(child, "source_revision", lambda model_name: "abc123")
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
@@ -1271,7 +1304,6 @@ def test_a_matching_manifest_whose_weights_changed_size_is_rebuilt(monkeypatch, 
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     (directory / "weights.safetensors").write_bytes(b"truncated")
@@ -1291,7 +1323,6 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     (directory / "weights.safetensors").write_bytes(b"")
@@ -1315,7 +1346,6 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     directory = tmp_path / "m-a-p--YuE2-3B"
     directory.mkdir()
     (directory / "weights.safetensors").write_bytes(b"")
@@ -1396,7 +1426,6 @@ def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     recorded = fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     monkeypatch.setattr(child, "serve_packed", lambda pipe, directory, manifest: "served")
     reasons = iter(["there is no readable pack", None])
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: next(reasons, None))
@@ -1447,7 +1476,6 @@ def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
     model = FakeModel(quantized_linears())
     pipe = FakePipe(model=model)
     fake_modules(monkeypatch, pipe=pipe, model=model)
-    monkeypatch.setattr(sys.modules["torch"], "__version__", "2.15.0", raising=False)
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
 
     def refuse(*_):

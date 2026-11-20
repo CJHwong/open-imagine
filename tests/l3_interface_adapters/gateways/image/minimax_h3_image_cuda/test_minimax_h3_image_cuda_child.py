@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import pytest
 
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import minimax_h3_image_cuda_child as child
+from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.h3_pack_spec import RUNTIME_VERSIONS
 
 
 class FakeImage:
@@ -369,6 +370,7 @@ def test_a_run_reports_steps_and_returns_png_bytes(monkeypatch, capsys):
 
 
 def test_main_refuses_a_host_without_cuda(monkeypatch, capsys):
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     fake_torch(monkeypatch, available=False)
     monkeypatch.setattr(sys, "argv", ["child"])
     assert child.main() == 2
@@ -376,6 +378,7 @@ def test_main_refuses_a_host_without_cuda(monkeypatch, capsys):
 
 
 def test_main_answers_each_line_and_survives_a_failed_job(monkeypatch, capsys):
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     fake_torch(monkeypatch)
     fake_diffusers(monkeypatch, NoCallbackPipe())
     monkeypatch.setattr(sys, "argv", ["child", "--quantize", "bf16"])
@@ -721,9 +724,9 @@ def test_a_weight_only_fp8_weight_is_stored_without_activation_settings(monkeypa
 
 
 def test_an_fp8_pack_from_before_the_recipe_is_built_again_and_an_nvfp4_one_is_not(monkeypatch, tmp_path):
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
-    old = {"format": 1, "model": "me/pack", "versions": {"torch": "2.15.0"}, "source": "abc123"}
+    old = {"format": 1, "model": "me/pack", "versions": RUNTIME_VERSIONS, "source": "abc123"}
 
     assert not child.manifest_matches({**old, "quantize": "fp8"}, child.expected_manifest("me/pack", "fp8"))
     assert child.manifest_matches({**old, "quantize": "nvfp4"}, child.expected_manifest("me/pack", "nvfp4"))
@@ -806,7 +809,7 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "build", lambda model, quantize: "built")
     monkeypatch.setattr(child, "load_packed", lambda model, directory, manifest: "packed")
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     files = {}
     for name in child.PACK_COMPONENTS:
@@ -819,7 +822,7 @@ def test_load_uses_a_matching_pack(monkeypatch, tmp_path):
                 "model": "me/pack",
                 "quantize": "fp8",
                 "recipe": "w8a8-per-row",
-                "versions": {"torch": "2.15.0"},
+                "versions": RUNTIME_VERSIONS,
                 "source": "abc123",
                 "files": files,
             }
@@ -834,9 +837,9 @@ def test_load_rebuilds_when_a_component_file_is_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     (tmp_path / "pack.json").write_text(
-        json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.15.0"}})
+        json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": RUNTIME_VERSIONS})
     )
 
     assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
@@ -848,7 +851,7 @@ def test_load_rebuilds_when_the_pack_versions_differ(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     for name in child.PACK_COMPONENTS:
         (tmp_path / f"{name}.safetensors").write_text("")
     (tmp_path / "pack.json").write_text(
@@ -1146,7 +1149,7 @@ def test_a_failed_pack_write_does_not_fail_the_run(monkeypatch, tmp_path, capsys
 
     monkeypatch.setattr(child, "build", lambda model, quantize: "built")
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "write_pack", refuse)
 
     assert child.load("me/pack", "fp8", tmp_path, may_build=True) == "built"
@@ -1461,7 +1464,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     files = {}
     for name in child.PACK_COMPONENTS:
@@ -1474,7 +1477,7 @@ def test_a_pack_whose_file_changed_size_is_built_again(monkeypatch, tmp_path):
                 "model": "me/pack",
                 "quantize": "fp8",
                 "recipe": "w8a8-per-row",
-                "versions": {"torch": "2.15.0"},
+                "versions": RUNTIME_VERSIONS,
                 "source": "abc123",
                 "files": files,
             }
@@ -1491,7 +1494,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     files = {}
     for name in child.PACK_COMPONENTS:
@@ -1504,7 +1507,7 @@ def test_a_pack_that_will_not_load_is_moved_aside_and_built_once(monkeypatch, tm
                 "model": "me/pack",
                 "quantize": "fp8",
                 "recipe": "w8a8-per-row",
-                "versions": {"torch": "2.15.0"},
+                "versions": RUNTIME_VERSIONS,
                 "source": "abc123",
                 "files": files,
             }
@@ -1527,7 +1530,7 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     for name in child.PACK_COMPONENTS:
         (tmp_path / f"{name}.safetensors").write_text("")
@@ -1538,7 +1541,7 @@ def test_a_pack_that_does_not_name_its_files_is_built_again(monkeypatch, tmp_pat
                 "model": "me/pack",
                 "quantize": "fp8",
                 "recipe": "w8a8-per-row",
-                "versions": {"torch": "2.15.0"},
+                "versions": RUNTIME_VERSIONS,
                 "source": "abc123",
             }
         )
@@ -1619,7 +1622,7 @@ def test_a_second_builder_waiting_uses_what_the_first_published(monkeypatch, tmp
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     monkeypatch.setattr(child, "load_packed", lambda model, directory, manifest: "packed")
     reasons = iter(["there is no readable pack", None])
@@ -1671,7 +1674,7 @@ def test_a_pack_that_will_not_load_twice_raises(monkeypatch, tmp_path):
     monkeypatch.setattr(child, "build", lambda model, quantize: "built")
     monkeypatch.setattr(child, "write_pack", lambda pipe, directory, manifest: None)
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
 
@@ -1734,7 +1737,7 @@ def test_a_run_never_builds_a_stale_pack(monkeypatch, tmp_path):
     built = []
     monkeypatch.setattr(child, "build", lambda model, quantize: built.append(quantize) or "built")
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     (tmp_path / "pack.json").write_text(
         json.dumps({"format": 1, "model": "me/pack", "quantize": "fp8", "versions": {"torch": "2.14.0"}})
     )
@@ -1749,7 +1752,7 @@ def test_a_run_whose_pack_will_not_load_leaves_it_in_place(monkeypatch, tmp_path
     moved = []
     monkeypatch.setattr(child, "pack_directory", lambda root, model: tmp_path)
     monkeypatch.setattr(child, "pack_state", lambda directory, expected: None)
-    monkeypatch.setattr(child, "versions", lambda: {"torch": "2.15.0"})
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     monkeypatch.setattr(child, "source_revision", lambda model: "abc123")
     monkeypatch.setattr(child, "quarantine", moved.append)
 
@@ -1765,6 +1768,7 @@ def test_a_run_whose_pack_will_not_load_leaves_it_in_place(monkeypatch, tmp_path
 
 
 def test_main_says_why_a_run_found_no_pack_and_stops(monkeypatch, capsys):
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     fake_torch(monkeypatch)
     seen = []
 
@@ -1781,6 +1785,7 @@ def test_main_says_why_a_run_found_no_pack_and_stops(monkeypatch, capsys):
 
 
 def test_main_lets_a_prepare_build(monkeypatch):
+    monkeypatch.setattr(child, "versions", lambda: dict(RUNTIME_VERSIONS))
     fake_torch(monkeypatch)
     seen = []
 

@@ -326,10 +326,14 @@ prompt rewriter.
 disk, and it grows while a prepare downloads. The server knows no total before the download.
 A `preparing` model carries the `operation` id of its prepare. A model is ready when every
 file it declares is on disk, however it got there: no prepare is needed for files that are
-already in place. For MiniMax H3-Image on CUDA that includes its pack, a directory with a
-`pack.json`. A pack can be present but built by another torch; a run never rebuilds it.
-The run fails with `409` and asks for a prepare, and the model reads `missing` (with
-`"Pack for this build"`) until a prepare succeeds. That mark lives in memory only.
+already in place. For MiniMax H3-Image and YuE2 NVFP4 on CUDA that includes the pack, a
+directory with a `pack.json`, and the pack must also hold what its engine declares: the
+format, the model, the quantizer and its recipe, the hub revision in `refs/main`, and the exact
+package versions the engine's script installs. A pack that differs reads `missing`, with a
+label that names the first field that differs, such as `"Pack out of date (versions.torch is
+2.14.1+cu130, this build needs 2.15.0+cu132)"`. A run never rebuilds a pack. A run that still
+finds its pack unusable fails with `409` and asks for a prepare, and the model reads `missing`
+(with `"Pack for this build"`) until a prepare succeeds. That mark lives in memory only.
 
 Start a prepare as an operation:
 

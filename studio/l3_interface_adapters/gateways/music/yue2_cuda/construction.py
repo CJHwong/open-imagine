@@ -9,9 +9,11 @@ import os
 import shutil
 from pathlib import Path
 
+from studio.l1_entities.model_asset import ModelAsset
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l2_use_cases.boundaries.model_configuration_gateway import ModelConfigurationGateway
 from studio.l2_use_cases.model_provider import ModelProvider
+from studio.l3_interface_adapters.gateways.music.yue2_cuda import yue2_pack_spec
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.storage_assets import storage_assets_for
 from studio.l3_interface_adapters.gateways.music.yue2_cuda.yue2_cuda_backend_gateway import Yue2CudaBackendGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
@@ -74,12 +76,33 @@ def backend_factory(backend_id: str):
     return build
 
 
+def pack_assets_for(backend_id: str):
+    """The pack an nvfp4 run reads, where the child writes it, with the manifest the child
+    will check. bf16 and fp8 quantize in the engine and read no pack."""
+    _, default_quantize, _ = BUILDS[backend_id]
+
+    def assets(config: ModelConfigurationGateway) -> tuple[ModelAsset, ...]:
+        settings = config.backend(backend_id)
+        if str(settings.get("quantize", default_quantize)) != "nvfp4":
+            return ()
+        model = str(settings.get("model", DEFAULT_MODEL))
+
+        def expected():
+            return yue2_pack_spec.expected_manifest(model, yue2_pack_spec.source_revision(model))
+
+        folder = Path(str(settings.get("pack_dir", DEFAULT_PACK_DIR))).expanduser() / model.replace("/", "--")
+        return (ModelAsset("Pack", str(folder), "pack", expected=expected),)
+
+    return assets
+
+
 PROVIDER = ModelProvider(
     "yue2_cuda",
     "music",
     backend_factory("yue2_cuda"),
     engine="cuda",
     storage_assets=storage_assets_for("yue2_cuda"),
+    ready_assets=pack_assets_for("yue2_cuda"),
     storage_name="YuE2",
     resident_gib=BUILDS["yue2_cuda"][2],
 )
@@ -89,9 +112,10 @@ NVFP4_PROVIDER = ModelProvider(
     "music",
     backend_factory("yue2_cuda_nvfp4"),
     engine="cuda",
-    # The same checkpoint as the bf16 entry, plus the pack it builds on first use, which no
-    # provider declares. The storage page shows the repository once under this name.
+    # The same checkpoint as the bf16 entry, plus the pack it builds on first use. The
+    # storage page shows the repository once under this name.
     storage_assets=storage_assets_for("yue2_cuda_nvfp4"),
+    ready_assets=pack_assets_for("yue2_cuda_nvfp4"),
     storage_name="YuE2",
     resident_gib=BUILDS["yue2_cuda_nvfp4"][2],
 )

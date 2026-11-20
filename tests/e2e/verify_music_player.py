@@ -72,7 +72,8 @@ def main():
         title = current.get_by_role("textbox", name="Song title", exact=True)
         title.fill("Quiet Rotation")
         title.press("Enter")
-        expect(current.locator(".music-title-button")).to_have_text("Quiet Rotation")
+        # The button also carries its "Rename" caption; the title is the name inside it.
+        expect(current.locator(".music-title-name")).to_have_text("Quiet Rotation")
         assert audio.evaluate("audio=>audio===window.playerAudio && !audio.paused")
         current.get_by_role("button", name="Pause", exact=True).click()
         expect(play).to_be_visible()

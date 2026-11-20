@@ -178,6 +178,10 @@ function videoDownloadName(clip) {
     at: clip.createdAt, id: clip.id, extension: mediaExtension(clip.mp4Blob?.type, 'mp4')});
 }
 
+function atEnd(video) {
+  return video.ended || (Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.05);
+}
+
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
@@ -1981,7 +1985,7 @@ class VideoStudio extends LitElement {
     if (!video.paused) video.pause();
     else {
       // A clip that ended needs the playhead at the start before it will play again.
-      if (video.ended || (Number.isFinite(video.duration) && video.currentTime >= video.duration - 0.05)) {
+      if (atEnd(video)) {
         video.currentTime = 0;
       }
       try { await video.play(); }
@@ -2347,15 +2351,16 @@ class VideoStudio extends LitElement {
   }
 
   // A short clip that autoplay left at its end does not answer the native play button,
-  // so the preview carries its own play control and shows it whenever the clip is paused.
+  // so the preview carries its own play control. It shows only at the end: anywhere else the
+  // native button works, and showing both put two play buttons on every paused clip.
   syncPlayOverlay() {
     const video = this.querySelector('#video-preview');
     const overlay = this.querySelector('.video-play-overlay');
     if (!video || !overlay) return;
-    const sync = () => { overlay.hidden = !video.paused; };
+    const sync = () => { overlay.hidden = !(video.paused && atEnd(video)); };
     if (video.dataset.overlaySync !== 'yes') {
       video.dataset.overlaySync = 'yes';
-      for (const event of ['play', 'pause', 'ended', 'loadedmetadata']) video.addEventListener(event, sync);
+      for (const event of ['play', 'pause', 'ended', 'loadedmetadata', 'seeked']) video.addEventListener(event, sync);
     }
     sync();
   }

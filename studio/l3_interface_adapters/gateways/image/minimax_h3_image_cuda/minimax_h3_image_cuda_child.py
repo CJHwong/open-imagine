@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.12,<3.13"
 # dependencies = [
+#   "torch==2.15.0",
 #   "diffusers==0.43.0",
 #   "transformers>=5.23.0",
 #   "accelerate>=1.0",
@@ -38,7 +39,6 @@ not initialize on this card.
 import argparse
 import base64
 import contextlib
-import hashlib
 import io
 import json
 import os
@@ -47,6 +47,15 @@ import sys
 import time
 import uuid
 from pathlib import Path
+
+try:  # a script run puts its own folder on the path, and the spec sits there
+    import h3_pack_spec as pack_spec  # ty: ignore[unresolved-import]
+except ImportError:  # the studio's tests import this as a package module
+    from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda import h3_pack_spec as pack_spec
+
+declared_manifest = pack_spec.expected_manifest
+source_revision = pack_spec.source_revision
+version_mismatch = pack_spec.version_mismatch
 
 
 def say(message: str) -> None:
@@ -132,20 +141,7 @@ def move_by_way_of_memory(module, device: str) -> None:
             tensor.data = landed
 
 
-PACK_FORMAT = 1
-"""The pack holds the quantized weights of the transformer, the encoder and the vae.
-
-Each weight is stored by its plain parts: `qdata` and `scale` for an `Float8Tensor`,
-`qdata`, `scale` and `per_tensor_scale` for an `NVFP4Tensor`, and the tensor itself for
-everything else. Rebuilding from those parts was checked bit-identical on 2026-11-14.
-"""
-
 PACK_COMPONENTS = ("transformer", "text_encoder", "vae")
-
-# A quantizer whose recipe changed names the new one here, so a pack built by the old
-# recipe is rebuilt instead of trusted. A quantizer missing here matches a pack that names
-# no recipe, which every pack built before this key did.
-RECIPES = {"fp8": "w8a8-per-row"}
 
 
 def versions() -> dict:
@@ -166,52 +162,9 @@ def pack_directory(root: Path, model: str) -> Path:
 
 
 def expected_manifest(model: str, quantize: str) -> dict:
-    return {
-        "format": PACK_FORMAT,
-        "model": model,
-        "quantize": quantize,
-        "recipe": RECIPES.get(quantize),
-        "versions": versions(),
-        "source": source_revision(model),
-    }
-
-
-def source_revision(model: str) -> str:
-    """The committed snapshot this model resolves to, when this machine can name one.
-
-    The cache writes `refs/main`, and that is the commit `local_snapshot` hands the
-    pipeline. Counting snapshot directories answered `unknown` as soon as a second one was
-    cached, which let a pack built from one revision serve another.
-
-    A local folder is named by each file's path, size and modification time. Rewriting a
-    shard changes the identity even at the same length, and hashing every shard on every
-    start would cost minutes on a machine that keeps its weights locally.
-    """
-    try:
-        from huggingface_hub.constants import HF_HUB_CACHE
-    except ImportError:  # the unit tests run without the engine's packages
-        HF_HUB_CACHE = ""
-    if HF_HUB_CACHE:
-        root = Path(HF_HUB_CACHE) / f"models--{model.replace('/', '--')}"
-        reference = root / "refs" / "main"
-        if reference.is_file():
-            commit = reference.read_text().strip()
-            if (root / "snapshots" / commit).is_dir():
-                return commit
-        snapshots = root / "snapshots"
-        if snapshots.is_dir():
-            commits = sorted(one.name for one in snapshots.iterdir() if one.is_dir())
-            if len(commits) == 1:
-                return commits[0]
-    local = Path(model).expanduser()
-    if local.is_dir():
-        digest = hashlib.sha256()
-        for path in sorted(local.rglob("*")):
-            if path.is_file():
-                stat = path.stat()
-                digest.update(f"{path.relative_to(local)}:{stat.st_size}:{stat.st_mtime_ns}".encode())
-        return "local:" + digest.hexdigest()[:16]
-    return "unknown"
+    """The declared manifest for this model on this machine. `main` has already checked that
+    the imported packages are the declared ones, so a pack built here records the same."""
+    return declared_manifest(model, quantize, source_revision(model))
 
 
 def staging_directory(directory: Path) -> Path:
@@ -773,6 +726,10 @@ def main() -> int:
     arguments = parser.parse_args()
     import torch
 
+    mismatch = version_mismatch(versions())
+    if mismatch:
+        say(f"This environment is not the one the script declares: {mismatch}.")
+        return 2
     if not torch.cuda.is_available():
         say("CUDA is not available in this environment")
         return 2
