@@ -651,7 +651,7 @@
   "music.gallery.download_all": "全部下載",
   "music.gallery.label": "歌曲",
   "music.generation.composing": "正在作曲",
-  "music.generation.composing_recording": "正在為你的錄音作曲…",
+  "music.generation.composing_recording": "正在生成歌曲…",
   "music.generation.covering": "正在製作翻唱",
   "music.generation.generating": "正在生成音樂",
   "music.generation.loading": "正在載入音樂模型",
