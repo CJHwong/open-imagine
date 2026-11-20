@@ -112,10 +112,11 @@ NVFP4_PROVIDER = ModelProvider(
     "music",
     backend_factory("yue2_cuda_nvfp4"),
     engine="cuda",
-    # The same checkpoint as the bf16 entry, plus the pack it builds on first use. The
-    # storage page shows the repository once under this name.
+    # The same checkpoint as the bf16 entry, which every load still reads for the layers the
+    # pack does not carry, plus the pack a prepare builds. On disk this build is the larger one.
     storage_assets=storage_assets_for("yue2_cuda_nvfp4"),
     ready_assets=pack_assets_for("yue2_cuda_nvfp4"),
-    storage_name="YuE2",
+    storage_name="YuE2 NVFP4",
+    storage_roots=(os.path.expanduser(DEFAULT_PACK_DIR),),
     resident_gib=BUILDS["yue2_cuda_nvfp4"][2],
 )

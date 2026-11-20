@@ -148,6 +148,7 @@ PROVIDER = ModelProvider(
     storage_assets=storage_assets_for("minimax_h3_image_cuda"),
     ready_assets=pack_assets_for("minimax_h3_image_cuda"),
     storage_name="MiniMax-H3-Image",
+    storage_roots=tuple(os.path.expanduser(folder) for folder in DEFAULT_PACK_DIRS.values()),
     rewriter=build_rewriter,
     resident_gib=BUILDS["minimax_h3_image_cuda"][2],
 )
