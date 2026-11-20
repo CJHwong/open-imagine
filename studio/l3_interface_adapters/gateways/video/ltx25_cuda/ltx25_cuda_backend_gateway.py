@@ -2,6 +2,7 @@
 
 import base64
 from collections.abc import Callable
+from dataclasses import replace
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.video_capabilities import VideoCapabilities
@@ -9,6 +10,7 @@ from studio.l1_entities.video_job import VideoJob, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
 from studio.l3_interface_adapters.gateways.video.ltx25_cuda.capabilities import ltx25_cuda_capabilities
+from studio.l3_interface_adapters.gateways.video.ltx25_cuda.rewriter import RewrittenPrompts
 
 
 def clip_payload(job: VideoJob) -> dict:
@@ -44,8 +46,9 @@ def clip_payload(job: VideoJob) -> dict:
 
 
 class Ltx25CudaBackendGateway(VideoBackendGateway):
-    def __init__(self, child: StdioChild):
+    def __init__(self, child: StdioChild, rewritten: RewrittenPrompts | None = None):
         self._child = child
+        self._rewritten = rewritten if rewritten is not None else RewrittenPrompts()
 
     def capabilities(self) -> VideoCapabilities:
         return ltx25_cuda_capabilities()
@@ -66,6 +69,9 @@ class Ltx25CudaBackendGateway(VideoBackendGateway):
             if progress is not None:
                 progress(step, total, 1)
 
+        if job.enhance and self._rewritten.wrote(job.prompt, job.references):
+            # The page shows this prompt as the enhancer wrote it; a second pass would not.
+            job = replace(job, enhance=False)
         reply = self._child.request(clip_payload(job), on_step, cancelled or (lambda: False))
         return VideoResult(
             mp4=base64.b64decode(reply["mp4"]),

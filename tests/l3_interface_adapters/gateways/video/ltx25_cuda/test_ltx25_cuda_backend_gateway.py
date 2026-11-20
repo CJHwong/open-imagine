@@ -145,3 +145,18 @@ def test_unsupported_jobs_fail_before_the_child_starts(overrides):
 
 def test_a_silent_request_preserves_the_output_flag():
     assert clip_payload(job(include_audio=False))["include_audio"] is False
+
+
+def test_a_prompt_the_enhancer_wrote_is_not_enhanced_again():
+    from studio.l3_interface_adapters.gateways.video.ltx25_cuda.rewriter import RewrittenPrompts
+
+    child = Mock()
+    child.request.return_value = {"mp4": "", "width": 8, "height": 8, "frames": 2, "frame_rate": 24, "steps": 8}
+    rewritten = RewrittenPrompts()
+    rewritten.add("Longer.", ())
+    gateway = Ltx25CudaBackendGateway(child, rewritten)
+
+    gateway.run(job(prompt="Longer.", enhance=True))
+    gateway.run(job(prompt="a fox", enhance=True))
+
+    assert [call.args[0]["enhance"] for call in child.request.call_args_list] == [False, True]

@@ -95,3 +95,9 @@ def test_a_prepare_runs_on_the_gpu_thread():
 
     assert len(seen) == 1
     assert seen[0] != threading.get_ident()
+
+
+def test_the_model_a_rewriter_runs_inside_passes_through():
+    rewriter = Mock()
+    rewriter.resident_in.return_value = "ltx25_cuda"
+    assert ThreadConfinedPromptRewriter(rewriter, GpuThread()).resident_in() == "ltx25_cuda"

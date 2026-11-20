@@ -31,8 +31,19 @@ classifier-free guidance, and that is the same schedule the MLX backend runs whe
 its distilled path. `LTX2Pipeline` would run the base thirty-step schedule instead, which
 takes 3.75 times as long for a clip the checkpoint was not trained to make.
 
-The prompt enhancer is a flag on the same call and stays off unless the job asks for it: it
-is a 9.5 GiB Gemma that only matters when a caller presses Rewrite.
+The prompt enhancer is the checkpoint's own Gemma 4 E2B, a component of the same pipeline, so it
+is resident beside the video model. It serves two calls. A job with `"task": "rewrite"` asks it
+for the longer prompt and returns the text, which is the page's Rewrite. A clip whose `enhance`
+is true runs it inside the call first; the studio sends false for a prompt it rewrote already.
+Its chat template keeps thinking off unless asked, and nothing asks: the answer starts with the
+prompt, with no thought block.
+
+The enhancer's language layers run NVFP4 W4A4 with a static cache, so its decode step compiles
+once. Measured on the DGX Spark on 2026-11-20, three prompts after a warm-up: bf16 eager wrote
+27.7 tokens/s, NVFP4 eager 23.8, bf16 static 33.7, NVFP4 static 60.0. A rewrite of about 150
+tokens takes about 2.5 s instead of 5 to 7, and the enhancer holds 7.0 GiB instead of 9.5. The
+first rewrite of a child pays the compile, 27.9 s. The NVFP4 text keeps every element of each
+prompt and reads a little shorter.
 """
 
 import argparse
@@ -133,6 +144,7 @@ def load(model: str):
     # 768 x 768, 361-frame clip left 5 GiB free, and in tiles 14 GiB. Tiles decoded a 121-frame
     # clip in 4.4 s against 5.1 s, and the frames differ by 45.3 dB, where the tiles overlap.
     pipe.vae.enable_tiling()
+    prepare_enhancer(pipe)
     torch.cuda.synchronize()
     say(f"loaded {model} in {time.time() - started:.1f}s")
     return pipe
@@ -178,6 +190,41 @@ def unpack(frames):
     if isinstance(frames, (list, tuple)) and frames and isinstance(frames[0], (list, tuple)):
         return frames[0]
     return frames
+
+
+def enhancer_linear(module, name: str) -> bool:
+    """A linear layer of the enhancer's language model: not its vision or audio tower, not
+    its output head."""
+    import torch
+
+    return isinstance(module, torch.nn.Linear) and "language_model" in name and "lm_head" not in name
+
+
+def prepare_enhancer(pipe) -> None:
+    """Quantize the enhancer where it computes, and give it a static cache so its decode
+    compiles. The module docstring holds the measurement."""
+    enhancer = getattr(pipe, "prompt_enhancer", None)
+    if enhancer is None:
+        return
+    from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
+    from torchao.quantization import quantize_
+
+    quantize_(enhancer, NVFP4DynamicActivationNVFP4WeightConfig(), filter_fn=enhancer_linear)
+    enhancer.generation_config.cache_implementation = "static"
+
+
+def rewrite(pipe, job: dict) -> dict:
+    """The enhancer's longer prompt, with the instructions a run would use: the image ones when
+    a keyframe is given, read from the first, as the pipeline reads a clip's first condition."""
+    from diffusers.pipelines.ltx2.utils import (
+        LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT,
+        LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT,
+    )
+
+    references = job.get("references") or []
+    image = reference_image(references[0]) if references else None
+    system = LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT if image is not None else LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT
+    return {"text": pipe.enhance_prompt(job["prompt"], system, image=image)[0]}
 
 
 def reference_image(encoded: str):
@@ -262,7 +309,8 @@ def main() -> int:
         job = {}
         try:
             job = json.loads(line)
-            answer({**run(pipe, job), "request_id": job.get("request_id", "")})
+            reply = rewrite(pipe, job) if job.get("task") == "rewrite" else run(pipe, job)
+            answer({**reply, "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
         finally:

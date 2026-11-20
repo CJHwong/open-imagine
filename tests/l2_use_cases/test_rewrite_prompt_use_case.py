@@ -358,3 +358,75 @@ def test_video_rewrite_uses_its_own_enhancer_and_releases_it():
     image_runner = use_case(Catalog(), image, Progress())
     image_runner._video_rewriter = video
     assert image_runner.execute(RewriteRequest("A cup", "generate")).prompt == "image words"
+
+
+class InsideRewriter(Rewriter):
+    """A rewriter that runs inside a model the studio already holds, as LTX-2.5's enhancer
+    runs inside its video child on CUDA."""
+
+    def resident_in(self):
+        return "fake"
+
+
+class Residency(ModelResidencyGateway):
+    def __init__(self):
+        self.calls = []
+
+    def resident_gib(self, backend_id):
+        return 0.0
+
+    def select(self, backend_id):
+        self.calls.append(("select", backend_id))
+
+    def claim(self, backend_id):
+        self.calls.append(("claim", backend_id))
+        return ()
+
+    def release_active(self):
+        self.calls.append(("release_active",))
+
+    def release_idle(self):
+        self.calls.append(("release_idle",))
+
+    def release(self):
+        self.calls.append(("release",))
+
+
+def test_a_rewriter_inside_a_model_claims_that_model_instead_of_freeing_it():
+    # Freeing every model first would unload the 80 GB video child the enhancer lives in,
+    # and the next clip would load it again.
+    residency = Residency()
+    use_case(Catalog(), InsideRewriter(PromptRewrite(prompt="longer")), residency=residency).execute(
+        RewriteRequest(prompt="a cat", mode="generate", workspace="video")
+    )
+    assert residency.calls == [("claim", "fake")]
+
+
+def test_a_second_model_still_frees_the_engines_first():
+    residency = Residency()
+    use_case(Catalog(), Rewriter(PromptRewrite(prompt="longer")), residency=residency).execute(
+        RewriteRequest(prompt="a cat", mode="generate")
+    )
+    assert residency.calls == [("release",)]
+
+
+def test_a_failed_rewrite_inside_a_model_frees_it_as_a_failed_run_does():
+    residency = Residency()
+    with pytest.raises(StudioError, match="would not load"):
+        use_case(Catalog(), InsideRewriter(PromptRewrite(prompt="longer"), fails=True), residency=residency).execute(
+            RewriteRequest(prompt="a cat", mode="generate")
+        )
+    assert residency.calls == [("claim", "fake"), ("release_active",)]
+
+
+def test_a_cancelled_rewrite_inside_a_model_frees_it_because_the_cancel_stopped_its_child():
+    residency = Residency()
+    response = use_case(
+        Catalog(), InsideRewriter(PromptRewrite(prompt="longer")), Progress(cancel_when_writing=True), residency
+    ).execute(RewriteRequest(prompt="a cat", mode="generate"))
+    assert response.cancelled is True
+    assert residency.calls == [("claim", "fake"), ("release_active",)]
+
+
+def test_a_rewriter_is_a_second_model_unless_it_says_otherwise():
+    assert Rewriter(PromptRewrite(prompt="longer")).resident_in() is None

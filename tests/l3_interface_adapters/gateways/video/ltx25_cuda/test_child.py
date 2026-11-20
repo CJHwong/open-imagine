@@ -480,3 +480,129 @@ def test_video_chunks_leave_exporter_fallback_unchanged(value):
 def test_video_chunks_leave_empty_input_to_exporter():
     frames = np.empty((0, 8, 8, 3))
     assert child.video_chunks(frames) is frames
+
+
+class FakeEnhancer(EmptyModule):
+    def __init__(self):
+        super().__init__()
+        self.generation_config = SimpleNamespace(cache_implementation=None)
+
+
+class EnhancingPipe(FakePipe):
+    """A pipeline that carries the checkpoint's prompt enhancer."""
+
+    def __init__(self, answer="Longer."):
+        super().__init__()
+        self.prompt_enhancer = FakeEnhancer()
+        self.components["prompt_enhancer"] = self.prompt_enhancer
+        self.enhance_prompt = Mock(return_value=[answer])
+
+
+def fake_quantizer(monkeypatch):
+    """torchao's NVFP4 entry points, recording what each call quantizes."""
+    quantized = []
+    quantization = types.ModuleType("torchao.quantization")
+    monkeypatch.setattr(
+        quantization,
+        "quantize_",
+        lambda module, config, filter_fn: quantized.append((module, config, filter_fn)),
+        raising=False,
+    )
+    formats = types.ModuleType("torchao.prototype.mx_formats")
+    monkeypatch.setattr(formats, "NVFP4DynamicActivationNVFP4WeightConfig", lambda: "nvfp4", raising=False)
+    monkeypatch.setitem(sys.modules, "torchao", types.ModuleType("torchao"))
+    monkeypatch.setitem(sys.modules, "torchao.quantization", quantization)
+    monkeypatch.setitem(sys.modules, "torchao.prototype", types.ModuleType("torchao.prototype"))
+    monkeypatch.setitem(sys.modules, "torchao.prototype.mx_formats", formats)
+    return quantized
+
+
+def test_load_holds_the_enhancer_in_nvfp4_with_a_static_cache(monkeypatch):
+    """Measured on the DGX Spark: 23.8 tokens/s eager, 60.0 with a static cache, 33.7 at bf16."""
+    pipe = EnhancingPipe()
+    fake_world(monkeypatch, pipe)
+    quantized = fake_quantizer(monkeypatch)
+
+    child.load("me/pack")
+
+    assert [(module, config) for module, config, _ in quantized] == [(pipe.prompt_enhancer, "nvfp4")]
+    assert pipe.prompt_enhancer.generation_config.cache_implementation == "static"
+
+
+def test_only_the_enhancers_language_layers_take_nvfp4(monkeypatch):
+    class Linear:
+        pass
+
+    torch = types.ModuleType("torch")
+    monkeypatch.setattr(torch, "nn", SimpleNamespace(Linear=Linear), raising=False)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    assert child.enhancer_linear(Linear(), "model.language_model.layers.0.self_attn.q_proj")
+    assert not child.enhancer_linear(Linear(), "model.vision_tower.encoder.layers.0.mlp")
+    assert not child.enhancer_linear(Linear(), "model.audio_tower.layers.0.mlp")
+    assert not child.enhancer_linear(Linear(), "lm_head")
+    assert not child.enhancer_linear(object(), "model.language_model.norm")
+
+
+def test_load_leaves_a_pipeline_without_an_enhancer_alone(monkeypatch):
+    pipe = FakePipe()
+    fake_world(monkeypatch, pipe)
+    quantized = fake_quantizer(monkeypatch)
+
+    child.load("me/pack")
+
+    assert quantized == []
+
+
+def fake_prompts(monkeypatch):
+    utils = types.ModuleType("diffusers.pipelines.ltx2.utils")
+    monkeypatch.setattr(utils, "LTX2_5_T2V_DEFAULT_SYSTEM_PROMPT", "t2v", raising=False)
+    monkeypatch.setattr(utils, "LTX2_5_I2V_DEFAULT_SYSTEM_PROMPT", "i2v", raising=False)
+    monkeypatch.setitem(sys.modules, "diffusers.pipelines.ltx2.utils", utils)
+
+
+def test_a_rewrite_asks_the_enhancer_with_the_text_to_video_instructions(monkeypatch):
+    pipe = EnhancingPipe("A fox runs through snow.")
+    fake_world(monkeypatch, pipe)
+    fake_prompts(monkeypatch)
+
+    assert child.rewrite(pipe, {"task": "rewrite", "prompt": "a fox"}) == {"text": "A fox runs through snow."}
+    pipe.enhance_prompt.assert_called_once_with("a fox", "t2v", image=None)
+
+
+def test_a_rewrite_with_a_keyframe_reads_the_first_one_with_the_image_instructions(monkeypatch):
+    from PIL import Image
+
+    def png(colour):
+        buffer = io.BytesIO()
+        Image.new("RGB", (4, 4), colour).save(buffer, format="PNG")
+        import base64
+
+        return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    pipe = EnhancingPipe("A red frame.")
+    fake_world(monkeypatch, pipe)
+    fake_prompts(monkeypatch)
+
+    child.rewrite(pipe, {"task": "rewrite", "prompt": "go", "references": [png("red"), png("blue")]})
+
+    (prompt, system), options = pipe.enhance_prompt.call_args
+    assert (prompt, system) == ("go", "i2v")
+    assert options["image"].getpixel((0, 0)) == (255, 0, 0)
+
+
+def test_main_sends_a_rewrite_to_the_enhancer_and_a_clip_to_the_pipeline(monkeypatch, capsys):
+    pipe = EnhancingPipe("Longer.")
+    fake_world(monkeypatch, pipe)
+    fake_quantizer(monkeypatch)
+    fake_prompts(monkeypatch)
+    monkeypatch.setattr(sys, "argv", ["child"])
+    clip = {"prompt": "a fox", "width": 8, "height": 8, "frames": 2, "frame_rate": 24, "seed": 1}
+    lines = [{"task": "rewrite", "prompt": "a fox", "request_id": "r1"}, clip]
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(json.dumps(line) for line in lines)))
+
+    assert child.main() == 0
+
+    answers = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert answers[0] == {"text": "Longer.", "request_id": "r1"}
+    assert "mp4" in answers[1]

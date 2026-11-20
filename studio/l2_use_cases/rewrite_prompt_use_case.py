@@ -107,6 +107,11 @@ class RewritePromptUseCase:
         self._engine_lock = engine_lock
         self._residency = residency
 
+    def _free_host(self, host: str | None) -> None:
+        """Free the model a failed rewrite ran inside, as a failed run frees its model."""
+        if host is not None:
+            self._residency.release_active()
+
     def execute(self, request: RewriteRequest) -> RewriteResponse:
         rewriter = (
             self._video_rewriter
@@ -121,9 +126,13 @@ class RewritePromptUseCase:
             raise BackendBusy("The model is busy with a run in another tab. Wait for it, or cancel it there.")
         started = 0.0
         progress_started = False
+        host = rewriter.resident_in()
         try:
             started = self._clock()
-            self._residency.release()
+            if host is None:
+                self._residency.release()
+            else:
+                self._residency.claim(host)
             # A cancel from an earlier request must not stop this rewrite.
             self._progress.clear_cancel()
             self._progress.begin()
@@ -137,12 +146,17 @@ class RewritePromptUseCase:
                     self._progress.cancel_requested,
                 )
             except Cancelled:
+                # A cancel stops the child the rewrite ran in, so a host model is gone.
+                self._free_host(host)
                 return RewriteResponse(
                     prompt=request.prompt,
                     size=None,
                     elapsed=self._clock() - started,
                     cancelled=True,
                 )
+            except Exception:
+                self._free_host(host)
+                raise
             # A video's shape comes from its own controls, and its form has no size
             # list for a ratio to match. Looking one up there would name an image size
             # that the video never offered.

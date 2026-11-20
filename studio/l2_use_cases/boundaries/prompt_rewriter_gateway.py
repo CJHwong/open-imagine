@@ -10,7 +10,9 @@ class PromptRewriterGateway(ABC):
 
     It is a second model, so it cannot be resident beside an image engine: the
     caller frees the engines before it runs and frees it before an engine loads.
-    Every call runs on the GPU thread, like every other model call.
+    A rewriter that runs inside a model the studio holds names that model through
+    `resident_in`, and the caller claims it instead. Every call runs on the GPU
+    thread, like every other model call.
 
     An adapter keeps at most one model resident, because a mode maps to a model
     and the two do not both fit.
@@ -47,6 +49,12 @@ class PromptRewriterGateway(ABC):
     @abstractmethod
     def release(self) -> None:
         """Free the model memory. The next rewrite brings it back."""
+
+    def resident_in(self) -> str | None:
+        """The backend whose resident model this rewriter runs inside, or None when the
+        rewriter is a model of its own. Inside one, freeing the engines would unload the
+        rewriter with them."""
+        return None
 
     def prepare(self) -> None:  # noqa: B027  # a rewriter with nothing to fetch keeps this
         """Fetch and load each mode's weights once, then free them, so no rewrite downloads.
