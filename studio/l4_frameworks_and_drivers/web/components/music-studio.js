@@ -8,7 +8,7 @@ import {closeMenus, menuItem, toggleMenu} from './popup-menu.js';
 import {blobBase64, normalizeReference} from '../lib/voice-audio.js';
 import {MINIMUM_ACTIVE_SECONDS, startRecording} from '../lib/recorder.js';
 import {musicScore, musicCoverPrompt, musicCoverImagePrompt, musicCoverNeedsRewrite} from '../lib/music-score.js';
-import {rememberGalleryView, preferredGalleryId, galleryBatch} from '../lib/gallery-view.js';
+import {rememberGalleryView, preferredGalleryId, galleryBatch, neighbourOf} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet} from '../lib/run-sheet.js';
 import {navigate, bindSwipe} from '../lib/navigation.js';
@@ -583,7 +583,7 @@ class MusicStudio extends HTMLElement {
       else this.controls.querySelector('#music-style').focus();
     });
     this.controls.addEventListener('input', event => {
-      if (event.target.matches('input[name="music-workflow"]')) this.syncEngineMode();
+      if (event.target.matches('input[name="music-workflow"]')) { this.pausePlayback(); this.syncEngineMode(); }
       this.epoch++;
       this.sync();
       if (this.keeping) this.store(() => saveMusicDraft(this.savedDraft())).catch(() => {});
@@ -2011,8 +2011,9 @@ class MusicStudio extends HTMLElement {
       if (this.keeping) await this.store(() => deleteMusicSong(id));
       if (this.keeping) await this.store(sweepMusicSources).catch(() => {});
       this.restoreEpoch = (this.restoreEpoch || 0) + 1;
+      const neighbour = neighbourOf(this.songs.slice().reverse().map(song => song.id), id);
       this.songs = this.songs.filter(song => song.id !== id);
-      if (this.selectedId === id) this.selectedId = this.songs.at(-1)?.id;
+      if (this.selectedId === id) this.selectedId = neighbour;
       this.renderSongs(); localStorage.setItem('studio-music-changed', String(Date.now())); return true;
     } catch (_) { return false; }
   }

@@ -74,7 +74,6 @@ def all_capabilities():
         yue2_capabilities(),
         qwen21_cuda_capabilities("bf16"),
         minimax_h3_image_cuda_capabilities(),
-        minimax_h3_image_cuda_capabilities("minimax_h3_image_cuda_nvfp4", "MiniMax H3-Image NVFP4", "nvfp4"),
         ltx25_cuda_capabilities(),
         drama_cuda_capabilities(),
         yue2_cuda_capabilities(),

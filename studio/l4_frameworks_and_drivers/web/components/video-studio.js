@@ -9,7 +9,7 @@ import './gallery-browser.js';
 import './gallery-media.js';
 import './gallery-window.js';
 import './gallery-tile.js';
-import {galleryBatch, galleryView, rememberGalleryView} from '../lib/gallery-view.js';
+import {galleryBatch, galleryView, neighbourOf, rememberGalleryView} from '../lib/gallery-view.js';
 import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
@@ -1967,6 +1967,10 @@ class VideoStudio extends LitElement {
     return true;
   }
 
+  pausePlayback() {
+    this.querySelectorAll('video, audio').forEach(media => media.pause());
+  }
+
   async togglePlayback() {
     const clip = this.selectedClip();
     try { await this.ensureClip(clip); } catch (error) { this.setError(error.message); return; }
@@ -1999,6 +2003,7 @@ class VideoStudio extends LitElement {
       if (!deleted) return;
     }
     if (removed) releaseClipUrls(removed);
+    const neighbour = neighbourOf(this.clips.filter(clip => clip.kind === removed.kind).reverse().map(clip => clip.id), id);
     this.clips = this.clips.filter(function (clip) { return clip.id !== id; });
     if (this.editTargetId === id) {
       // Removing the target leaves no target. The monitor may show another clip, and showing
@@ -2006,7 +2011,7 @@ class VideoStudio extends LitElement {
       this.editTargetId = null;
     }
     if (this.selectedClipId === id) {
-      this.selectedClipId = this.clips.length ? this.clips[0].id : null;
+      this.selectedClipId = neighbour ?? (this.clips.length ? this.clips[0].id : null);
       this.previewResume = null;
       this.currentTime = 0;
       const selected = this.selectedClip();

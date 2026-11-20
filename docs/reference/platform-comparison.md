@@ -22,7 +22,7 @@ FLUX.3, H3-Image MLX, and LTX MLX use per-call processes. Base Qwen can rebuild 
 |---|---|---|
 | Qwen-Image-2.1 Turbo | `qwen21_turbo`, bf16 | `qwen21_turbo_cuda`, bf16 |
 | Qwen-Image-2.1 | `qwen21`, bf16 | none |
-| MiniMax H3-Image | `minimax_h3_image`, int8 | `minimax_h3_image_cuda`, fp8 weights and activations; `minimax_h3_image_cuda_nvfp4`, NVFP4 |
+| MiniMax H3-Image | `minimax_h3_image`, int8 | `minimax_h3_image_cuda`, fp8 weights and activations |
 | LTX-2.5 | `ltx25_mlx`, q8 | `ltx25_cuda`, bf16 |
 | LTX-2.3 | `ltx23_mlx`, q8 | none |
 | MiniMax H3 | `minimax_h3`, q8 | none |
@@ -31,8 +31,7 @@ FLUX.3, H3-Image MLX, and LTX MLX use per-call processes. Base Qwen can rebuild 
 | Auk | `auk`, `auk_base` | none |
 | FLUX.2 klein, FLUX.3 klein, Krea 2, Viggle Turbo | MLX backends | none |
 
-Two models have two measured builds and two entries in the picker, one per build:
-`minimax_h3_image_cuda` and `minimax_h3_image_cuda_nvfp4`, `yue2_cuda` and
+YuE2 has two measured builds and two entries in the picker, one per build: `yue2_cuda` and
 `yue2_cuda_nvfp4`. The shipped default is named in `studio.cuda.toml` and is the build whose
 quality the model was chosen for.
 
@@ -167,8 +166,6 @@ table.
 | `qwen21_turbo_cuda` edit | 1.944 s per step, 1.0, 0.21 s fixed, 0.171 per extra reference | 4.1 s at 512 out and 28.3 s at 1344 out, against 4.1 and 28.2 s; 6.2 s at four references, against 6.4 s |
 | `minimax_h3_image_cuda` generate | 0 s per step, 57.3 s fixed | one canvas for every size this form offers |
 | `minimax_h3_image_cuda` edit | 0 s per step, 70.5 s fixed | one reference at 4 MP |
-| `minimax_h3_image_cuda_nvfp4` generate | 0 s per step, 34.3 s fixed | the same canvas on the pack |
-| `minimax_h3_image_cuda_nvfp4` edit | 0 s per step, 63.7 s fixed | one reference at 4 MP on the pack |
 | `ltx25_cuda` generate | 0.530 of the shared fit, 14.2 s fixed | 50, 80, 120 s against 48.3, 76.3, 121.5 s |
 | `drama3_cuda` generate | 1.383 per second of audio, 0.28 s fixed, 0.077 s of audio per character | 5.2, 8.8, 48.1 s against 5.0, 9.0, 48.1 s |
 | `drama3_cuda` clone | 1.383 per second of audio, 1.64 s fixed, 0.104 s of audio per character | 9.1 s |
@@ -192,10 +189,8 @@ The CUDA records are read from a running studio's `/api/v1/studio` and its
 | `qwen21_turbo_cuda` | edit | 1 to 10 | no | 0 | 0 | 4 | yes |
 | `minimax_h3_image` | generate | 0 | no | 8 | 7 | 4 | yes |
 | `minimax_h3_image_cuda` | generate | 0 | no | 0 | 0 | 1 | yes |
-| `minimax_h3_image_cuda_nvfp4` | generate | 0 | no | 0 | 0 | 1 | yes |
 | `minimax_h3_image` | edit | 1 to 4 | no | 6 | 5 | 4 | yes |
 | `minimax_h3_image_cuda` | edit | 1 to 4 | no | 0 | 0 | 1 | yes |
-| `minimax_h3_image_cuda_nvfp4` | edit | 1 to 4 | no | 0 | 0 | 1 | yes |
 | `yue2` | all four | n/a | n/a | n/a | n/a | 16 | yes |
 | `yue2_cuda` | all four | n/a | n/a | n/a | n/a | 16 | yes, with a 600-character lyric limit |
 | `yue2_cuda_nvfp4` | all four | n/a | n/a | n/a | n/a | 16 | yes, with a 600-character lyric limit |

@@ -9,9 +9,6 @@ from studio.l3_interface_adapters.gateways.image.minimax_h3_image.construction i
     PROVIDER as minimax_h3_image_provider,
 )
 from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
-    NVFP4_PROVIDER as minimax_h3_image_cuda_nvfp4_provider,
-)
-from studio.l3_interface_adapters.gateways.image.minimax_h3_image_cuda.construction import (
     PROVIDER as minimax_h3_image_cuda_provider,
 )
 from studio.l3_interface_adapters.gateways.image.qwen21.construction import PROVIDER as qwen21_provider
@@ -47,7 +44,6 @@ BUILTIN_PROVIDERS = (
     krea2_provider,
     minimax_h3_image_provider,
     minimax_h3_image_cuda_provider,
-    minimax_h3_image_cuda_nvfp4_provider,
     viggle_turbo_provider,
     ltx25_provider,
     ltx25_cuda_provider,
