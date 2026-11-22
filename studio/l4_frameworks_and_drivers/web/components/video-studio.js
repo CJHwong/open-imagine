@@ -584,9 +584,12 @@ class VideoStudio extends LitElement {
   addImageReference(reference, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
     if (this.imageReferences.some(function (saved) { return saved.id === reference.id; })) return;
-    // The same frame twice adds nothing, and a capture names its frame by clip and time, so a
-    // repeated name is the same frame.
-    if (this.imageReferences.some(function (saved) { return saved.name === reference.name; })) {
+    // The same picture twice adds nothing. A name alone does not make a repeat: pasted and phone
+    // pictures share names such as image.png. The bytes alone do not either, because one still
+    // on the first and the last frame makes a loop.
+    if (this.imageReferences.some(function (saved) {
+      return saved.name === reference.name && saved.base64 === reference.base64;
+    })) {
       this.setError(t('video.reference.duplicate'));
       return;
     }

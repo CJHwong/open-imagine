@@ -3023,6 +3023,33 @@ with sync_playwright() as playwright:
         and "Reset this workspace's inputs?" in reset_dialogs[-1],
         json.dumps(video_reset),
     )
+    # Pasted and phone pictures share names such as image.png, so a name alone is no repeat.
+    same_name = page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const red = 'R0lGODlhAQABAIAAAP8AAAAAACwAAAAAAQABAAACAkQBADs=';
+          const white = 'R0lGODlhAQABAIAAAP///wAAACwAAAAAAQABAAACAkQBADs=';
+          const add = (id, name, base64) => studio.addImageReference({id, name, base64,
+            src: 'data:image/gif;base64,' + base64});
+          add('same-name-1', 'image.png', red);
+          add('same-name-2', 'image.png', white);
+          const afterTwo = {count: studio.imageReferences.length, error: studio.error || ''};
+          add('same-picture', 'image.png', red);
+          const afterRepeat = {count: studio.imageReferences.length, error: studio.error || ''};
+          studio.clearImageReferences();
+          studio.clearError();
+          return {afterTwo, afterRepeat};
+        }"""
+    )
+    check(
+        "two pictures that share a name are both references, and the same picture again is refused",
+        same_name
+        == {
+            "afterTwo": {"count": 2, "error": ""},
+            "afterRepeat": {"count": 2, "error": "This image is already a reference."},
+        },
+        json.dumps(same_name),
+    )
     dialogs_before = len(reset_dialogs)
     open_settings(page, "generation")
     page.get_by_role("button", name="Reset inputs", exact=True).click()
