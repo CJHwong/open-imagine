@@ -1,5 +1,6 @@
 """Check Custom Edit against a fresh stub: <port> <short-source.mp4>."""
 
+import re
 import sys
 
 from playwright.sync_api import expect, sync_playwright
@@ -21,7 +22,7 @@ with sync_playwright() as playwright:
     assert page.locator("#video-prompt").input_value()
     choose("Custom")
     expect(page.locator("#video-prompt")).to_have_value("")
-    expect(page.locator("#video-adapter-hint")).to_contain_text("No LoRA")
+    expect(page.locator("#video-adapter-hint")).to_contain_text(re.compile("no LoRA", re.IGNORECASE))
     page.locator("#video-prompt").fill("Make the cup blue and keep the same scene.")
     choose("Day to night")
     choose("Custom")
