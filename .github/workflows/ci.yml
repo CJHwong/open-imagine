@@ -80,6 +80,7 @@ jobs:
           done
           uv run --with playwright python tests/e2e/verify_gallery_transfer.py 8801
           uv run --with playwright python tests/e2e/verify_ui.py 8801
+          uv run --with playwright python tests/e2e/verify_start_image.py 8801
 
   plugin:
     name: agent plugin
