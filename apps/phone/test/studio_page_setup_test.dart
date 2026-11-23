@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:open_imagine_phone/studio_page.dart';
 
@@ -62,5 +63,18 @@ void main() {
     );
     expect(studioIsGone(missesBeforeLost - 1), isFalse);
     expect(studioIsGone(missesBeforeLost), isTrue);
+  });
+
+  test('only a probe made on screen counts toward a lost studio', () {
+    expect(probeCounts(AppLifecycleState.resumed), isTrue);
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.detached,
+      null,
+    ]) {
+      expect(probeCounts(state), isFalse, reason: '$state');
+    }
   });
 }
