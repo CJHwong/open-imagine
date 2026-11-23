@@ -644,6 +644,9 @@ dynamic shapes. Warm runs:
 | edit 1344, one reference | 26.6 | 22.8 |
 | edit 1024, ten references | 48.5 | 46.2 |
 | first generate of a fresh studio, load included | 19.2 | 17.5 |
+| generate 768 × 768 from a picture, strength 0.4, five steps | | 4.4 |
+| generate 1024 × 1024 from a picture, strength 0.4, five steps | | 7.1 |
+| generate 1024 × 1024 from a picture, strength 0.75, two steps | | 4.3 |
 
 A compile with static shapes gained the same, but each size and prompt length is its own
 sequence length, and it ran out of recompiles by its second size. Dynamic shapes recompiled

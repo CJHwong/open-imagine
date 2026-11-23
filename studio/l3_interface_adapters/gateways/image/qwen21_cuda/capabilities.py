@@ -6,7 +6,7 @@ the shared Qwen form, with the differences this engine forces.
 Both modes run the same checkpoint and the same pipeline. The 2.1 pipeline conditions on
 images itself: the Qwen3-VL text encoder reads them as vision context and the VAE
 prepends their latents to the noise, so an edit needs no second checkpoint. Generate
-takes no reference, so it has no Match option; Edit takes one to ten.
+starts from one picture or none, the same as on MLX; Edit takes one to ten.
 
 Edit runs the Turbo eight-step schedule and the model's own guidance of 1, because the
 checkpoint is distilled and the pipeline is the same one.
@@ -17,34 +17,22 @@ sampled on this engine's path, and the Looks were sampled through the MLX engine
 
 from dataclasses import replace
 
-from studio.l1_entities.capabilities import Capabilities, Choice, Estimate, ModeSpec, ParamSpec
-from studio.l3_interface_adapters.gateways.image.qwen_runtime.prompt_aids import (
-    GENERATE_LOOKS,
-    GENERATE_TEMPLATES,
-)
+from studio.l1_entities.capabilities import Capabilities, Estimate, ModeSpec
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls import (
+    GUIDANCE,
     MAX_BATCH,
     MAX_REFERENCES,
     NEGATIVE,
     RESOLUTION,
+    generate_mode,
     steps_param,
 )
-from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import SIZES
-
-# No Match option: this backend takes no reference yet, and Match has nothing to match.
-SIZE = ParamSpec(
-    id="size",
-    kind="choice",
-    default="512x512",
-    choices=tuple(Choice(f"{width}x{height}", label) for label, width, height in SIZES),
-)
-# The same control the MLX backends offer. A negative prompt works only through true
-# CFG, which needs guidance above 1 and runs two passes per step.
-GUIDANCE = ParamSpec(id="guidance", kind="number", default=1.0, minimum=0, maximum=10, step=0.5, with_negative=2.5)
 
 # The Turbo checkpoint samples eight steps on its own schedule, and it is meant to be
-# sampled without guidance, so 1.0 is the default the form opens on.
-TURBO_STEPS = steps_param(8, 1, 50)
+# sampled without guidance, so 1.0 is the default the form opens on. The pipeline runs the
+# checkpoint's eight-node table whatever step count it is asked for, so the count is fixed at
+# eight, as on MLX: a count the run ignores would make the estimate and the strength hint wrong.
+TURBO_STEPS = steps_param(8, 8, 8)
 
 # The Looks and templates were sampled on these weights through the MLX engine. Prompt
 # text travels with the model, not the engine, so they are offered unchanged. AGENTS.md
@@ -82,14 +70,22 @@ GENERATE_ESTIMATE = Estimate(1.056, 1.033, 0.183, overhead_per_image=True)
 EDIT_ESTIMATE = Estimate(1.503, 1.093, 0.0, overhead_per_image=True, per_reference=0.281)
 
 
-TURBO_GENERATE = ModeSpec(
-    id="generate",
-    label="Generate",
-    params=(SIZE, TURBO_STEPS, GUIDANCE, NEGATIVE),
-    prompt_hint="Describe the image. Put any text you want rendered in quotes.",
-    looks=GENERATE_LOOKS,
-    templates=GENERATE_TEMPLATES,
-)
+# A run from a starting picture runs only the steps its strength keeps, and adds one VAE
+# encode of the picture. Measured on 2026-11-23, DGX Spark GB10, bf16 and compiled, warm, one
+# picture at a time through the studio API, three runs of each, which agreed within 0.05 s:
+#
+#   seconds          512x512   768x768   1024x1024
+#   strength 0.4       2.28      4.38       7.15      (five of eight steps)
+#   strength 0.75      1.63      2.82       4.35      (two of eight steps)
+#   no picture         2.3       5.1        9.1       (the generate fit's own points)
+#
+# The fixed cost grows with the frame, because the encode and the decode both do, and the
+# fit has one fixed cost. A least-squares fit over the six points errs by 0.34 s at the
+# smallest (+21%) and 0.41 s at the largest (-9%). The figures are a guide, not a promise.
+GENERATE_REFERENCE_ESTIMATE = Estimate(1.146, 1.407, 1.645, overhead_per_image=True, strength_scales_steps=True)
+
+# The shared Generate: the sizes with Match, strength, and one starting picture.
+TURBO_GENERATE = generate_mode(TURBO_STEPS, GENERATE_ESTIMATE, GENERATE_REFERENCE_ESTIMATE)
 
 
 TURBO_EDIT = ModeSpec(
@@ -111,7 +107,7 @@ def qwen21_cuda_capabilities(badge: str) -> Capabilities:
         name="Qwen-Image-2.1-Turbo",
         badge=badge,
         modes=(
-            replace(TURBO_GENERATE, estimate=GENERATE_ESTIMATE),
+            TURBO_GENERATE,
             replace(TURBO_EDIT, estimate=EDIT_ESTIMATE),
         ),
         max_batch=MAX_BATCH,

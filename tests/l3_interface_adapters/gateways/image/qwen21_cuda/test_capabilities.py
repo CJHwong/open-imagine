@@ -30,19 +30,22 @@ def test_one_estimate_serves_every_badge():
     assert qwen21_cuda_capabilities("nvfp4").mode("generate").estimate == bf16
 
 
-def test_the_size_choice_has_no_match_option_without_a_reference():
+def test_generate_starts_from_one_picture_with_a_strength_and_a_match_size():
     mode = qwen21_cuda_capabilities("bf16").mode("generate")
-    size = next(param for param in mode.params if param.id == "size")
+    params = {param.id: param for param in mode.params}
 
-    assert all(choice.value != "match" for choice in size.choices)
-    assert size.default == "512x512"
+    assert (mode.min_references, mode.max_references) == (0, 1)
+    assert params["strength"].default == 0.4
+    assert "match" in [choice.value for choice in params["size"].choices]
+    assert params["size"].default == "512x512"
+    assert mode.reference_estimate is not None and mode.reference_estimate.strength_scales_steps
 
 
 def test_the_step_control_opens_on_the_turbo_schedule():
     mode = qwen21_cuda_capabilities("nvfp4").mode("generate")
     steps = next(param for param in mode.params if param.id == "steps")
 
-    assert (steps.default, steps.minimum, steps.maximum) == (8, 1, 50)
+    assert (steps.default, steps.minimum, steps.maximum) == (8, 8, 8)
 
 
 def test_edit_takes_references_on_the_turbo_schedule():
@@ -61,3 +64,12 @@ def test_edit_offers_no_looks_until_they_are_sampled_on_this_engine():
 
     assert mode.looks == ()
     assert mode.templates == ()
+
+
+def test_a_run_from_a_picture_reads_its_measured_time():
+    start = qwen21_cuda_capabilities("bf16").mode("generate").reference_estimate
+    assert start is not None
+
+    # Five steps at 0.59 MP, strength 0.4, took 4.38 s; two steps at 1 MP, strength 0.75, 4.35 s.
+    assert 5 * start.step_cost * 0.5625**start.exponent + start.overhead == pytest.approx(4.38, abs=0.4)
+    assert 2 * start.step_cost + start.overhead == pytest.approx(4.35, abs=0.5)

@@ -4,6 +4,7 @@ import math
 from studio.l1_entities.image_job import ImageJob, ImageResult
 from studio.l2_use_cases.boundaries.image_backend_gateway import ImageBackendGateway
 from studio.l3_interface_adapters.gateways.image.qwen21_cuda.capabilities import qwen21_cuda_capabilities
+from studio.l3_interface_adapters.gateways.image.shared.image_sizes import match_reference_size
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_controls import MATCH
 from studio.l3_interface_adapters.gateways.image.shared.qwen_image_sizes import EDIT_MATCH_CAP
 from studio.l3_interface_adapters.gateways.stdio_child import StdioChild
@@ -32,10 +33,23 @@ def match_resolution(width: int, height: int) -> int:
 
 
 def generate_payload(job: ImageJob) -> dict:
-    """One job as the child's JSON. Text and pixels cross as values, never as paths."""
+    """One job as the child's JSON. Text and pixels cross as values, never as paths.
+
+    A Generate that starts from a picture sends it with its strength. "Match" takes the
+    picture's shape at about one megapixel, as on the MLX backends.
+    """
     options = job.options
-    width, height = (int(side) for side in str(options["size"]).split("x"))
-    return {
+    start = job.references[0] if job.references else None
+    if options["size"] != MATCH:
+        width, height = (int(side) for side in str(options["size"]).split("x"))
+    elif start is not None:
+        # The MLX size, on this pipeline's 32 grid, so the size reported is the size rendered.
+        width, height = (
+            max(GRID, GRID * round(side / GRID)) for side in match_reference_size(start.width, start.height)
+        )
+    else:
+        width, height = 1024, 1024
+    payload = {
         "mode": "generate",
         "prompt": job.prompt,
         "negative": options.get("negative") or "",
@@ -45,6 +59,10 @@ def generate_payload(job: ImageJob) -> dict:
         "guidance": float(options.get("guidance", 1.0)),
         "seed": job.seed,
     }
+    if start is not None:
+        payload["start"] = base64.b64encode(start.png).decode("ascii")
+        payload["strength"] = float(options["strength"])
+    return payload
 
 
 def edit_payload(job: ImageJob) -> dict:
