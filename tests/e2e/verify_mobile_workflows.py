@@ -261,7 +261,7 @@ def check_layout(page):
     expect(page.locator("#music-studio")).to_be_visible()
     assert page.locator("#form").bounding_box()["x"] >= 1000
     expect(page.locator("#music-studio .about").first).to_be_visible()
-    expect(page.locator("#music-studio .preview-details-toggle").first).to_be_hidden()
+    expect(page.locator("#music-studio .preview-details-toggle").first).to_be_visible()
     page.set_viewport_size({"width": 344, "height": 882})
     pane(page, "controls")
     page.locator("#music-style").fill("Keep this draft across a fold.")
@@ -317,8 +317,17 @@ def check_picker_locks(page):
     other = page.context.new_page()
     other.goto(BASE + "/?workspace=image")
     controls(other)
+    # The default Turbo model pins eight steps, a run about as long as the page's idle poll,
+    # so the page could miss the whole run. Qwen-Image-2.1 takes 40.
+    other.locator("#backend-toggle").tap()
+    other.get_by_role("menuitemradio", name="Qwen-Image-2.1", exact=True).tap()
+    expect(other.locator("h1")).to_have_text("Qwen-Image-2.1", timeout=15000)
+    other.wait_for_function("!busy() && !sharedOperation", timeout=15000)
+    expect(page.locator("#workspace-toggle")).to_be_enabled(timeout=15000)
+    controls(other)
     other.locator('label[for="mode-generate"]').tap()
     set_steps(other, 40)
+    expect(other.locator("#steps")).to_have_value("40")
     for target in ("#workspace-toggle", ".pane-gallery-shelf select"):
         page.locator(target).tap()
         expect(page.locator(".mobile-menu-dialog[open]")).to_be_visible()
