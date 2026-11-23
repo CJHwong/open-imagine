@@ -3406,6 +3406,12 @@
   // The arrow keys walk the strip, which is the strip's own move: the module
   // keeps the shown frame's box across its own redraw, so the correction lives
   // where the redraw does.
+  // A file picker covers the page. On a phone, the WebView focuses again whatever held focus when
+  // the picker opened, and a tap on the dashed reference area is no focus change: the prompt kept
+  // it and came back focused, with its keyboard over the page. Focus leaves before any picker opens.
+  document.addEventListener('click', function (event) {
+    if (event.target instanceof HTMLInputElement && event.target.type === 'file') document.activeElement?.blur();
+  }, true);
   document.addEventListener('keydown', function (event) {
     // A key event dispatched from a script can carry the document itself as its target.
     // Treat that as the body: the key still acts, and `.closest` cannot throw.
