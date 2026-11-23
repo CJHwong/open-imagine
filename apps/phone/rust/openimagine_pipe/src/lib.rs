@@ -18,6 +18,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 mod protocol;
+mod relay;
 
 use protocol::{ALPN, HANDSHAKE};
 
@@ -182,19 +183,10 @@ async fn run(
 }
 
 async fn forward(tcp: tokio::net::TcpStream, endpoint: Endpoint, addr: EndpointAddr) -> Result<()> {
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
+    let (tcp_read, tcp_write) = tcp.into_split();
     let connection = endpoint.connect(addr, ALPN).await?;
-    let (mut send, mut recv) = connection.open_bi().await?;
+    let (mut send, recv) = connection.open_bi().await?;
     send.write_all(&HANDSHAKE).await?;
-    let up = async {
-        tokio::io::copy(&mut tcp_read, &mut send).await?;
-        send.finish()?;
-        Ok::<_, std::io::Error>(())
-    };
-    let down = async {
-        tokio::io::copy(&mut recv, &mut tcp_write).await?;
-        Ok::<_, std::io::Error>(())
-    };
-    let _ = tokio::join!(up, down);
+    relay::relay(tcp_read, tcp_write, recv, send).await?;
     Ok(())
 }
