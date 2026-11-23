@@ -1334,7 +1334,9 @@ never kept. The boundary controls retention. When memory checks are enabled,
 Studio checks a run's peak against free memory with the 8 GiB system reserve.
 
 `POST /api/v1/memory/release` frees every model under either policy. The page's
-workspace switch follows the policy.
+workspace switch follows the policy. Settings > Generation lists the resident models by
+name and has a Release button that calls this route; during a run the route answers `409`
+and the button says to wait for the run to end.
 
 ## Model storage and cleanup
 

@@ -22,7 +22,7 @@ dialog.innerHTML = `<header class="settings-header"><div><span class="settings-e
 <div class="settings-layout"><nav class="settings-nav" role="tablist" aria-label="${tr("sections")}">${sections.map(([id, glyph]) => `<button type="button" role="tab" id="settings-tab-${id}" aria-controls="settings-panel-${id}" aria-selected="false" data-section="${id}">${icon(glyph)}<span>${tr(id)}</span><span class="settings-nav-arrow">›</span></button>`).join("")}<p>${tr("sidebarNote")}</p></nav>
 <div class="settings-content">
 <section role="tabpanel" id="settings-panel-appearance" aria-labelledby="settings-tab-appearance" hidden><div class="settings-section-heading"><span class="settings-scope">${tr("browser")}</span><h3>${tr("appearanceTitle")}</h3><p>${tr("appearanceNote")}</p></div><h4>${tr("theme")}</h4><div class="settings-theme-grid" role="radiogroup" aria-label="${tr("theme")}"></div><div class="settings-card"><div><h4>${tr("language")}</h4><p>${tr("languageNote")}</p></div><div class="settings-languages" role="radiogroup" aria-label="${tr("language")}"></div></div></section>
-<section role="tabpanel" id="settings-panel-generation" aria-labelledby="settings-tab-generation" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("generationTitle")}</h3><p>${tr("generationNote")}</p></div><div class="settings-card"><div><h4>${tr("memoryTitle")}</h4><p>${t("settings.memory.help")}</p></div><button type="button" id="require-memory-estimate-toggle" role="switch" aria-checked="true" aria-label="${t("settings.memory.require")}" disabled><span></span></button></div><p class="settings-note">${tr("memoryNote")}</p><div id="settings-reset" class="settings-tools"></div></section>
+<section role="tabpanel" id="settings-panel-generation" aria-labelledby="settings-tab-generation" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("generationTitle")}</h3><p>${tr("generationNote")}</p></div><div class="settings-card"><div><h4>${tr("memoryTitle")}</h4><p>${t("settings.memory.help")}</p></div><button type="button" id="require-memory-estimate-toggle" role="switch" aria-checked="true" aria-label="${t("settings.memory.require")}" disabled><span></span></button></div><p class="settings-note">${tr("memoryNote")}</p><div class="settings-card"><div><h4>${tr("release.title")}</h4><p id="release-memory-state" aria-live="polite"></p></div><button type="button" id="release-memory" class="btn" disabled>${tr("release.action")}</button></div><div id="settings-reset" class="settings-tools"></div></section>
 <section role="tabpanel" id="settings-panel-library" aria-labelledby="settings-tab-library" hidden><div class="settings-section-heading"><span class="settings-scope">${tr("browser")}</span><h3>${tr("libraryTitle")}</h3><p>${tr("libraryNote")}</p></div><div id="settings-library-controls" class="settings-tools"></div></section>
 <section role="tabpanel" id="settings-panel-storage" aria-labelledby="settings-tab-storage" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("storageTitle")}</h3><p>${tr("storageNote")}</p></div><div class="settings-storage-summary"><div><span>${tr("diskUsage")}</span><strong id="settings-storage-total">${tr("loading")}</strong></div><button type="button" id="settings-storage-refresh">${tr("refresh")}</button></div><div id="settings-storage-models"></div><label class="settings-runtime"><input type="checkbox" id="settings-include-runtime">${tr("includeRuntime")}</label><p class="settings-note">${tr("protectedNote")}</p><button type="button" class="settings-primary" id="settings-review" disabled>${tr("review")}</button><div id="settings-cleanup-preview" hidden><h4>${tr("reviewTitle")}</h4><div id="settings-cleanup-items"></div><p class="settings-note">${tr("reinstallNote")}</p><button type="button" class="settings-danger" id="settings-remove">${tr("remove")}</button><button type="button" id="settings-back">${tr("back")}</button></div></section>
 <section role="tabpanel" id="settings-panel-phone" aria-labelledby="settings-tab-phone" hidden><div class="settings-section-heading"><span class="settings-scope shared">${tr("everyone")}</span><h3>${tr("phoneTitle")}</h3><p>${tr("phoneNote")}</p></div><div class="settings-card"><div><h4>${tr("phoneCode")}</h4><p>${tr("phoneCodeNote")}</p></div><button type="button" id="settings-phone-open">${tr("phoneOpen")}</button></div></section>
@@ -155,12 +155,53 @@ memory.addEventListener("click", async () => {
     memory.disabled = false;
   }
 });
+// The models the server holds in memory, by name. A release frees them for everyone using the
+// server, so the card says what is loaded before the press and again after it.
+const release = find("#release-memory");
+const releaseState = find("#release-memory-state");
+async function refreshResident() {
+  try {
+    const studio = await json("studio");
+    const names = new Map();
+    for (const workspace of ["image", "video", "voice", "music"]) {
+      for (const backend of studio[workspace]?.backends || []) names.set(backend.id, backend.name);
+    }
+    const resident = (studio.memory?.resident || []).map((id) => names.get(id) || id);
+    releaseState.textContent = resident.length
+      ? tr("release.loaded", {
+          names: new Intl.ListFormat(document.documentElement.lang || undefined).format(resident),
+        })
+      : tr("release.none");
+    release.disabled = !resident.length;
+  } catch (error) {
+    release.disabled = true;
+    notice(error.message, true);
+  }
+}
+release.addEventListener("click", async () => {
+  release.disabled = true;
+  try {
+    const response = await fetch("/api/v1/memory/release", { method: "POST" });
+    if (response.status === 409) {
+      notice(tr("release.busy"), true);
+    } else if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      notice(result.error || response.statusText, true);
+    } else {
+      notice(tr("release.done"));
+    }
+  } catch (error) {
+    notice(error.message, true);
+  }
+  await refreshResident();
+});
 function open() {
   closeMenus();
   dialog.showModal();
   trigger.setAttribute("aria-expanded", "true");
   selectSection(section);
   refreshMemory();
+  refreshResident();
   find(".settings-close").focus();
 }
 function close() {
