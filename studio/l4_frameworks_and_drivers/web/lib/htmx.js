@@ -602,12 +602,12 @@ function listen() {
     // images composes them, so no single source lines up with the result and
     // a wipe between them would mislead.
     batchSource = page.editing() && references.length === 1
-      ? blobUrl('data:image/png;base64,' + references[0].b64) : null;
+      ? blobUrl(studioImageDataUrl(references[0].b64)) : null;
     // One result per reference edits each picture on its own, so every result has a source to
     // wipe against. Composed, no single one lines up, which is what batchSource being null says.
     const chosen = event.detail.elt.querySelector('input[name=each_reference]:checked');
     batchSources = page.editing() && chosen && chosen.value === '1'
-      ? references.map(function (reference) { return blobUrl('data:image/png;base64,' + reference.b64); })
+      ? references.map(function (reference) { return blobUrl(studioImageDataUrl(reference.b64)); })
       : [];
     runSources = references.map(function (reference) { return reference.source; });
     const own = page.el.promptInput.value.trim();

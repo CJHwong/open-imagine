@@ -1,6 +1,7 @@
 """The HTTP routes. Each one hands the form to the controller and its answer to the presenter."""
 
 import gzip
+import hashlib
 import json
 import logging
 import threading
@@ -52,6 +53,12 @@ MINIMUM_COMPRESSED_BYTES = 1024
 MAXIMUM_COMPRESSED_BYTES = 4 * 1024 * 1024
 COMPRESSIBLE_TYPES = ("text/", "application/json")
 COMPRESS_LEVEL = 6
+
+
+def studio_revision(studio: dict) -> str:
+    """A short digest of the studio block, which changes whenever any part of it does."""
+    encoded = json.dumps(studio, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
 
 
 def accepts_gzip(header: str) -> bool:
@@ -250,7 +257,7 @@ def make_handler(
                 # A handler without the API offers no optional workspace, and
                 # the presenter draws no tab for one it was not told about.
                 query = parse_qs(urlsplit(self.path).query)
-                self._send(
+                self._send_revalidated(
                     presenter.page(
                         controller.page(),
                         api.workspaces() if api else None,
@@ -326,7 +333,7 @@ def make_handler(
             if path == "/image/normalize":
                 self._normalize_image()
                 return
-            if path in ("/voice/operations", "/image/operations", "/music/operations"):
+            if path in ("/voice/operations", "/image/operations", "/music/operations", "/video/operations"):
                 self._start_operation(source="ui")
                 return
             if path == "/video/generate":
@@ -443,6 +450,12 @@ def make_handler(
             assert api is not None
             document = api.state(viewer)
             document["uploads"] = budget.status()
+            # The studio block is most of the answer and rarely changes. A poller that names
+            # the revision it holds gets the block only when that revision is out of date.
+            revision = studio_revision(document["studio"])
+            document["studio_revision"] = revision
+            if parse_qs(urlsplit(self.path).query).get("studio") == [revision]:
+                del document["studio"]
             return document
 
         def _run_image_form(self, form) -> str:
@@ -1039,7 +1052,23 @@ def make_handler(
             if not asset.is_relative_to(WEB) or asset.suffix not in PAGE_ASSETS or not asset.is_file():
                 self._send("not found", status=404, content_type="text/plain")
                 return
-            self._send(asset.read_text(encoding="utf-8"), content_type=PAGE_ASSETS[asset.suffix])
+            self._send_revalidated(asset.read_text(encoding="utf-8"), PAGE_ASSETS[asset.suffix])
+
+        def _send_revalidated(self, body: str, content_type: str = "text/html; charset=utf-8") -> None:
+            """The page and its modules, which a phone fetches over a slow pipe on every open.
+            The browser keeps a copy and asks before each use whether it still holds. An
+            unchanged file answers `304` with no body, and a changed one goes out whole, so a
+            restart that changed a file is never served from the old copy."""
+            payload = body.encode("utf-8")
+            tag = '"' + hashlib.sha256(payload).hexdigest()[:32] + '"'
+            headers = {"ETag": tag}
+            if tag in (one.strip() for one in self.headers.get("If-None-Match", "").split(",")):
+                self.send_response(304)
+                self.send_header("ETag", tag)
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                return
+            self._send_bytes(payload, 200, content_type, headers, cache="no-cache")
 
         def _send(self, body: str, status: int = 200, content_type: str = "text/html; charset=utf-8"):
             self._send_bytes(body.encode("utf-8"), status, content_type)
@@ -1063,6 +1092,7 @@ def make_handler(
             status: int = 200,
             content_type: str = "application/octet-stream",
             headers: dict[str, str] | None = None,
+            cache: str = "no-store",
         ):
             # A response can be large, so the write has no deadline. The socket goes back
             # to the read deadline afterwards, so an idle keep-alive connection ends
@@ -1084,8 +1114,10 @@ def make_handler(
                     self.send_header("Content-Encoding", encoding)
                 # The studio serves files that change between restarts, and it sent no cache
                 # header at all, so a browser was free to keep an old page.css or module and
-                # show a form the server no longer had. Nothing here is worth caching.
-                self.send_header("Cache-Control", "no-store")
+                # show a form the server no longer had. Answers are not stored, except the
+                # page's own files, which are kept only on the condition that they are
+                # checked again before each use.
+                self.send_header("Cache-Control", cache)
                 for name, value in (headers or {}).items():
                     self.send_header(name, value)
                 self.end_headers()

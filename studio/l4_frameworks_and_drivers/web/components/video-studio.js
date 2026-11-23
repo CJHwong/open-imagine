@@ -1101,7 +1101,7 @@ class VideoStudio extends LitElement {
         const imported = await readImageFile(file);
         if (!this.canCommitInput(epoch)) return;
         if (!imported) continue;
-        const src = 'data:image/png;base64,' + imported.b64;
+        const src = studioImageDataUrl(imported.b64);
         const id = 'video-ref-' + nextClipId++;
         this.addImageReference({
           id: id,
@@ -1695,7 +1695,7 @@ class VideoStudio extends LitElement {
         const imported = await readImageFile(file);
         if (!this.canCommitInput(epoch)) return;
         if (!imported) continue;
-        const src = 'data:image/png;base64,' + imported.b64;
+        const src = studioImageDataUrl(imported.b64);
         this.addImageReference({
           id: 'video-ref-' + nextClipId++,
           name: file.name,

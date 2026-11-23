@@ -303,7 +303,7 @@
   "image.mode.generate": "生成",
   "image.import.cancel": "取消",
   "image.import.close": "取消匯入圖片",
-  "image.import.formatNotice": "兩個選項都會建立 PNG 副本。原始解析度會保留來源圖片尺寸。",
+  "image.import.formatNotice": "原始解析度會直接送出 JPEG、PNG 或 WebP 原始檔案。其他圖片與縮小後的圖片，可能含透明區域的存成 PNG，其餘存成 JPEG。",
   "image.import.largeText": "{name} 的尺寸為 {width} × {height} 像素。",
   "image.import.largeTitle": "圖片尺寸較大",
   "image.import.original": "使用原始解析度",

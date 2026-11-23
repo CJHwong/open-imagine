@@ -182,7 +182,7 @@ with sync_playwright() as playwright:
         "request",
         lambda request: (
             video_posts.append(json.loads(request.post_data or "{}"))
-            if request.method == "POST" and request.url.endswith("/video/generate")
+            if request.method == "POST" and request.url.endswith("/video/operations")
             else None
         ),
     )
@@ -1547,22 +1547,29 @@ with sync_playwright() as playwright:
           window.__studioOriginalFetch = window.fetch.bind(window);
           window.__studioCancelRequested = false;
           window.__studioProgressReady = false;
-          window.__studioForeignRequestId = null;
           window.__studioRunActive = false;
           window.__studioOperationId = 'video-cancel-test';
           window.fetch = (input, options = {}) => {
             const path = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
-            if (path === '/video/generate') {
+            // The run is started and followed the way the page does it: a 202 for the start,
+            // then its status. This render never reaches the stub server.
+            if (path === '/video/operations') {
               window.__studioRequestId = JSON.parse(options.body).request_id;
               window.__studioRunActive = true;
-              return new Promise(resolve => { window.__studioResolveVideo = resolve; });
+              return Promise.resolve(new Response(JSON.stringify({
+                id: window.__studioOperationId, kind: 'video', status: 'queued',
+                status_url: '/api/v1/operations/' + window.__studioOperationId,
+              }), {status: 202, headers: {'Content-Type': 'application/json'}}));
             }
-            if (path === '/video/progress') return Promise.resolve(new Response(JSON.stringify({
-              running: window.__studioProgressReady,
-              stage: window.__studioProgressReady ? 'running' : 'preparing', step: 2, total: 8, phase: 1,
-              kind: 'video', stopping: false,
-              request_id: window.__studioForeignRequestId || window.__studioRequestId,
-            }), {headers: {'Content-Type': 'application/json'}}));
+            if (path === '/api/v1/operations/' + window.__studioOperationId) {
+              const ready = window.__studioProgressReady;
+              const status = window.__studioCancelRequested ? 'cancelled' : (ready ? 'running' : 'queued');
+              return Promise.resolve(new Response(JSON.stringify({
+                id: window.__studioOperationId, kind: 'video', status,
+                status_url: '/api/v1/operations/' + window.__studioOperationId,
+                progress: {running: status === 'running', stage: ready ? 'running' : 'preparing', step: 2, total: 8},
+              }), {headers: {'Content-Type': 'application/json'}}));
+            }
             // The run's Cancel is the status bar's, as in the other three workspaces. This
             // render never reaches the stub server, so the state poll is told about it.
             if (path === '/api/v1/state' && window.__studioRunActive) {
@@ -1580,9 +1587,6 @@ with sync_playwright() as playwright:
               window.__studioCancelOperationId = window.__studioOperationId;
               window.__studioCancelRequested = true;
               window.__studioRunActive = false;
-              window.__studioResolveVideo(new Response(JSON.stringify({cancelled: true}), {
-                headers: {'Content-Type': 'application/json'},
-              }));
               return Promise.resolve(new Response(null, {status: 204}));
             }
             return window.__studioOriginalFetch(input, options);
@@ -1641,7 +1645,6 @@ with sync_playwright() as playwright:
         str(starting_locked),
     )
     page.evaluate("() => { window.__studioProgressReady = true; }")
-    page.evaluate("() => { window.__studioForeignRequestId = 'another-tab'; }")
     page.wait_for_timeout(500)
     foreign_run_state = page.evaluate(
         """() => ({
@@ -1654,7 +1657,6 @@ with sync_playwright() as playwright:
         foreign_run_state["disabled"] and foreign_run_state["label"] == "Generate",
         str(foreign_run_state),
     )
-    page.evaluate("() => { window.__studioForeignRequestId = null; }")
     page.wait_for_function(
         "() => !document.querySelector('#shared-operation-cancel').disabled",
         timeout=10000,
@@ -2815,7 +2817,7 @@ with sync_playwright() as playwright:
     edited = []
     page.on(
         "request",
-        lambda request: edited.append(request.post_data or "") if request.url.endswith("/video/generate") else None,
+        lambda request: edited.append(request.post_data or "") if request.url.endswith("/video/operations") else None,
     )
     clips_before = page.locator("#video-gallery .video-clip").count()
     page.click("#video-generate")
@@ -2862,7 +2864,7 @@ with sync_playwright() as playwright:
     sent = []
     page.on(
         "request",
-        lambda request: sent.append(request.post_data or "") if request.url.endswith("/video/generate") else None,
+        lambda request: sent.append(request.post_data or "") if request.url.endswith("/video/operations") else None,
     )
     before = page.locator(".video-gallery-item:not(.pending)").count()
     page.fill("#video-prompt", "a cat walking on a wall")

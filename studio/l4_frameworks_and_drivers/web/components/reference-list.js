@@ -60,7 +60,7 @@ class ReferenceList extends LitElement {
       <div><strong id="refs-title">${editing ? t('image.refs.add_title') : t('image.refs.start_title')}</strong>
         <span id="refs-sub">${editing ? t('image.refs.add_sub', {limit}) : t('image.refs.start_sub')}</span></div></div>
       <div class="thumbs" id="thumbs">${references.map((reference, index) => html`
-        <div class="thumb"><img src=${'data:image/png;base64,' + reference.b64} alt=${reference.name}>
+        <div class="thumb"><img src=${studioImageDataUrl(reference.b64)} alt=${reference.name}>
           <span class="reference-caption">${reference.name}</span>
           <button type="button" class="remove labeled-action" aria-label=${t('image.refs.remove', {name: reference.name})}
             @click=${(event) => { event.stopPropagation(); page.remove(index); }}>

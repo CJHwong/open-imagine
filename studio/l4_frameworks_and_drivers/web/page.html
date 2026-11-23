@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Open Imagine</title>
 <script src="/page/lib/identity.js"></script>
+<script src="/page/lib/image-data.js"></script>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128"> <rect x="18" y="8" width="92" height="112" rx="12" fill="%234d3e3b"/> <rect x="23" y="13" width="82" height="102" rx="8" fill="%23d2cbc4"/> <rect x="30" y="20" width="68" height="88" fill="%23f7e7d7"/> <rect x="35" y="25" width="58" height="42" fill="%23c80600"/> <rect x="35" y="67" width="58" height="20" fill="%236b0100"/> <circle cx="64" cy="44" r="8" fill="%23fd3800"/> </svg>'>
 <script>
   // The saved theme applies before the first paint, so the page never flashes the default.
@@ -854,6 +855,8 @@
   let backendSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
+  // The video operation this page polls itself. The shared poll leaves that one alone.
+  let followingVideoId = null;
   let formApi = null;
   // The figure beside the video button, from the plan route. The button's own redraw reads it,
   // and that redraw runs before the planner's code is reached, so the state lives here.
@@ -1182,7 +1185,7 @@
   }
 
   function dataUrlFor(entry) {
-    if (entry.b64) return Promise.resolve('data:image/png;base64,' + entry.b64);
+    if (entry.b64) return Promise.resolve(studioImageDataUrl(entry.b64));
     return kept.blobOf(entry.src).then(function (blob) {
       return new Promise(function (resolve, reject) {
         const reader = new FileReader();
@@ -1199,7 +1202,7 @@
       videoStudio.addImageReference({
         id: reference.id,
         name: reference.name,
-        src: 'data:image/png;base64,' + reference.b64,
+        src: studioImageDataUrl(reference.b64),
         base64: reference.b64,
       });
     });
@@ -2133,6 +2136,61 @@
     }, 400);
   }
 
+  const VIDEO_POLL_MS = 1000;
+  const VIDEO_LOST_POLLS = 5;
+
+  function videoPause() {
+    return new Promise(function (resolve) { window.setTimeout(resolve, VIDEO_POLL_MS); });
+  }
+
+  // One read of a run or its result. A dropped connection or a bad answer is null, so the
+  // caller tries again; a result the studio no longer holds is an error.
+  async function videoRead(url) {
+    let answer;
+    try {
+      answer = await fetch(url, {cache: 'no-store'});
+    } catch (error) {
+      return null;
+    }
+    if (answer.status === 404 || answer.status === 410) throw new Error(t('operation.error.expired'));
+    return answer.ok ? answer : null;
+  }
+
+  // The run lives on the studio, not in a request. A poll that fails is retried: a phone that
+  // sleeps, or a pipe that drops a connection, has not stopped the clip.
+  async function followVideoOperation(operation, runSeconds) {
+    let state = operation;
+    let failures = 0;
+    while (['queued', 'running', 'stopping'].includes(state.status)) {
+      await videoPause();
+      const answer = await videoRead(operation.status_url);
+      const next = answer ? await answer.json().catch(function () { return null; }) : null;
+      if (!next) {
+        failures += 1;
+        if (failures === VIDEO_LOST_POLLS) videoStudio.setError(t('page.error.videoProgress'));
+        continue;
+      }
+      if (failures >= VIDEO_LOST_POLLS) videoStudio.clearError();
+      failures = 0;
+      state = next;
+      if (state.status === 'running' && videoRunState === 'starting') setVideoRunState('running');
+      if (state.progress && state.progress.running) {
+        videoStudio.setGenerationProgress(Object.assign({}, state.progress), runSeconds());
+      }
+    }
+    return state;
+  }
+
+  // The studio keeps the clip for an hour, so a read that fails is tried a few times.
+  async function readVideoResult(url) {
+    for (let attempt = 1; attempt <= VIDEO_LOST_POLLS; attempt++) {
+      const answer = await videoRead(url);
+      if (answer) return answer;
+      await videoPause();
+    }
+    throw new Error(t('operation.error.result'));
+  }
+
   document.getElementById('video-generate').addEventListener('click', async function () {
     if (videoRunState !== 'idle') return;
     const status = document.getElementById('video-request-status');
@@ -2158,10 +2216,8 @@
     const submittedDraftId = drafts?.submit('video');
     setVideoRunState('starting');
     setPane('preview');
-    let progressTimer = null;
-    let progressRequestPending = false;
-    let progressFailures = 0;
     const requestStarted = performance.now();
+    const runSeconds = function () { return (performance.now() - requestStarted) / 1000; };
     videoStudio.setGenerationProgress(
       {running: true, stage: 'preparing', step: 0, total: 0},
       0,
@@ -2178,31 +2234,6 @@
         fastMode: settings.fastMode,
       },
     );
-    progressTimer = window.setInterval(async function () {
-      if (progressRequestPending) return;
-      progressRequestPending = true;
-      try {
-        const progressResponse = await fetch('/video/progress', {cache: 'no-store'});
-        if (!progressResponse.ok) throw new Error('The progress request failed.');
-        const progressState = await progressResponse.json();
-        progressFailures = 0;
-        if (progressState.kind === 'video' && progressState.request_id === videoRunRequestId) {
-          videoStudio.setGenerationProgress(progressState, (performance.now() - requestStarted) / 1000);
-          if (progressState.running && videoRunState === 'starting') setVideoRunState('running');
-        }
-      } catch (error) {
-        // One lost poll is a blip. A run that has lost several is not reporting, and the
-        // person watching it should know before the request itself gives up.
-        progressFailures += 1;
-        if (progressFailures === 5) videoStudio.setError(t('page.error.videoProgress'));
-        videoStudio.setGenerationProgress(
-          {running: true, stage: 'preparing', step: 0, total: 0},
-          (performance.now() - requestStarted) / 1000,
-        );
-      } finally {
-        progressRequestPending = false;
-      }
-    }, 350);
     try {
       // The run sheet reads what this page is about to send.
       videoStudio.rememberRun(settings);
@@ -2230,35 +2261,48 @@
             });
       payload.clip = editing ? await selectedClipPayload() : undefined;
       payload.audio = !editing ? await videoStudio.audioPayload() : undefined;
-      const response = await fetch('/video/generate', {
+      // The studio answers at once and keeps the run. The page follows it by polling, so a
+      // request that drops while the phone sleeps does not take the clip with it.
+      const started = await fetch('/video/operations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Studio-Client': CLIENT_ID, 'X-Studio-Library': LIBRARY_ID },
-        body: JSON.stringify({...payload, draft_id: submittedDraftId}),
+        body: JSON.stringify({...payload, kind: 'video', draft_id: submittedDraftId}),
       });
-      settings.operationId = response.headers.get('X-Studio-Operation') || '';
-      settings.createdAt = Number(response.headers.get('X-Studio-Completed')) * 1000 || Date.now();
-      const contentType = response.headers.get('content-type') || '';
-      if (!response.ok) {
-        const failure = await response.json().catch(() => ({}));
+      if (!started.ok) {
+        const failure = await started.json().catch(() => ({}));
         throw new Error(failure.error || t('page.error.videoRequestFailed'));
       }
+      const operation = await started.json();
+      settings.operationId = operation.id;
+      followingVideoId = operation.id;
+      const outcome = await followVideoOperation(operation, runSeconds);
+      settings.createdAt = Number(outcome.finished_at) * 1000 || Date.now();
+      // A stop or a failure is reported here, so the shared poll does not report it again.
+      if (outcome.status !== 'succeeded' || !outcome.result_url) {
+        document.dispatchEvent(new CustomEvent('operation-imported', {detail: operation.id}));
+      }
+      if (outcome.status === 'cancelled') {
+        status.textContent = t('page.video.statusCancelled');
+        videoStudio.clearError();
+        return;
+      }
+      if (outcome.status !== 'succeeded' || !outcome.result_url) {
+        throw new Error(outcome.error || t('page.error.videoFailed'));
+      }
+      const response = await readVideoResult(outcome.result_url);
+      const contentType = response.headers.get('content-type') || '';
       if (contentType.indexOf('video/mp4') !== -1) {
         const video = await response.blob();
         const actualSeed = response.headers.get('X-Studio-Seed');
         if (actualSeed !== null && /^\d+$/.test(actualSeed)) settings.seed = Number(actualSeed);
-        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        settings.elapsedSeconds = runSeconds();
         await videoStudio.addGeneratedClip(video, settings);
         document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
         status.textContent = t('page.video.statusAdded');
       } else {
         const output = await response.json();
-        if (output.cancelled) {
-          status.textContent = t('page.video.statusCancelled');
-          videoStudio.clearError();
-          return;
-        }
         if (!output.stub) throw new Error(t('page.error.videoUnknown'));
-        settings.elapsedSeconds = (performance.now() - requestStarted) / 1000;
+        settings.elapsedSeconds = runSeconds();
         videoStudio.addStubClip(output, settings);
         document.dispatchEvent(new CustomEvent('operation-imported', {detail: settings.operationId}));
         status.textContent = t('page.video.statusStub');
@@ -2266,12 +2310,18 @@
       setVideoPrompt('');
       videoStudio.clearImageReferences();
       videoStudio.clearAudio();
+      // The emptied form is saved now. A later poll sees the run end too, and without a newer
+      // draft it would apply the submitted one again and move the selection off this clip.
+      if (drafts) drafts.changedNow('video');
     } catch (error) {
-      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed') : error.message);
+      // A dropped connection may have cut off only the answer. The run can still be going,
+      // and the shared poll imports its clip when it ends.
+      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed')
+        : error instanceof TypeError ? t('page.error.videoProgress') : error.message);
       status.textContent = t('page.error.videoFailed');
       setPane('controls');
     } finally {
-      if (progressTimer !== null) window.clearInterval(progressTimer);
+      followingVideoId = null;
       videoStudio.setGenerationProgress(null, 0);
       videoStudio.setCancelRequested(false);
       setVideoRunState('idle');
@@ -3008,6 +3058,7 @@
       },
       notify: showToast,
       changingModel: function () { return workspaceSwitchPending || backendSwitchPending; },
+      followingVideo: function () { return followingVideoId; },
       video: function () { return videoStudio; },
       voice: function () { return voiceStudio; },
       music: function () { return musicStudio; },

@@ -427,7 +427,7 @@ class JsonApi:
             if kind == "image":
                 return self._image_run(body, mode)
             if kind == "video":
-                return self._video_run(body, mode)
+                return self._video_run(body, mode, select=operation["source"] != "ui")
             if kind == "prepare":
                 return self._run_prepare(operation["id"], str(body["backend"]))
             return rewrite_document(self._controller.rewrite(rewrite_form(body, operation["workspace"])))
@@ -949,9 +949,12 @@ class JsonApi:
             controller = self._workspace_controller(workspace)
             controller.switch({"backend": backend})
 
-    def _video_run(self, payload: Mapping[str, object], mode: str) -> VideoResult:
+    def _video_run(self, payload: Mapping[str, object], mode: str, *, select: bool = True) -> VideoResult:
         # The route names the mode, so a body cannot ask the generate route to edit a clip.
-        self._select_requested_backend("video", payload)
+        # The page sends the model it drew its form for. A model changed in another tab is
+        # refused rather than switched back, because the form's settings belong to that model.
+        if select:
+            self._select_requested_backend("video", payload)
         body = {**self._prompt_payload(payload, mode, video=True), "mode": mode}
         # A caller that does not want to stop the render should not have to name it. The
         # controller needs an id to tell two renders apart, so one is made here.

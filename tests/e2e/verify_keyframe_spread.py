@@ -97,7 +97,7 @@ with sync_playwright() as playwright:
         "2 image references moved inside the 121-frame clip, one per frame" in toast,
         toast,
     )
-    with page.expect_request(lambda request: request.url.endswith("/video/generate")) as sent:
+    with page.expect_request(lambda request: request.url.endswith("/video/operations")) as sent:
         page.fill("#video-prompt", "Five colours in a row.")
         page.locator("#video-generate").click()
     sent_frames = [reference["frame_index"] for reference in sent.value.post_data_json["references"]]

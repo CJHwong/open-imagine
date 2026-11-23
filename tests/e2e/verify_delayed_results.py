@@ -70,7 +70,7 @@ with sync_playwright() as tool:
         page.evaluate("kept.clearVideos()")
         route.fulfill(response=response)
 
-    page.route("**/video/generate", clear_video_before_delivery)
+    page.route("**/api/v1/operations/*/result", clear_video_before_delivery)
     page.fill("#video-prompt", "a clip completed before Clear all")
     page.locator("#video-generate").click()
     page.wait_for_function("videoRunState === 'idle'")

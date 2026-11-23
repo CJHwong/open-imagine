@@ -102,7 +102,7 @@ def switch(page, backend, name):
 
 
 def generate(page):
-    with page.expect_response(lambda response: response.url.endswith("/video/generate")) as answered:
+    with page.expect_response(lambda response: response.url.endswith("/video/operations")) as answered:
         page.fill("#video-prompt", "A paper boat on a pond.")
         page.locator("#video-generate").click()
     page.wait_for_function("() => document.getElementById('video-studio').captureInputEpoch() !== null")
@@ -332,9 +332,11 @@ with sync_playwright() as playwright:
     page.locator("#video-generate").click()
     page.wait_for_function("typeof window.releaseVideoAudio === 'function'")
     switch(page, first, models[first]["name"])
-    with page.expect_response(lambda response: response.url.endswith("/video/generate")) as prepared:
+    watch_toasts(page)
+    with page.expect_response(lambda response: response.url.endswith("/video/operations")) as prepared:
         page.evaluate("window.releaseVideoAudio()")
     request = prepared.value.request.post_data_json
+    page.wait_for_function("() => videoRunState === 'idle'", timeout=30000)
     check(
         "a model switch during media preparation keeps the submitted model",
         request["backend"] == other,
@@ -342,8 +344,8 @@ with sync_playwright() as playwright:
     )
     check(
         "a changed model is refused explicitly rather than receiving mixed settings",
-        prepared.value.status == 503 and "video model changed" in prepared.value.json().get("error", "").lower(),
-        str(prepared.value.status),
+        "video model changed" in toasts_seen(page).lower(),
+        toasts_seen(page),
     )
     check("no page error", not errors, "; ".join(errors))
     browser.close()
