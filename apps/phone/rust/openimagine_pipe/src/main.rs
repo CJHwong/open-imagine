@@ -22,6 +22,9 @@ use tokio::net::TcpStream;
 
 use protocol::{ALPN, HANDSHAKE};
 
+/// How long a finished forward waits for the phone to close its connection.
+const CLOSE_WAIT: Duration = Duration::from_secs(10);
+
 fn secret_text() -> Result<String> {
     let text = std::env::var("IROH_SECRET").context("IROH_SECRET is not set")?;
     SecretKey::from_str(&text).context("IROH_SECRET is not a 32 byte hex key")?;
@@ -145,6 +148,10 @@ async fn forward_connection(connection: iroh::endpoint::Connection, port: u16) -
     let (tcp_read, tcp_write) = tcp.into_split();
     let finished = relay::relay(recv, send, tcp_read, tcp_write).await;
     eprintln!("listener: forward finished: {finished:?}");
+    // Dropping the connection closes it at once, and the end of the answer can still be in
+    // flight: through the relay, a browser lost every reply this way. The phone closes the
+    // connection once it has read the whole answer, so wait for that, but not for ever.
+    let _ = tokio::time::timeout(CLOSE_WAIT, connection.closed()).await;
     finished?;
     Ok(())
 }
