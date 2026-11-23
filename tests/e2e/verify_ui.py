@@ -1994,7 +1994,8 @@ with sync_playwright() as playwright:
     page.wait_for_timeout(2000)
     check(
         "a switch that cannot reach the server says so and leaves the page as it was",
-        "The switch failed" in page.locator("#toasts").inner_text()
+        # The same words a workspace switch uses when its request never arrives.
+        "The server did not answer" in page.locator("#toasts").inner_text()
         and page.get_by_role("button", name=FIRST).is_visible()
         and frames(page) == kept_after_recovery,
         page.locator("#toasts").inner_text().strip()[:90],

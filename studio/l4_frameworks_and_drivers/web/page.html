@@ -3529,7 +3529,13 @@
     backendSwitchPending = true;
     setWorkspaceControlsDisabled();
     showToast('info', t('page.backend.selecting', {name: name}));
-    fetch(endpoint, { method: 'POST', body: new URLSearchParams({ backend: id }) })
+    // The same cap as a workspace switch: a dropped connection held this request open, and the
+    // model button stayed locked until the page reloaded.
+    fetch(endpoint, {
+      method: 'POST',
+      body: new URLSearchParams({ backend: id }),
+      signal: AbortSignal.timeout(STUDIO_SWITCH_TIMEOUT_MS),
+    })
       .then(function (answer) { return answer.text(); })
       .then(function (text) {
         if (!text) {
@@ -3549,7 +3555,8 @@
         toggle.removeAttribute('aria-busy');
         backendSwitchPending = false;
         setWorkspaceControlsDisabled();
-        showToast('error', t('page.backend.switchFailed', {message: error.message}));
+        const silent = error instanceof TypeError || error.name === 'TimeoutError';
+        showToast('error', silent ? t('form.error.serverSilent') : t('page.backend.switchFailed', {message: error.message}));
       });
   }
 
