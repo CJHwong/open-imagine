@@ -1,7 +1,11 @@
 """Check phone startup over plain HTTP, outside localhost's secure context.
 
 Run a stub with --host 0.0.0.0, then:
-uv run --with playwright python tests/e2e/verify_mobile_network.py <port> [network-host]
+uv run --with playwright python tests/e2e/verify_mobile_network.py <port> <network-host>
+
+<network-host> is this machine's LAN address, such as `ipconfig getifaddr en0` prints. The server
+answers 403 to a Host it did not bind, and `0.0.0.0` is never that Host. A loopback address is a
+secure context, so it cannot stand in either.
 """
 
 import re
@@ -11,7 +15,9 @@ import uuid
 from playwright.sync_api import expect, sync_playwright
 from style_controls import open_style_section
 
-URL = "http://" + (sys.argv[2] if len(sys.argv) > 2 else "0.0.0.0") + ":" + sys.argv[1]
+if len(sys.argv) != 3:
+    sys.exit("usage: verify_mobile_network.py <port> <network-host>")
+URL = "http://" + sys.argv[2] + ":" + sys.argv[1]
 
 
 def check_phone(engine, name, width):
