@@ -64,6 +64,7 @@ class ToastHost extends LitElement {
     this.requestUpdate();
     if (kind !== 'error') setTimeout(() => this.dismiss(id), LIFETIME);
     this.updateComplete.then(() => this.present());
+    return id;
   }
 
   // A long local job, such as packing the gallery, reports its bytes here. The
@@ -140,8 +141,10 @@ customElements.define('toast-host', ToastHost);
 const host = document.querySelector('toast-host');
 
 const handle = {
+  // The handle closes this one message, for a notice that ends when its cause ends.
   notify: function (kind, text) {
-    if (host) host.notify(kind, text);
+    const id = host ? host.notify(kind, text) : 0;
+    return { close: function () { if (host) host.dismiss(id); } };
   },
   clear: function () {
     if (host) host.clear();

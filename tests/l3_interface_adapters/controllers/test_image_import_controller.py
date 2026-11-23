@@ -152,3 +152,37 @@ def test_pillow_bomb_error_is_a_controlled_image_error(monkeypatch):
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
     with pytest.raises(UnreadableImage, match="Could not read that image"):
         ImageImportController().normalize(contents)
+
+
+def test_a_picture_for_the_browser_without_transparency_is_a_jpeg():
+    contents, media_type = ImageImportController().for_browser(encoded_image("HEIF"))
+
+    assert media_type == "image/jpeg"
+    with Image.open(io.BytesIO(contents)) as image:
+        assert image.format == "JPEG"
+        assert image.size == (64, 48)
+        pixel = image.getpixel((32, 24))
+        assert isinstance(pixel, tuple)
+        red, green, blue = pixel
+        assert red > green + 100 and red > blue + 100
+        assert "exif" not in image.info and "icc_profile" not in image.info
+
+
+def test_a_picture_for_the_browser_with_transparency_stays_a_png():
+    contents, media_type = ImageImportController().for_browser(encoded_image("HEIF", mode="RGBA"))
+
+    assert media_type == "image/png"
+    with Image.open(io.BytesIO(contents)) as image:
+        assert image.mode == "RGBA"
+        pixel = image.getpixel((32, 24))
+        assert isinstance(pixel, tuple)
+        assert pixel[3] == 128
+
+
+def test_a_picture_for_the_browser_keeps_the_import_limits(monkeypatch):
+    monkeypatch.setattr(image_import_controller, "MAX_IMAGE_IMPORT_PIXELS", 100)
+
+    with pytest.raises(InvalidJob, match="64 megapixels"):
+        ImageImportController().for_browser(encoded_image("HEIF", size=(11, 10)))
+    with pytest.raises(UnreadableImage, match="Could not read that image"):
+        ImageImportController().for_browser(b"not an image")

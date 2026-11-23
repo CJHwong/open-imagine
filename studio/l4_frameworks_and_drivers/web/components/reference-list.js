@@ -18,11 +18,13 @@
 import { LitElement, html } from '/page/vendor/lit.js';
 import { get, subscribe } from '../lib/state.js';
 import { t } from '../lib/i18n.js';
+import { importBusyTile } from '../lib/image-import.js';
 
 // The page's helpers, on `reference-list-ready`.
 let page = null;
 
-const FIELDS = ['references', 'mode'];
+// `importing` names the file being read, so its tile holds the place the picture takes.
+const FIELDS = ['references', 'mode', 'importing'];
 
 // The sprite the page draws its icons from, in the page's own document.
 function icon(name) {
@@ -56,7 +58,8 @@ class ReferenceList extends LitElement {
     const editing = get('mode') === 'edit';
     const limit = page.limit();
     const count = references.length;
-    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0}>${icon('image')}
+    const importing = get('importing');
+    return html`<div class="refs-empty" id="refs-empty" ?hidden=${count > 0 || importing}>${icon('image')}
       <div><strong id="refs-title">${editing ? t('image.refs.add_title') : t('image.refs.start_title')}</strong>
         <span id="refs-sub">${editing ? t('image.refs.add_sub', {limit}) : t('image.refs.start_sub')}</span></div></div>
       <div class="thumbs" id="thumbs">${references.map((reference, index) => html`
@@ -65,7 +68,8 @@ class ReferenceList extends LitElement {
           <button type="button" class="remove labeled-action" aria-label=${t('image.refs.remove', {name: reference.name})}
             @click=${(event) => { event.stopPropagation(); page.remove(index); }}>
             ${icon('x')}<span class="control-label">${t('ui.action.remove')}</span></button></div>`)}
-        ${editing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div>
+        ${importing ? importBusyTile(importing) : ''}
+        ${editing && !importing && count && count < limit ? html`<div class="add-tile">${icon('plus')}</div>` : ''}</div>
       <div class="refs-note" id="refs-note" ?hidden=${count === 0}>${this.note()}</div>`;
   }
 }

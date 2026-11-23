@@ -112,11 +112,24 @@ def test_the_image_import_route_normalizes_image_bytes_without_an_operation(serv
 
     status, content_type, output = image_import_call(served[1], contents.getvalue())
 
-    assert (status, content_type) == (200, "image/png")
+    assert (status, content_type) == (200, "image/jpeg")
     with Image.open(io.BytesIO(output)) as image:
         assert image.size == (32, 24)
-        assert image.getpixel((16, 12)) == (200, 30, 20)
+        pixel = image.getpixel((16, 12))
+        assert isinstance(pixel, tuple)
+        assert all(abs(got - want) <= 4 for got, want in zip(pixel, (200, 30, 20), strict=True))
     assert json.loads(call(served[1], "/api/v1/state")[2])["active"] is None
+
+
+def test_the_image_import_route_names_the_png_it_sends_for_a_transparent_picture(served):
+    contents = io.BytesIO()
+    Image.new("RGBA", (32, 24), (200, 30, 20, 128)).save(contents, format="PNG")
+
+    status, content_type, output = image_import_call(served[1], contents.getvalue())
+
+    assert (status, content_type) == (200, "image/png")
+    with Image.open(io.BytesIO(output)) as image:
+        assert image.getpixel((16, 12)) == (200, 30, 20, 128)
 
 
 @pytest.mark.parametrize("length", ["0", "67108865", "invalid", "-1"])
@@ -322,7 +335,7 @@ def test_a_picture_is_not_compressed_even_when_the_client_asks(served):
     request = urllib.request.Request(url, data=contents.getvalue(), headers={"Accept-Encoding": "gzip"}, method="POST")
 
     with urllib.request.urlopen(request, timeout=30) as answer:
-        assert answer.headers["Content-Type"] == "image/png"
+        assert answer.headers["Content-Type"] == "image/jpeg"
         assert answer.headers["Content-Encoding"] is None
 
 

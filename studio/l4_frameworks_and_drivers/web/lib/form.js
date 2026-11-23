@@ -204,11 +204,15 @@ async function addFiles(files) {
       page.notify('error', t('form.error.notImage', {name: file.name}));
       continue;
     }
+    const store = page.store();
     try {
+      store?.set('importing', file.name);
       const reference = await readImageFile(file);
       if (reference) addReference(reference.b64, reference.name, null, reference);
     } catch (error) {
       page.notify('error', error.message);
+    } finally {
+      store?.set('importing', null);
     }
   }
 }

@@ -14,7 +14,7 @@ import {openSheet, dismissSheet} from '../lib/sheet.js';
 import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
 import {navigate} from '../lib/navigation.js';
-import {isImageFile, readImageFile} from '../lib/image-import.js';
+import {importBusyTile, isImageFile, readImageFile} from '../lib/image-import.js';
 
 let nextClipId = 1;
 
@@ -790,8 +790,10 @@ class VideoStudio extends LitElement {
     if (!list || !count) return;
     count.textContent = plural(this.imageReferences.length, t('video.reference.count'));
     list.replaceChildren();
+    const busy = this.importingImage ? importBusyTile(this.importingImage) : null;
     if (!this.imageReferences.length) {
       this.railWidth = 0;
+      if (busy) list.append(busy);
       this.renderMediaEmptyState();
       return;
     }
@@ -822,9 +824,22 @@ class VideoStudio extends LitElement {
     rail.append(scale, line, lanes, caption);
     this.imageReferences.forEach((reference) => lanes.append(this.referenceSlot(reference)));
     list.append(rail);
+    if (busy) list.append(busy);
     this.railWidth = rail.clientWidth;
     this.layoutReferenceRail(rail, line, lanes, caption);
     this.renderMediaEmptyState();
+  }
+
+  // One picture through the import, with its busy tile in the tray until it is read.
+  async importImage(file) {
+    this.importingImage = file.name;
+    this.renderImageReferences();
+    try {
+      return await readImageFile(file);
+    } finally {
+      this.importingImage = null;
+      this.renderImageReferences();
+    }
   }
 
   // Removal belongs to the selected reference, so nearby chips keep separate targets.
@@ -1098,7 +1113,7 @@ class VideoStudio extends LitElement {
         return;
       }
       try {
-        const imported = await readImageFile(file);
+        const imported = await this.importImage(file);
         if (!this.canCommitInput(epoch)) return;
         if (!imported) continue;
         const src = studioImageDataUrl(imported.b64);
@@ -1324,7 +1339,8 @@ class VideoStudio extends LitElement {
     if (!sourceGroup || !referenceTray || !emptyState) return;
     const hasClips = this.shownClips().length > 0;
     // An edit takes no image references, so one left from Generate stays out of its panel.
-    const hasReferences = (!this.needsClip || this.maxReferences > 0) && this.imageReferences.length > 0;
+    const hasReferences = (!this.needsClip || this.maxReferences > 0)
+      && (this.imageReferences.length > 0 || Boolean(this.importingImage));
     const hasAudio = !this.needsClip && Boolean(this.audio);
     sourceGroup.hidden = !hasClips;
     referenceTray.hidden = !hasReferences;
@@ -1692,7 +1708,7 @@ class VideoStudio extends LitElement {
         continue;
       }
       try {
-        const imported = await readImageFile(file);
+        const imported = await this.importImage(file);
         if (!this.canCommitInput(epoch)) return;
         if (!imported) continue;
         const src = studioImageDataUrl(imported.b64);

@@ -14,6 +14,23 @@ export function isImageFile(file) {
   return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif)$/i.test(file.name);
 }
 
+// The tile that stands where a picture will appear while it is read, decoded and resized.
+// On a phone that takes seconds, and without it the choice looks ignored.
+export function importBusyTile(name) {
+  const tile = document.createElement('div');
+  tile.className = 'thumb import-busy';
+  tile.setAttribute('role', 'status');
+  tile.setAttribute('aria-label', t('image.import.preparing', {name}));
+  const mark = document.createElement('span');
+  mark.className = 'import-busy-mark';
+  mark.setAttribute('aria-hidden', 'true');
+  const caption = document.createElement('span');
+  caption.className = 'reference-caption';
+  caption.textContent = name;
+  tile.append(mark, caption);
+  return tile;
+}
+
 function isHeif(file) {
   return /^image\/hei[cf](?:-sequence)?$/i.test(file.type) || /\.hei[cf]$/i.test(file.name);
 }
@@ -90,9 +107,16 @@ function chooseSize(name, width, height, resizedWidth, resizedHeight) {
   });
 }
 
+// The draw and the encode hold the main thread for seconds on a phone. One frame paints
+// first, so the busy tile and the closed size sheet are on screen before it.
+function nextPaint() {
+  return new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
 // A picture drawn again is PNG when its source may hold transparency, and JPEG otherwise:
 // a phone photo saved as PNG is three to ten times its size.
-function encodedBlob(image, width, height, name, type) {
+async function encodedBlob(image, width, height, name, type) {
+  await nextPaint();
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -131,10 +155,11 @@ export async function readImageFile(file) {
   if (!choice) return null;
   const outputWidth = choice === 'resize' ? resizedWidth : width;
   const outputHeight = choice === 'resize' ? resizedHeight : height;
-  // The type comes from the file, not from the PNG a HEIF photo is normalized to first.
-  const sourceType = isHeif(file) ? 'image/heic' : file.type;
-  const kept = choice === 'original' && KEPT_TYPES.includes(sourceType);
-  const type = ALPHA_TYPES.includes(sourceType) ? 'image/png' : 'image/jpeg';
-  const output = kept ? file : await encodedBlob(image, outputWidth, outputHeight, file.name, type);
+  // A HEIF photo comes back from the studio as a JPEG, or as a PNG when it has transparency.
+  // That copy is the source from here: kept as it is at its own size, and drawn again from.
+  const source = isHeif(file) ? blob : file;
+  const kept = choice === 'original' && KEPT_TYPES.includes(source.type);
+  const type = ALPHA_TYPES.includes(source.type) ? 'image/png' : 'image/jpeg';
+  const output = kept ? source : await encodedBlob(image, outputWidth, outputHeight, file.name, type);
   return {b64: await base64(output, file.name), name: file.name, width: outputWidth, height: outputHeight};
 }
