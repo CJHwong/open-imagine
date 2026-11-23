@@ -7,6 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import expect, sync_playwright
 from style_controls import show_controls
 
@@ -79,6 +80,12 @@ def check_case(browser, base, clip, width, locale, failures):
         case + "/native-controls-hide-fullscreen",
         player.get_attribute("controlslist"),
     )
+    # Without a poster a phone WebView paints its own grey play graphic over the clip.
+    try:
+        page.wait_for_function("document.querySelector('#video-preview').getAttribute('poster')", timeout=5000)
+        record(failures, True, case + "/first-frame-poster", "")
+    except PlaywrightTimeout:
+        record(failures, False, case + "/first-frame-poster", "no poster")
     overlay = page.locator(".video-play-overlay")
     # A phone WebView's control bar has no play button, and page.css hides its middle one, so
     # the studio's own shows on every paused clip: before it plays, at the end, and mid-clip.

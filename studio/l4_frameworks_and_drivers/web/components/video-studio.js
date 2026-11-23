@@ -440,6 +440,9 @@ class VideoStudio extends LitElement {
       clip.thumbnailUrl = URL.createObjectURL(thumbnail);
       if (clip.kind === 'source') this.renderSourceVideos();
       else this.renderVideoGallery();
+      // A phone WebView paints a grey play graphic over a clip it has not started, until the
+      // clip has a poster. The first frame is that poster.
+      if (clip === this.selectedClip()) this.renderPreview();
       // Only a generated clip is kept, so only it has a stored thumbnail to write.
       if (clip.kind === 'generated' && this.keepEnabled && this.galleryStore) {
         this.galleryStore.keepVideoThumbnail(clip.id, thumbnail);
@@ -2549,7 +2552,7 @@ class VideoStudio extends LitElement {
       </div>`;
     }
     const preview = html`<div class="video-preview-pane">
-      <video id="video-preview" src=${clip.url} ?hidden=${clip.stub} controls controlslist="nofullscreen" playsinline preload="metadata"></video>
+      <video id="video-preview" src=${clip.url} poster=${clip.thumbnailUrl || ''} ?hidden=${clip.stub} controls controlslist="nofullscreen" playsinline preload="metadata"></video>
       <button type="button" class="video-play-overlay labeled-action" data-action="toggle-video-playback"
         aria-label=${t('video.action.play')} ?hidden=${clip.stub}>
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg><span class="control-label">${t('ui.action.play')}</span>
