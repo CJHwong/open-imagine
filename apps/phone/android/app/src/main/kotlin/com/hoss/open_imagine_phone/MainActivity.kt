@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.view.WindowManager
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -24,6 +25,9 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A screen that turns off lets Android freeze the app, and the pipe with it, in the
+        // middle of watching a run. The flag holds only while this window is on screen.
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // iroh resolves names through Android's APIs. A standalone process has no
         // Java VM, so the pipe runs inside this app and receives both here.
         nativeInit(applicationContext)
