@@ -65,6 +65,7 @@
   "form.reason.region": "{area} 區域要改什麼？",
   "form.reason.rewrite": "等改寫完成",
   "form.reason.wholeInstruction": "請完整說明 {area} 區域的改動。例如：把布改成綠色。",
+  "form.reference.none": "這個模型的生成不能從圖片開始。要從圖片出發，請切換到編輯。",
   "form.reference.limit": {
     "other": "編輯最多只能加入 {count} 張圖片。"
   },

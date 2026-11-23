@@ -68,6 +68,7 @@
   "form.reason.region": "Say what changes in the {area} area",
   "form.reason.rewrite": "Wait for the rewrite to finish",
   "form.reason.wholeInstruction": "Write a whole instruction for the {area} area, for example: change the cloth to green",
+  "form.reference.none": "This model cannot start Generate from a picture. Switch to Edit to work from one.",
   "form.reference.limit": {
     "one": "Edit takes at most {count} image.",
     "other": "Edit takes at most {count} images."

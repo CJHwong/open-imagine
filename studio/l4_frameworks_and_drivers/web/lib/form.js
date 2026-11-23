@@ -175,6 +175,11 @@ function probeSize(entry) {
 // `source` is the id of the frame the image came from; an upload has none.
 function addReference(b64, name, source, dimensions) {
   if (referenceLimit() === 1) page.setReferences([]);
+  if (!referenceLimit()) {
+    // A paste or a drop still reaches here when the field is hidden.
+    page.notify('info', t('form.reference.none'));
+    return;
+  }
   if (page.references().length >= referenceLimit()) {
     page.notify('info', plural(maxReferences(), t('form.reference.limit')));
     return;
@@ -1035,6 +1040,9 @@ function applyMode(preserveParams = false) {
   page.el.promptInput.placeholder = currentMode().prompt_hint;
   page.el.templatesToggle.hidden = !currentMode().templates.length;
   document.getElementById('look').hidden = !currentMode().looks.length;
+  // A mode that takes no picture, such as Generate on a model without a starting image,
+  // shows no place to add one.
+  document.getElementById('reference-field').hidden = !maxReferences();
   renderLoras();
   // The choice is drawn only where the mode declares it, and the caption says which way it is
   // set, so a mode that composes and nothing else never shows the control or its note.
