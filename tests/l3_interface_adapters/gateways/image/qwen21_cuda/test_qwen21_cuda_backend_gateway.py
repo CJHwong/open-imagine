@@ -135,3 +135,36 @@ def test_a_run_sends_the_edit_payload_for_an_edit():
 
     assert (result.width, result.height, result.steps) == (640, 480, 8)
     child.request.assert_called_once_with(edit_payload(edit_job()), on_step, should_stop)
+
+
+def start_job(size, width=1600, height=900):
+    return ImageJob(
+        mode="generate",
+        prompt="a blue bike",
+        seed=2,
+        options={"size": size, "steps": 8, "guidance": 1.0, "strength": 0.55},
+        references=(ReferenceImage(png=b"start", width=width, height=height),),
+    )
+
+
+def test_a_generate_from_a_picture_sends_it_with_its_strength():
+    payload = generate_payload(start_job("768x512"))
+
+    assert base64.b64decode(payload["start"]) == b"start" and payload["strength"] == 0.55
+    assert (payload["width"], payload["height"]) == (768, 512)
+
+
+def test_match_takes_the_starting_picture_s_shape_at_about_a_megapixel():
+    wide = generate_payload(start_job("match"))
+    tall = generate_payload(start_job("match", width=1200, height=1600))
+
+    # 1360x768 and 880x1184 on MLX; this pipeline floors to 32, so the payload names its grid.
+    assert (wide["width"], wide["height"]) == (1344, 768)
+    assert (tall["width"], tall["height"]) == (896, 1184)
+
+
+def test_match_without_a_picture_renders_a_megapixel_square():
+    payload = generate_payload(job(size="match"))
+
+    assert (payload["width"], payload["height"]) == (1024, 1024)
+    assert "start" not in payload and "strength" not in payload

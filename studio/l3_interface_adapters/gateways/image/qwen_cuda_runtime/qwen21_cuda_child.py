@@ -169,9 +169,61 @@ def run(pipe, job: dict) -> dict:
         # area, on its own 32-pixel grid.
         settings["output_resolution"] = int(job["output_resolution"])
     else:
-        settings["height"] = int(job["height"])
-        settings["width"] = int(job["width"])
+        settings["height"] = on_the_grid(int(job["height"]))
+        settings["width"] = on_the_grid(int(job["width"]))
+        if job.get("start"):
+            steps = start_from(pipe, settings, reference_image(job["start"]), float(job["strength"]))
     return reply(pipe(**settings).images[0], steps)
+
+
+def on_the_grid(side: int) -> int:
+    """The side the pipeline renders: it floors each side to its 32-pixel grid itself, and
+    a starting image's latents must have the shape of the frame it renders."""
+    return max(32, side // 32 * 32)
+
+
+def start_from(pipe, settings: dict, picture, strength: float) -> int:
+    """Start Generate from `picture`: skip the first part of the schedule and put the picture,
+    noised to the level of the first step kept, where the noise would go. Returns the steps run.
+
+    The same rule mflux follows on the MLX backends: a strength skips `int(steps * strength)`
+    steps, at least one, so a higher strength stays closer to the picture. One step always
+    runs. The pipeline takes both parts as arguments, so it needs no image-to-image class.
+    """
+    import numpy as np
+    import torch
+    from diffusers.pipelines.qwenimage21.pipeline_qwenimage21 import calculate_shift
+
+    steps = settings["num_inference_steps"]
+    # The schedule the pipeline would sample: the checkpoint's own table, else a line.
+    schedule = list(pipe.config.sample_sigmas or np.linspace(1.0, 1 / steps, steps))
+    skip = min(len(schedule) - 1, max(1, int(len(schedule) * strength)))
+    height, width = settings["height"], settings["width"]
+    scale = pipe.vae_scale_factor
+    config = pipe.scheduler.config
+    mu = calculate_shift(
+        (height // scale) * (width // scale),
+        config.get("base_image_seq_len", 256),
+        config.get("max_image_seq_len", 4096),
+        config.get("base_shift", 0.5),
+        config.get("max_shift", 1.15),
+    )
+    # The level the pipeline will start at, after any shift its scheduler applies.
+    pipe.scheduler.set_timesteps(sigmas=schedule, device="cuda", mu=mu)
+    level = float(pipe.scheduler.sigmas[skip])
+    with torch.no_grad():
+        # The 2.1 VAE reads four channels; the pipeline turns its own condition images RGBA too.
+        pixels = pipe.image_processor.preprocess(picture.convert("RGBA"), width=width, height=height).unsqueeze(2)
+        encoded = pipe._encode_vae_image(pixels.to(device="cuda", dtype=pipe.vae.dtype), None)
+        channels, rows, columns = encoded.shape[1], encoded.shape[3], encoded.shape[4]
+        clean = pipe._pack_latents(encoded, 1, channels, rows, columns)
+        noise = torch.randn(clean.shape, generator=settings["generator"], device="cuda", dtype=clean.dtype)
+        settings["latents"] = level * noise + (1 - level) * clean
+    kept = schedule[skip:]
+    settings["sigmas"] = kept
+    settings["num_inference_steps"] = len(kept)
+    settings["callback_on_step_end"] = report_steps(len(kept))
+    return len(kept)
 
 
 def main() -> int:

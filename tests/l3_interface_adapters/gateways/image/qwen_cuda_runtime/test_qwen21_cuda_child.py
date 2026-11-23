@@ -325,3 +325,140 @@ def test_an_edit_run_sends_every_reference_as_an_image(monkeypatch, capsys):
     assert call["true_cfg_scale"] == 1.0 and call["output_resolution"] == 1024
     assert "height" not in call and "width" not in call
     assert "step 1/2" in capsys.readouterr().err
+
+
+class StartPipe(FakePipe):
+    """A pipeline that records how a starting image reaches it. The latents are numbers,
+    so the mix of noise and picture can be read back."""
+
+    vae_scale_factor = 16
+
+    def __init__(self, sample_sigmas):
+        super().__init__()
+        self.config = SimpleNamespace(sample_sigmas=sample_sigmas)
+        self.vae = SimpleNamespace(dtype="bfloat16")
+        self.seen = {}
+        pipe = self
+
+        class Scheduler:
+            def __init__(self):
+                self.config = {"base_image_seq_len": 256}
+                self.sigmas = None
+
+            def set_timesteps(self, sigmas, device, mu):
+                pipe.seen["mu"] = mu
+                # A shift the start level must follow: every level halves.
+                self.sigmas = [level / 2 for level in sigmas] + [0.0]
+
+        class Pixels:
+            def unsqueeze(self, axis):
+                pipe.seen["unsqueeze"] = axis
+                return self
+
+            def to(self, device, dtype):
+                pipe.seen["pixels_on"] = (device, dtype)
+                return "pixels"
+
+        class Processor:
+            def preprocess(self, picture, width, height):
+                pipe.seen["preprocess"] = (picture.mode, picture.size, width, height)
+                return Pixels()
+
+        self.scheduler = Scheduler()
+        self.image_processor = Processor()
+
+    def _encode_vae_image(self, pixels, generator):
+        self.seen["encoded"] = pixels
+        return SimpleNamespace(shape=(1, 16, 1, 3, 2))
+
+    def _pack_latents(self, encoded, batch, channels, rows, columns):
+        import numpy as np
+
+        self.seen["packed"] = (batch, channels, rows, columns)
+        return np.full((1, rows * columns, channels), 2.0)
+
+
+def fake_start_engine(monkeypatch):
+    import contextlib
+
+    import numpy as np
+
+    torch = fake_torch(monkeypatch)
+    monkeypatch.setattr(torch, "no_grad", contextlib.nullcontext, raising=False)
+    monkeypatch.setattr(torch, "randn", lambda shape, generator, device, dtype: np.full(shape, 10.0), raising=False)
+    shifts = []
+    module = types.ModuleType("diffusers.pipelines.qwenimage21.pipeline_qwenimage21")
+    monkeypatch.setattr(module, "calculate_shift", lambda *arguments: shifts.append(arguments) or 0.7, raising=False)
+    for name in ("diffusers", "diffusers.pipelines", "diffusers.pipelines.qwenimage21"):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    return shifts
+
+
+def start_job(strength, **extra):
+    return {
+        "prompt": "a blue bike",
+        "height": 528,
+        "width": 800,
+        "steps": 8,
+        "seed": 2,
+        "start": png(),
+        "strength": strength,
+        **extra,
+    }
+
+
+def test_a_starting_image_skips_the_head_of_the_checkpoints_schedule(monkeypatch, capsys):
+    shifts = fake_start_engine(monkeypatch)
+    table = [1.0, 0.98, 0.95, 0.93, 0.9, 0.85, 0.7, 0.41]
+    pipe = StartPipe(table)
+
+    reply = child.run(pipe, start_job(0.4))
+
+    call = pipe.calls[0]
+    # int(8 * 0.4) = 3 steps skipped, so five run, from the table's fourth level.
+    assert call["sigmas"] == table[3:] and call["num_inference_steps"] == 5 and reply["steps"] == 5
+    assert "step 1/5" in capsys.readouterr().err
+    # The pipeline floors 528x800 to its 32 grid; the picture is encoded at that frame.
+    assert (call["height"], call["width"]) == (512, 800)
+    assert pipe.seen["preprocess"] == ("RGBA", (4, 3), 800, 512) and pipe.seen["unsqueeze"] == 2
+    assert pipe.seen["pixels_on"] == ("cuda", "bfloat16") and pipe.seen["encoded"] == "pixels"
+    assert pipe.seen["packed"] == (1, 16, 3, 2)
+    # The shift is the one the pipeline computes for this frame's token count.
+    assert shifts[0][0] == (512 // 16) * (800 // 16) and pipe.seen["mu"] == 0.7
+    # Noise and picture mix at the shifted level of the first step kept: 0.93 / 2.
+    level = 0.465
+    assert call["latents"].shape == (1, 6, 16)
+    assert abs(float(call["latents"][0, 0, 0]) - (level * 10.0 + (1 - level) * 2.0)) < 1e-9
+
+
+def test_a_starting_image_runs_at_least_one_step_and_skips_at_least_one(monkeypatch):
+    fake_start_engine(monkeypatch)
+    table = [1.0, 0.9, 0.7, 0.4]
+
+    full = StartPipe(table)
+    child.run(full, start_job(1.0))
+    faint = StartPipe(table)
+    child.run(faint, start_job(0.05))
+
+    assert full.calls[0]["sigmas"] == [0.4]
+    assert faint.calls[0]["sigmas"] == [0.9, 0.7, 0.4]
+
+
+def test_a_starting_image_follows_a_line_where_the_checkpoint_has_no_table(monkeypatch):
+    fake_start_engine(monkeypatch)
+    pipe = StartPipe(None)
+
+    child.run(pipe, start_job(0.5, steps=4))
+
+    assert [round(level, 4) for level in pipe.calls[0]["sigmas"]] == [0.5, 0.25]
+
+
+def test_generate_without_a_starting_image_leaves_the_schedule_to_the_pipeline(monkeypatch):
+    fake_torch(monkeypatch)
+    pipe = FakePipe()
+
+    child.run(pipe, {"prompt": "a fox", "height": 500, "width": 768, "steps": 8, "seed": 1})
+
+    call = pipe.calls[0]
+    assert "sigmas" not in call and "latents" not in call and call["height"] == 480
