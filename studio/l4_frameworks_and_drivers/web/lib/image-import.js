@@ -7,6 +7,8 @@ const MAX_PIXELS = 64_000_000;
 const JPEG_QUALITY = 0.92;
 // The studio reads these as they are, so a picture that needs no resize is sent unchanged.
 const KEPT_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+// These may hold transparency, which a JPEG would fill with black.
+const ALPHA_TYPES = ['image/png', 'image/webp', 'image/gif'];
 
 export function isImageFile(file) {
   return file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif)$/i.test(file.name);
@@ -88,9 +90,9 @@ function chooseSize(name, width, height, resizedWidth, resizedHeight) {
   });
 }
 
-// A resized picture keeps PNG only when it came as one, since a PNG may hold transparency.
-// Anything else becomes JPEG: a phone photo saved as PNG is three to ten times its size.
-function resizedBlob(image, width, height, name, type) {
+// A picture drawn again is PNG when its source may hold transparency, and JPEG otherwise:
+// a phone photo saved as PNG is three to ten times its size.
+function encodedBlob(image, width, height, name, type) {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -101,7 +103,7 @@ function resizedBlob(image, width, height, name, type) {
     canvas.toBlob(blob => {
       if (blob) resolve(blob);
       else reject(new Error(t('image.import.unreadable', {name})));
-    }, type === 'image/png' ? 'image/png' : 'image/jpeg', JPEG_QUALITY);
+    }, type, JPEG_QUALITY);
   });
 }
 
@@ -129,7 +131,10 @@ export async function readImageFile(file) {
   if (!choice) return null;
   const outputWidth = choice === 'resize' ? resizedWidth : width;
   const outputHeight = choice === 'resize' ? resizedHeight : height;
-  const kept = choice === 'original' && KEPT_TYPES.includes(blob.type);
-  const output = kept ? blob : await resizedBlob(image, outputWidth, outputHeight, file.name, blob.type);
+  // The type comes from the file, not from the PNG a HEIF photo is normalized to first.
+  const sourceType = isHeif(file) ? 'image/heic' : file.type;
+  const kept = choice === 'original' && KEPT_TYPES.includes(sourceType);
+  const type = ALPHA_TYPES.includes(sourceType) ? 'image/png' : 'image/jpeg';
+  const output = kept ? file : await encodedBlob(image, outputWidth, outputHeight, file.name, type);
   return {b64: await base64(output, file.name), name: file.name, width: outputWidth, height: outputHeight};
 }

@@ -342,11 +342,14 @@ async function download(ids = null) {
       progress?.set({done: index, total: chosen.length, index, count: chosen.length});
       if (!entry.before) continue;
       const known = befores.has(entry.before);
-      if (!known) befores.set(entry.before, name.replace(/\.png$/, '-before.png'));
-      fact.before = befores.get(entry.before);
       if (!known) {
-        files.push({name: fact.before, blob: await (await fetch(entry.before)).blob()});
+        // The picture an edit started from keeps its own bytes, so it may be a JPEG or a WebP.
+        const blob = await (await fetch(entry.before)).blob();
+        const extension = {'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif'}[blob.type] || '.png';
+        befores.set(entry.before, name.replace(/\.png$/, '-before' + extension));
+        files.push({name: befores.get(entry.before), blob});
       }
+      fact.before = befores.get(entry.before);
     }
     if (files.length) {
       files.push({name: mediaDownloadName({kind: 'image', text: 'metadata', at: Date.now(), extension: 'json'}),

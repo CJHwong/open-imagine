@@ -855,6 +855,8 @@
   let backendSwitchPending = false;
   let videoRunState = 'idle';
   let videoRunRequestId = null;
+  // The video operation this page polls itself. The shared poll leaves that one alone.
+  let followingVideoId = null;
   let formApi = null;
   // The figure beside the video button, from the plan route. The button's own redraw reads it,
   // and that redraw runs before the planner's code is reached, so the state lives here.
@@ -2272,8 +2274,13 @@
       }
       const operation = await started.json();
       settings.operationId = operation.id;
+      followingVideoId = operation.id;
       const outcome = await followVideoOperation(operation, runSeconds);
       settings.createdAt = Number(outcome.finished_at) * 1000 || Date.now();
+      // A stop or a failure is reported here, so the shared poll does not report it again.
+      if (outcome.status !== 'succeeded' || !outcome.result_url) {
+        document.dispatchEvent(new CustomEvent('operation-imported', {detail: operation.id}));
+      }
       if (outcome.status === 'cancelled') {
         status.textContent = t('page.video.statusCancelled');
         videoStudio.clearError();
@@ -2307,10 +2314,14 @@
       // draft it would apply the submitted one again and move the selection off this clip.
       if (drafts) drafts.changedNow('video');
     } catch (error) {
-      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed') : error.message);
+      // A dropped connection may have cut off only the answer. The run can still be going,
+      // and the shared poll imports its clip when it ends.
+      videoStudio.setError(error instanceof SyntaxError ? t('page.error.videoFailed')
+        : error instanceof TypeError ? t('page.error.videoProgress') : error.message);
       status.textContent = t('page.error.videoFailed');
       setPane('controls');
     } finally {
+      followingVideoId = null;
       videoStudio.setGenerationProgress(null, 0);
       videoStudio.setCancelRequested(false);
       setVideoRunState('idle');
@@ -3047,6 +3058,7 @@
       },
       notify: showToast,
       changingModel: function () { return workspaceSwitchPending || backendSwitchPending; },
+      followingVideo: function () { return followingVideoId; },
       video: function () { return videoStudio; },
       voice: function () { return voiceStudio; },
       music: function () { return musicStudio; },

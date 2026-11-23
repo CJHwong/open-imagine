@@ -197,9 +197,12 @@ async function importResult(operation) {
   // A refresh gives the page a new client id, so the tab's saved owners carry it.
   const appliedRewrite = operation.kind === 'rewrite' && operation.source === 'ui'
     && owners.has(operation.client_id) && (operation.finished_at || 0) < openedAt;
-  if (imported.has(operation.id) || appliedRewrite || (operation.client_id === page.clientId
-      && !['voice', 'music'].includes(operation.kind)
-      && !(operation.kind === 'image' && operation.batch_total))) return;
+  // The page imports its own video run only while it follows it. A run it stopped following,
+  // because the start's answer or the result read was lost on the way, is imported here.
+  const ownedHere = operation.kind === 'video' ? operation.id === page.followingVideo?.()
+    : operation.client_id === page.clientId && !['voice', 'music'].includes(operation.kind)
+      && !(operation.kind === 'image' && operation.batch_total);
+  if (imported.has(operation.id) || appliedRewrite || ownedHere) return;
   if (operation.source === 'ui' && operation.library_id !== page.libraryId && !owners.has(operation.client_id)) return;
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
       && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) return;
@@ -323,7 +326,7 @@ async function poll() {
       }
       page.setActive(active);
     } finally { if (page.afterState) page.afterState(); }
-    if (active && active.kind === 'video' && active.client_id !== page.clientId) {
+    if (active && active.kind === 'video' && active.id !== page.followingVideo?.()) {
       page.video().setGenerationProgress(Object.assign({running: true}, active.progress), elapsed(active), {
         width: active.width, height: active.height, modelName: active.model, prompt: active.prompt,
         numFrames: active.num_frames, frameRate: active.frame_rate,

@@ -307,7 +307,7 @@
   "image.mode.generate": "Generate",
   "image.import.cancel": "Cancel",
   "image.import.close": "Cancel image import",
-  "image.import.formatNotice": "Original resolution sends the file unchanged. A resize keeps a PNG as PNG and saves other pictures as JPEG.",
+  "image.import.formatNotice": "Original resolution sends a JPEG, PNG or WebP file unchanged. Any other picture, and every resize, is saved as PNG when it may be transparent and as JPEG otherwise.",
   "image.import.largeText": "{name} is {width} × {height} pixels.",
   "image.import.largeTitle": "Large image",
   "image.import.original": "Use original resolution",
