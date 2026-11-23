@@ -80,9 +80,9 @@ def check_case(browser, base, clip, width, locale, failures):
         player.get_attribute("controlslist"),
     )
     overlay = page.locator(".video-play-overlay")
-    # The native button works on a clip that has not played, so the studio's own stays away.
-    record(failures, overlay.is_hidden(), case + "/one-play-button-before-playing", "overlay shown")
-    # At the end the native button does not answer, so the studio's own appears there.
+    # A phone WebView's control bar has no play button, and page.css hides its middle one, so
+    # the studio's own shows on every paused clip: before it plays, at the end, and mid-clip.
+    record(failures, overlay.is_visible(), case + "/play-button-before-playing", "overlay hidden")
     player.evaluate("video => { video.currentTime = video.duration; }")
     expect(overlay).to_be_visible(timeout=5000)
     overlay.click()
@@ -92,6 +92,7 @@ def check_case(browser, base, clip, width, locale, failures):
         timeout=5000,
     )
     played = player.evaluate("video => video.currentTime")
+    record(failures, overlay.is_hidden(), case + "/no-play-button-while-playing", "overlay shown")
     bounds = player.bounding_box()
     desktop_chromium = browser.browser_type.name == "chromium" and width > 900
     # Desktop Chromium puts its timeline below the playback buttons.
@@ -106,7 +107,7 @@ def check_case(browser, base, clip, width, locale, failures):
     )
     paused = player.evaluate("video => video.currentTime")
     page.wait_for_timeout(200)
-    record(failures, overlay.is_hidden(), case + "/one-play-button-when-paused", "overlay shown")
+    record(failures, overlay.is_visible(), case + "/play-button-when-paused", "overlay hidden")
     record(
         failures,
         player.evaluate("video => video.paused") and abs(player.evaluate("video => video.currentTime") - paused) < 0.02,

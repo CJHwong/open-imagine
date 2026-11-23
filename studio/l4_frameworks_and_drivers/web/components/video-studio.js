@@ -2369,14 +2369,15 @@ class VideoStudio extends LitElement {
     this.syncPlayOverlay();
   }
 
-  // A short clip that autoplay left at its end does not answer the native play button,
-  // so the preview carries its own play control. It shows only at the end: anywhere else the
-  // native button works, and showing both put two play buttons on every paused clip.
+  // The preview's own play button shows on every paused clip, and page.css hides the one a
+  // phone WebView draws in the middle. The WebView's button did not answer on a clip autoplay
+  // left at its end, and its control bar has no play button of its own, so the page's button is
+  // the only one that works in every state.
   syncPlayOverlay() {
     const video = this.querySelector('#video-preview');
     const overlay = this.querySelector('.video-play-overlay');
     if (!video || !overlay) return;
-    const sync = () => { overlay.hidden = !(video.paused && atEnd(video)); };
+    const sync = () => { overlay.hidden = !video.paused; };
     if (video.dataset.overlaySync !== 'yes') {
       video.dataset.overlaySync = 'yes';
       for (const event of ['play', 'pause', 'ended', 'loadedmetadata', 'seeked']) video.addEventListener(event, sync);
