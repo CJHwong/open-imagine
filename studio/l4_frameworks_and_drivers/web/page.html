@@ -120,6 +120,8 @@
         <button type="button" id="media-music-mode" aria-pressed="false" hidden data-i18n="tab.music">Music</button>
       </nav>
       <div class="readout">
+        <button type="button" id="controls-toggle" class="icon-btn labeled-action" aria-pressed="true"
+          aria-label="Controls" data-i18n-attr='{"aria-label":"pane.controls"}'><svg class="icon" aria-hidden="true"><use href="#i-sparkle"/></svg><span class="control-label" data-i18n="pane.controls">Controls</span></button>
         <button type="button" id="guide-toggle" class="icon-btn labeled-action" aria-expanded="false"
           aria-label="How to use this studio"
           data-i18n-attr='{"aria-label":"guide.toggle"}'><svg class="icon"><use href="#i-info"/></svg><span class="control-label" data-i18n="ui.action.help">Help</span></button>
@@ -1170,6 +1172,26 @@
   });
   sizePanes();
   setPane('preview');
+
+  // A middle-width window, an unfolded phone among them, shows the preview and the controls side
+  // by side. The controls can step aside so the preview takes the whole width; the choice is kept.
+  const controlsToggle = document.getElementById('controls-toggle');
+  function setControlsShown(shown) {
+    if (shown) delete document.body.dataset.controls;
+    else document.body.dataset.controls = 'hidden';
+    controlsToggle.setAttribute('aria-pressed', String(shown));
+    try { localStorage.setItem('studio-controls-shown', shown ? 'yes' : 'no'); }
+    catch (error) { console.warn('The controls choice was not kept:', error); }
+  }
+  controlsToggle.addEventListener('click', function () {
+    setControlsShown(document.body.dataset.controls === 'hidden');
+  });
+  // A step that asks for the controls, such as choosing a reference from the preview, opens them.
+  document.addEventListener('studio-navigate', function (event) {
+    if (event.detail.pane === 'controls') setControlsShown(true);
+  });
+  try { setControlsShown(localStorage.getItem('studio-controls-shown') !== 'no'); }
+  catch (error) { setControlsShown(true); }
 
   async function sendVoiceToVideo(selection) {
     if (sharedOperation || musicStudio.busy || voiceStudio.busy || busy() || videoRunState !== 'idle' || workspaceSwitchPending) {
