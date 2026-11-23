@@ -276,6 +276,14 @@
 .settings-card h4 {
   margin-bottom: 6px !important;
 }
+/* The release card has no note under it, so it keeps the note's gap to the tools itself. */
+.settings-card:has(#release-memory) {
+  margin-bottom: 22px;
+}
+#release-memory {
+  flex: none;
+  white-space: nowrap;
+}
 .settings-languages {
   display: flex;
   flex-direction: column;

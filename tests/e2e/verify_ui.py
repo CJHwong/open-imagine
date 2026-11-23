@@ -3012,6 +3012,106 @@ with sync_playwright() as playwright:
     )
     order_context.close()
 
+    # A file picker covers the page, and on a phone the WebView focused again whatever held focus
+    # when it opened: a prompt that kept its focus came back with the keyboard over the page.
+    picker_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    picker_page = picker_context.new_page()
+    picker_page.goto(URL)
+    picker_page.locator(IDLE).wait_for(state="visible", timeout=60000)
+    picker_page.locator("#prompt").focus()
+    with picker_page.expect_file_chooser():
+        picker_page.evaluate("() => document.getElementById('reference').click()")
+    check(
+        "opening a file picker takes the focus off the prompt",
+        picker_page.evaluate("() => document.activeElement?.id || document.activeElement?.tagName") != "prompt",
+        picker_page.evaluate("() => document.activeElement?.id || document.activeElement?.tagName"),
+    )
+    # A model switch takes seconds; its button carries the same mark a workspace switch does.
+    picker_page.route("**/backend", lambda route: None)
+    picker_page.click("#backend-toggle")
+    picker_page.get_by_role("menuitemradio", name=SECOND, exact=True).click()
+    picker_page.wait_for_timeout(300)
+    check(
+        "a model switch marks its button while it waits",
+        picker_page.get_attribute("#backend-toggle", "aria-busy") == "true",
+        str(picker_page.get_attribute("#backend-toggle", "aria-busy")),
+    )
+    picker_context.close()
+
+    # Settings names the models in memory and frees them on request. The release route answers
+    # 409 while a run holds the slot, which the card says in the reader's language.
+    release_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    release_page = release_context.new_page()
+    release_page.route(
+        "**/api/v1/studio",
+        lambda route: route.fulfill(
+            json={**route.fetch().json(), "memory": {"policy": "immediate", "resident": ["qwen21"]}}
+        ),
+    )
+    release_page.goto(URL)
+    release_page.locator("#go").wait_for(state="attached", timeout=60000)
+    release_page.click("#theme-toggle")
+    release_page.click("#settings-tab-generation")
+    release_page.wait_for_function("() => document.getElementById('release-memory-state').textContent")
+    check(
+        "settings names the model in memory by its name",
+        "Qwen-Image-2.1" in release_page.locator("#release-memory-state").inner_text()
+        and release_page.locator("#release-memory").is_enabled(),
+        release_page.locator("#release-memory-state").inner_text(),
+    )
+    released = []
+    release_page.route(
+        "**/api/v1/memory/release",
+        lambda route: (released.append(route.request.method), route.fulfill(status=204)),
+    )
+    release_page.click("#release-memory")
+    release_page.wait_for_timeout(500)
+    check(
+        "the release button asks the server to free its models",
+        released == ["POST"] and "Released" in release_page.locator("#settings-status").inner_text(),
+        f"{released} {release_page.locator('#settings-status').inner_text()}",
+    )
+    release_page.unroute("**/api/v1/memory/release")
+    release_page.route(
+        "**/api/v1/memory/release",
+        lambda route: route.fulfill(status=409, json={"error": "The studio is busy."}),
+    )
+    release_page.click("#release-memory")
+    release_page.wait_for_timeout(500)
+    check(
+        "a release refused during a run says to wait for it",
+        "after the run ends" in release_page.locator("#settings-error").inner_text(),
+        release_page.locator("#settings-error").inner_text(),
+    )
+    release_context.close()
+
+    # A middle-width window can put its controls aside; a phone has tabs and a wide window room.
+    for width, offered in ((390, False), (860, True), (1440, False)):
+        layout_context = browser.new_context(viewport={"width": width, "height": 900})
+        layout_page = layout_context.new_page()
+        layout_page.goto(URL)
+        layout_page.locator("#go").wait_for(state="attached", timeout=60000)
+        check(
+            f"the controls button shows only in the middle layout ({width} px)",
+            layout_page.locator("#controls-toggle").is_visible() == offered,
+        )
+        if offered:
+            layout_page.click("#controls-toggle")
+            hidden = not layout_page.locator("aside").is_visible()
+            layout_page.reload()
+            layout_page.locator("#go").wait_for(state="attached", timeout=60000)
+            kept = not layout_page.locator("aside").is_visible()
+            layout_page.evaluate(
+                "() => document.dispatchEvent(new CustomEvent('studio-navigate', {detail: {pane: 'controls', target: ''}}))"
+            )
+            reopened = layout_page.locator("aside").is_visible()
+            check(
+                "the middle layout hides its controls, keeps that over a reload, and opens them on request",
+                hidden and kept and reopened,
+                f"hidden {hidden}, kept {kept}, reopened {reopened}",
+            )
+        layout_context.close()
+
     check("no page errors", not errors, str(errors)[:200])
     if session is not None:
         js_coverage.report(session)
