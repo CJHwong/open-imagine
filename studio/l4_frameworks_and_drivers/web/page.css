@@ -713,6 +713,9 @@
   .video-tv-elapsed { color: #a9a39c; font-variant-numeric: tabular-nums; letter-spacing: .06em; }
   .video-tv-serial { flex: none; color: #e7e1da; font-variant-numeric: tabular-nums; }
   video::-webkit-media-controls-fullscreen-button { display: none; }
+  /* The preview draws its own labelled play button. A phone WebView also draws one in the
+     middle of a paused clip, and the two stacked on top of each other. */
+  #video-preview::-webkit-media-controls-overlay-play-button { display: none; }
   .video-render-placeholder { position: relative; display: grid; place-items: center;
     align-self: center; justify-self: center; align-items: center; width: min(100%, 1200px);
     height: auto; max-height: 100%; aspect-ratio: var(--video-render-ratio);
