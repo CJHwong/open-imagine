@@ -4,6 +4,7 @@
 //! listener. `listen --port N` accepts iroh connections and forwards each one to
 //! 127.0.0.1:N, which is the studio.
 
+mod log;
 mod protocol;
 mod relay;
 
@@ -136,18 +137,18 @@ fn device(id: &str, state: &str) {
 /// then also keeps the end of the last answer: dropping it as soon as a forward finished closed
 /// it with that answer still in flight.
 async fn serve_connection(connection: iroh::endpoint::Connection, port: u16) {
-    eprintln!("listener: connection accepted");
+    let id = connection.remote_id().to_string();
+    let name = format!("connection from {}", &id[..id.len().min(10)]);
+    log::line(&format!("{name} accepted"));
+    tokio::spawn(log::watch_paths(connection.clone(), name.clone()));
     while let Ok((send, recv)) = connection.accept_bi().await {
+        let name = name.clone();
         tokio::spawn(async move {
             if let Err(error) = forward_stream(send, recv, port).await {
-                eprintln!("listener: forward failed: {error:#}");
+                log::line(&format!("{name} forward failed: {error:#}"));
             }
         });
     }
-    eprintln!(
-        "listener: connection closed: {:?}",
-        connection.close_reason()
-    );
 }
 
 async fn forward_stream(

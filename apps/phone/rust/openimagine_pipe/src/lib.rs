@@ -20,6 +20,7 @@ use jni::JNIEnv;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
+mod log;
 mod protocol;
 mod relay;
 
@@ -117,7 +118,7 @@ pub unsafe extern "C" fn oi_pipe_start(
     let cancel = token.clone();
     runtime.spawn(async move {
         if let Err(error) = run(ticket, endpoint, listener, cancel).await {
-            eprintln!("listener stopped: {error}");
+            log::line(&format!("listener stopped: {error}"));
         }
     });
     if let Ok(mut slot) = PIPE.lock() {
@@ -181,7 +182,7 @@ async fn run(
             // A forward ends when either side closes. The cause is kept as one line, with
             // no ticket or prompt in it.
             if let Err(error) = forward(tcp, &studio).await {
-                eprintln!("forward failed: {error}");
+                log::line(&format!("forward failed: {error:#}"));
             }
         });
     }
@@ -206,13 +207,34 @@ impl Studio {
     async fn open(&self) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
         let mut slot = self.connection.lock().await;
         if let Some(connection) = slot.as_ref() {
-            if connection.close_reason().is_none() {
-                if let Ok(pair) = connection.open_bi().await {
-                    return Ok(pair);
-                }
+            match connection.close_reason() {
+                None => match connection.open_bi().await {
+                    Ok(pair) => return Ok(pair),
+                    Err(error) => log::line(&format!("stream refused, reconnecting: {error}")),
+                },
+                Some(reason) => log::line(&format!("connection gone, reconnecting: {reason}")),
             }
         }
-        let connection = self.endpoint.connect(self.addr.clone(), ALPN).await?;
+        let started = std::time::Instant::now();
+        log::line("connecting");
+        let connection = match self.endpoint.connect(self.addr.clone(), ALPN).await {
+            Ok(connection) => connection,
+            Err(error) => {
+                log::line(&format!(
+                    "connect failed after {} ms: {error:#}",
+                    started.elapsed().as_millis()
+                ));
+                return Err(error.into());
+            }
+        };
+        log::line(&format!(
+            "connected in {} ms",
+            started.elapsed().as_millis()
+        ));
+        tokio::spawn(log::watch_paths(
+            connection.clone(),
+            "connection".to_string(),
+        ));
         let pair = connection.open_bi().await?;
         *slot = Some(connection);
         Ok(pair)

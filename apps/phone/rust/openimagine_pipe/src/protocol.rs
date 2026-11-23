@@ -14,8 +14,18 @@ use iroh::endpoint::QuicTransportConfig;
 /// both still reach the internet, so every request stalled for the whole drop. A 1 s heartbeat
 /// and a 3 s idle limit move a connection onto the relay about 3 s into a drop. The relay path
 /// keeps iroh's own 30 s limit.
+///
+/// The whole connection closes after 8 s without a packet on any path. With heartbeats every
+/// second on every path, only a connection whose peer is gone goes that quiet: a studio machine
+/// that restarted, or a phone whose app was frozen. At noq's default of 30 s, the phone kept
+/// sending every request into such a connection for half a minute.
 pub fn transport() -> QuicTransportConfig {
     QuicTransportConfig::builder()
+        .max_idle_timeout(Some(
+            Duration::from_secs(8)
+                .try_into()
+                .expect("8 s is a valid idle timeout"),
+        ))
         .default_path_keep_alive_interval(Duration::from_secs(1))
         .default_path_max_idle_timeout(Duration::from_secs(3))
         .keep_alive_interval(Duration::from_secs(2))
