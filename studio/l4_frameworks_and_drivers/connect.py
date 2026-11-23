@@ -5,6 +5,7 @@ secret: anyone who holds it reaches this studio. The identity file holds the key
 makes the ticket stable, so it is created with owner-only access and never logged.
 """
 
+import contextlib
 import io
 import json
 import os
@@ -29,6 +30,9 @@ PAIR_SCHEME = "openimagine"
 BUNDLED_DIRECTORY = Path(__file__).with_name("bin")
 PLAIN_BINARY_NAME = "openimagine-pipe"
 BUNDLED_BINARY = BUNDLED_DIRECTORY / PLAIN_BINARY_NAME
+# The listener appends a line per connection event, a few hundred a day. Past this size the log
+# moves to `pipe.log.1` when the listener starts, so the two files stay under 2 MB together.
+PIPE_LOG_LIMIT = 1_000_000
 
 
 def bundled_binary() -> Path:
@@ -110,7 +114,12 @@ class DumbpipeTransport:
                         "--identity",
                         str(self._identity_path),
                     ],
-                    env={**os.environ, "IROH_SECRET": secret, "RUST_LOG": "error"},
+                    env={
+                        **os.environ,
+                        "IROH_SECRET": secret,
+                        "RUST_LOG": "error",
+                        "OPENIMAGINE_PIPE_LOG": str(self._pipe_log()),
+                    },
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
@@ -142,6 +151,15 @@ class DumbpipeTransport:
                 )
             found.sort(key=lambda one: cast(float, one["seen"]))
             return found
+
+    def _pipe_log(self) -> Path:
+        """The listener's connection log, beside its identity. It holds no ticket, key or request."""
+        path = self._identity_path.parent / "pipe.log"
+        # A log that cannot move is only a log that keeps growing. It never stops the pipe.
+        with contextlib.suppress(OSError):
+            if path.stat().st_size > PIPE_LOG_LIMIT:
+                path.replace(path.with_name("pipe.log.1"))
+        return path
 
     def _read_status(self, listener: subprocess.Popen) -> None:
         if listener.stdout is None:
