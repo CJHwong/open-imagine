@@ -46,7 +46,7 @@
   "form.error.requestFailed": "無法完成請求。工作可能仍在執行。請先確認狀態，再開始新工作。",
   "form.error.rewriteUnavailable": "改寫服務沒有回應。",
   "form.error.seed": "隨機種子必須是整數。",
-  "form.error.serverSilent": "伺服器沒有回應。請確認 studio 伺服器仍在執行。",
+  "form.error.serverSilent": "伺服器沒有回應。請確認伺服器仍在執行。",
   "form.estimate.about": "約 {time}",
   "form.estimate.both": "{images}，{time}",
   "form.hold.rewrite": "請等提示詞改寫完成。",
