@@ -337,3 +337,52 @@ def test_stopping_a_listener_without_a_pipe_is_safe(tmp_path):
     transport.stop()
 
     listener.wait.assert_called_once_with()
+
+
+def logging_listener(tmp_path) -> DumbpipeTransport:
+    seen = tmp_path / "seen"
+    binary = fake_binary(
+        tmp_path,
+        f'case "$1" in\n'
+        f'  generate-ticket) echo "{TICKET}";;\n'
+        f'  listen) echo "$OPENIMAGINE_PIPE_LOG" > "{seen}"; exec sleep 30;;\n'
+        f"esac\n",
+    )
+    return DumbpipeTransport(str(binary), tmp_path / "state" / "identity", 8765, settle=0.05, wait=1.0)
+
+
+def test_the_listener_logs_its_connections_next_to_its_identity(tmp_path):
+    """The pipe's connection log is how a dropped phone gets explained, and a listener the
+    studio starts used to write it nowhere."""
+    transport = logging_listener(tmp_path)
+
+    transport.start()
+    transport.stop()
+
+    assert (tmp_path / "seen").read_text().strip() == str(tmp_path / "state" / "pipe.log")
+
+
+def test_a_full_log_is_moved_aside_before_the_listener_starts(tmp_path):
+    (tmp_path / "state").mkdir()
+    log = tmp_path / "state" / "pipe.log"
+    log.write_text("x" * (connect.PIPE_LOG_LIMIT + 1))
+    transport = logging_listener(tmp_path)
+
+    transport.start()
+    transport.stop()
+
+    assert not log.exists()
+    assert (tmp_path / "state" / "pipe.log.1").stat().st_size == connect.PIPE_LOG_LIMIT + 1
+
+
+def test_a_log_under_the_limit_keeps_growing_in_place(tmp_path):
+    (tmp_path / "state").mkdir()
+    log = tmp_path / "state" / "pipe.log"
+    log.write_text("one line\n")
+    transport = logging_listener(tmp_path)
+
+    transport.start()
+    transport.stop()
+
+    assert log.read_text() == "one line\n"
+    assert not (tmp_path / "state" / "pipe.log.1").exists()
