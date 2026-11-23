@@ -207,8 +207,7 @@
   .workspace-tabs button[aria-pressed=true] { background: var(--chrome); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
   .workspace-tabs button:focus-visible { outline: 1.5px solid var(--accent); }
   .workspace-tabs button:disabled { cursor: progress; }
-  .workspace-tabs button[aria-busy=true] { color: var(--text-2); }
-  .workspace-tabs button[aria-busy=true]::after { content: "…"; margin-left: 4px; }
+  .workspace-tabs button[aria-busy=true] { color: var(--text-2); justify-content: center; }
   .workspace-picker { display: none; }
   #workspace-menu { left: 0; right: auto; min-width: 200px; }
   #workspace-menu .workspace-check { margin-left: auto; color: var(--accent); }
@@ -644,15 +643,20 @@
   .text-btn:hover { color: var(--text); text-decoration-color: currentColor; }
   /* A download that waits on the encoder says so. The mark replaces the underline's job
      as the sign of life, and a reduced-motion reader gets a dimmed dot instead. */
-  .text-btn.is-busy, .icon-btn.is-busy { cursor: default; opacity: .7; }
-  .text-btn.is-busy { display: inline-flex; align-items: center; gap: 5px; }
-  .text-btn.is-busy::after, .icon-btn.is-busy::after { content: ''; flex: none; width: 11px; height: 11px;
+  /* A workspace switch waits on the studio, and on a phone the picker is only an icon, so the
+     pressed control turns into the same mark. */
+  .text-btn.is-busy, .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { cursor: default; opacity: .7; }
+  .text-btn.is-busy, .workspace-tabs button[aria-busy=true] { display: inline-flex; align-items: center; gap: 5px; }
+  .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
+  .workspace-tabs button[aria-busy=true]::after { content: ''; flex: none; width: 11px; height: 11px;
     border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;
     animation: gallery-spin .8s linear infinite; }
-  .icon-btn.is-busy { position: relative; }
-  .icon-btn.is-busy > * { visibility: hidden; }
-  .icon-btn.is-busy::after { position: absolute; width: 12px; height: 12px; }
-  @media (prefers-reduced-motion: reduce) { .text-btn.is-busy::after, .icon-btn.is-busy::after { animation: none; opacity: .5; } }
+  .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { position: relative; }
+  .icon-btn.is-busy > *, #workspace-toggle[aria-busy=true] > * { visibility: hidden; }
+  .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after { position: absolute; width: 12px; height: 12px; }
+  @media (prefers-reduced-motion: reduce) {
+    .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
+    .workspace-tabs button[aria-busy=true]::after { animation: none; opacity: .5; } }
 
   /* Below the 52 px topbar, so a failure never covers the workspace switch, and
      below the shared operation bar while one runs. The host is a popover, so the

@@ -55,6 +55,52 @@ Future<bool> installPage({
   return false;
 }
 
+/// How long one load of the page may take before it counts as stuck.
+const Duration pageLoadLimit = Duration(seconds: 20);
+
+/// A load that neither finishes nor fails. One script stuck on a dead connection keeps the
+/// WebView from reporting either, and the page stays undrawn with nothing to press. The
+/// first stuck load reloads the page. The second shows the error and its Retry button.
+class LoadWatchdog {
+  LoadWatchdog({
+    required this.reload,
+    required this.giveUp,
+    this.limit = pageLoadLimit,
+  });
+
+  final VoidCallback reload;
+  final VoidCallback giveUp;
+  final Duration limit;
+  Timer? _timer;
+  bool _reloaded = false;
+
+  /// A load began. A second call restarts the limit.
+  void started() {
+    _timer?.cancel();
+    _timer = Timer(limit, _expired);
+  }
+
+  /// The load ended, with the page or with an error the view already shows.
+  void ended({required bool loaded}) {
+    _timer?.cancel();
+    _timer = null;
+    if (loaded) _reloaded = false;
+  }
+
+  void dispose() => _timer?.cancel();
+
+  void _expired() {
+    _timer = null;
+    if (_reloaded) {
+      _reloaded = false;
+      giveUp();
+      return;
+    }
+    _reloaded = true;
+    reload();
+  }
+}
+
 // SafeArea keeps this view off the system bars, so the page must not inset them a second
 // time.
 const _safeAreaStyle =
@@ -98,12 +144,28 @@ class _StudioPageState extends State<StudioPage> {
   String? _error;
   Timer? _heartbeat;
   Timer? _progress;
+  late final LoadWatchdog _watchdog;
 
   String get _origin => 'http://127.0.0.1:${widget.port}';
 
   @override
   void initState() {
     super.initState();
+    _watchdog = LoadWatchdog(
+      reload: () {
+        if (kDebugMode) {
+          debugPrint('The studio page load stalled; reloading it.');
+        }
+        unawaited(_controller.reload());
+      },
+      giveUp: () {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _error = AppLocalizations.of(context).couldNotReach;
+        });
+      },
+    );
     _inputs = StudioInputs(
       origin: _origin,
       currentUrl: () => _controller.currentUrl(),
@@ -140,6 +202,7 @@ class _StudioPageState extends State<StudioPage> {
           ..setNavigationDelegate(
             NavigationDelegate(
               onPageStarted: (_) {
+                _watchdog.started();
                 _inputs.navigationStarted();
                 if (mounted) {
                   setState(() {
@@ -149,6 +212,7 @@ class _StudioPageState extends State<StudioPage> {
                 }
               },
               onPageFinished: (_) async {
+                _watchdog.ended(loaded: true);
                 final failed = await installPage(
                   inputs: _inputs.install,
                   style: () => _controller.runJavaScript(_safeAreaStyle),
@@ -163,6 +227,7 @@ class _StudioPageState extends State<StudioPage> {
               },
               onWebResourceError: (error) {
                 if (error.isForMainFrame ?? true) {
+                  _watchdog.ended(loaded: false);
                   if (mounted) {
                     setState(() {
                       _loading = false;
@@ -198,8 +263,11 @@ class _StudioPageState extends State<StudioPage> {
         // would scale the whole menu instead.
         await platform.enableZoom(false);
       }
+      // Armed before the request: a document that never answers starts no page either.
+      _watchdog.started();
       await _controller.loadRequest(Uri.parse(_origin));
     } catch (error) {
+      _watchdog.ended(loaded: false);
       if (!mounted) return;
       if (kDebugMode) debugPrint('Opening the studio failed: $error');
       setState(() {
@@ -300,6 +368,7 @@ class _StudioPageState extends State<StudioPage> {
     _inputs.dispose();
     _heartbeat?.cancel();
     _progress?.cancel();
+    _watchdog.dispose();
     unawaited(RunNotifications.clear());
     super.dispose();
   }
