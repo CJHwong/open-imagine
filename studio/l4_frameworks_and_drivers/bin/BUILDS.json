@@ -1,19 +1,19 @@
 {
   "source": "apps/phone/rust/openimagine_pipe",
-  "source_commit": "a0854418b0b1ec16deb45bf91c6be4df0e1598c1",
+  "source_commit": "f18dea67872365ed91919a17335b0a4292545533",
   "crate": "openimagine_pipe 0.1.0",
   "profile": "release --bin openimagine-pipe",
   "built": "2026-11-23",
   "builds": {
     "darwin-arm64": {
       "file": "openimagine-pipe-darwin-arm64",
-      "sha256": "47c48af035f403ac8f4fbe09d204c77ee8cf4e566adc51539551a4535ea99e89",
+      "sha256": "f649398c237eddbdbdc0f430e27cc748b9e0e3036404a276b2ef07f4eec4d339",
       "target": "aarch64-apple-darwin",
       "toolchain": "macOS local cargo, rustc 1.93.0 (254b59607 2026-01-19)"
     },
     "linux-aarch64": {
       "file": "openimagine-pipe-linux-aarch64",
-      "sha256": "96889b700a4d3b2c3efe1b5b7b87a484443736b2ac508750d5120f02ddb9cff1",
+      "sha256": "ab849d0291394248d03546ee3fabf9cfa5004d15cbac35934bdc469f0e23d3fa",
       "target": "aarch64-unknown-linux-gnu",
       "toolchain": "rustc 1.93.0 (254b59607 2026-01-19), built on the DGX"
     }
