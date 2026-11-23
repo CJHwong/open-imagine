@@ -84,6 +84,13 @@ let lastFailure = '';
 // request. Only this many misses in a row count as the studio being out of reach.
 const POLL_MISSES = 3;
 let pollMisses = 0;
+// A miss that does not count (`studioReadCounts`) is asked again after this pause. An offline
+// read fails at once, so asking again at once would spin.
+const QUIET_RETRY_MS = 1000;
+let quietRetry = false;
+// The one notice that the studio is out of reach. It closes on the next state that arrives,
+// and while it is open, or after a person closed it, a further loss adds no second one.
+let lostNotice = null;
 function lostRead(error) {
   return error instanceof TypeError || error?.name === 'TimeoutError' || error?.name === 'AbortError';
 }
@@ -376,17 +383,21 @@ async function poll() {
     const known = fast && studioRevision ? '?studio=' + encodeURIComponent(studioRevision) : '';
     let answer;
     let state = null;
+    const startedAt = performance.now();
     try {
       // The limit covers the body too, so the answer is read here, inside it.
       answer = await studioStatusFetch('/api/v1/state' + known, {cache: 'no-store'});
       if (answer.ok) state = await answer.json();
     } catch (error) {
+      if (lostRead(error) && !studioReadCounts(startedAt)) { quietRetry = true; return; }
       pollMisses += 1;
       if (!lostRead(error) || pollMisses >= POLL_MISSES) { pollMisses = 0; throw error; }
       refreshPending = true;
       return;
     }
     pollMisses = 0;
+    lostNotice?.close();
+    lostNotice = null;
     if (answer.status === 404) {
       stopped = true;
       awake.set(false);
@@ -470,13 +481,19 @@ async function poll() {
   } catch (error) {
     serverBusy = false;
     awake.set(false);
-    const message = error instanceof SyntaxError || lostRead(error)
+    if (lostRead(error)) {
+      if (!lostNotice) lostNotice = page.notify('error', t('operation.error.lostContact'));
+      lastFailure = t('operation.error.lostContact');
+      return;
+    }
+    const message = error instanceof SyntaxError
       ? t('operation.error.status') : (error.message || t('operation.error.status'));
     if (lastFailure !== message) page.notify('error', message);
     lastFailure = message;
   } finally {
     polling = false;
     if (refreshPending) { refreshPending = false; poll(); }
+    else if (quietRetry) { quietRetry = false; clearPollTimer(); pollTimer = window.setTimeout(poll, QUIET_RETRY_MS); }
     else schedulePoll();
   }
 }

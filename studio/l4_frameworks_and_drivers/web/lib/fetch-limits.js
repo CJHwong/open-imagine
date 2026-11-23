@@ -10,6 +10,20 @@ globalThis.STUDIO_STALL_TIMEOUT_MS = 15000;
 // read, so it gets a longer cap than one.
 globalThis.STUDIO_SWITCH_TIMEOUT_MS = 30000;
 
+// A phone that turns its screen off hides the page, freezes it and lets its Wi-Fi sleep, and
+// on the way back the radio can stay silent for seconds. A read that fails then says nothing
+// about the studio. A read counts as lost only if the page was visible when it started and
+// had been visible for this long. While the page is hidden, the time it was shown is Infinity,
+// so no read counts.
+globalThis.STUDIO_RESUME_GRACE_MS = 10000;
+let studioShownAt = document.hidden ? Infinity : -Infinity;
+document.addEventListener('visibilitychange', function () {
+  studioShownAt = document.hidden ? Infinity : performance.now();
+});
+globalThis.studioReadCounts = function (startedAt) {
+  return startedAt - studioShownAt >= globalThis.STUDIO_RESUME_GRACE_MS;
+};
+
 // A small read, a status or the state: the whole answer, body included, within the limit.
 globalThis.studioStatusFetch = function (url, init = {}) {
   return fetch(url, {...init, signal: AbortSignal.timeout(globalThis.STUDIO_STATUS_TIMEOUT_MS)});

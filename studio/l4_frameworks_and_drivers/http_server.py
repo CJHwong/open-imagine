@@ -914,14 +914,14 @@ def make_handler(
         def _normalize_image(self) -> None:
             try:
                 contents = self._read_body(MAX_IMAGE_IMPORT_BYTES, "The image size must be between 1 byte and 64 MB.")
-                image = ImageImportController().normalize(contents)
+                image, media_type = ImageImportController().for_browser(contents)
             except UploadBusy as error:
                 self._send_busy(error)
                 return
             except StudioError as error:
                 self._send_json({"error": str(error)}, status=400)
                 return
-            self._send_bytes(image, 200, "image/png")
+            self._send_bytes(image, 200, media_type)
 
         def _read_form(self) -> dict[str, str]:
             try:

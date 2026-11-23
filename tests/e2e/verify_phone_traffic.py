@@ -14,8 +14,15 @@ uv run --with playwright --with pillow python tests/e2e/verify_phone_traffic.py 
 6. A page reopened after its run ended imports the clip, and two tabs import it once.
 7. On a phone, a workspace switch shows a spinner on the picker while it waits. A switch that
    never answers is given up, and the next switch still works.
+8. On a phone, a chosen picture holds its place with a busy tile, in the image form and in the
+   video studio, from the choice until the picture appears or fails. A HEIC comes back from
+   the studio as a JPEG, or a PNG with transparency, and those bytes are what the page sends.
+9. A read that fails while the page is hidden, or just after it shows again, reports nothing.
+   A page that stays visible and loses the studio shows one notice, and the next state that
+   arrives closes it.
 """
 
+import base64
 import io
 import re
 import sys
@@ -202,7 +209,10 @@ def check_hung_state_poll(page):
     page.wait_for_function("() => document.getElementById('shared-operation').hidden", timeout=40000)
     page.unroute_all(behavior="ignoreErrors")
     toasts = page.locator("#toasts").inner_text()
-    check("a hung state poll does not report the status as lost", "Cannot get the current task status." not in toasts)
+    check(
+        "a hung state poll does not report the status as lost",
+        "Cannot get the current task status." not in toasts and LOST not in toasts,
+    )
 
 
 STALL = """async ([gaps, stallMs]) => {
@@ -337,6 +347,157 @@ def check_workspace_switch(browser):
     context.close()
 
 
+LOST = "Lost contact with the studio."
+
+
+def encoded(mode, format):
+    buffer = io.BytesIO()
+    Image.new(mode, (40, 30), (200, 30, 20, 128) if mode == "RGBA" else (200, 30, 20)).save(buffer, format)
+    return buffer.getvalue()
+
+
+def hold_normalize(phone):
+    """Every HEIC the page sends waits in the returned list until the check answers it."""
+    held = []
+    phone.route("**/image/normalize", lambda route: held.append(route))
+    return held
+
+
+def chosen(phone, held, choose):
+    """Choose a HEIC and return the request it sent, still unanswered."""
+    count = len(held)
+    choose()
+    deadline = time.monotonic() + 5
+    while len(held) == count and time.monotonic() < deadline:
+        phone.wait_for_timeout(50)
+    return held[-1]
+
+
+def busy_tile(phone, selector):
+    """The spinner's animation when the busy tile is on screen, else None."""
+    return phone.evaluate(
+        """selector => {
+          const tile = document.querySelector(selector);
+          if (!tile || !tile.getClientRects().length) return null;
+          return getComputedStyle(tile.querySelector('.import-busy-mark'), '::after').animationName;
+        }""",
+        selector,
+    )
+
+
+def check_import_tile(browser, folder):
+    context = browser.new_context(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+    phone = context.new_page()
+    phone.goto(BASE + "/?workspace=image", wait_until="networkidle")
+    phone.locator('.pane-switch [data-pane="controls"]').tap()
+    phone.locator('label[for="mode-edit"]').tap()
+    # The page sends the HEIC to the studio and never reads it, so any bytes serve.
+    heic = folder / "photo.heic"
+    heic.write_bytes(b"\x00\x00\x00\x18ftypheic")
+    jpeg = encoded("RGB", "JPEG")
+    choose = lambda: phone.locator("#reference").set_input_files(str(heic))  # noqa: E731
+    requests = hold_normalize(phone)
+
+    held = chosen(phone, requests, choose)
+    tile = "#thumbs .import-busy"
+    check("on a phone, a chosen picture shows a busy tile in the form", busy_tile(phone, tile) == "gallery-spin")
+    held.fulfill(status=200, content_type="image/jpeg", body=jpeg)
+    phone.wait_for_function("() => references.length === 1", timeout=5000)
+    sent = phone.evaluate("() => references[0].b64")
+    check(
+        "the busy tile gives way to the picture, and a HEIC's JPEG is sent as the studio made it",
+        busy_tile(phone, tile) is None and sent == base64.b64encode(jpeg).decode(),
+        sent[:12],
+    )
+    phone.locator("#thumbs .remove").first.tap()
+
+    held = chosen(phone, requests, choose)
+    held.fulfill(status=200, content_type="image/png", body=encoded("RGBA", "PNG"))
+    phone.wait_for_function("() => references.length === 1", timeout=5000)
+    kept = phone.evaluate("() => references[0].b64")
+    check("a HEIC with transparency is sent as the studio's PNG", kept.startswith("iVBOR"), kept[:8])
+    phone.locator("#thumbs .remove").first.tap()
+
+    held = chosen(phone, requests, choose)
+    held.fulfill(status=400, content_type="application/json", body='{"error": "Could not read that image."}')
+    phone.wait_for_function("() => document.querySelector('#toasts .toast.error')", timeout=5000)
+    check(
+        "a picture that fails takes its busy tile away and says why",
+        busy_tile(phone, tile) is None and "photo.heic" in phone.locator("#toasts").inner_text(),
+    )
+
+    phone.goto(BASE + "/?workspace=video", wait_until="networkidle")
+    phone.locator('.pane-switch [data-pane="controls"]').tap()
+    requests = hold_normalize(phone)
+    held = chosen(phone, requests, lambda: phone.locator("#video-media-upload").set_input_files(str(heic)))
+    tile = "#video-references .import-busy"
+    check("on a phone, a picture chosen for a video shows a busy tile", busy_tile(phone, tile) == "gallery-spin")
+    held.fulfill(status=200, content_type="image/jpeg", body=jpeg)
+    phone.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 1")
+    check("the video's busy tile gives way to the picture", busy_tile(phone, tile) is None)
+    context.close()
+
+
+# A phone's screen going off, as the page sees it. `hidden` and `visibilityState` both move,
+# because the page reads `hidden`.
+HIDE = """hidden => {
+  Object.defineProperty(document, 'hidden', {configurable: true, get: () => hidden});
+  Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => hidden ? 'hidden' : 'visible'});
+  document.dispatchEvent(new Event('visibilitychange'));
+}"""
+
+
+def lost_notices(page):
+    return page.locator("#toasts .toast.error", has_text=LOST).count()
+
+
+def check_hidden_page(browser):
+    page = browser.new_page(viewport={"width": 1400, "height": 900})
+    page.goto(BASE + "/?workspace=video", wait_until="networkidle")
+    page.evaluate("() => { STUDIO_RESUME_GRACE_MS = 3000; }")
+    page.evaluate(HIDE, True)
+    page.route(re.compile(r"/api/v1/operations/[^/?]+$"), lambda route: route.abort("connectionreset"))
+    page.route("**/api/v1/state*", lambda route: route.abort("connectionreset"))
+    page.fill("#video-prompt", "A heron at dawn.")
+    page.locator("#video-generate").click()
+    # About nine status reads fail while hidden. Even with the grace taken off the first three
+    # seconds, that is past the five the video line counts as lost.
+    page.wait_for_timeout(9500)
+    page.evaluate(HIDE, False)
+    # Two seconds of failures inside the grace, as a phone's Wi-Fi wakes up.
+    page.wait_for_timeout(2000)
+    video = page.locator("#video-studio").inner_text()
+    toasts = page.locator("#toasts").inner_text()
+    check(
+        "a page that is hidden, then just shown, reports no lost contact",
+        LOST not in video and LOST not in toasts and "Cannot get the current task status." not in toasts,
+        f"video line {LOST in video}, toasts {toasts!r}",
+    )
+    page.unroute_all(behavior="ignoreErrors")
+    page.wait_for_function("() => videoRunState === 'idle'", timeout=30000)
+    page.close()
+
+
+def check_lost_contact(browser):
+    page = browser.new_page(viewport={"width": 1400, "height": 900})
+    page.goto(BASE + "/?workspace=image", wait_until="networkidle")
+    page.route("**/api/v1/state*", lambda route: route.abort("connectionreset"))
+    page.evaluate("() => window.dispatchEvent(new Event('pageshow'))")
+    page.wait_for_function("text => document.getElementById('toasts').innerText.includes(text)", arg=LOST)
+    # Two more rounds of failed polls, five seconds apart.
+    page.wait_for_timeout(11000)
+    check(
+        "a visible page that loses the studio shows one notice",
+        lost_notices(page) == 1 and "Cannot get the current task status." not in page.locator("#toasts").inner_text(),
+        f"{lost_notices(page)} notices",
+    )
+    page.unroute("**/api/v1/state*")
+    page.evaluate("() => window.dispatchEvent(new Event('pageshow'))")
+    page.wait_for_timeout(1500)
+    check("the next state that arrives closes the notice", lost_notices(page) == 0, f"{lost_notices(page)} notices")
+    page.close()
+
+
 def check_reference_bytes(page, folder):
     small = photo(folder / "small.jpg", 1200, 900)
     page.locator("#video-media-upload").set_input_files(str(small))
@@ -408,6 +569,9 @@ with tempfile.TemporaryDirectory() as directory, sync_playwright() as playwright
     check_reopened_page(browser)
     check_two_tabs(browser)
     check_workspace_switch(browser)
+    check_import_tile(browser, Path(directory))
+    check_hidden_page(browser)
+    check_lost_contact(browser)
     browser.close()
 
 print("FAILURES:", failures)

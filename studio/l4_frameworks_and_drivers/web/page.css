@@ -648,7 +648,7 @@
   .text-btn.is-busy, .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { cursor: default; opacity: .7; }
   .text-btn.is-busy, .workspace-tabs button[aria-busy=true] { display: inline-flex; align-items: center; gap: 5px; }
   .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
-  .workspace-tabs button[aria-busy=true]::after { content: ''; flex: none; width: 11px; height: 11px;
+  .workspace-tabs button[aria-busy=true]::after, .import-busy-mark::after { content: ''; flex: none; width: 11px; height: 11px;
     border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;
     animation: gallery-spin .8s linear infinite; }
   .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { position: relative; }
@@ -656,7 +656,7 @@
   .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after { position: absolute; width: 12px; height: 12px; }
   @media (prefers-reduced-motion: reduce) {
     .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
-    .workspace-tabs button[aria-busy=true]::after { animation: none; opacity: .5; } }
+    .workspace-tabs button[aria-busy=true]::after, .import-busy-mark::after { animation: none; opacity: .5; } }
 
   /* Below the 52 px topbar, so a failure never covers the workspace switch, and
      below the shared operation bar while one runs. The host is a popover, so the
@@ -1083,6 +1083,11 @@
     border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer; }
   .thumb .remove .icon { width: 11px; height: 11px; }
   .thumb .remove:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
+  /* A picture still being read holds its place with the busy mark. */
+  .import-busy-mark { height: 72px; display: flex; align-items: center; justify-content: center;
+    border: 1px dashed var(--line-strong); border-radius: 2px; color: var(--text-3); }
+  .import-busy-mark::after { width: 18px; height: 18px; }
+  .video-references .import-busy { margin-top: 8px; }
   .add-tile { width: 60px; height: 60px; display: flex; align-items: center; justify-content: center;
     border: 1px dashed var(--line-strong); border-radius: 2px; color: var(--text-3); }
   .refs-note { margin-top: 10px; color: var(--text-3); font-size: 12px; }

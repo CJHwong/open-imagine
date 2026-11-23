@@ -2164,17 +2164,20 @@
   }
 
   // The run lives on the studio, not in a request. A poll that fails is retried: a phone that
-  // sleeps, or a pipe that drops a connection, has not stopped the clip.
+  // sleeps, or a pipe that drops a connection, has not stopped the clip. A read that failed
+  // while the page was hidden, or just after it showed again, is not counted (`studioReadCounts`).
   async function followVideoOperation(operation, runSeconds) {
     let state = operation;
     let failures = 0;
     while (['queued', 'running', 'stopping'].includes(state.status)) {
       await videoPause();
+      const startedAt = performance.now();
       const answer = await videoRead(operation.status_url);
       const next = answer ? await answer.json().catch(function () { return null; }) : null;
       if (!next) {
+        if (!studioReadCounts(startedAt)) continue;
         failures += 1;
-        if (failures === VIDEO_LOST_POLLS) videoStudio.setError(t('page.error.videoProgress'));
+        if (failures === VIDEO_LOST_POLLS) videoStudio.setError(t('operation.error.lostContact'));
         continue;
       }
       if (failures >= VIDEO_LOST_POLLS) videoStudio.clearError();
@@ -3286,7 +3289,7 @@
   // the worst a cold load does, keeps that message and raises no page error.
   let toastHost = null;
   document.addEventListener('toast-ready', function (event) { toastHost = event.detail; });
-  function showToast(kind, text) { toastHost.notify(kind, text); }
+  function showToast(kind, text) { return toastHost.notify(kind, text); }
   // A download packs one archive and can take a while. The same toast the export uses
   // reports it, so a press never looks stuck.
   window.studioProgress = function (text) { return toastHost.progress(text); };
