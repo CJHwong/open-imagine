@@ -118,6 +118,14 @@ const int missesBeforeLost = 10;
 
 bool studioIsGone(int misses) => misses >= missesBeforeLost;
 
+/// Whether a probe can say anything about the studio now.
+///
+/// Android blocks the network of an app that is not on screen, the image picker included, so
+/// every probe there missed, and a minute in another app ended a connection that was fine.
+/// Only a probe made on screen counts.
+bool probeCounts(AppLifecycleState? state) =>
+    state == AppLifecycleState.resumed;
+
 class StudioPage extends StatefulWidget {
   const StudioPage({super.key, required this.port, this.onLost});
 
@@ -301,6 +309,10 @@ class _StudioPageState extends State<StudioPage> {
 
   Future<void> _check() async {
     if (_checking) return;
+    if (!probeCounts(WidgetsBinding.instance.lifecycleState)) {
+      _misses = 0;
+      return;
+    }
     _checking = true;
     try {
       if (await probeStudio(widget.port, timeout: const Duration(seconds: 5))) {
