@@ -3524,6 +3524,8 @@
     const toggle = document.getElementById('backend-toggle');
     if (sharedBusy() || busy() || voiceStudio.locked || musicStudio.busy || videoRunState !== 'idle') return showToast('info', t('page.backend.wait'));
     toggle.disabled = true;
+    // The same mark a workspace switch puts on its button: loading the model takes seconds.
+    toggle.setAttribute('aria-busy', 'true');
     backendSwitchPending = true;
     setWorkspaceControlsDisabled();
     showToast('info', t('page.backend.selecting', {name: name}));
@@ -3537,12 +3539,14 @@
           return;
         }
         toggle.disabled = false;
+        toggle.removeAttribute('aria-busy');
         backendSwitchPending = false;
         setWorkspaceControlsDisabled();
         showToast('error', new DOMParser().parseFromString(text, 'text/html').body.textContent);
       })
       .catch(function (error) {
         toggle.disabled = false;
+        toggle.removeAttribute('aria-busy');
         backendSwitchPending = false;
         setWorkspaceControlsDisabled();
         showToast('error', t('page.backend.switchFailed', {message: error.message}));
