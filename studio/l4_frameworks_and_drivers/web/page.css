@@ -648,7 +648,8 @@
   .text-btn.is-busy, .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { cursor: default; opacity: .7; }
   .text-btn.is-busy, .workspace-tabs button[aria-busy=true] { display: inline-flex; align-items: center; gap: 5px; }
   .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
-  .workspace-tabs button[aria-busy=true]::after, .import-busy-mark::after { content: ''; flex: none; width: 11px; height: 11px;
+  .workspace-tabs button[aria-busy=true]::after, #backend-toggle[aria-busy=true]::after,
+  .import-busy-mark::after { content: ''; flex: none; width: 11px; height: 11px;
     border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%;
     animation: gallery-spin .8s linear infinite; }
   .icon-btn.is-busy, #workspace-toggle[aria-busy=true] { position: relative; }
@@ -656,7 +657,8 @@
   .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after { position: absolute; width: 12px; height: 12px; }
   @media (prefers-reduced-motion: reduce) {
     .text-btn.is-busy::after, .icon-btn.is-busy::after, #workspace-toggle[aria-busy=true]::after,
-    .workspace-tabs button[aria-busy=true]::after, .import-busy-mark::after { animation: none; opacity: .5; } }
+    .workspace-tabs button[aria-busy=true]::after, #backend-toggle[aria-busy=true]::after,
+    .import-busy-mark::after { animation: none; opacity: .5; } }
 
   /* Below the 52 px topbar, so a failure never covers the workspace switch, and
      below the shared operation bar while one runs. The host is a popover, so the
