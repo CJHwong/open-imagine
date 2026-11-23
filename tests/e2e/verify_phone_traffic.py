@@ -347,7 +347,7 @@ def check_workspace_switch(browser):
     context.close()
 
 
-LOST = "Lost contact with the studio."
+LOST = "Lost contact with the server."
 
 
 def encoded(mode, format):
