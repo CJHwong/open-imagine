@@ -1,14 +1,18 @@
-//! One HTTP connection carried between the WebView's socket and an iroh stream pair.
+//! One HTTP connection carried between a TCP socket and an iroh stream pair.
 //!
-//! The asker is the WebView, which sends requests. The answerer is the iroh stream to the
-//! studio, which sends responses.
+//! The asker sends requests: the WebView's socket on the phone, the iroh stream on the studio
+//! machine. The answerer sends responses: the iroh stream on the phone, the studio's socket on
+//! the studio machine.
 //!
-//! When the answerer closes, nothing more can arrive, so the WebView's socket closes at once.
-//! Copying the two directions with `join!` waited for the WebView to close as well, and a
-//! browser keeps an idle connection open: the studio's close never reached the WebView, which
-//! then sent its next request into a connection nobody read, and that request hung. When the
-//! WebView closes its sending half, the studio gets the same half-close, and the forward waits
-//! for the rest of the response. An error on either side ends both.
+//! When the answerer closes, nothing more can arrive, so the asker's side closes at once. When
+//! the asker closes its sending half, the answerer gets the same half-close, and the forward
+//! waits for the rest of the response. An error on either side ends both.
+//!
+//! Copying the two directions with `join!` kept each half open until the other closed. On the
+//! phone, the studio's close never reached the WebView, which sent its next request into a
+//! connection nobody read. On the studio machine, a request the phone had finished stayed open
+//! to the studio until its 30 s read timeout, and so did its iroh connection: at two requests a
+//! second, about fifty piled up, and a new connection stalled behind them for seconds.
 
 use std::io;
 

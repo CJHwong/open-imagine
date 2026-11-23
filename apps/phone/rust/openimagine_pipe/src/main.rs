@@ -5,9 +5,10 @@
 //! 127.0.0.1:N, which is the studio.
 
 mod protocol;
+mod relay;
 
 use std::collections::HashMap;
-use std::io;
+
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -129,7 +130,7 @@ fn device(id: &str, state: &str) {
 
 async fn forward_connection(connection: iroh::endpoint::Connection, port: u16) -> Result<()> {
     eprintln!("listener: connection accepted");
-    let (mut send, mut recv) = connection.accept_bi().await?;
+    let (send, mut recv) = connection.accept_bi().await?;
     eprintln!("listener: bi stream accepted");
     let mut handshake = [0u8; HANDSHAKE.len()];
     recv.read_exact(&mut handshake).await?;
@@ -141,20 +142,10 @@ async fn forward_connection(connection: iroh::endpoint::Connection, port: u16) -
         .await
         .with_context(|| format!("cannot connect to 127.0.0.1:{port}"))?;
     eprintln!("listener: tcp connected to {port}");
-    let (mut tcp_read, mut tcp_write) = tcp.into_split();
-    let request = async {
-        tokio::io::copy(&mut recv, &mut tcp_write).await?;
-        Ok::<_, io::Error>(())
-    };
-    let response = async {
-        tokio::io::copy(&mut tcp_read, &mut send).await?;
-        send.finish()?;
-        Ok::<_, io::Error>(())
-    };
-    let (request, response) = tokio::join!(request, response);
-    eprintln!("listener: forward finished: {request:?} {response:?}");
-    request?;
-    response?;
+    let (tcp_read, tcp_write) = tcp.into_split();
+    let finished = relay::relay(recv, send, tcp_read, tcp_write).await;
+    eprintln!("listener: forward finished: {finished:?}");
+    finished?;
     Ok(())
 }
 
