@@ -6,6 +6,9 @@ globalThis.STUDIO_STATUS_TIMEOUT_MS = 4000;
 // A result can be a large clip over a slow link. It is never cut for taking long, only for
 // receiving nothing for this long.
 globalThis.STUDIO_STALL_TIMEOUT_MS = 15000;
+// A workspace switch can free a loaded model before it answers, which is slower than a status
+// read, so it gets a longer cap than one.
+globalThis.STUDIO_SWITCH_TIMEOUT_MS = 30000;
 
 // A small read, a status or the state: the whole answer, body included, within the limit.
 globalThis.studioStatusFetch = function (url, init = {}) {

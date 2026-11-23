@@ -1052,9 +1052,12 @@
     workspaceToggle.setAttribute('aria-busy', 'true');
     setWorkspaceControlsDisabled();
     try {
+      // A switch answers in milliseconds when nothing is freed. The cap only ends a request that
+      // a dropped connection holds open, which used to keep every later switch locked.
       const answer = await fetch('/workspace', {
         method: 'POST',
         body: new URLSearchParams({ workspace: next }),
+        signal: AbortSignal.timeout(STUDIO_SWITCH_TIMEOUT_MS),
       });
       const text = await answer.text();
       if (!answer.ok || text.trim()) {
@@ -1064,7 +1067,8 @@
       applyMediaMode(next);
       if (keeping && !sharedOperation) localStorage.setItem('studio-draft-workspace', next);
     } catch (error) {
-      showToast('error', error instanceof TypeError ? t('form.error.serverSilent') : error.message);
+      const silent = error instanceof TypeError || error.name === 'TimeoutError';
+      showToast('error', silent ? t('form.error.serverSilent') : error.message);
     } finally {
       tab.removeAttribute('aria-busy');
       workspaceToggle.removeAttribute('aria-busy');

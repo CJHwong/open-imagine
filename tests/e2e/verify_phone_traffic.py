@@ -12,6 +12,8 @@ uv run --with playwright --with pillow python tests/e2e/verify_phone_traffic.py 
    again: the clock keeps time, no failure is reported, and the clip still arrives. A result
    read ends when its bytes stop, never for taking long.
 6. A page reopened after its run ended imports the clip, and two tabs import it once.
+7. On a phone, a workspace switch shows a spinner on the picker while it waits. A switch that
+   never answers is given up, and the next switch still works.
 """
 
 import io
@@ -300,6 +302,41 @@ def check_two_tabs(browser):
     context.close()
 
 
+def pick_workspace(phone, name):
+    phone.locator("#workspace-toggle").tap()
+    phone.locator("#workspace-menu").get_by_role("menuitemradio", name=name).tap()
+
+
+def check_workspace_switch(browser):
+    context = browser.new_context(viewport={"width": 412, "height": 915}, is_mobile=True, has_touch=True)
+    phone = context.new_page()
+    phone.goto(BASE + "/?workspace=video", wait_until="networkidle")
+    phone.evaluate("() => { STUDIO_SWITCH_TIMEOUT_MS = 1500; }")
+    held = hang(phone, "**/workspace", 1)
+    pick_workspace(phone, "Image")
+    phone.wait_for_function("() => workspaceSwitchPending", timeout=5000)
+    spinner = phone.evaluate(
+        """() => {
+          const toggle = document.getElementById('workspace-toggle');
+          const icon = toggle.querySelector('.workspace-icon');
+          return [getComputedStyle(toggle, '::after').animationName, getComputedStyle(icon).visibility];
+        }"""
+    )
+    check("on a phone, the workspace picker spins while a switch waits", spinner == ["gallery-spin", "hidden"], spinner)
+    phone.wait_for_function("() => !workspaceSwitchPending", timeout=5000)
+    check(
+        "a switch that never answers is given up and stays in place",
+        len(held) == 1
+        and phone.evaluate("mediaMode") == "video"
+        and not phone.locator("#workspace-toggle").get_attribute("aria-busy"),
+        phone.evaluate("mediaMode"),
+    )
+    pick_workspace(phone, "Image")
+    phone.wait_for_function("() => mediaMode === 'image' && !workspaceSwitchPending", timeout=5000)
+    check("the next switch still works", True)
+    context.close()
+
+
 def check_reference_bytes(page, folder):
     small = photo(folder / "small.jpg", 1200, 900)
     page.locator("#video-media-upload").set_input_files(str(small))
@@ -370,6 +407,7 @@ with tempfile.TemporaryDirectory() as directory, sync_playwright() as playwright
     check_phone_run(browser)
     check_reopened_page(browser)
     check_two_tabs(browser)
+    check_workspace_switch(browser)
     browser.close()
 
 print("FAILURES:", failures)
