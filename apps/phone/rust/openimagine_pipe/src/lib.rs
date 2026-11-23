@@ -7,10 +7,13 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::str::FromStr;
-use std::sync::{Mutex, Once};
+use std::sync::{Arc, Mutex, Once};
 
 use anyhow::Result;
-use iroh::{endpoint::presets, Endpoint, EndpointAddr, SecretKey};
+use iroh::{
+    endpoint::{presets, Connection},
+    Endpoint, EndpointAddr, SecretKey,
+};
 use iroh_tickets::endpoint::EndpointTicket;
 use jni::objects::JObject;
 use jni::JNIEnv;
@@ -20,7 +23,7 @@ use tokio_util::sync::CancellationToken;
 mod protocol;
 mod relay;
 
-use protocol::{ALPN, HANDSHAKE};
+use protocol::{transport, ALPN, HANDSHAKE};
 
 struct Pipe {
     token: CancellationToken,
@@ -100,6 +103,7 @@ pub unsafe extern "C" fn oi_pipe_start(
         Endpoint::builder(presets::N0)
             .secret_key(secret)
             .alpns(vec![ALPN.to_vec()])
+            .transport_config(transport())
             .bind(),
     ) {
         Ok(endpoint) => endpoint,
@@ -141,7 +145,11 @@ async fn run(
     listener: TcpListener,
     token: CancellationToken,
 ) -> Result<()> {
-    let addr = ticket.endpoint_addr();
+    let studio = Arc::new(Studio {
+        endpoint: endpoint.clone(),
+        addr: ticket.endpoint_addr().clone(),
+        connection: tokio::sync::Mutex::new(None),
+    });
     // A listener that keeps failing would spin a core while the studio is unreachable.
     let mut failures: u32 = 0;
     loop {
@@ -168,12 +176,11 @@ async fn run(
                 continue;
             }
         };
-        let endpoint = endpoint.clone();
-        let addr = addr.clone();
+        let studio = Arc::clone(&studio);
         tokio::spawn(async move {
-            // A forward ends when either side closes. The next connection opens its
-            // own; the cause is kept as one line, with no ticket or prompt in it.
-            if let Err(error) = forward(tcp, endpoint, addr).await {
+            // A forward ends when either side closes. The cause is kept as one line, with
+            // no ticket or prompt in it.
+            if let Err(error) = forward(tcp, &studio).await {
                 eprintln!("forward failed: {error}");
             }
         });
@@ -182,10 +189,39 @@ async fn run(
     Ok(())
 }
 
-async fn forward(tcp: tokio::net::TcpStream, endpoint: Endpoint, addr: EndpointAddr) -> Result<()> {
+/// The studio machine and the one connection every request shares.
+///
+/// A connection per request sent each handshake to the cached direct address only, and when the
+/// shared Wi-Fi dropped traffic between the two machines, every new request waited out the
+/// handshake timeout. One long-lived connection already holds the relay path, so when the
+/// direct path dies its requests move to the relay with no new handshake.
+struct Studio {
+    endpoint: Endpoint,
+    addr: EndpointAddr,
+    connection: tokio::sync::Mutex<Option<Connection>>,
+}
+
+impl Studio {
+    /// A new stream to the studio, on the shared connection, or on a new one when that has closed.
+    async fn open(&self) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
+        let mut slot = self.connection.lock().await;
+        if let Some(connection) = slot.as_ref() {
+            if connection.close_reason().is_none() {
+                if let Ok(pair) = connection.open_bi().await {
+                    return Ok(pair);
+                }
+            }
+        }
+        let connection = self.endpoint.connect(self.addr.clone(), ALPN).await?;
+        let pair = connection.open_bi().await?;
+        *slot = Some(connection);
+        Ok(pair)
+    }
+}
+
+async fn forward(tcp: tokio::net::TcpStream, studio: &Studio) -> Result<()> {
     let (tcp_read, tcp_write) = tcp.into_split();
-    let connection = endpoint.connect(addr, ALPN).await?;
-    let (mut send, recv) = connection.open_bi().await?;
+    let (mut send, recv) = studio.open().await?;
     send.write_all(&HANDSHAKE).await?;
     relay::relay(tcp_read, tcp_write, recv, send).await?;
     Ok(())

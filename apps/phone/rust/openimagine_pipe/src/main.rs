@@ -20,10 +20,7 @@ use iroh_tickets::endpoint::EndpointTicket;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 
-use protocol::{ALPN, HANDSHAKE};
-
-/// How long a finished forward waits for the phone to close its connection.
-const CLOSE_WAIT: Duration = Duration::from_secs(10);
+use protocol::{transport, ALPN, HANDSHAKE};
 
 fn secret_text() -> Result<String> {
     let text = std::env::var("IROH_SECRET").context("IROH_SECRET is not set")?;
@@ -51,6 +48,7 @@ async fn listen(port: u16, identity: Option<PathBuf>) -> Result<()> {
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret)
         .alpns(vec![ALPN.to_vec()])
+        .transport_config(transport())
         .bind()
         .await?;
     println!("{ticket}");
@@ -96,7 +94,7 @@ async fn listen(port: u16, identity: Option<PathBuf>) -> Result<()> {
                 *devices.entry(remote.clone()).or_insert(0) += 1;
             }
             device(&remote, "active");
-            let _ = forward_connection(connection, port).await;
+            serve_connection(connection, port).await;
             let quiet = active
                 .lock()
                 .ok()
@@ -131,28 +129,42 @@ fn device(id: &str, state: &str) {
     println!("{{\"kind\":\"device\",\"id\":\"{id}\",\"state\":\"{state}\",\"at\":{at}}}");
 }
 
-async fn forward_connection(connection: iroh::endpoint::Connection, port: u16) -> Result<()> {
+/// Every request a phone sends on one connection, each on its own stream, until it closes.
+///
+/// A current phone keeps one connection and opens a stream per request; an older one opens a
+/// connection per request. Both end here when the phone closes. Holding the connection until
+/// then also keeps the end of the last answer: dropping it as soon as a forward finished closed
+/// it with that answer still in flight.
+async fn serve_connection(connection: iroh::endpoint::Connection, port: u16) {
     eprintln!("listener: connection accepted");
-    let (send, mut recv) = connection.accept_bi().await?;
-    eprintln!("listener: bi stream accepted");
+    while let Ok((send, recv)) = connection.accept_bi().await {
+        tokio::spawn(async move {
+            if let Err(error) = forward_stream(send, recv, port).await {
+                eprintln!("listener: forward failed: {error:#}");
+            }
+        });
+    }
+    eprintln!(
+        "listener: connection closed: {:?}",
+        connection.close_reason()
+    );
+}
+
+async fn forward_stream(
+    send: iroh::endpoint::SendStream,
+    mut recv: iroh::endpoint::RecvStream,
+    port: u16,
+) -> Result<()> {
     let mut handshake = [0u8; HANDSHAKE.len()];
     recv.read_exact(&mut handshake).await?;
-    eprintln!("listener: handshake {handshake:?}");
     if handshake != HANDSHAKE {
         bail!("invalid handshake");
     }
     let tcp = TcpStream::connect(("127.0.0.1", port))
         .await
         .with_context(|| format!("cannot connect to 127.0.0.1:{port}"))?;
-    eprintln!("listener: tcp connected to {port}");
     let (tcp_read, tcp_write) = tcp.into_split();
-    let finished = relay::relay(recv, send, tcp_read, tcp_write).await;
-    eprintln!("listener: forward finished: {finished:?}");
-    // Dropping the connection closes it at once, and the end of the answer can still be in
-    // flight: through the relay, a browser lost every reply this way. The phone closes the
-    // connection once it has read the whole answer, so wait for that, but not for ever.
-    let _ = tokio::time::timeout(CLOSE_WAIT, connection.closed()).await;
-    finished?;
+    relay::relay(recv, send, tcp_read, tcp_write).await?;
     Ok(())
 }
 
