@@ -7,7 +7,9 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, Once};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use iroh::{
@@ -150,6 +152,15 @@ async fn run(
         endpoint: endpoint.clone(),
         addr: ticket.endpoint_addr().clone(),
         connection: tokio::sync::Mutex::new(None),
+        awake: Awake::new(now_ms()),
+    });
+    let ticking = Arc::clone(&studio);
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            ticker.tick().await;
+            ticking.awake.tick(now_ms());
+        }
     });
     // A listener that keeps failing would spin a core while the studio is unreachable.
     let mut failures: u32 = 0;
@@ -181,8 +192,11 @@ async fn run(
         tokio::spawn(async move {
             // A forward ends when either side closes. The cause is kept as one line, with
             // no ticket or prompt in it.
-            if let Err(error) = forward(tcp, &studio).await {
-                log::line(&format!("forward failed: {error:#}"));
+            match forward(tcp, &studio).await {
+                Err(error) if !asker_left(&error) => {
+                    log::line(&format!("forward failed: {error:#}"))
+                }
+                _ => {}
             }
         });
     }
@@ -200,12 +214,80 @@ struct Studio {
     endpoint: Endpoint,
     addr: EndpointAddr,
     connection: tokio::sync::Mutex<Option<Connection>>,
+    awake: Awake,
+}
+
+/// A gap in the wall clock between two ticks this long means the process did not run.
+const PAUSED_AFTER_MS: u64 = 3000;
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Whether the process stopped running since the last request.
+///
+/// Android freezes the app while it is in the background, the image picker included. A frozen
+/// process answers nothing, so the studio closes the connection after its idle limit, but the
+/// phone's own timers stop with it and it still holds that connection when it wakes. Requests
+/// sent then went into the dead connection and failed: an upload picked in the picker was lost.
+/// The wall clock keeps running through a freeze and a deep sleep, so a gap between ticks shows
+/// both.
+struct Awake {
+    last: AtomicU64,
+    paused: AtomicBool,
+}
+
+impl Awake {
+    fn new(now: u64) -> Self {
+        Awake {
+            last: AtomicU64::new(now),
+            paused: AtomicBool::new(false),
+        }
+    }
+
+    fn tick(&self, now: u64) {
+        let last = self.last.swap(now, Ordering::SeqCst);
+        if now.saturating_sub(last) > PAUSED_AFTER_MS {
+            self.paused.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// True once after a pause. A request can arrive before the first tick after a freeze, so
+    /// it reads the clock itself.
+    fn take_pause(&self, now: u64) -> bool {
+        self.tick(now);
+        self.paused.swap(false, Ordering::SeqCst)
+    }
+}
+
+/// The WebView or the app closed its socket before the answer was all written.
+///
+/// That ends a request normally: the app's server check reads only the status line and
+/// closes. Only the local TCP socket carries an operating system error code. An error from
+/// the iroh side has none, so a lost connection to the studio is still reported.
+fn asker_left(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+        error.raw_os_error().is_some()
+            && matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            )
+    })
 }
 
 impl Studio {
     /// A new stream to the studio, on the shared connection, or on a new one when that has closed.
     async fn open(&self) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
         let mut slot = self.connection.lock().await;
+        if self.awake.take_pause(now_ms()) {
+            if let Some(connection) = slot.take() {
+                log::line("the app was paused, reconnecting");
+                connection.close(0u32.into(), b"paused");
+            }
+        }
         if let Some(connection) = slot.as_ref() {
             match connection.close_reason() {
                 None => match connection.open_bi().await {
@@ -247,4 +329,49 @@ async fn forward(tcp: tokio::net::TcpStream, studio: &Studio) -> Result<()> {
     send.write_all(&HANDSHAKE).await?;
     relay::relay(tcp_read, tcp_write, recv, send).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{asker_left, Awake, PAUSED_AFTER_MS};
+
+    #[test]
+    fn a_gap_between_ticks_marks_one_pause() {
+        let awake = Awake::new(1_000);
+        awake.tick(2_000);
+        assert!(!awake.take_pause(3_000));
+        awake.tick(3_000 + PAUSED_AFTER_MS + 1);
+        assert!(awake.take_pause(3_000 + PAUSED_AFTER_MS + 2));
+        assert!(!awake.take_pause(3_000 + PAUSED_AFTER_MS + 3));
+    }
+
+    #[test]
+    fn a_request_after_a_freeze_sees_the_pause_before_any_tick() {
+        let awake = Awake::new(1_000);
+        assert!(awake.take_pause(1_000 + 60_000));
+    }
+
+    #[test]
+    fn a_clock_set_back_is_no_pause() {
+        let awake = Awake::new(10_000);
+        assert!(!awake.take_pause(5_000));
+    }
+
+    #[test]
+    fn a_socket_the_asker_closed_is_not_a_failure() {
+        // EPIPE is 32 on both, ECONNRESET is 104 on Android and Linux, 54 on macOS.
+        let reset = if cfg!(target_os = "macos") { 54 } else { 104 };
+        for code in [32, reset] {
+            let error = anyhow::Error::from(std::io::Error::from_raw_os_error(code));
+            assert!(asker_left(&error), "os error {code}");
+        }
+    }
+
+    #[test]
+    fn a_lost_studio_connection_is_still_a_failure() {
+        let lost = std::io::Error::new(std::io::ErrorKind::ConnectionReset, "connection lost");
+        assert!(!asker_left(&anyhow::Error::from(lost)));
+        let timeout = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
+        assert!(!asker_left(&anyhow::Error::from(timeout)));
+    }
 }
