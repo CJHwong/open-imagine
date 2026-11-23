@@ -8,7 +8,7 @@ import base64
 import io
 import sys
 
-from PIL import Image
+from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 from playwright.sync_api import expect, sync_playwright
 
@@ -52,17 +52,20 @@ def current_image(page, workspace):
     return page.locator("#thumbs img" if workspace == "image" else "#video-references .video-reference img").last
 
 
-def check_pixels(page, workspace, width, height):
+def check_pixels(page, workspace, width, height, format="PNG"):
     image = current_image(page, workspace)
     expect(image).to_be_visible()
     expect(image).to_have_js_property("naturalWidth", width)
     expect(image).to_have_js_property("naturalHeight", height)
     source = image.evaluate("async image => { await image.decode(); return image.src; }")
-    # Check the admitted PNG, including the browser's resize, without a second Canvas readback.
+    # Check the admitted bytes, including the browser's resize, without a second Canvas readback.
+    # A photo stays JPEG: a HEIC comes back from the studio as one, and a JPEG is sent as it is.
     with Image.open(io.BytesIO(base64.b64decode(source.split(",", 1)[1]))) as admitted:
-        assert admitted.format == "PNG"
-        assert admitted.size == (width, height)
-        pixel = admitted.convert("RGBA").getpixel((width // 2, height // 2))
+        assert admitted.format == format, admitted.format
+        # A JPEG sent as it is keeps its EXIF turn, which the studio applies as it reads it.
+        upright = ImageOps.exif_transpose(admitted)
+        assert upright.size == (width, height), upright.size
+        pixel = upright.convert("RGBA").getpixel((width // 2, height // 2))
     assert pixel[3] == 255, pixel
     assert pixel[0] > pixel[1] + 100 and pixel[0] > pixel[2] + 100, pixel
 
@@ -91,12 +94,12 @@ def check_workspace(browser, base, workspace, width):
     assert all(extension in chooser.get_attribute("accept") for extension in (".heic", ".heif"))
     for source in ("file", "drop", "paste"):
         import_file(page, workspace, payload(source + ".HEIC", "HEIF", mime=""), source)
-        check_pixels(page, workspace, 64, 48)
+        check_pixels(page, workspace, 64, 48, "JPEG")
         clear_reference(page, workspace)
     exif = Image.Exif()
     exif[274] = 6
     import_file(page, workspace, payload("portrait.jpg", "JPEG", mime="image/jpeg", exif=exif))
-    check_pixels(page, workspace, 48, 64)
+    check_pixels(page, workspace, 48, 64, "JPEG")
     clear_reference(page, workspace)
     import_file(page, workspace, payload("edge.png", size=(2048, 1024)))
     check_pixels(page, workspace, 2048, 1024)
@@ -128,7 +131,7 @@ def check_workspace(browser, base, workspace, width):
     if workspace == "video":
         import_file(page, workspace, payload("rail.heif", "HEIF", mime="image/heif"), "rail")
         expect(page.locator("#video-references .video-reference img")).to_have_count(2)
-        check_pixels(page, workspace, 64, 48)
+        check_pixels(page, workspace, 64, 48, "JPEG")
         clear_reference(page, workspace, remaining=1)
     clear_reference(page, workspace)
     if workspace == "image":
