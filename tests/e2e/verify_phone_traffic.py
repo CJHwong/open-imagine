@@ -8,11 +8,17 @@ uv run --with playwright --with pillow python tests/e2e/verify_phone_traffic.py 
 2. A picture that needs no resize is sent as the file's own bytes, and a resize of a photo is a JPEG.
 3. During a run, the state poll leaves out the studio block the page already holds.
 4. A reload revalidates the page's files instead of downloading them again.
+5. A state poll, a status read or a result read that never answers is given up and asked
+   again: the clock keeps time, no failure is reported, and the clip still arrives. A result
+   read ends when its bytes stop, never for taking long.
+6. A page reopened after its run ended imports the clip, and two tabs import it once.
 """
 
 import io
+import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -126,6 +132,174 @@ def check_phone_run(browser):
     context.close()
 
 
+def shorten_limits(page):
+    """The page's own limits are seconds long; these keep each hang in the suite short."""
+    page.evaluate("() => { STUDIO_STATUS_TIMEOUT_MS = 1500; STUDIO_STALL_TIMEOUT_MS = 2000; }")
+
+
+def hang(page, pattern, count):
+    """The next `count` requests to `pattern` get no answer at all, as on a dead pipe connection."""
+    held = []
+
+    def handler(route):
+        if len(held) < count:
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(pattern, handler)
+    return held
+
+
+def elapsed_text(page):
+    return page.locator("#shared-operation-elapsed").text_content()
+
+
+def check_hung_video_reads(page):
+    shorten_limits(page)
+    # The run's first status read and first result read never answer.
+    statuses = hang(page, re.compile(r"/api/v1/operations/[^/?]+$"), 1)
+    results = hang(page, "**/api/v1/operations/*/result", 1)
+    page.fill("#video-prompt", "A lantern in the rain.")
+    page.locator("#video-generate").click()
+    page.wait_for_function("() => videoRunState === 'idle'", timeout=30000)
+    page.unroute_all(behavior="ignoreErrors")
+    status = page.locator("#video-request-status").text_content()
+    check(
+        "a run whose status read and result read hang still delivers its clip",
+        len(statuses) == 1 and len(results) == 1 and status == "Test preview added. No video file was generated.",
+        f"{len(statuses)} status and {len(results)} result reads hung, status {status!r}",
+    )
+
+
+def check_hung_state_poll(page):
+    shorten_limits(page)
+    polls = []
+    page.on("request", lambda request: polls.append(time.monotonic()) if "/api/v1/state" in request.url else None)
+    # A stub video run ends within a second. The stub's default image model takes eight steps,
+    # a second each, which holds the shared bar long enough.
+    started = page.request.post(BASE + "/api/v1/operations", data={"kind": "image", "prompt": "a pear", "steps": 8})
+    page.wait_for_function("() => document.getElementById('shared-operation').dataset.status === 'running'")
+    states = hang(page, re.compile(r"/api/v1/state"), 2)
+    deadline = time.monotonic() + 5
+    while not states and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    hung_at = time.monotonic()
+    shown = elapsed_text(page)
+    page.wait_for_timeout(2500)
+    ticked = elapsed_text(page)
+    check(
+        "the clock ticks while a state poll hangs", started.status == 202 and ticked != shown, f"{shown!r}, {ticked!r}"
+    )
+    later = [moment for moment in polls if moment > hung_at]
+    check(
+        "a hung state poll is sent again once its limit passes",
+        bool(later) and later[0] - hung_at < 2.5,
+        f"next poll after {later[0] - hung_at:.1f}s" if later else "no poll after the hang",
+    )
+    page.wait_for_function("() => document.getElementById('shared-operation').hidden", timeout=40000)
+    page.unroute_all(behavior="ignoreErrors")
+    toasts = page.locator("#toasts").inner_text()
+    check("a hung state poll does not report the status as lost", "Cannot get the current task status." not in toasts)
+
+
+STALL = """async ([gaps, stallMs]) => {
+  // One chunk after each gap, through the page's own reader of a result.
+  const real = window.fetch;
+  window.fetch = async (url, init) => new Response(new ReadableStream({
+    async start(controller) {
+      for (const gap of gaps) {
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, gap);
+          init.signal.addEventListener('abort', () => { clearTimeout(timer); reject(init.signal.reason); });
+        });
+        controller.enqueue(new Uint8Array([1]));
+      }
+      controller.close();
+    },
+  }));
+  STUDIO_STALL_TIMEOUT_MS = stallMs;
+  const started = performance.now();
+  try {
+    const answer = await studioStallFetch('/slow');
+    return {bytes: (await answer.arrayBuffer()).byteLength, ms: performance.now() - started};
+  } catch (error) {
+    return {error: error.name, ms: performance.now() - started};
+  } finally {
+    window.fetch = real;
+  }
+}"""
+
+
+def check_stall_limit(page):
+    slow = page.evaluate(STALL, [[600, 600, 600, 600, 600], 1000])
+    check("a result that keeps arriving is never cut, however long it takes", slow.get("bytes") == 5, str(slow))
+    stalled = page.evaluate(STALL, [[100, 60000], 1000])
+    check(
+        "a result that stops arriving ends after the stall limit",
+        stalled.get("error") == "TimeoutError" and stalled["ms"] < 3000,
+        str(stalled),
+    )
+
+
+def start_and_leave(context, prompt):
+    """A run whose page goes away before it ends, as when Android restarts the app. Returns its id."""
+    page = context.new_page()
+    page.goto(BASE + "/?workspace=video", wait_until="load")
+    page.wait_for_function("typeof STUDIO === 'object'")
+    page.fill("#video-prompt", prompt)
+    with page.expect_response(lambda response: response.url.endswith("/video/operations")) as started:
+        page.locator("#video-generate").click()
+    operation = started.value.json()["id"]
+    page.close()
+    deadline = time.monotonic() + 60
+    while context.request.get(f"{BASE}/api/v1/operations/{operation}").json()["status"] != "succeeded":
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"run {operation} did not end")
+        time.sleep(0.5)
+    return operation
+
+
+def open_video(context):
+    page = context.new_page()
+    page.goto(BASE + "/?workspace=video", wait_until="load")
+    return page
+
+
+def has_clip(page, operation):
+    return page.evaluate(
+        "id => document.getElementById('video-studio').clips.some(clip => clip.id === 'video-operation-' + id)",
+        operation,
+    )
+
+
+def check_reopened_page(browser):
+    context = browser.new_context()
+    operation = start_and_leave(context, "A heron on one leg.")
+    # Same localStorage, new sessionStorage: what a restarted app's WebView has.
+    page = open_video(context)
+    deadline = time.monotonic() + 20
+    while not has_clip(page, operation) and time.monotonic() < deadline:
+        page.wait_for_timeout(250)
+    check("a page reopened after its run ended imports the clip", has_clip(page, operation))
+    context.close()
+
+
+def check_two_tabs(browser):
+    context = browser.new_context()
+    operation = start_and_leave(context, "A fox in the snow.")
+    reads = []
+    context.on("request", lambda request: reads.append(request.url) if f"{operation}/result" in request.url else None)
+    first, second = open_video(context), open_video(context)
+    deadline = time.monotonic() + 20
+    while not (has_clip(first, operation) or has_clip(second, operation)) and time.monotonic() < deadline:
+        first.wait_for_timeout(250)
+    # Past one idle poll of each tab, so a second import has had its chance.
+    first.wait_for_timeout(7000)
+    check("two tabs that open together import the run once", len(reads) == 1, f"{len(reads)} result reads")
+    context.close()
+
+
 def check_reference_bytes(page, folder):
     small = photo(folder / "small.jpg", 1200, 900)
     page.locator("#video-media-upload").set_input_files(str(small))
@@ -190,7 +364,12 @@ with tempfile.TemporaryDirectory() as directory, sync_playwright() as playwright
     check_reference_bytes(page, Path(directory))
     check_state_revision(page)
     check_revalidation(page)
+    check_stall_limit(page)
+    check_hung_video_reads(page)
+    check_hung_state_poll(page)
     check_phone_run(browser)
+    check_reopened_page(browser)
+    check_two_tabs(browser)
     browser.close()
 
 print("FAILURES:", failures)

@@ -1,3 +1,4 @@
+import './fetch-limits.js';
 import {screenAwake} from './screen-awake.js';
 import {t} from './i18n.js';
 import {navigate} from './navigation.js';
@@ -21,6 +22,44 @@ try {
 } catch (error) {
   console.warn('Completed operations were not read:', error);
 }
+// The tab's lists above do not survive an app that Android restarts mid-run: the new page
+// skipped its own clip as another page's, until the studio dropped it. So the library also
+// keeps its clients and the runs its tabs took, in localStorage. A video run that ended
+// before this page opened, made by a client of this library and taken by no tab, is this
+// page's to import. Video only: its follower marks every outcome taken, so a taken run never
+// comes back, where an image run its own tab made is not always marked.
+const libraryOwners = new Set();
+const libraryImported = new Set();
+const LIBRARY_LISTS = {
+  'studio-library-owners': [libraryOwners, 64],
+  'studio-library-imported': [libraryImported, 256],
+};
+function libraryKey(name) {
+  return name + ':' + page.libraryId;
+}
+// Another tab may have written since this one read, so a read merges and a write reads first.
+function readLibrary(name) {
+  try {
+    JSON.parse(localStorage.getItem(libraryKey(name)) || '[]').forEach(id => LIBRARY_LISTS[name][0].add(id));
+  } catch (error) {
+    console.warn('The library list ' + name + ' was not read:', error);
+  }
+}
+function writeLibrary(name, change) {
+  // Before configure names the library there is nothing to write under.
+  if (!page.libraryId) return;
+  const [values, limit] = LIBRARY_LISTS[name];
+  readLibrary(name);
+  change(values);
+  try {
+    localStorage.setItem(libraryKey(name), JSON.stringify(Array.from(values).slice(-limit)));
+  } catch (error) {
+    console.warn('The library list ' + name + ' was not saved:', error);
+  }
+}
+function addToLibrary(name, id) {
+  writeLibrary(name, values => { values.delete(id); values.add(id); });
+}
 function remember(id) {
   if (!id) return;
   imported.add(id);
@@ -29,6 +68,7 @@ function remember(id) {
   } catch (error) {
     console.warn('Completed operations were not saved:', error);
   }
+  addToLibrary('studio-library-imported', id);
 }
 document.addEventListener('operation-imported', function (event) { remember(event.detail); });
 let active = null;
@@ -40,6 +80,13 @@ let serverBusy = false;
 let localBusy = false;
 let stopped = false;
 let lastFailure = '';
+// A state read that times out or loses its connection is sent again at once, on a fresh
+// request. Only this many misses in a row count as the studio being out of reach.
+const POLL_MISSES = 3;
+let pollMisses = 0;
+function lostRead(error) {
+  return error instanceof TypeError || error?.name === 'TimeoutError' || error?.name === 'AbortError';
+}
 let progressId = null;
 let overallPercent = null;
 // Polls in a row that found the studio busy with no operation this page can see.
@@ -55,6 +102,25 @@ function hiddenStopping() {
 
 function elapsed(operation) {
   return Math.max(0, (operation.finished_at || Date.now() / 1000) - operation.started_at);
+}
+
+// The bar's clock ticks on its own between polls, so a poll that is slow, or lost on a
+// phone's pipe, does not stop it.
+let shown = null;
+let clockTimer = null;
+function showElapsed() {
+  const seconds = Math.floor(elapsed(shown));
+  document.getElementById('shared-operation-elapsed').textContent = t('operation.detail.elapsed', {time: Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')});
+}
+function tick(operation) {
+  shown = operation;
+  if (!operation) {
+    window.clearInterval(clockTimer);
+    clockTimer = null;
+    return;
+  }
+  showElapsed();
+  if (!clockTimer) clockTimer = window.setInterval(showElapsed, 1000);
 }
 
 // Another client's private operation stays out of this page's state, but it holds the
@@ -80,6 +146,7 @@ function render(operation) {
   const label = document.getElementById('shared-operation-label');
   const cancel = document.getElementById('shared-operation-cancel');
   if (!operation) {
+    tick(null);
     renderHidden(panel, label, cancel);
     return;
   }
@@ -108,8 +175,7 @@ function render(operation) {
     ? t('operation.phase.preparingRewrite') : phase;
   document.getElementById('shared-operation-detail').textContent = detail;
   document.getElementById('shared-operation-percent').textContent = percent === null ? '' : percent + '%';
-  const seconds = Math.floor(elapsed(operation));
-  document.getElementById('shared-operation-elapsed').textContent = t('operation.detail.elapsed', {time: Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0')});
+  tick(operation);
   cancel.disabled = stopping;
   cancel.querySelector('span').textContent = stopping ? t('operation.action.stopping') : t('operation.action.cancel');
   panel.dataset.operationId = operation.id;
@@ -175,7 +241,7 @@ async function importBatch(operation, answer) {
     if (!item.result_url) continue;
     const identity = operation.id + ':' + item.index;
     if (batchItems.has(identity)) continue;
-    const response = await fetch(item.result_url, {cache: 'no-store'});
+    const response = await studioStallFetch(item.result_url, {cache: 'no-store'});
     if (response.status === 404 || response.status === 410) continue;
     if (!response.ok) throw new Error(t('operation.error.batchItem'));
     const record = {...operation, ...item, id: operation.id + ':' + item.index,
@@ -204,8 +270,32 @@ async function importResult(operation) {
       && !(operation.kind === 'image' && operation.batch_total);
   if (imported.has(operation.id) || appliedRewrite || ownedHere) return;
   if (operation.source === 'ui' && operation.library_id !== page.libraryId && !owners.has(operation.client_id)) return;
+  // Completed history is not replayed into a page that opens later, so an unkept result
+  // stays gone; a video run that no tab of this library took is the exception.
   if (operation.source === 'ui' && !owners.has(operation.client_id) && !observed.has(operation.id)
-      && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) return;
+      && operation.started_at < openedAt && (operation.finished_at || 0) < openedAt) {
+    const leftOver = operation.kind === 'video' && operation.finished_at && libraryOwners.has(operation.client_id);
+    return leftOver ? adopt(operation) : undefined;
+  }
+  return deliver(operation);
+}
+
+// Two tabs that open together both find a left-over run. A Web Lock, where the page has one,
+// lets one of them read the library's list and import while the other waits for a later poll.
+// Without one, as on a plain-http LAN address, the list alone decides, which is best effort.
+async function adopt(operation) {
+  if (!navigator.locks) return takeLeftOver(operation);
+  return navigator.locks.request('studio-import:' + operation.id, {ifAvailable: true},
+    lock => (lock ? takeLeftOver(operation) : 'deferred'));
+}
+
+async function takeLeftOver(operation) {
+  readLibrary('studio-library-imported');
+  if (libraryImported.has(operation.id)) return;
+  return deliver(operation);
+}
+
+async function deliver(operation) {
   const terminalFailure = operation.status === 'failed' || operation.status === 'cancelled';
   if (terminalFailure && operation.kind === 'music') page.music().restoreAfterFailure?.(operation);
   const message = operation.error || (operation.status === 'cancelled' ? t('operation.error.cancelled') : t('operation.error.failed'));
@@ -217,7 +307,7 @@ async function importResult(operation) {
   const partialBatch = ['running', 'stopping'].includes(operation.status) && operation.batch_completed > 0;
   if ((!terminalFailure && operation.status !== 'succeeded' && !partialBatch) || !operation.result_url) return;
   if (partialBatch && batchCounts.get(operation.id) >= operation.batch_completed) return;
-  const answer = await fetch(operation.result_url, {cache: 'no-store'});
+  const answer = await studioStallFetch(operation.result_url, {cache: 'no-store'});
   if (answer.status === 404 || answer.status === 410) {
     remember(operation.id);
     page.notify('info', t('operation.error.expired'));
@@ -284,7 +374,19 @@ async function poll() {
     // so a model choice this page drew ahead of the studio is still put right.
     const fast = serverBusy || localBusy;
     const known = fast && studioRevision ? '?studio=' + encodeURIComponent(studioRevision) : '';
-    const answer = await fetch('/api/v1/state' + known, {cache: 'no-store'});
+    let answer;
+    let state = null;
+    try {
+      // The limit covers the body too, so the answer is read here, inside it.
+      answer = await studioStatusFetch('/api/v1/state' + known, {cache: 'no-store'});
+      if (answer.ok) state = await answer.json();
+    } catch (error) {
+      pollMisses += 1;
+      if (!lostRead(error) || pollMisses >= POLL_MISSES) { pollMisses = 0; throw error; }
+      refreshPending = true;
+      return;
+    }
+    pollMisses = 0;
     if (answer.status === 404) {
       stopped = true;
       awake.set(false);
@@ -301,7 +403,6 @@ async function poll() {
       }
     }
     if (!answer.ok) throw new Error(t('operation.error.status'));
-    const state = await answer.json();
     active = state.active;
     serverBusy = Boolean(state.busy || active);
     // This page's own model change also holds the studio with no operation.
@@ -369,7 +470,7 @@ async function poll() {
   } catch (error) {
     serverBusy = false;
     awake.set(false);
-    const message = error instanceof SyntaxError || error instanceof TypeError
+    const message = error instanceof SyntaxError || lostRead(error)
       ? t('operation.error.status') : (error.message || t('operation.error.status'));
     if (lastFailure !== message) page.notify('error', message);
     lastFailure = message;
@@ -389,6 +490,7 @@ document.dispatchEvent(new CustomEvent('operations-ready', {
     } catch (error) {
       console.warn('Operation owners were not saved:', error);
     }
+    addToLibrary('studio-library-owners', page.clientId);
     document.getElementById('shared-operation-cancel').addEventListener('click', cancelActive);
     document.addEventListener('visibilitychange', function () {
       clearPollTimer();
