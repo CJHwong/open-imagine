@@ -295,7 +295,7 @@ def check_layout(page):
 def check_rejected_starts(page):
     for workspace, endpoint, field, button in (
         ("image", "/generate", "#prompt", "#go"),
-        ("video", "/video/generate", "#video-prompt", "#video-generate"),
+        ("video", "/video/operations", "#video-prompt", "#video-generate"),
         ("voice", "/voice/operations", "#voice-text", "#voice-generate"),
         ("music", "/music/operations", "#music-style", "#music-generate"),
     ):

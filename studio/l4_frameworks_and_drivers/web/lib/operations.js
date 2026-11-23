@@ -34,6 +34,7 @@ document.addEventListener('operation-imported', function (event) { remember(even
 let active = null;
 let polling = false;
 let pollTimer = null;
+let studioRevision = '';
 let refreshPending = false;
 let serverBusy = false;
 let localBusy = false;
@@ -275,7 +276,12 @@ async function poll() {
   clearPollTimer();
   polling = true;
   try {
-    const answer = await fetch('/api/v1/state', {cache: 'no-store'});
+    // During a run the page polls fast, and the studio block, most of each answer, comes back
+    // only when it differs from the one this page holds. An idle poll takes the whole block,
+    // so a model choice this page drew ahead of the studio is still put right.
+    const fast = serverBusy || localBusy;
+    const known = fast && studioRevision ? '?studio=' + encodeURIComponent(studioRevision) : '';
+    const answer = await fetch('/api/v1/state' + known, {cache: 'no-store'});
     if (answer.status === 404) {
       stopped = true;
       awake.set(false);
@@ -311,7 +317,10 @@ async function poll() {
     render(active);
     if (page.beforeState) page.beforeState();
     try {
-      if (state.studio) page.syncModels(state.studio);
+      if (state.studio) {
+        page.syncModels(state.studio);
+        studioRevision = state.studio_revision || '';
+      }
       page.setActive(active);
     } finally { if (page.afterState) page.afterState(); }
     if (active && active.kind === 'video' && active.client_id !== page.clientId) {

@@ -87,9 +87,9 @@ def main():
             page.emulate_media(reduced_motion="no-preference")
             page.wait_for_function("selector => Boolean(document.querySelector(selector)?.sheet)", arg=strip)
             held = []
-            page.route("**/video/generate", lambda route, request, held=held: held.append(route))
+            page.route("**/video/operations", lambda route, request, held=held: held.append(route))
             page.locator("#video-prompt").fill("A synthetic scene for the thumbnail regression.")
-            with page.expect_request("**/video/generate"):
+            with page.expect_request("**/video/operations"):
                 page.locator("#video-generate").click()
             ready_image(page, strip + " img")
             expect(page.locator(strip + " .video-gallery-sheet")).to_have_count(0)

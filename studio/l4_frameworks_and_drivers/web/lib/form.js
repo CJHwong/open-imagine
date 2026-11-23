@@ -169,7 +169,7 @@ function probeSize(entry) {
     entry.height = probe.naturalHeight;
     renderReferences();
   };
-  probe.src = 'data:image/png;base64,' + entry.b64;
+  probe.src = studioImageDataUrl(entry.b64);
 }
 
 // `source` is the id of the frame the image came from; an upload has none.
@@ -411,7 +411,7 @@ function eachRow(place) {
     const thumb = document.createElement('img');
     thumb.className = 'each-thumb';
     thumb.alt = '';
-    thumb.src = 'data:image/png;base64,' + reference.b64;
+    thumb.src = studioImageDataUrl(reference.b64);
     row.append(thumb);
   }
   const input = document.createElement('textarea');

@@ -29,7 +29,7 @@ with sync_playwright() as playwright:
     expect(page.locator("#video-generate")).to_be_disabled()
     page.locator("#video-media-upload").set_input_files(sys.argv[2])
     expect(page.locator("#video-generate")).to_be_enabled(timeout=15000)
-    with page.expect_response(lambda response: response.url.endswith("/video/generate")) as response:
+    with page.expect_response(lambda response: response.url.endswith("/video/operations")) as response:
         page.locator("#video-generate").click()
     assert response.value.ok, response.value.text()
     payload = response.value.request.post_data_json

@@ -114,7 +114,7 @@ with delayed_stub() as url, sync_playwright() as p:
         other.click("#video-fast-mode")
     page.fill("#video-prompt", "A blue ceramic teapot on a table.")
     page.dispatch_event("#video-prompt", "input")
-    with page.expect_request(lambda r: "/video/generate" in r.url and r.method == "POST") as request:
+    with page.expect_request(lambda r: "/video/operations" in r.url and r.method == "POST") as request:
         page.click("#video-generate")
     body = request.value.post_data_json
     check("UI sends fast_mode true", body["fast_mode"] is True)

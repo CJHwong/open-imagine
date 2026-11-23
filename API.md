@@ -82,6 +82,11 @@ A run never downloads, packs or builds a model. A run for a model that is not pr
 `409` with a reason that names the fix, before any queue slot is taken. See "Prepare a model".
 An accepted asynchronous request can fail later. Read its terminal status and error.
 
+`GET /api/v1/state` carries `studio_revision`, a digest of its `studio` block. Send it back as
+`GET /api/v1/state?studio=<revision>` and the answer leaves out `studio` while that revision is
+current. A stale or missing revision returns the whole block. A poller saves most of each answer
+this way, because `studio` lists every model's capabilities.
+
 `GET /api/v1/state` carries two read-only occupancy readings.
 `queue` holds `queued`, `pending_admissions`, `queued_bytes`, `max_queued` and `max_queued_bytes`.
 `uploads` holds `limit_bytes`, `held_bytes` and `readers` for the request bodies being read at that moment.

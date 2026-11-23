@@ -59,7 +59,7 @@ def main():
             route_pattern = (
                 "**/generate"
                 if workspace == "image"
-                else ("**/video/generate" if workspace == "video" else f"**/{workspace}/operations")
+                else ("**/video/operations" if workspace == "video" else f"**/{workspace}/operations")
             )
             page.route(route_pattern, lambda route, request, held=held: held.append(route))
             page.locator(field).fill("A third synthetic gallery test.")

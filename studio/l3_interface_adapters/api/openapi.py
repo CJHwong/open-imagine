@@ -760,6 +760,15 @@ def operation_paths() -> dict[str, Any]:
             paths[path]["get"]["parameters"] = identifier
         if path != "/api/v1/rewrite/state":
             paths[path]["get"]["parameters"] = [*paths[path]["get"].get("parameters", []), PRIVATE_KEY]
+    paths["/api/v1/state"]["get"]["parameters"].append(
+        {
+            "name": "studio",
+            "in": "query",
+            "required": False,
+            "description": "The studio_revision this caller holds. The answer leaves out studio while it is current.",
+            "schema": {"type": "string"},
+        }
+    )
     paths["/api/v1/operations"] = {
         "post": {
             "operationId": "startOperation",
@@ -946,7 +955,11 @@ def operation_schemas() -> dict[str, Any]:
                     "description": "An operation runs, including a private one that this caller cannot see.",
                 },
                 "operations": {"type": "array", "items": {"$ref": "#/components/schemas/Operation"}},
-                "studio": {"$ref": "#/components/schemas/Studio"},
+                "studio": {
+                    "allOf": [{"$ref": "#/components/schemas/Studio"}],
+                    "description": "Left out when the studio query parameter names the current studio_revision.",
+                },
+                "studio_revision": {"type": "string", "description": "A digest of the studio block."},
             },
         },
         "RewriteState": {

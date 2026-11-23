@@ -307,7 +307,7 @@
   "image.mode.generate": "Generate",
   "image.import.cancel": "Cancel",
   "image.import.close": "Cancel image import",
-  "image.import.formatNotice": "Both options create a PNG copy. Original resolution keeps the source image dimensions.",
+  "image.import.formatNotice": "Original resolution sends the file unchanged. A resize keeps a PNG as PNG and saves other pictures as JPEG.",
   "image.import.largeText": "{name} is {width} × {height} pixels.",
   "image.import.largeTitle": "Large image",
   "image.import.original": "Use original resolution",

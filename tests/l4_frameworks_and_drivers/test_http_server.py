@@ -159,11 +159,34 @@ def test_the_root_route_serves_the_page(served):
 def test_every_response_forbids_a_stale_copy(served):
     """The page, its modules and its stylesheet are files that change with the tree, and they
     shipped with no cache header at all. A browser was then free to keep an old page.css across
-    a restart and draw a form the server no longer had, which read as a fix that never landed."""
+    a restart and draw a form the server no longer had, which read as a fix that never landed.
+    The page's own files may be kept, but only on the condition that they are checked first."""
     url = f"http://127.0.0.1:{served[1].server_address[1]}"
-    for path in ("/", "/page/page.css", "/page/components/run-button.js", "/progress"):
+    for path in ("/", "/page/page.css", "/page/components/run-button.js"):
         with urllib.request.urlopen(url + path, timeout=30) as answer:
-            assert answer.headers["Cache-Control"] == "no-store", path
+            assert answer.headers["Cache-Control"] == "no-cache", path
+            assert answer.headers["ETag"], path
+    with urllib.request.urlopen(url + "/progress", timeout=30) as answer:
+        assert answer.headers["Cache-Control"] == "no-store"
+        assert answer.headers["ETag"] is None
+
+
+def test_an_unchanged_page_file_answers_not_modified(served):
+    """A phone opens the page over a slow pipe. A file it already holds costs a short answer,
+    not the whole file again, and a copy that no longer matches is sent whole."""
+    url = f"http://127.0.0.1:{served[1].server_address[1]}/page/page.css"
+    with urllib.request.urlopen(url, timeout=30) as answer:
+        tag = answer.headers["ETag"]
+        whole = answer.read()
+    request = urllib.request.Request(url, headers={"If-None-Match": tag})
+    with pytest.raises(urllib.error.HTTPError) as unchanged:
+        urllib.request.urlopen(request, timeout=30)
+    assert unchanged.value.code == 304
+    assert unchanged.value.headers["ETag"] == tag
+    assert unchanged.value.read() == b""
+    request = urllib.request.Request(url, headers={"If-None-Match": '"stale"'})
+    with urllib.request.urlopen(request, timeout=30) as answer:
+        assert answer.status == 200 and answer.read() == whole
 
 
 def test_the_root_route_keeps_the_selected_workspace_in_the_url(served):
@@ -1371,6 +1394,71 @@ def test_native_voice_operation_uses_browser_identity(voice_served):
     assert operation["library_id"] == "voice-library"
 
 
+def test_state_leaves_out_the_studio_block_the_poller_already_holds(served):
+    _, _, body = call(served[1], "/api/v1/state")
+    full = json.loads(body)
+    revision = full["studio_revision"]
+    assert full["studio"]
+    _, _, body = call(served[1], f"/api/v1/state?studio={revision}")
+    held = json.loads(body)
+    assert "studio" not in held
+    assert held["studio_revision"] == revision
+    _, _, body = call(served[1], "/api/v1/state?studio=stale")
+    assert json.loads(body)["studio"] == full["studio"]
+
+
+def test_native_video_operation_answers_at_once_and_keeps_its_result(served):
+    """The page starts a clip and follows it by polling, so a request that drops while the
+    phone sleeps does not take the clip with it."""
+    import time
+
+    payload = {**json.loads(video_request()), "kind": "video", "mode": "generate"}
+    status, _, body = call(
+        served[1],
+        "/video/operations",
+        json.dumps(payload).encode(),
+        **{"Content-Type": "application/json", "X-Studio-Client": "video-tab", "X-Studio-Library": "video-library"},
+    )
+    assert status == 202, body
+    operation = json.loads(body)
+    assert operation["kind"] == "video"
+    assert operation["source"] == "ui"
+    assert operation["client_id"] == "video-tab"
+    assert operation["library_id"] == "video-library"
+    for _ in range(100):
+        _, _, body = call(served[1], operation["status_url"])
+        state = json.loads(body)
+        if state["status"] not in ("queued", "running"):
+            break
+        time.sleep(0.02)
+    assert state["status"] == "succeeded", state
+    url = f"http://127.0.0.1:{served[1].server_address[1]}{state['result_url']}"
+    with urllib.request.urlopen(url, timeout=30) as answer:
+        assert answer.headers["Content-Type"] == "video/mp4"
+        assert answer.read()
+
+
+def test_native_video_operation_refuses_a_model_changed_elsewhere(served):
+    """The page drew its form for one model. A run for a model that another tab replaced is
+    refused, not switched back, as the page's video route always did."""
+    import time
+
+    payload = {**json.loads(video_request()), "kind": "video", "backend": "video-other"}
+    status, _, body = call(
+        served[1], "/video/operations", json.dumps(payload).encode(), **{"Content-Type": "application/json"}
+    )
+    assert status == 202, body
+    status_url = json.loads(body)["status_url"]
+    for _ in range(100):
+        state = json.loads(call(served[1], status_url)[2])
+        if state["status"] not in ("queued", "running"):
+            break
+        time.sleep(0.02)
+    assert state["status"] == "failed"
+    assert "video model changed" in state["error"].lower()
+    assert json.loads(call(served[1], "/api/v1/state")[2])["studio"]["video"]["active"] == "video-fake"
+
+
 def test_api_explicit_image_backend_selects_model_before_generation(served):
     status, _, body = post_json(served[1], "/api/v1/images/generate", {"backend": "other", "prompt": "a pear"})
     assert status == 200, body
@@ -1776,6 +1864,7 @@ def test_a_private_key_is_refused_where_the_studio_cannot_keep_it_private(served
     [
         ("POST", "/image/operations"),
         ("POST", "/voice/operations"),
+        ("POST", "/video/operations"),
         ("POST", "/generate"),
         ("POST", "/video/generate"),
         ("POST", "/rewrite"),
