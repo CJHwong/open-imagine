@@ -18,8 +18,8 @@ from studio.l1_entities.video_capabilities import VideoCapabilities, VideoEstima
 STEPS = 50
 FAST_STEPS = 20
 # HyperFlow H3 Flash samples 4, 6 or 8 transformer calls on its own grid, 6 by default. On the
-# DGX Spark on 2026-11-24, at 512 x 288 and 124 frames, six calls took 2.8 s each for text and
-# 17.0 s for two pictures, against 3.3 s and 18.8 s for one base call.
+# DGX Spark on 2026-11-24, at 512 x 288 and 124 frames, through the child directly, a call took
+# 2.8 s for text and 17.0 s for two pictures, against 3.3 s and 18.8 s for a base call.
 FLASH_STEPS = 6
 # At 24 fps the pipeline refuses under 120 frames or over 360, after rounding up to 17n + 5:
 # 73 and 97 were refused on 2026-11-20. 124 is the first count on that grid, 345 the last.
@@ -157,11 +157,12 @@ def minimax_h3_cuda_capabilities() -> VideoCapabilities:
 #   512 x 288      345     6.34   10.0 s    60.1 s   109.3 s   96.5 s
 #
 # A forward costs 0.950 N + 0.0800 N^2 seconds over N thousand tokens, about nine tenths of a
-# base forward. The decode is base H3's, the same VAE: the tails less one forward solved to
-# 4.4 s plus 0.70 s per megapixel. The fit reads each 124-frame clip within 8% and the 345-frame
+# base forward. The decode keeps base H3's 4.9 s plus 0.70 s per megapixel, the same VAE: the
+# tails less one forward solved to 4.4 s plus 0.70 s. The fit reads each 124-frame clip within 8% and the 345-frame
 # clip 12% low. Two pictures took 142.5 s at 512 x 288 and 304.9 s at 1024 x 576, which solve to
 # 4.44 and 4.18 thousand tokens a picture. A picture and a 5 s track took 82.2 s, 2.6 times the
-# text clip. A first frame took 34.1 s and a first and last frame 36.2 s. The first clip of the
+# text clip; `guided_factor` carries that track factor, as it does for base H3. Flash runs no
+# guidance. A first frame took 34.1 s and a first and last frame 36.2 s. The first clip of the
 # child took 128.6 s, about 96 s more than a warm one.
 FLASH_ESTIMATE = VideoEstimate(
     load=(0.0, 0.0),

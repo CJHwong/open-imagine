@@ -83,6 +83,9 @@ TRANSFORMERS = ("transformer", "transformer_ref")
 QUANTIZED = ("text_encoder", *TRANSFORMERS)
 SHARED = tuple(pattern for pattern in WEIGHTS if pattern.split("/")[0] not in TRANSFORMERS)
 """What Flash reads from the base release: everything but its transformers."""
+SHARED_FOLDERS = ("text_encoder", "vae", "audio_vae")
+"""A cached base snapshot without these is fetched again: an interrupted download that left only
+the encoder would otherwise fail later, inside the pipeline, without naming the missing files."""
 FLASH_MODEL = "VideoRebirthAI/hyperflow-h3-flash"
 FLASH_REVISION = "6834923e1a9ca4d15a2349a622b6677bea1404cb"
 FLASH_FOLDERS = {"transformer": "fl2va_bf16", "transformer_ref": "ref2va_bf16"}
@@ -223,7 +226,7 @@ def load(model: str, revision: str, flash: bool = False):
 
     started = time.time()
     if flash:
-        pipe = flash_pipeline(snapshot(model, revision, SHARED, ("text_encoder",)))
+        pipe = flash_pipeline(snapshot(model, revision, SHARED, SHARED_FOLDERS))
         weights = snapshot(FLASH_MODEL, FLASH_REVISION, FLASH_WEIGHTS, tuple(FLASH_FOLDERS.values()))
     else:
         pipe = ModularPipeline.from_pretrained(snapshot(model, revision))
