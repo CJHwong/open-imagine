@@ -3,7 +3,12 @@ import pytest
 from studio.l1_entities.model_configuration_error import ModelConfigurationError
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda import construction
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.construction import PROVIDER, minimax_h3_cuda_backend
-from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.storage_assets import DEFAULT_MODEL, storage_assets
+from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.storage_assets import (
+    DEFAULT_MODEL,
+    FLASH_MODEL,
+    flash_storage_assets,
+    storage_assets,
+)
 
 
 class Config:
@@ -39,3 +44,14 @@ def test_a_host_without_uv_gets_a_named_refusal(monkeypatch):
         minimax_h3_cuda_backend(Config({}))
     monkeypatch.setenv("UV", "/opt/uv")
     assert construction.uv_launcher() == "/opt/uv"
+
+
+def test_flash_runs_the_same_child_with_its_flag_and_owns_only_its_transformers(monkeypatch):
+    monkeypatch.setattr(construction, "uv_launcher", lambda: "/bin/uv")
+    gateway = construction.minimax_h3_flash_cuda_backend(Config({"model": "me/h3"}))
+    assert gateway._child._command[-3:] == ["--model", "me/h3", "--flash"]
+    assert gateway.capabilities().backend_id == "minimax_h3_flash_cuda"
+    provider = construction.FLASH_PROVIDER
+    assert (provider.backend_id, provider.kind, provider.engine) == ("minimax_h3_flash_cuda", "video", "cuda")
+    assert provider.storage_name == "HyperFlow H3 Flash"
+    assert [asset.location for asset in flash_storage_assets(Config({}))] == [FLASH_MODEL]

@@ -16,6 +16,7 @@
 #   "sentencepiece",
 #   "protobuf",
 #   "av",
+#   "hyperflow-h3-flash @ git+https://github.com/Video-Rebirth/hyperflow-h3-flash@dc67ea77de7795a570a41f98dc97e48f66a5828b",
 # ]
 # [tool.uv]
 # index-strategy = "unsafe-best-match"
@@ -42,6 +43,12 @@ model generates with the frames is conditioned on it, as a voice or a sound to f
 clip keeps that generated sound.
 
 The encoder is cut after layer 50, the one H3 reads, and its head is dropped.
+
+With `--flash` the child runs HyperFlow H3 Flash: the same encoder, VAEs and workflows, with
+Video Rebirth's two pruned transformers and its sampler, which hands each step its endpoint as
+well as its time. The base transformers are not fetched. Flash's low-rank pairs, its per-block
+AdaLN projections and its output norm stay in bf16, as its own code keeps them: the last two take
+a 16-wide input, which the NVFP4 kernel refused on the DGX Spark on 2026-11-24.
 """
 
 import argparse
@@ -74,6 +81,15 @@ WEIGHTS = (
 )
 TRANSFORMERS = ("transformer", "transformer_ref")
 QUANTIZED = ("text_encoder", *TRANSFORMERS)
+SHARED = tuple(pattern for pattern in WEIGHTS if pattern.split("/")[0] not in TRANSFORMERS)
+"""What Flash reads from the base release: everything but its transformers."""
+FLASH_MODEL = "VideoRebirthAI/hyperflow-h3-flash"
+FLASH_REVISION = "6834923e1a9ca4d15a2349a622b6677bea1404cb"
+FLASH_FOLDERS = {"transformer": "fl2va_bf16", "transformer_ref": "ref2va_bf16"}
+FLASH_WEIGHTS = (*(f"{folder}/*" for folder in FLASH_FOLDERS.values()), "LICENSE", "NOTICE")
+FLASH_SWAPS = {"set_timesteps": 3, "denoiser": 3}
+"""The blocks Flash replaces in the three workflows: one timestep step and one denoiser each."""
+FLASH_KEPT = ("adaln_proj", "norm_out")
 
 
 def prepare_environment() -> None:
@@ -95,21 +111,24 @@ def answer(document: dict) -> None:
     print(json.dumps(document), flush=True)
 
 
-def snapshot(model: str, revision: str) -> str:
+def snapshot(
+    model: str, revision: str, patterns: tuple[str, ...] = WEIGHTS, needed: tuple[str, ...] = TRANSFORMERS
+) -> str:
     """The pinned release on this machine, fetched once when it is not there.
 
-    A cached snapshot is used without asking the Hub, which costs seconds per start.
+    A cached snapshot that holds the `needed` folders is used without asking the Hub, which
+    costs seconds per start.
     """
     from huggingface_hub import constants, snapshot_download
 
     cached = Path(constants.HF_HUB_CACHE) / f"models--{model.replace('/', '--')}" / "snapshots" / revision
-    if (cached / "transformer_ref").is_dir() and (cached / "transformer").is_dir():
+    if all((cached / folder).is_dir() for folder in needed):
         return str(cached)
     local = Path(model).expanduser()
     if local.is_dir():
         return str(local)
     say(f"fetching {model} at {revision[:12]}")
-    return snapshot_download(model, revision=revision, allow_patterns=list(WEIGHTS))
+    return snapshot_download(model, revision=revision, allow_patterns=list(patterns))
 
 
 def component(pipe, name: str):
@@ -165,12 +184,49 @@ def drop_unread_encoder_parts(pipe) -> None:
     encoder.lm_head = torch.nn.Identity()
 
 
-def load(model: str, revision: str):
+def flash_pipeline(path: str):
+    """The base workflows with Flash's two blocks in each, built before the pipeline: a swap on
+    a built pipeline does not reach the blocks it runs. `_swap` is not Flash's public surface, so
+    the count it reports is checked against the one this child was measured with."""
+    from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3Blocks
+    from hyperflow_h3_flash.blocks import _swap
+
+    blocks = MiniMaxH3Blocks()
+    counts = {"set_timesteps": 0, "denoiser": 0}
+    _swap(blocks, counts)
+    if counts != FLASH_SWAPS:
+        raise RuntimeError(f"HyperFlow H3 Flash replaced {counts} blocks, where this child expects {FLASH_SWAPS}.")
+    return blocks.init_pipeline(path)
+
+
+def land_flash_transformer(pipe, name: str, path: str) -> None:
+    import torch
+    from hyperflow_h3_flash.transformer import (
+        HyperFlowH3FlashTransformer3DModel,
+        LowRankLinear,
+        set_lowrank_rank_multiple,
+    )
+
+    model = HyperFlowH3FlashTransformer3DModel.from_pretrained(
+        path, subfolder=FLASH_FOLDERS[name], torch_dtype=torch.bfloat16
+    )
+    # Flash's own loader pads each rank to a multiple of 8, which it measured as the fastest.
+    set_lowrank_rank_multiple(model, 8)
+    pairs = tuple(f"{part}." for part, layer in model.named_modules() if isinstance(layer, LowRankLinear))
+    pipe.update_components(**{name: model})
+    land_in_nvfp4(model, kept=(*pairs, *FLASH_KEPT))
+
+
+def load(model: str, revision: str, flash: bool = False):
     import torch
     from diffusers import ModularPipeline
 
     started = time.time()
-    pipe = ModularPipeline.from_pretrained(snapshot(model, revision))
+    if flash:
+        pipe = flash_pipeline(snapshot(model, revision, SHARED, ("text_encoder",)))
+        weights = snapshot(FLASH_MODEL, FLASH_REVISION, FLASH_WEIGHTS, tuple(FLASH_FOLDERS.values()))
+    else:
+        pipe = ModularPipeline.from_pretrained(snapshot(model, revision))
     small = [name for name in pipe.component_names if name not in QUANTIZED]
     pipe.load_components(names=small, dtype=torch.bfloat16, device_map="cpu")
     for name in ("vae", "audio_vae"):
@@ -182,12 +238,15 @@ def load(model: str, revision: str):
     land_in_nvfp4(component(pipe, "text_encoder"), kept=("visual", "lm_head"))
     say(f"encoder on the device in {time.time() - started:.1f}s")
     for name in TRANSFORMERS:
-        pipe.load_components(names=[name], dtype=torch.bfloat16, device_map="cpu")
-        land_in_nvfp4(component(pipe, name))
+        if flash:
+            land_flash_transformer(pipe, name, weights)
+        else:
+            pipe.load_components(names=[name], dtype=torch.bfloat16, device_map="cpu")
+            land_in_nvfp4(component(pipe, name))
         component(pipe, name).register_forward_pre_hook(count_step)
         say(f"{name} on the device in {time.time() - started:.1f}s")
     torch.cuda.synchronize()
-    say(f"loaded {model} in {time.time() - started:.1f}s")
+    say(f"loaded {FLASH_MODEL if flash else model} in {time.time() - started:.1f}s")
     return pipe
 
 
@@ -230,7 +289,8 @@ def decode_track(encoded: str, rate: int, limit: int):
 
 STEP = {"count": 0, "total": 0}
 """The run in progress. The modular blocks take no step callback, and a guidance-distilled
-step is one transformer call, so a hook on each transformer counts the steps."""
+step is one transformer call, so a hook on each transformer counts the steps. The job names
+how many calls its steps make, because base diffusers and Flash count steps differently."""
 
 
 def count_step(*_) -> None:
@@ -254,8 +314,7 @@ def run(pipe, job: dict) -> dict:
 
     steps = int(job["steps"])
     frames = int(job["frames"])
-    # `num_inference_steps` counts the sigma points, the final 0 among them.
-    STEP.update(count=0, total=steps - 1)
+    STEP.update(count=0, total=int(job["forwards"]))
     say("step 0/0")
     arguments = {
         "prompt": job["prompt"],
@@ -304,6 +363,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--revision", default=DEFAULT_REVISION)
+    parser.add_argument("--flash", action="store_true")
     arguments = parser.parse_args()
     prepare_environment()
     import torch
@@ -311,7 +371,7 @@ def main() -> int:
     if not torch.cuda.is_available():
         say("CUDA is not available in this environment")
         return 2
-    pipe = load(arguments.model, arguments.revision)
+    pipe = load(arguments.model, arguments.revision, arguments.flash)
     say("ready")
     for line in sys.stdin:
         line = line.strip()
