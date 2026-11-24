@@ -91,7 +91,8 @@ The child fetches `fl2va_bf16/` and `ref2va_bf16/` of `VideoRebirthAI/hyperflow-
 It never fetches the base transformers. The sampler comes from the
 [`hyperflow-h3-flash`](https://github.com/Video-Rebirth/hyperflow-h3-flash) package at commit
 `dc67ea7`, pinned in the child's script header. Deleting Flash's storage removes only its
-transformers; the encoder and the VAEs belong to base H3.
+transformers; the encoder and the VAEs belong to base H3. Deleting base H3's storage removes them
+too, and Flash still reads as ready: its next load downloads them again, the 63 GiB encoder and the VAEs.
 
 The weights are a Model Derivative of MiniMax-H3 under the MiniMax H3 Community License Agreement.
 It is not an open-source license. It does not cover use in the European Union, the United Kingdom,

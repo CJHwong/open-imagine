@@ -282,11 +282,18 @@ def test_flash_reads_everything_but_the_base_transformers_and_its_own_pinned_pai
     assert "text_encoder/*" in child.SHARED and "vae/*" in child.SHARED
     cached = world.hub / "models--MiniMaxAI--MiniMax-H3" / "snapshots" / "abc"
     (cached / "text_encoder").mkdir(parents=True)
-    assert child.snapshot("MiniMaxAI/MiniMax-H3", "abc", child.SHARED, ("text_encoder",)) == str(cached)
+    # An interrupted download that left only the encoder is fetched again.
+    assert child.snapshot("MiniMaxAI/MiniMax-H3", "abc", child.SHARED, child.SHARED_FOLDERS) == "/downloaded"
+    (cached / "vae").mkdir()
+    (cached / "audio_vae").mkdir()
+    assert child.snapshot("MiniMaxAI/MiniMax-H3", "abc", child.SHARED, child.SHARED_FOLDERS) == str(cached)
     assert (
         child.snapshot(child.FLASH_MODEL, child.FLASH_REVISION, child.FLASH_WEIGHTS, ("fl2va_bf16",)) == "/downloaded"
     )
-    assert world.downloads == [(child.FLASH_MODEL, child.FLASH_REVISION, child.FLASH_WEIGHTS)]
+    assert world.downloads == [
+        ("MiniMaxAI/MiniMax-H3", "abc", child.SHARED),
+        (child.FLASH_MODEL, child.FLASH_REVISION, child.FLASH_WEIGHTS),
+    ]
 
 
 @pytest.fixture
@@ -356,7 +363,7 @@ def test_flash_loads_its_own_transformers_and_keeps_its_small_layers_in_bf16(fla
 
     assert flash.built == "/MiniMaxAI/MiniMax-H3"
     assert flash.asked == [
-        ("MiniMaxAI/MiniMax-H3", ("text_encoder",)),
+        ("MiniMaxAI/MiniMax-H3", child.SHARED_FOLDERS),
         (child.FLASH_MODEL, ("fl2va_bf16", "ref2va_bf16")),
     ]
     # The base transformers are never loaded; Flash's land in their place, from its pinned pair.
