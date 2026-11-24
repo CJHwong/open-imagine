@@ -305,7 +305,9 @@ nothing.
 
 MiniMax H3 video downloads 196 GiB on its first start and keeps no pack: each start lands the
 encoder and both transformers in NVFP4 from the bf16 files, about 2 minutes on the DGX Spark,
-and the loaded model holds about 62 GiB.
+and the loaded model holds about 62 GiB. HyperFlow H3 Flash on CUDA reads the same encoder and
+VAEs and downloads its own two transformers, 52 GiB; it never fetches the base transformers. It
+loads in about 95 s and holds about 43 GiB.
 
 The measured time and memory of every case is in
 [measured memory and time](../reference/measured-memory-and-time.md).

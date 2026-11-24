@@ -21,7 +21,9 @@ track, are `ref2va`, which runs on its own transformer. The child holds the enco
   2026-11-24 one clip took 22 times a text run at 512 × 288 and copied its own scene over the
   picture beside it, and three clips ran the Spark out of memory even at 288p.
 - 124 to 345 frames at 24 fps, which is 5 to 14.4 s. The pipeline refuses under 5 s.
-- 50 steps, the release's own count, or 20 in Fast mode.
+- 50 steps, the default of diffusers and SGLang, or 20 in Fast mode. 50 is not a limit of the
+  weights: the MLX backend runs the same base checkpoint at eight transformer calls. No shorter
+  schedule was tried here.
 
 Edit, LoRAs, the 2K regenerate and the release's prompt system (Context-IR) are not offered.
 
@@ -63,3 +65,55 @@ A picture adds about 3.78 thousand tokens to each step. Two pictures solved to 3
 and 3.79 at 1024 × 576, so the cost does not move with the clip: the picture is encoded at its own
 size. A clip with a track keeps the measured 4.4 factor instead.
 It counts a full 50-step run, so a Fast clip takes about 40% of the figure.
+
+## HyperFlow H3 Flash
+
+`minimax_h3_flash_cuda` runs [HyperFlow H3 Flash](https://huggingface.co/VideoRebirthAI/hyperflow-h3-flash),
+Video Rebirth's pruned H3, on this child with `--flash`. It takes the same inputs as base H3 here:
+text, a first or last frame, up to nine pictures, and pictures with a track. It runs six steps and
+has no Fast mode.
+
+Flash keeps base H3's encoder, VAEs and workflows. It replaces the two transformers with its own,
+13.7 and 13.9 billion parameters against about 31 billion, where most large layers are low-rank
+pairs. Its sampler hands each step the time it steps to as well as the time it is at, so the
+child swaps Flash's two sampler blocks into the three workflows before it builds the pipeline. A
+swap on a built pipeline does not reach the blocks it runs. The block swap is Flash's private
+code, so the child checks that it replaced three of each and refuses to start otherwise.
+
+The transformers land in NVFP4 from the bf16 files, as base H3's do. The low-rank pairs, the
+per-block AdaLN projections and the output norm stay in bf16, as Flash's own code keeps them. The
+last two take a 16-wide input, which the NVFP4 kernel refused.
+
+### Weights
+
+The child fetches `fl2va_bf16/` and `ref2va_bf16/` of `VideoRebirthAI/hyperflow-h3-flash` at revision
+`6834923e1a9ca4d15a2349a622b6677bea1404cb`, 52 GiB, and the encoder and VAEs of the base release.
+It never fetches the base transformers. The sampler comes from the
+[`hyperflow-h3-flash`](https://github.com/Video-Rebirth/hyperflow-h3-flash) package at commit
+`dc67ea7`, pinned in the child's script header. Deleting Flash's storage removes only its
+transformers; the encoder and the VAEs belong to base H3.
+
+The weights are a Model Derivative of MiniMax-H3 under the MiniMax H3 Community License Agreement.
+It is not an open-source license. It does not cover use in the European Union, the United Kingdom,
+the Republic of Korea or the United States without MiniMax's authorization, and it includes an
+Acceptable Use Policy.
+
+### Measured
+
+On the DGX Spark, 2026-11-24, through the Studio operations API, seed 7, warm:
+
+| Clip | Base H3, Fast mode (20 steps) | Flash (6 steps) |
+|---|---:|---:|
+| Text, 512 × 288, 124 frames | 79.5 s | 32.1 s |
+| Text, 1024 × 576, 124 frames | 380.8 s | 138.5 s |
+| Text, 1280 × 704, 124 frames | 716.7 s | 261.7 s |
+| Two pictures, 512 × 288 | 397.1 s, through the child directly | 142.5 s |
+| One picture and a 5 s track, 512 × 288 | 222.9 to 360.6 s | 82.2 s |
+
+A Flash step costs about nine tenths of a base step: attention costs the same, and attention
+dominates at these sizes. The gain is the step count. The first clip of a child takes about 95 s
+more, against about 135 s for base H3, and the loaded model holds 43.1 GiB against 62.
+
+The clips at 1280 × 704 and at 345 frames kept one coherent subject, as did text and two pictures at
+seeds 7, 8 and 9. The MLX notes warn that a short schedule fails first on long clips; these runs
+did not show it, but none ran past 345 frames, the cap of this backend.

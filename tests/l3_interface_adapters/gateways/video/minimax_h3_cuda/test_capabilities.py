@@ -1,7 +1,10 @@
+import pytest
+
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.capabilities import (
     CAPABILITIES,
     MAX_FRAMES,
     MIN_FRAMES,
+    flash_capabilities,
     minimax_h3_cuda_capabilities,
 )
 
@@ -65,3 +68,40 @@ def test_a_picture_beside_a_track_keeps_the_measured_track_factor():
     estimate = minimax_h3_cuda_capabilities().estimate
     one = estimate_clip(estimate, 512, 288, 124, pictures=1, audio=True).total_seconds
     assert one == estimate_clip(estimate, 512, 288, 124, audio=True).total_seconds
+
+
+def test_flash_keeps_the_base_form_without_fast_mode():
+    flash, base = flash_capabilities(), minimax_h3_cuda_capabilities()
+    assert (flash.shapes, flash.min_frames, flash.max_frames, flash.modes) == (
+        base.shapes,
+        base.min_frames,
+        base.max_frames,
+        base.modes,
+    )
+    assert not flash.fast_mode and not flash.fast_mode_note
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "frames", "measured"),
+    [(512, 288, 124, 32.1), (512, 512, 124, 58.2), (1024, 576, 124, 138.5), (1280, 704, 124, 261.7)],
+)
+def test_the_flash_estimate_reads_each_measured_text_clip_within_a_tenth(width, height, frames, measured):
+    """The fit reads each within 8%; the figure rounds to 10 s, which moves the 1024 x 576 clip to 8.3%."""
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    figure = estimate_clip(flash_capabilities().estimate, width, height, frames)
+    assert figure.steps == 6 and figure.total_seconds is not None
+    assert abs(figure.total_seconds - measured) / measured <= 0.1
+
+
+def test_the_flash_estimate_reads_both_picture_runs_and_the_track():
+    """Two pictures took 142.5 s at 512 x 288 and 304.9 s at 1024 x 576; a picture and a track
+    took 82.2 s. The figure rounds to 10 s."""
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    estimate = flash_capabilities().estimate
+    for width, height, measured in ((512, 288, 142.5), (1024, 576, 304.9)):
+        figure = estimate_clip(estimate, width, height, 124, pictures=2).total_seconds
+        assert figure is not None and abs(figure - measured) / measured < 0.06
+    track = estimate_clip(estimate, 512, 288, 124, pictures=1, audio=True).total_seconds
+    assert track is not None and abs(track - 82.2) / 82.2 < 0.1

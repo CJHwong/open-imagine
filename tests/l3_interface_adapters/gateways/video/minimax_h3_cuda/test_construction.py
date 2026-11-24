@@ -53,5 +53,5 @@ def test_flash_runs_the_same_child_with_its_flag_and_owns_only_its_transformers(
     assert gateway.capabilities().backend_id == "minimax_h3_flash_cuda"
     provider = construction.FLASH_PROVIDER
     assert (provider.backend_id, provider.kind, provider.engine) == ("minimax_h3_flash_cuda", "video", "cuda")
-    assert provider.storage_name == "HyperFlow H3 Flash"
+    assert provider.storage_name == "HyperFlow H3 Flash" and provider.resident_gib == 43.1
     assert [asset.location for asset in flash_storage_assets(Config({}))] == [FLASH_MODEL]
