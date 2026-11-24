@@ -508,6 +508,33 @@ the first clip and 47.7 GiB at its last step, one sample, not a sampled peak.
 The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)
 hold the FP8 and NVFP4 comparison and the load measurements.
 
+#### HyperFlow H3 Flash CUDA (`minimax_h3_flash_cuda`)
+
+Measured on 2026-11-24 through the Studio operations API, from commit `1fe5643`: six steps, seed
+7 unless the row says otherwise, one request at a time. An idle studio with the model loaded had
+43.1 GiB less available memory than before its first clip. A step is the gap between two step
+reports, read once a second.
+
+| Request | Time per step (s) | Time (s) | Result |
+| --- | --- | --- | --- |
+| generate, 512 × 288, 124 frames, first clip of the child, load included | | 128.6 | Decoded |
+| generate, 512 × 288, 124 frames | 3.0 | 32.1 | Decoded |
+| generate, 512 × 512, 124 frames | 5.0 | 58.2 | Decoded |
+| generate, 1024 × 576, 124 frames | 16.1 | 138.5 | Decoded |
+| generate, 1280 × 704, 124 frames | 30.1 | 261.7 | Decoded |
+| generate, 512 × 288, 345 frames | 10.0 | 109.3 | Decoded |
+| generate, 512 × 288, seeds 8 and 9 | 3.0 | 33.1, 35.1 | Decoded |
+| generate, two pictures, 512 × 288 | 17.1 | 142.5 | Decoded |
+| generate, two pictures, 512 × 288, seeds 8 and 9 | 17.1 | 141.4, 140.4 | Decoded |
+| generate, two pictures, 1024 × 576 | 39.2 | 304.9 | Decoded |
+| generate, one picture and a 5 s audio track, 512 × 288 | 9.0 | 82.2 | Decoded |
+| generate, first frame, 512 × 288 | 3.0 | 34.1 | Decoded |
+| generate, first and last frame, 512 × 288 | 3.0 | 36.2 | Decoded |
+| generate, 1024 × 576, cancelled at 40 s | | 41.1 | Cancelled at step 3, 1.0 s after the request |
+
+A switch to `minimax_h3_cuda` released Flash before base H3 loaded, and a switch back released
+base H3, under `[memory] policy = "boundary"` at 84%. The two did not stay loaded together.
+
 ### Voice
 
 #### Drama-3 CUDA (`drama3_cuda`)

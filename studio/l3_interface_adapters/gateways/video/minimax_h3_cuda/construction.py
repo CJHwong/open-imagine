@@ -61,8 +61,9 @@ PROVIDER = ModelProvider(
     resident_gib=62.0,
 )
 
-# PENDING MEASUREMENT: base H3's figure until a studio run measures Flash idle.
-FLASH_RESIDENT_GIB = 62.0
+# A studio idle with Flash loaded had 43.1 GiB less available memory than before its first clip,
+# on the DGX Spark on 2026-11-24. It drops 19 GiB against base H3: the transformers are half the size.
+FLASH_RESIDENT_GIB = 43.1
 
 FLASH_PROVIDER = ModelProvider(
     "minimax_h3_flash_cuda",

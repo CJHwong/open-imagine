@@ -163,7 +163,7 @@ It does not keep your work from a person who can read the memory, disk or proces
 
 The optional built-in MiniMax H3 backend on MLX (`minimax_h3`) transfers prompts, keyframes, pictures, audio tracks and MP4 results through memory pipes.
 It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
-MiniMax H3 on CUDA (`minimax_h3_cuda`) keeps the prompt, the stills, the pictures and the track in memory, and writes the finished MP4 to a scratch file while it encodes it.
+MiniMax H3 on CUDA (`minimax_h3_cuda`) and HyperFlow H3 Flash on CUDA (`minimax_h3_flash_cuda`) keep the prompt, the stills, the pictures and the track in memory, and write the finished MP4 to a scratch file while they encode it.
 Its results follow the same private ownership and encrypted retention rules as other Video results.
 
 ## Prompt aids and reference inputs
@@ -194,7 +194,7 @@ A video accepts image keyframes, pictures, an audio track, or an effect clip as 
 Keyframes use `references: [{"name":"first.png","image":"<base64>","frame_index":0,"strength":1}]`.
 Pictures use `pictures: [{"name":"cast.png","image":"<base64>"}]`. A picture shows who or what is in the clip, on no frame of its own.
 The prompt names each picture as `<Picture n>`, in the order sent. MiniMax H3 on MLX numbers its keyframes first, so with one keyframe the first picture is `<Picture 2>`.
-Read the mode's `max_pictures` and `pictures_with_keyframes`. MiniMax H3 on CUDA takes up to 9 pictures and no keyframe beside them.
+Read the mode's `max_pictures` and `pictures_with_keyframes`. MiniMax H3 on CUDA and HyperFlow H3 Flash on CUDA take up to 9 pictures and no keyframe beside them.
 On a mode with `reference_audio`, the track is a reference too: it needs a picture, and the prompt names it as `<Audio 1>`.
 An older form of that run still works: a track with keyframes and no pictures turns each keyframe into a picture.
 On a mode with `keyframes_at_ends`, a keyframe goes on the first or the last frame only.
@@ -656,7 +656,7 @@ Expect an error of about 10 to 40%. The fit counts these parts of a clip:
 - The prompt enhancer, unless the request sends `enhance: false`.
 - Each LoRA, at about 10 seconds.
 - The guided path for an audio track, and for a keyframe on LTX-2.3. This path costs about 2.5 times more.
-- On MiniMax H3 on CUDA, about 3.8 thousand tokens a step for each picture, when the clip has no track.
+- On MiniMax H3 on CUDA, about 3.8 thousand tokens a step for each picture, when the clip has no track. On HyperFlow H3 Flash on CUDA, about 4.3 thousand.
 - For an edit, a fit over the tokens of the output, times the effect's own `cost_factor`. An edit never costs less than the model loads.
 
 The figure counts Fast mode at the default speed and adds `Fast mode speedup` to `excludes`.
@@ -934,6 +934,8 @@ at any size. It takes a still only at `frame_index` 0 or the last frame. With an
 it needs one or two stills, which it reads as pictures of what to show wherever they sit. The
 track steers the sound the model generates, as a voice or a sound to follow; the clip is not
 timed to it and does not carry it. A track with no still fails with an error that asks for one.
+HyperFlow H3 Flash on CUDA (`minimax_h3_flash_cuda`) takes the same inputs in six steps and has no
+Fast mode: it refuses `fast_mode: true`.
 
 ```json
 {

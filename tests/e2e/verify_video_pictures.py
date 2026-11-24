@@ -263,6 +263,13 @@ with sync_playwright() as playwright:
         str(state(page)),
     )
 
+    switch(page, "minimax_h3_flash_cuda", 9)
+    check("H3 Flash on CUDA offers the Picture button", add.is_visible())
+    check("H3 Flash on CUDA offers no Fast mode", page.locator("#video-fast-field").is_hidden())
+    page.locator("#video-picture-upload").set_input_files([picture("cube.png", "green")])
+    page.wait_for_function("() => document.getElementById('video-studio').pictures.length >= 1")
+    check("its tray numbers a picture", labels(page)[0] == "<Picture 1>", str(labels(page)))
+
     switch(page, "minimax_h3_flash", 0)
     check("H3 Flash offers no Picture button", add.is_hidden())
 

@@ -26,6 +26,7 @@ FLUX.3, H3-Image MLX, and LTX MLX use per-call processes. Base Qwen can rebuild 
 | LTX-2.5 | `ltx25_mlx`, q8 | `ltx25_cuda`, bf16 |
 | LTX-2.3 | `ltx23_mlx`, q8 | none |
 | MiniMax H3 | `minimax_h3`, q8 | `minimax_h3_cuda`, NVFP4 weights and activations |
+| HyperFlow H3 Flash | `minimax_h3_flash`, q8 | `minimax_h3_flash_cuda`, NVFP4 weights and activations, low-rank layers in bf16 |
 | Drama-3 | `drama3`, 8-bit | `drama3_cuda`, FP8 W8A8 |
 | YuE2 | `yue2`, Q8 lyrics stages and BF16 decoder | `yue2_cuda`, bf16; `yue2_cuda_nvfp4`, NVFP4 lyrics stages; both keep the BF16 decoder |
 | Auk | `auk`, `auk_base` | none |

@@ -144,6 +144,37 @@ def minimax_h3_cuda_capabilities() -> VideoCapabilities:
     return CAPABILITIES
 
 
+# HyperFlow H3 Flash, measured on the DGX Spark on 2026-11-24 through the Studio API: text, seed 7,
+# sound on, warm, one run at a time. A step is the gap between two step reports, read once a
+# second; the tail is the time after the last step report, which is the last forward, the decode
+# and the mux.
+#
+#   size          frames  tokens  step     tail     total    this fit
+#   512 x 288      124     2.30    3.0 s    18.1 s    32.1 s   34.0 s
+#   512 x 512      124     4.10    5.0 s    32.1 s    58.2 s   59.7 s
+#   1024 x 576     124     9.22   16.1 s    60.2 s   138.5 s  150.0 s
+#   1280 x 704     124    14.08   30.1 s   115.3 s   261.7 s  259.2 s
+#   512 x 288      345     6.34   10.0 s    60.1 s   109.3 s   96.5 s
+#
+# A forward costs 0.950 N + 0.0800 N^2 seconds over N thousand tokens, about nine tenths of a
+# base forward. The decode is base H3's, the same VAE: the tails less one forward solved to
+# 4.4 s plus 0.70 s per megapixel. The fit reads each 124-frame clip within 8% and the 345-frame
+# clip 12% low. Two pictures took 142.5 s at 512 x 288 and 304.9 s at 1024 x 576, which solve to
+# 4.44 and 4.18 thousand tokens a picture. A picture and a 5 s track took 82.2 s, 2.6 times the
+# text clip. A first frame took 34.1 s and a first and last frame 36.2 s. The first clip of the
+# child took 128.6 s, about 96 s more than a warm one.
+FLASH_ESTIMATE = VideoEstimate(
+    load=(0.0, 0.0),
+    stage_1=(0.0, 0.0),
+    stage_2=(0.950, 0.0800),
+    decode=(4.9, 0.70),
+    fixed_seconds=0.6,
+    guided_factor=2.6,
+    picture_tokens=4.3,
+    forwards=FLASH_STEPS,
+    excludes=("weight download", "queue wait", "the first load, about 95 s", "keyframe rows"),
+)
+
 FLASH_CAPABILITIES = replace(
     CAPABILITIES,
     backend_id="minimax_h3_flash_cuda",
@@ -155,7 +186,7 @@ FLASH_CAPABILITIES = replace(
     ),
     fast_mode=False,
     fast_mode_note="",
-    estimate=None,
+    estimate=FLASH_ESTIMATE,
 )
 
 
