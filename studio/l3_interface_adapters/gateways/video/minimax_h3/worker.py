@@ -154,6 +154,14 @@ def render(engine, models, request, emit):
             flags += ["--first-frame", path]
         else:
             flags += ["--keyframe", f"{path}@{keyframe['frame']}"]
+    # Pictures keep their own shape: the engine sizes each one to `picture_size` on its short edge.
+    for index, encoded in enumerate(request.get("pictures", ())):
+        path = str(MEMORY / f"picture-{index}.png")
+        with Image.open(io.BytesIO(base64.b64decode(encoded))) as image:
+            stills[path] = image.convert("RGB")
+        flags += ["--reference", path]
+    if request.get("pictures"):
+        flags += ["--reference-size", str(request["picture_size"])]
     track = base64.b64decode(request["audio"]) if request.get("audio") else None
     if track is not None:
         flags += ["--audio-drive", TRACK]

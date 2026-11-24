@@ -9,12 +9,26 @@ from studio.l1_entities.video_capabilities import VideoCapabilities, VideoEstima
 # Through the Studio API, a first frame, a keyframe at frame 36 and a last frame took 100 s,
 # against 75.6 s for text. A spike that drove the worker directly saw a 27.0 GiB MLX peak.
 MAX_KEYFRAMES = 3
+# Pictures of who or what to show, which the engine packs like MiniMax's `ref2va` pictures and
+# names after the keyframes: with two keyframes the first picture is <Picture 3>. Nine is
+# MiniMax's own `ref2va` limit; two were run. The engine encodes each one at PICTURE_SIZE on its
+# short edge. On 2026-11-24, on the M5 Pro with 64 GiB, 512 x 288 at 73 frames, seed 7, through a
+# scratch copy of the worker: text took 77 s; two pictures took 99 s at 512 and 599 s at the
+# engine's default 2048, which also carried one picture's backdrop into the scene. A first frame
+# and a picture took 95 s. Every run peaked at 33.0 to 33.1 GiB in the transformer load.
+MAX_PICTURES = 9
+PICTURE_SIZE = 512
+# The rows a picture adds at most: the engine takes pictures within 4:1, so 2048 x 512 at most,
+# 64 x 16 cells of 32 pixels.
+PICTURE_ROWS = (4 * PICTURE_SIZE // 32) * (PICTURE_SIZE // 32)
 
 GENERATE = VideoMode(
     "generate",
     "Generate",
     accepts_audio=True,
     max_references=MAX_KEYFRAMES,
+    max_pictures=MAX_PICTURES,
+    pictures_with_keyframes=True,
     placeholder="Describe the scene, the motion and the sound.",
 )
 
@@ -29,10 +43,10 @@ FAST_FORWARDS = 4
 FAST_MAX_ROWS = (37 + 1) * (1024 // 32) * (576 // 32)
 
 
-def video_rows(width, height, frames, stills):
+def video_rows(width, height, frames, stills, pictures=0):
     """The packed video rows of a clip: 17n + 5 frames make 5n + 2 latent frames of 32-pixel cells,
-    and each still adds one more latent frame."""
-    return ((frames - 5) // 17 * 5 + 2 + stills) * (width // 32) * (height // 32)
+    each still adds one more latent frame, and each picture at most PICTURE_ROWS."""
+    return ((frames - 5) // 17 * 5 + 2 + stills) * (width // 32) * (height // 32) + pictures * PICTURE_ROWS
 
 
 # 1280 x 704 is the high quality class. It is LTX's own 16:9 size, 2.3 percent wide, so a clip
@@ -57,7 +71,7 @@ CAPABILITIES = VideoCapabilities(
     backend_id="minimax_h3",
     name="MiniMax H3",
     badge="Q8, 24 fps",
-    description="MiniMax's experimental 33B omni-modal model: 3 to 7 s clips with stereo sound and dialogue, steered by up to 3 keyframes or audio. Runs on MLX.",
+    description="MiniMax's experimental 33B omni-modal model: 3 to 7 s clips with stereo sound and dialogue, steered by up to 3 keyframes, pictures of who or what to show, or audio. Runs on MLX.",
     shapes=SHAPES,
     default_shape_ratio="16:9",
     min_frames=73,
@@ -122,6 +136,8 @@ FLASH_ESTIMATE = VideoEstimate(
 
 FLASH_CAPABILITIES = replace(
     CAPABILITIES,
+    # No run gave the distilled weights a picture.
+    modes=(replace(GENERATE, max_pictures=0, pictures_with_keyframes=False),),
     backend_id="minimax_h3_flash",
     name="HyperFlow H3 Flash",
     badge="Q8 · 6 steps · 24 fps",

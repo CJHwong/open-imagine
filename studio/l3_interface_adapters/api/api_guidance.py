@@ -157,7 +157,7 @@ GUIDANCE = {
     "planVideo": (
         "Use this before a video run to check the request and estimate its time. Send the body that generateVideo "
         "or editVideo would take, and add mode=edit for an effect. Leave out the media: reference_count stands in "
-        "for references and has_audio for audio. It switches no model and records no operation. The estimate "
+        "for references, picture_count for pictures and has_audio for audio. It switches no model and records no operation. The estimate "
         "basis is provisional: read it as a "
         "range of about 10 to 40%, not a promise."
     ),

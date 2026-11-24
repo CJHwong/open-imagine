@@ -4,7 +4,7 @@ from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.lora import Lora, LoraUse, with_triggers
 from studio.l1_entities.template_translation import TemplateFieldTranslation, TemplateTranslation
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode, VideoShape
-from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference, VideoResult
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoPicture, VideoReference, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 from studio.plugins.ltx_checkpoint_registration import LtxCheckpointRegistration
 
@@ -27,6 +27,7 @@ __all__ = [
     "VideoEdit",
     "VideoJob",
     "VideoMode",
+    "VideoPicture",
     "VideoReference",
     "VideoResult",
     "VideoShape",

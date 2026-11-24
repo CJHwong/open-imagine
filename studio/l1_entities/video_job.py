@@ -14,6 +14,17 @@ class VideoReference:
 
 
 @dataclass(frozen=True)
+class VideoPicture:
+    """A picture of who or what the clip shows, on no frame of its own.
+
+    The prompt names it as <Picture n>, numbered in the order the request lists the pictures.
+    A keyframe is a `VideoReference` instead: it pins one frame of the clip."""
+
+    name: str
+    png: bytes
+
+
+@dataclass(frozen=True)
 class VideoEdit:
     """A run that changes a clip it was given, and the adapter that does it.
 
@@ -79,6 +90,8 @@ class VideoJob:
     loras: tuple[LoraUse, ...] = ()
     """The LoRAs this clip applies, checked against the model, in the order picked. The gateway
     resolves each id to its file; the job carries no path."""
+    pictures: tuple[VideoPicture, ...] = ()
+    """The pictures the clip shows, in the order the prompt numbers them."""
 
 
 @dataclass(frozen=True)

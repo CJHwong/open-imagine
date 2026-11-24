@@ -409,6 +409,8 @@
               <div class="video-source-actions">
                 <button class="pill" type="button" data-action="add-media"
                   aria-label="Add media" data-i18n-attr='{"aria-label":"page.video.addMedia"}'><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="page.video.addMedia">Add media</span></button>
+                <button class="pill" type="button" id="video-add-pictures" data-action="add-pictures" hidden
+                  aria-label="Add a picture" data-i18n-attr='{"aria-label":"page.video.addPicture"}'><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n="page.video.addPictureShort">Picture</span></button>
               </div>
             </div>
             <!-- One door for both kinds. A drop, a paste and the chooser all hand their files to
@@ -448,6 +450,17 @@
               </div>
               <div class="video-references" id="video-references"></div>
             </section>
+            <!-- Pictures of who or what the clip shows, on no frame. The model numbers them in
+                 this order, so each row shows the label the prompt names it by. -->
+            <section class="video-reference-tray" id="video-picture-tray" aria-label="References"
+              data-i18n-attr='{"aria-label":"page.video.references"}' hidden>
+              <div class="video-reference-head">
+                <div><strong data-i18n="page.video.references">References</strong><span id="video-picture-count"></span></div>
+              </div>
+              <p class="caption" data-i18n="page.video.referencesHint">Tap a label to put it in the prompt.</p>
+              <div class="video-audios" id="video-pictures"></div>
+            </section>
+            <input id="video-picture-upload" type="file" multiple hidden accept=".png,.jpg,.jpeg,.webp,.gif,.heic,.heif">
             <input id="video-media-upload" type="file" multiple hidden
               accept=".png,.jpg,.jpeg,.webp,.gif,.heic,.heif,.wav,.mp3,.flac,.ogg,.oga,.m4a,.aac,.aif,.aiff">
           </section>
@@ -909,6 +922,9 @@
     if (mode.min_references && (videoStudio.imageReferences || []).length < mode.min_references) return t('page.video.reason.lookImage');
     if (mode.max_references && (videoStudio.imageReferences || []).length > mode.max_references) return t('page.video.reason.oneLookImage');
     if (mode.reference_frame_index != null && videoStudio.imageReferences?.[0]?.frameIndex !== mode.reference_frame_index) return t('page.video.reason.frameZero');
+    const pictures = mode.needs_clip ? 0 : (videoStudio.pictures || []).length;
+    if (pictures && (videoStudio.imageReferences || []).length && !mode.pictures_with_keyframes) return t('page.video.reason.picturesOrKeyframes');
+    if (mode.reference_audio && videoStudio.audio && !pictures && !(videoStudio.imageReferences || []).length) return t('page.video.reason.audioPicture');
     if (!prompt) return mode.needs_clip ? t('page.video.reason.describeChange') : t('page.video.reason.writePrompt');
     if (/\[[^\]\n]+\]/.test(prompt)) return t('page.video.reason.brackets');
     return '';
@@ -1342,12 +1358,15 @@
     // Edit offers video files only, one per pick, and the component refuses an image that
     // arrives anyway. Generate keeps both kinds.
     document.getElementById('video-reference-tray').hidden = mode.max_references === 0;
-    document.querySelector('#video-reference-tray strong').textContent = mode.min_references ? t('page.video.lookImage') : t('page.video.imageReferences');
+    // Beside a References tray the rail is named for what it holds, so the two zones read apart.
+    document.querySelector('#video-reference-tray strong').textContent = mode.min_references ? t('page.video.lookImage')
+      : mode.max_pictures ? t('page.video.keyframes') : t('page.video.imageReferences');
     // The Look rows are the mode's: Generate carries them, and an edit's prompt is the
     // effect's own words, so the section has no rows there and stays away.
     document.getElementById('video-look').hidden = !(mode.looks && mode.looks.length);
     videoStudio.needsClip = mode.needs_clip;
     videoStudio.maxReferences = mode.max_references;
+    if (typeof videoStudio.setPictureRules === 'function') videoStudio.setPictureRules(mode);
     // An effect can pin its look image to one frame. The rail holds every picture there and
     // refuses a drag while the mode is on. The method is asked for, because this runs at
     // startup before the element has upgraded.
@@ -2118,6 +2137,7 @@
       seed: settings.seed,
       // The media stays on the page: the plan reads the count, not the pictures.
       reference_count: (videoStudio.imageReferences || []).length,
+      picture_count: videoModeInForce().max_pictures ? (videoStudio.pictures || []).length : 0,
       has_audio: Boolean(videoStudio.audio),
       include_audio: settings.includeAudio,
       enhance: settings.enhance,
@@ -2276,6 +2296,7 @@
         adapter: settings.adapter,
         adapterStrength: settings.effectStrength,
         maxReferences: videoModeInForce().max_references,
+        maxPictures: videoModeInForce().max_pictures || 0,
         // The track goes only from the mode that takes one. An edit carries the clip, and
         // the controller refuses audio there anyway.
         prompt: settings.prompt,
@@ -3008,7 +3029,7 @@
       frames: String(capabilities.default_frames || snapshot.frames || 121),
       ratio: capabilities.default_shape_ratio || snapshot.ratio, rung: 0,
       look: {}, loras: [],
-      assets: {imageReferences: [], audio: null, clip: null}};
+      assets: {imageReferences: [], pictures: [], audio: null, clip: null}};
   }
 
   function workspaceHasInput(workspace) {
@@ -3017,7 +3038,7 @@
     }
     if (workspace === 'video') {
       return Boolean(document.getElementById('video-prompt').value.trim())
-        || videoStudio.imageReferences.length > 0 || Boolean(videoStudio.audio);
+        || videoStudio.imageReferences.length > 0 || videoStudio.pictures.length > 0 || Boolean(videoStudio.audio);
     }
     if (workspace === 'music') {
       const controls = musicStudio.controls;
@@ -3068,7 +3089,7 @@
         if (workspace === 'image') restoreImageDraft(snapshot); else restoreVideoDraft(snapshot);
       },
       empty: function (workspace, snapshot) {
-        if (workspace === 'video') return {...snapshot, prompt: '', assets: {...snapshot.assets, imageReferences: [], audio: null}};
+        if (workspace === 'video') return {...snapshot, prompt: '', assets: {...snapshot.assets, imageReferences: [], pictures: [], audio: null}};
         return emptyImageDraft(snapshot);
       },
     });
@@ -3222,6 +3243,9 @@
             const extra = videoStudio.imageReferences.slice(video.capabilities.max_references || 0);
             extra.forEach(function (reference) { videoStudio.removeImageReference(reference.id); });
             const mode = videoModeInForce();
+            const extraPictures = (videoStudio.pictures || []).slice(mode.max_pictures || 0);
+            extraPictures.forEach(function (picture) { videoStudio.removePicture(picture.id); });
+            extra.push(...extraPictures);
             const track = Boolean(videoStudio.audio) && !mode.needs_clip && !mode.accepts_audio;
             if (track) videoStudio.clearAudio();
             if (extra.length || track) {

@@ -390,6 +390,18 @@ def openapi_document() -> dict[str, Any]:
                                 },
                             },
                         },
+                        "pictures": {
+                            "type": "array",
+                            "description": "Pictures of who or what to show, on no frame. The prompt names each as <Picture n>, in this order. Read the mode's max_pictures and pictures_with_keyframes from discovery.",
+                            "items": {
+                                "type": "object",
+                                "required": ["name", "image"],
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "image": {"type": "string", "contentEncoding": "base64"},
+                                },
+                            },
+                        },
                         "audio": {
                             "type": "object",
                             "description": "A track the clip follows. Studio pads a shorter track with silence and limits it to the output duration.",
@@ -1420,7 +1432,8 @@ def plan_schemas() -> dict[str, Any]:
         "VideoPlanRequest": {
             "type": "object",
             "description": "The body of a video run, with its mode. No prompt, request id or media is needed: "
-            "reference_count stands in for references, has_audio for audio, and an edit needs no clip.",
+            "reference_count stands in for references, picture_count for pictures, has_audio for audio, and an edit "
+            "needs no clip.",
             "required": ["width", "height", "num_frames", "frame_rate"],
             "properties": {
                 "mode": {"type": "string", "default": "generate", "description": "Send edit to plan an effect"},
@@ -1433,6 +1446,7 @@ def plan_schemas() -> dict[str, Any]:
                 "frame_rate": {"type": "integer"},
                 "seed": {"type": "integer"},
                 "reference_count": {"type": "integer", "minimum": 0},
+                "picture_count": {"type": "integer", "minimum": 0},
                 "has_audio": {"type": "boolean"},
                 "enhance": {"type": "boolean", "default": True},
                 "fast_mode": {"type": "boolean", "default": False},

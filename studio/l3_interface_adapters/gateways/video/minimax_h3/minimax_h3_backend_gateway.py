@@ -1,18 +1,21 @@
 """Run one owned H3 child, in the environment its script declares, with input and output held in memory."""
 
 import base64
+import io
 import json
 import os
 import secrets
 import shutil
 from pathlib import Path
 
+from PIL import Image
+
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.lora import with_triggers
 from studio.l1_entities.video_job import VideoResult
 from studio.l2_use_cases.boundaries.video_backend_gateway import VideoBackendGateway
 
-from .capabilities import BASE, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, video_rows
+from .capabilities import BASE, CAPABILITIES, FAST_FORWARDS, FAST_MAX_ROWS, PICTURE_SIZE, video_rows
 from .launcher import uv_launcher
 from .runtime import DEFAULT_ENGINE, DEFAULT_MODELS, MAX_RESULT_BYTES, weights_ready
 
@@ -41,6 +44,14 @@ def _fits(width, height):
         CAPABILITIES.min_dimension <= side <= CAPABILITIES.max_dimension and not side % step for side in (width, height)
     )
     return sides and width * height <= MOST_PIXELS
+
+
+def _check_picture_shape(png: bytes) -> None:
+    """The engine takes a picture within 4:1 either way, and fails the whole run on one past it."""
+    with Image.open(io.BytesIO(png)) as image:
+        long, short = max(image.size), min(image.size)
+    if long > 4 * short:
+        raise InvalidJob("H3 takes a picture no wider or taller than 4:1. Crop the picture.")
 
 
 class MinimaxH3BackendGateway(VideoBackendGateway):
@@ -90,10 +101,16 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
             raise InvalidJob("An H3 keyframe has no strength setting. Send a strength of 1.")
         if job.seed is not None and (type(job.seed) is not int or not 0 <= job.seed < 2**32):
             raise InvalidJob("Choose an H3 seed between 0 and 4294967295.")
-        if job.fast_mode and video_rows(job.width, job.height, job.num_frames, len(job.references)) > FAST_MAX_ROWS:
+        max_pictures = self._capabilities.mode("generate").max_pictures
+        if len(job.pictures) > max_pictures:
+            raise InvalidJob(f"{self._variant.name} takes at most {max_pictures} pictures.")
+        for picture in job.pictures:
+            _check_picture_shape(picture.png)
+        rows = video_rows(job.width, job.height, job.num_frames, len(job.references), len(job.pictures))
+        if job.fast_mode and rows > FAST_MAX_ROWS:
             raise InvalidJob(
                 "H3 Fast mode takes clips up to the size of 1024 x 576 at 124 frames with one keyframe. "
-                "Shorten the clip, place fewer keyframes, or turn Fast mode off."
+                "Shorten the clip, place fewer keyframes or pictures, or turn Fast mode off."
             )
         loras = self._lora_files(job)
         forwards = FAST_FORWARDS if job.fast_mode else self._variant.forwards
@@ -119,6 +136,9 @@ class MinimaxH3BackendGateway(VideoBackendGateway):
                     {"frame": reference.frame_index, "png": base64.b64encode(reference.png).decode()}
                     for reference in sorted(job.references, key=lambda reference: reference.frame_index)
                 ],
+                # In the order the prompt numbers them, after the keyframes.
+                "pictures": [base64.b64encode(picture.png).decode() for picture in job.pictures],
+                "picture_size": PICTURE_SIZE,
                 "audio": base64.b64encode(job.audio.data).decode() if job.audio is not None else None,
                 "loras": loras,
                 "forwards": forwards,

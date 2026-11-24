@@ -39,3 +39,29 @@ def test_the_estimate_reads_the_measured_full_run_from_its_fast_runs():
     figure = estimate_clip(minimax_h3_cuda_capabilities().estimate, 1024, 576, 124)
     assert figure.steps == 49 and figure.total_seconds is not None
     assert abs(figure.total_seconds - (19 * 17.86 + 30 * 17.86 + 40.9)) / figure.total_seconds < 0.08
+
+
+def test_the_form_takes_nine_pictures_and_the_track_as_a_reference_beside_no_keyframe():
+    mode = minimax_h3_cuda_capabilities().mode("generate")
+    assert (mode.max_pictures, mode.reference_audio, mode.pictures_with_keyframes) == (9, True, False)
+    assert mode.keyframes_at_ends
+
+
+def test_the_estimate_reads_both_measured_picture_runs():
+    """Two pictures took 992 s at 512 x 288 over 49 forwards. At 1024 x 576 they took 873 s
+    over 19 forwards, which the figure counts as 49: 30 more forwards of 42.96 s."""
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    estimate = minimax_h3_cuda_capabilities().estimate
+    small = estimate_clip(estimate, 512, 288, 124, pictures=2).total_seconds
+    large = estimate_clip(estimate, 1024, 576, 124, pictures=2).total_seconds
+    assert small is not None and abs(small - 992) / 992 < 0.03
+    assert large is not None and abs(large - (873 + 30 * 42.96)) / large < 0.03
+
+
+def test_a_picture_beside_a_track_keeps_the_measured_track_factor():
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    estimate = minimax_h3_cuda_capabilities().estimate
+    one = estimate_clip(estimate, 512, 288, 124, pictures=1, audio=True).total_seconds
+    assert one == estimate_clip(estimate, 512, 288, 124, audio=True).total_seconds

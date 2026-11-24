@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 
 from studio.l3_interface_adapters.gateways.memory.inputs import _positive_integer
+from studio.l3_interface_adapters.gateways.video.minimax_h3.capabilities import PICTURE_ROWS
 
 # Staged Q8 MiniMax H3. Two page runs of 175 frames were sampled once a second. From an idle
 # 87%, macOS free memory fell to 33% at 1024 by 576 (34.6 GiB) and to 11% at 1280 by 704
@@ -43,7 +44,8 @@ def estimate_peak_gib(payload: Mapping[str, object]) -> float | None:
     if mode != "generate" or loras is None or loras > 1:
         return None
     references = payload.get("references") or []
-    if not isinstance(references, list):
+    pictures = payload.get("pictures") or []
+    if not isinstance(references, list) or not isinstance(pictures, list):
         return None
     width = _positive_integer(payload.get("width"))
     height = _positive_integer(payload.get("height"))
@@ -54,7 +56,7 @@ def estimate_peak_gib(payload: Mapping[str, object]) -> float | None:
     # is unmeasured at any size.
     if max(width, height) > H3_MEASURED_SIDE or frames > H3_MEASURED_FRAMES or (frames - 5) % 17:
         return None
-    rows = _h3_rows(width, height, frames, len(references))
+    rows = _h3_rows(width, height, frames, len(references)) + len(pictures) * PICTURE_ROWS
     if rows > H3_LARGE_ROWS:
         return None
     # A straight line between the two runs stays above any need that grows linearly or

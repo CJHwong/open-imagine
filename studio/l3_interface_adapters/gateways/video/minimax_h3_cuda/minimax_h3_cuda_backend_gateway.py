@@ -22,10 +22,12 @@ def _png(reference) -> str:
 def clip_payload(job: VideoJob) -> dict:
     """One job as the child's JSON.
 
-    Without a track, a still is a keyframe, and the pipeline takes one only as the first or the
-    last frame. With a track the clip runs the reference workflow: each still becomes a picture
-    of what to show, wherever the page placed it, and the pipeline refuses a track on its own.
-    The track steers the sound the model generates; the clip is not timed to it.
+    Pictures run the reference workflow, with the track when there is one. The pipeline refuses
+    a track on its own, and takes no keyframe beside the pictures. The track steers the sound
+    the model generates; the clip is not timed to it. A track sent with keyframes and no
+    pictures is the older form of the same run: each keyframe stands for a picture, wherever it
+    was placed. Otherwise a still is a keyframe, which the pipeline takes only as the first or
+    the last frame.
     """
     if job.edit is not None:
         raise InvalidJob("MiniMax H3 on CUDA does not support Edit.")
@@ -40,13 +42,17 @@ def clip_payload(job: VideoJob) -> dict:
         "steps": FAST_STEPS if job.fast_mode else STEPS,
         "include_audio": job.include_audio,
     }
-    if job.audio is not None:
-        if not job.references:
-            raise InvalidJob(
-                "MiniMax H3 on CUDA needs a still with an audio track. Add a picture of who or what to show."
-            )
-        payload["audio"] = base64.b64encode(job.audio.data).decode("ascii")
-        payload["pictures"] = [_png(reference) for reference in job.references]
+    if job.pictures and job.references:
+        raise InvalidJob("MiniMax H3 on CUDA takes pictures or keyframes, not both.")
+    pictures = job.pictures or (job.references if job.audio is not None else ())
+    if job.audio is not None and not pictures:
+        raise InvalidJob(
+            "MiniMax H3 on CUDA needs a picture with an audio track. Add a picture of who or what to show."
+        )
+    if pictures:
+        payload["pictures"] = [_png(picture) for picture in pictures]
+        if job.audio is not None:
+            payload["audio"] = base64.b64encode(job.audio.data).decode("ascii")
         return payload
     last = job.num_frames - 1
     frames = [reference.frame_index for reference in job.references]

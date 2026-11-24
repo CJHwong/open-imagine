@@ -59,6 +59,7 @@ def estimate_clip(
     num_frames: int,
     *,
     references: int = 0,
+    pictures: int = 0,
     loras: int = 0,
     audio: bool = False,
     enhance: bool = True,
@@ -77,7 +78,8 @@ def estimate_clip(
     count = tokens(width, height, num_frames)
     if adapter is None:
         setup = model.fixed_seconds - (0.0 if enhance else model.enhance_seconds)
-        clip = setup + model.scale * model.pack_factor * run_seconds(model, width, height, num_frames)
+        extra = 0.0 if audio else pictures * model.picture_tokens
+        clip = setup + model.scale * model.pack_factor * run_seconds(model, width, height, num_frames, extra)
         clip *= model.guided_factor if guided else 1.0
     else:
         # An edit is never enhanced, so its floor is the loads alone. The effect's factor scales
@@ -112,15 +114,17 @@ def _fixed_parts(model: VideoEstimate, enhanced: bool) -> tuple[Stage, ...]:
     return (*model.fixed_parts, Stage(PROMPT_PASS, model.enhance_seconds))
 
 
-def run_seconds(model: VideoEstimate, width: int, height: int, num_frames: int) -> float:
+def run_seconds(model: VideoEstimate, width: int, height: int, num_frames: int, extra: float = 0.0) -> float:
     """The seconds of the fit for a Generate run: the loads, the steps of stage 1 on a quarter
     of the tokens, the steps of stage 2 on all of them, and the decode. The first step of
     stage 1 counts with the loads, so stage 1 times one step fewer. A model with one stage
-    takes its own count of steps on all the tokens."""
+    takes its own count of steps on all the tokens. `extra` is the thousands of tokens that
+    the clip's pictures add to each step of stage 2; the decode does not see them."""
     count = tokens(width, height, num_frames)
     quarter = count / 4
     step_1 = model.stage_1[0] * quarter + model.stage_1[1] * quarter**2
-    step_2 = model.stage_2[0] * count + model.stage_2[1] * count**2
+    rows = count + extra
+    step_2 = model.stage_2[0] * rows + model.stage_2[1] * rows**2
     decode = max(0.0, model.decode[0] + model.decode[1] * num_frames * width * height / 1e6)
     if model.forwards:
         return model.load[0] + model.load[1] * count + model.forwards * step_2 + decode
