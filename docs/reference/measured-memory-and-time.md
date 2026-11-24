@@ -299,6 +299,15 @@ The LTX-2.5 audio-conditioned request uses 33 native steps. Text-only requests u
 | generate, 512 × 288, 73 frames, 24 fps | 33.28 | 33.11 | 106.9 | Decoded | 3 |
 | generate, 1024 × 576, 175 frames, 24 fps | 32.00 | 33.05 | 1653.8 | Decoded | 3 |
 
+Pictures were measured on 2026-11-24 through the Studio operations API, from commit `6a9f2a0`, warm:
+512 × 288, 73 frames, seed 7. Peak memory was not sampled on this path. A scratch copy of the worker
+on the same day read 33.1 GiB with two pictures, against 33.0 GiB for text.
+
+| Request | Time (s) | Result |
+| --- | --- | --- |
+| generate, two pictures | 103.5 | Decoded |
+| generate, a first frame and one picture | 99.3 | Decoded |
+
 #### LTX-2.3 (`ltx23_mlx`)
 
 | Request | Free drop (GiB) | Peak footprint (GiB) | Time (s) | Result | Source |
@@ -486,6 +495,15 @@ mode, seed 7. A step is the gap between two step reports.
 | generate, 1024 × 576, 124 frames | 17.86 | 380.8 | Decoded |
 | generate, 1280 × 704, 124 frames | 33.09 | 716.7 | Decoded |
 | generate, 512 × 288, 345 frames | 11.52 | 271.3 | Decoded |
+
+Pictures were measured on 2026-11-24 through the Studio operations API, from commit `6a9f2a0`:
+512 × 288, 124 frames, seed 7, Fast mode, one request at a time. Free memory was 124.6 GiB before
+the first clip and 47.7 GiB at its last step, one sample, not a sampled peak.
+
+| Request | Time (s) | Result |
+| --- | --- | --- |
+| generate, two pictures, first clip of the child, load included | 527.9 | Decoded |
+| generate, one picture and a 5 s audio track, warm | 222.9 | Decoded |
 
 The [H3 CUDA notes](../../studio/l3_interface_adapters/gateways/video/minimax_h3_cuda/README.md)
 hold the FP8 and NVFP4 comparison and the load measurements.
