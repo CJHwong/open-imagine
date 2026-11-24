@@ -31,6 +31,9 @@ from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import 
 )
 from studio.l3_interface_adapters.gateways.video.minimax_h3.construction import PROVIDER as minimax_h3_provider
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.construction import (
+    FLASH_PROVIDER as minimax_h3_flash_cuda_provider,
+)
+from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.construction import (
     PROVIDER as minimax_h3_cuda_provider,
 )
 from studio.l3_interface_adapters.gateways.voice.auk.construction import PROVIDER as auk_provider
@@ -54,6 +57,7 @@ BUILTIN_PROVIDERS = (
     minimax_h3_provider,
     minimax_h3_flash_provider,
     minimax_h3_cuda_provider,
+    minimax_h3_flash_cuda_provider,
     auk_flash_provider,
     auk_provider,
     drama3_provider,

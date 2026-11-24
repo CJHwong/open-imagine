@@ -10,7 +10,7 @@
 default_backend = "qwen21_turbo_cuda"
 visible_backends = ["qwen21_turbo_cuda", "minimax_h3_image_cuda"]
 default_video_backend = "ltx25_cuda"
-visible_video_backends = ["ltx25_cuda", "minimax_h3_cuda"]
+visible_video_backends = ["ltx25_cuda", "minimax_h3_cuda", "minimax_h3_flash_cuda"]
 default_voice_backend = "drama3_cuda"
 visible_voice_backends = ["drama3_cuda"]
 default_music_backend = "yue2_cuda"
@@ -64,6 +64,8 @@ quantize = "nvfp4"
 # 93.6 with both in FP8. The first start downloads 196 GiB.
 [minimax_h3_cuda]
 model = "MiniMaxAI/MiniMax-H3"
+# HyperFlow H3 Flash (minimax_h3_flash_cuda) reads the encoder and the VAEs of this model and
+# adds its own two transformers, 52 GiB in bf16, pinned in the child. It has no section.
 
 # Keep a model loaded while the next one fits, so coming back to it costs nothing.
 [memory]

@@ -7,9 +7,11 @@ import pytest
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.lora import LoraUse
 from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoPicture, VideoReference
+from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.capabilities import FLASH_CAPABILITIES
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.minimax_h3_cuda_backend_gateway import (
     MinimaxH3CudaBackendGateway,
     clip_payload,
+    flash_schedule,
 )
 
 
@@ -37,10 +39,31 @@ def test_text_runs_the_released_fifty_steps_and_fast_mode_twenty():
         "frames": 124,
         "seed": 7,
         "steps": 50,
+        "forwards": 49,
         "include_audio": True,
     }
-    assert clip_payload(job(fast_mode=True))["steps"] == 20
+    fast = clip_payload(job(fast_mode=True))
+    assert (fast["steps"], fast["forwards"]) == (20, 19)
     assert clip_payload(job(seed=None))["seed"] == 0
+
+
+def flash(**overrides):
+    return clip_payload(job(**overrides), FLASH_CAPABILITIES.name, flash_schedule)
+
+
+def test_flash_runs_its_six_step_grid_and_counts_six_transformer_calls():
+    """Flash takes the count of transformer calls and knows only 4, 6 and 8; base diffusers
+    takes sigma points, one more than the calls."""
+    payload = flash()
+    assert (payload["steps"], payload["forwards"]) == (6, 6)
+    assert flash(pictures=(picture(),))["pictures"] == [encoded(b"png")]
+
+
+def test_flash_refuses_fast_mode_and_names_itself_in_a_refusal():
+    with pytest.raises(InvalidJob, match="HyperFlow H3 Flash on CUDA does not support Fast mode"):
+        flash(fast_mode=True)
+    with pytest.raises(InvalidJob, match="HyperFlow H3 Flash on CUDA places a still only"):
+        flash(references=(still(60),))
 
 
 def test_a_still_on_the_first_or_last_frame_is_that_keyframe():
@@ -124,6 +147,17 @@ def test_a_run_reports_steps_and_returns_the_clip():
     progress.assert_called_once_with(1, 49, 1)
     assert gateway.run(job()).mp4 == b"mp4"
     assert gateway.capabilities().backend_id == "minimax_h3_cuda"
+
+
+def test_the_flash_gateway_offers_its_own_form_and_sends_its_own_schedule():
+    child = Mock()
+    child.request.return_value = {"mp4": encoded(b"mp4"), "width": 512, "height": 288, "frames": 124}
+    gateway = MinimaxH3CudaBackendGateway(child, FLASH_CAPABILITIES, flash_schedule)
+
+    gateway.run(job())
+
+    assert gateway.capabilities().backend_id == "minimax_h3_flash_cuda"
+    assert child.request.call_args.args[0]["forwards"] == 6
 
 
 def test_a_cancelled_job_never_reaches_the_child():

@@ -78,6 +78,9 @@ class FakePipe:
             linears = {"block.linear": Linear(), "visual.proj": Linear(), "norm": Linear("float32")}
             self.components[name] = Module(linears if name in child.QUANTIZED else None)
 
+    def update_components(self, **components):
+        self.components.update(components)
+
     def __getattr__(self, name):
         if name in self.__dict__.get("components", {}):
             return self.components[name]
@@ -272,9 +275,132 @@ def test_load_takes_one_large_component_at_a_time_and_hooks_both_transformers(wo
     assert "loaded MiniMaxAI/MiniMax-H3" in capsys.readouterr().err
 
 
+def test_flash_reads_everything_but_the_base_transformers_and_its_own_pinned_pair(world):
+    """Flash never loads the 124 GB of base transformers, so it neither fetches them nor waits
+    for them in the cache."""
+    assert not {pattern.split("/")[0] for pattern in child.SHARED} & set(child.TRANSFORMERS)
+    assert "text_encoder/*" in child.SHARED and "vae/*" in child.SHARED
+    cached = world.hub / "models--MiniMaxAI--MiniMax-H3" / "snapshots" / "abc"
+    (cached / "text_encoder").mkdir(parents=True)
+    assert child.snapshot("MiniMaxAI/MiniMax-H3", "abc", child.SHARED, ("text_encoder",)) == str(cached)
+    assert (
+        child.snapshot(child.FLASH_MODEL, child.FLASH_REVISION, child.FLASH_WEIGHTS, ("fl2va_bf16",)) == "/downloaded"
+    )
+    assert world.downloads == [(child.FLASH_MODEL, child.FLASH_REVISION, child.FLASH_WEIGHTS)]
+
+
+@pytest.fixture
+def flash(world, monkeypatch):
+    """Flash's package, faked: its block swap, its transformer and a record of what it loaded."""
+
+    class Blocks:
+        def init_pipeline(self, path):
+            world.built = path
+            return world.pipe
+
+    world.swaps = dict(child.FLASH_SWAPS)
+
+    def swap(blocks, counts):
+        counts.update(world.swaps)
+
+    class LowRankLinear:
+        pass
+
+    class Transformer(Module):
+        source: tuple = ()
+
+        @classmethod
+        def from_pretrained(cls, path, subfolder, torch_dtype):
+            pair = LowRankLinear()
+            model = cls(
+                {
+                    "blocks.0.attn.to_q": pair,
+                    "blocks.0.attn.to_q.down": Linear(),
+                    "blocks.0.attn.to_q.up": Linear(),
+                    "blocks.0.attn.to_k": Linear(),
+                    "blocks.0.adaln_proj.linear": Linear(),
+                    "norm_out.linear": Linear(),
+                }
+            )
+            model.source = path, subfolder, torch_dtype
+            return model
+
+    def pad(model, multiple):
+        model.padded = multiple
+
+    monkeypatch.setattr(sys.modules["diffusers.modular_pipelines.minimax_h3"], "MiniMaxH3Blocks", Blocks, raising=False)
+    for name, module in (
+        ("hyperflow_h3_flash", types.ModuleType("hyperflow_h3_flash")),
+        ("hyperflow_h3_flash.blocks", fake_module("hyperflow_h3_flash.blocks", _swap=swap)),
+        (
+            "hyperflow_h3_flash.transformer",
+            fake_module(
+                "hyperflow_h3_flash.transformer",
+                HyperFlowH3FlashTransformer3DModel=Transformer,
+                LowRankLinear=LowRankLinear,
+                set_lowrank_rank_multiple=pad,
+            ),
+        ),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+    asked = []
+    monkeypatch.setattr(
+        child, "snapshot", lambda model, revision, patterns, needed: asked.append((model, needed)) or f"/{model}"
+    )
+    world.asked = asked
+    return world
+
+
+def test_flash_loads_its_own_transformers_and_keeps_its_small_layers_in_bf16(flash, capsys):
+    pipe = child.load("MiniMaxAI/MiniMax-H3", "abc", flash=True)
+
+    assert flash.built == "/MiniMaxAI/MiniMax-H3"
+    assert flash.asked == [
+        ("MiniMaxAI/MiniMax-H3", ("text_encoder",)),
+        (child.FLASH_MODEL, ("fl2va_bf16", "ref2va_bf16")),
+    ]
+    # The base transformers are never loaded; Flash's land in their place, from its pinned pair.
+    assert pipe.loads == [("image_processor", "tokenizer", "vae", "audio_vae"), ("text_encoder",)]
+    for name, folder in child.FLASH_FOLDERS.items():
+        model = pipe.components[name]
+        assert model.source == ("/" + child.FLASH_MODEL, folder, "bfloat16") and model.padded == 8
+        assert len(model.hooks) == 1
+        quantized = [layer for layer, _ in flash.quantized]
+        assert model.layers["blocks.0.attn.to_k"] in quantized
+        kept = ("blocks.0.attn.to_q.down", "blocks.0.attn.to_q.up", "blocks.0.adaln_proj.linear", "norm_out.linear")
+        assert not [part for part in kept if model.layers[part] in quantized]
+    assert f"loaded {child.FLASH_MODEL}" in capsys.readouterr().err
+
+
+def test_flash_refuses_to_load_when_its_swap_no_longer_matches(flash):
+    """`_swap` is Flash's private code: a release that swaps other blocks would sample wrongly."""
+    flash.swaps = {"set_timesteps": 3, "denoiser": 2}
+    with pytest.raises(RuntimeError, match=r"replaced .* blocks, where this child expects"):
+        child.load("m", "abc", flash=True)
+
+
+def test_a_run_counts_the_calls_its_job_names(world, capsys):
+    """Flash takes six steps as six calls, where base diffusers takes six as five. The fake pipe
+    makes base diffusers' five calls; the total it reports against is the job's."""
+    pipe = child.load("m", "/local")
+    child.run(pipe, {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 6, "forwards": 6, "seed": 0})
+    assert "step 5/6" in capsys.readouterr().err
+
+
+def test_main_passes_the_flash_flag_to_the_loader(world, monkeypatch):
+    seen = []
+    monkeypatch.setattr(sys, "argv", ["child", "--flash"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    monkeypatch.setattr(child, "load", lambda model, revision, flash: seen.append(flash))
+    assert child.main() == 0
+    assert seen == [True]
+
+
 def test_text_runs_the_pipeline_and_reports_each_transformer_call_as_a_step(world, capsys):
     pipe = child.load("m", "/local")
-    reply = child.run(pipe, {"prompt": "a fox", "width": 64, "height": 32, "frames": 124, "steps": 5, "seed": 3})
+    reply = child.run(
+        pipe, {"prompt": "a fox", "width": 64, "height": 32, "frames": 124, "steps": 5, "forwards": 4, "seed": 3}
+    )
 
     call = pipe.calls[-1]
     assert (call["num_inference_steps"], call["num_frames"], call["generator"]) == (5, 124, ("generator", 3))
@@ -289,7 +415,17 @@ def test_text_runs_the_pipeline_and_reports_each_transformer_call_as_a_step(worl
 def test_a_silent_clip_writes_no_sound(world):
     pipe = child.load("m", "/local")
     child.run(
-        pipe, {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0, "include_audio": False}
+        pipe,
+        {
+            "prompt": "p",
+            "width": 8,
+            "height": 8,
+            "frames": 124,
+            "steps": 2,
+            "forwards": 1,
+            "seed": 0,
+            "include_audio": False,
+        },
     )
     assert world.encoded[-1][2:] == (None, None)
 
@@ -297,7 +433,7 @@ def test_a_silent_clip_writes_no_sound(world):
 def test_the_still_that_sets_the_canvas_is_cover_cropped_and_its_follower_is_not(world):
     """The pipeline stretches the anchor still: a 4:3 photo on a 16:9 clip came out a third wider."""
     pipe = child.load("m", "/local")
-    job = {"prompt": "p", "width": 32, "height": 18, "frames": 124, "steps": 2, "seed": 0}
+    job = {"prompt": "p", "width": 32, "height": 18, "frames": 124, "steps": 2, "forwards": 1, "seed": 0}
     wide, square = png(size=(40, 30)), png(size=(20, 20))
     child.run(pipe, {**job, "first": wide})
     assert pipe.calls[-1]["image"].size == (32, 18) and "last_image" not in pipe.calls[-1]
@@ -312,7 +448,7 @@ def test_a_track_runs_the_reference_workflow_and_the_clip_carries_the_generated_
     to the track; the sound generated with the frames is the one that matches them."""
     fake_av(monkeypatch, np.ones((2, 32000 * 10), dtype=np.float32))
     pipe = child.load("m", "/local")
-    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0}
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "forwards": 1, "seed": 0}
     child.run(pipe, {**job, "pictures": [png(), png((0, 0, 255))], "audio": base64.b64encode(b"wav").decode()})
 
     references = pipe.calls[-1]["references"]
@@ -324,7 +460,7 @@ def test_a_track_runs_the_reference_workflow_and_the_clip_carries_the_generated_
 
 def test_pictures_without_a_track_run_the_reference_workflow_with_pictures_only(world):
     pipe = child.load("m", "/local")
-    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0}
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "forwards": 1, "seed": 0}
     child.run(pipe, {**job, "pictures": [png(), png((0, 0, 255))]})
 
     assert pipe.calls[-1]["references"] == [("picture", (8, 8)), ("picture", (8, 8))]
@@ -347,7 +483,18 @@ def test_a_track_with_no_sound_is_refused(world, monkeypatch):
 
 def test_main_answers_each_job_and_turns_a_failure_into_an_error_reply(world, monkeypatch, capsys):
     jobs = [
-        json.dumps({"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0, "request_id": "a"}),
+        json.dumps(
+            {
+                "prompt": "p",
+                "width": 8,
+                "height": 8,
+                "frames": 124,
+                "steps": 2,
+                "forwards": 1,
+                "seed": 0,
+                "request_id": "a",
+            }
+        ),
         "",
         json.dumps({"request_id": "b"}),
     ]

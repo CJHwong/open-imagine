@@ -400,8 +400,9 @@ def test_each_model_has_its_own_gateway_class_under_its_media_family():
     # One gateway class serves one model package. A model that ships two builds, such as the
     # bf16 and NVFP4 entries of a CUDA backend, shares its class with its own other entry.
     assert all(len(owners) == 1 for owners in packages.values())
-    # Nineteen entries over nineteen classes: no image, video or voice model ships a second build.
-    assert entries == 19
+    # Twenty entries over nineteen classes: HyperFlow H3 Flash on CUDA is the one second build,
+    # on the class and the child of base H3 on CUDA, with its own form and schedule.
+    assert entries == 20
     assert len(packages) == 19
 
 

@@ -6,14 +6,21 @@ keyframes of the MLX backend have no place here. Pictures of what to show and an
 through the `ref2va` workflow, which takes no keyframe and refuses a track alone.
 """
 
+from dataclasses import replace
+
 from studio.l1_entities.video_capabilities import VideoCapabilities, VideoEstimate, VideoMode, VideoShape
 
-# The released checkpoint takes 50 sigma points, which is 49 transformer calls: the default of
-# diffusers and of SGLang alike. The weights are guidance-distilled, not step-distilled, so 50
-# is the model's own setting. Fast mode runs 20 on the same weights. Measured on the DGX Spark
-# on 2026-11-20, seed 42, a first and last frame at 20 steps looked no worse than text at 50.
+# 50 sigma points, which is 49 transformer calls: the default of diffusers and of SGLang alike.
+# It is a default, not a limit of the weights: the MLX backend runs the same base checkpoint at
+# eight calls. No shorter schedule was tried here. Fast mode runs 20 on the same weights.
+# Measured on the DGX Spark on 2026-11-20, seed 42, a first and last frame at 20 steps looked no
+# worse than text at 50.
 STEPS = 50
 FAST_STEPS = 20
+# HyperFlow H3 Flash samples 4, 6 or 8 transformer calls on its own grid, 6 by default. On the
+# DGX Spark on 2026-11-24, at 512 x 288 and 124 frames, six calls took 2.8 s each for text and
+# 17.0 s for two pictures, against 3.3 s and 18.8 s for one base call.
+FLASH_STEPS = 6
 # At 24 fps the pipeline refuses under 120 frames or over 360, after rounding up to 17n + 5:
 # 73 and 97 were refused on 2026-11-20. 124 is the first count on that grid, 345 the last.
 MIN_FRAMES = 124
@@ -135,3 +142,22 @@ CAPABILITIES = VideoCapabilities(
 
 def minimax_h3_cuda_capabilities() -> VideoCapabilities:
     return CAPABILITIES
+
+
+FLASH_CAPABILITIES = replace(
+    CAPABILITIES,
+    backend_id="minimax_h3_flash_cuda",
+    name="HyperFlow H3 Flash",
+    badge="NVFP4, 6 steps, 24 fps",
+    description=(
+        "Video Rebirth's pruned H3, under half the size, in six steps: 5 to 14 s clips with stereo sound, "
+        "from text, a first or last frame, or up to 9 pictures and an audio track. Runs on CUDA."
+    ),
+    fast_mode=False,
+    fast_mode_note="",
+    estimate=None,
+)
+
+
+def flash_capabilities() -> VideoCapabilities:
+    return FLASH_CAPABILITIES
