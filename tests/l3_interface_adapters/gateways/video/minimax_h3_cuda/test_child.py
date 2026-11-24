@@ -322,6 +322,15 @@ def test_a_track_runs_the_reference_workflow_and_the_clip_carries_the_generated_
     assert world.encoded[-1][2:] == ("generated sound", 32000)
 
 
+def test_pictures_without_a_track_run_the_reference_workflow_with_pictures_only(world):
+    pipe = child.load("m", "/local")
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 2, "seed": 0}
+    child.run(pipe, {**job, "pictures": [png(), png((0, 0, 255))]})
+
+    assert pipe.calls[-1]["references"] == [("picture", (8, 8)), ("picture", (8, 8))]
+    assert "image" not in pipe.calls[-1] and "last_image" not in pipe.calls[-1]
+
+
 def test_decoding_stops_at_the_clip_and_a_short_track_is_flushed_whole(world, monkeypatch):
     fake_av(monkeypatch, np.ones((2, 1000), dtype=np.float32), frames=50)
     assert child.decode_track(base64.b64encode(b"wav").decode(), 32000, 2500).shape == (2, 2500)
