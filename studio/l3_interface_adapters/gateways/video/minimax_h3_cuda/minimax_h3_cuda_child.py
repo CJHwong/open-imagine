@@ -24,8 +24,8 @@
 """MiniMax H3 on a CUDA GPU, one JSON job per line.
 
 The pipeline is diffusers' modular `MiniMaxH3Blocks`, which picks its workflow per call from
-the inputs: text alone is `t2va`, a first or last frame is `fl2va`, and pictures with a track
-are `ref2va`. The last runs on its own transformer, so the child holds both.
+the inputs: text alone is `t2va`, a first or last frame is `fl2va`, and pictures, with or
+without a track, are `ref2va`. The last runs on its own transformer, so the child holds both.
 
 The checkpoint is 62 GiB of each transformer and 63 GiB of encoder in bfloat16, more than the
 DGX Spark holds. Every linear lands on the device one at a time and is quantized to NVFP4 W4A4
@@ -267,15 +267,16 @@ def run(pipe, job: dict) -> dict:
         "output": ["videos", "audio", "sampling_rate"],
     }
     width, height = arguments["width"], arguments["height"]
-    if job.get("audio"):
+    if job.get("pictures"):
         from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3AudioReference, MiniMaxH3ImageReference
 
-        rate = int(pipe.audio_sampling_rate)
-        track = decode_track(job["audio"], rate, round(frames / 24 * rate))
-        arguments["references"] = [
-            *(MiniMaxH3ImageReference(image=picture(encoded)) for encoded in job["pictures"]),
-            MiniMaxH3AudioReference(audio=torch.from_numpy(track), sample_rate=rate),
-        ]
+        # The prompt names these as <Picture 1> on, and the track as <Audio 1>, in this order.
+        references = [MiniMaxH3ImageReference(image=picture(encoded)) for encoded in job["pictures"]]
+        if job.get("audio"):
+            rate = int(pipe.audio_sampling_rate)
+            track = decode_track(job["audio"], rate, round(frames / 24 * rate))
+            references.append(MiniMaxH3AudioReference(audio=torch.from_numpy(track), sample_rate=rate))
+        arguments["references"] = references
     else:
         # The still that sets the canvas is the first, or the last when it is alone. The
         # pipeline crops the other one of a pair itself, by the released arithmetic.

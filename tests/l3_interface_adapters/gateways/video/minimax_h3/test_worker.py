@@ -440,3 +440,32 @@ def test_worker_runs_the_base_pack_without_the_flash_changes(fake_engine, tmp_pa
     worker.render(fake_engine, tmp_path, request(flash=False), lambda _: None)
 
     assert str(tmp_path / "h3-dit-q8") in seen["argv"] and "--sampler" not in seen["argv"]
+
+
+def test_worker_hands_each_picture_to_the_engine_from_memory_at_its_own_shape(fake_engine, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    seen = {}
+
+    def main():
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--reference", action="append")
+        parser.add_argument("--reference-size")
+        args, _ = parser.parse_known_args(sys.argv[1:])
+        assert all(fake_engine.Path(path).is_file() for path in args.reference)
+        with pytest.raises(FileNotFoundError):
+            Path(args.reference[0]).read_bytes()
+        seen["sizes"] = [Image.open(path).size for path in args.reference]
+        seen["size"] = args.reference_size
+        fake_engine.save_mp4(None, np.zeros((5, 32, 32, 3), dtype=np.uint8), 24, np.zeros((2, 7000)), 32000, crf=18)
+        return 0
+
+    fake_engine.main = main
+    pictures = [
+        base64.b64encode(png(96, 32, [(255, 0, 0)])).decode(),
+        base64.b64encode(png(16, 48, [(0, 0, 255)])).decode(),
+    ]
+
+    worker.render(fake_engine, tmp_path, request(pictures=pictures, picture_size=512), lambda _: None)
+
+    assert seen == {"sizes": [(96, 32), (16, 48)], "size": "512"}
+    assert not list(tmp_path.iterdir())

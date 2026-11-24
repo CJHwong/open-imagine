@@ -133,6 +133,10 @@ def discovery_schemas() -> dict[str, Any]:
                 "lora_seconds": number,
                 "guided_factor": number,
                 "guided_with_references": boolean,
+                "picture_tokens": {
+                    "type": "number",
+                    "description": "Thousands of tokens one picture adds to each step of a clip without a track.",
+                },
                 "edit": {"type": "array", "items": number},
                 "excludes": {"type": "array", "items": string},
                 "forwards": {
@@ -195,6 +199,22 @@ def discovery_schemas() -> dict[str, Any]:
                 "prompt_label": string,
                 "placeholder": string,
                 "run_label": string,
+                "max_pictures": {
+                    "type": "integer",
+                    "description": "How many `pictures` a clip takes: who or what to show, on no frame. The prompt names each as <Picture n>, in the order sent.",
+                },
+                "pictures_with_keyframes": {
+                    "type": "boolean",
+                    "description": "False when a clip takes pictures or keyframes, not both.",
+                },
+                "keyframes_at_ends": {
+                    "type": "boolean",
+                    "description": "True when a keyframe goes only on the first or the last frame.",
+                },
+                "reference_audio": {
+                    "type": "boolean",
+                    "description": "True when an audio track is a reference: it needs a picture, the prompt names it as <Audio 1>, and it follows the pictures' rule for keyframes.",
+                },
             },
         },
         "VideoAdapter": {

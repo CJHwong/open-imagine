@@ -1071,6 +1071,8 @@
   "page.video.addMediaHint": "選擇圖片或音訊檔案。",
   "page.video.addMediaTitle": "加入圖片參考或來源影片",
   "page.video.addMediaZone": "加入圖片參考或來源影片",
+  "page.video.addPicture": "加入參考圖",
+  "page.video.addPictureShort": "參考圖",
   "page.video.addRefOrAudio": "加入圖片參考或音訊",
   "page.video.addRefsOrAudio": "加入圖片參考或音訊",
   "page.video.audio": "音訊",
@@ -1095,6 +1097,7 @@
     "other": "{count} 影格"
   },
   "page.video.imageReferences": "圖片參考",
+  "page.video.keyframes": "關鍵影格",
   "page.video.lookImage": "風格圖片",
   "page.video.loraHeld": "移除音軌才能使用附加元件。這個模型無法在跟隨音訊的影片上使用附加元件。",
   "page.video.media": "媒體",
@@ -1104,6 +1107,7 @@
     "other": "{count} 張圖片參考已移進 {frame} 格的片段內，每格一張，以符合所選時長。"
   },
   "page.video.promptPlaceholder": "描述主體的外觀與動作。",
+  "page.video.reason.audioPicture": "請為音軌加入參考圖",
   "page.video.reason.brackets": "填入 [括號] 的內容",
   "page.video.reason.clip": "加入要編輯的影片",
   "page.video.reason.describeChange": "描述要改的地方",
@@ -1111,7 +1115,10 @@
   "page.video.reason.frameZero": "把風格圖片設在第 0 格",
   "page.video.reason.lookImage": "加入以第一格畫面製作的風格圖片",
   "page.video.reason.oneLookImage": "請移除多餘的參考圖",
+  "page.video.reason.picturesOrKeyframes": "請移除關鍵影格或參考圖",
   "page.video.reason.writePrompt": "輸入提示詞",
+  "page.video.references": "參考素材",
+  "page.video.referencesHint": "點標籤即可插入提示詞。",
   "page.video.renderAt": "以 {width} × {height} 生成",
   "page.video.rendering": "生成",
   "page.video.resolution": "解析度",
@@ -1240,6 +1247,7 @@
   "toast.dismiss": "關閉",
   "video.audio.duplicate": "已加入這條音軌。",
   "video.audio.editInput": "請在「生成」模式加入音軌。「編輯」模式使用影片片段。",
+  "video.audio.keyframesBlocked": "這個模型的音軌要搭配參考圖，不能搭配關鍵影格。請先移除關鍵影格。",
   "video.audio.oneAtATime": "一次只能有一條音軌。",
   "video.audio.oneAtATimeRemove": "一次只能有一條音軌。請先移除目前的音軌。",
   "video.audio.remove": "移除音訊 {name}",
@@ -1331,6 +1339,18 @@
   "video.output.sourceClip": "來源片段",
   "video.output.took": "耗時 {time}",
   "video.output.useFrameInImage": "將目前影格用於「圖片」",
+  "video.picture.blocked": "這個模型只能用關鍵影格或參考圖其中一種。請先移除關鍵影格，再加入參考圖。",
+  "video.picture.count": {
+    "other": "{count} 張參考圖"
+  },
+  "video.picture.duplicate": "這張圖片已經在參考素材裡。",
+  "video.picture.insert": "在提示詞插入 {label}（{name}）",
+  "video.picture.keyframesBlocked": "這個模型只能用關鍵影格或參考素材其中一種。請先移除參考圖和參考音訊，再加入關鍵影格。",
+  "video.picture.max": {
+    "other": "這個影片模型最多接受 {count} 張參考圖。"
+  },
+  "video.picture.none": "這個模型不接受參考圖。請把圖片加成關鍵影格。",
+  "video.picture.remove": "移除參考圖 {name}",
   "video.progress.denoising": "生成中，第 {step} 步",
   "video.progress.denoisingOf": "生成中，第 {step} 步，共 {total} 步",
   "video.progress.elapsed": "已用 {elapsed}",

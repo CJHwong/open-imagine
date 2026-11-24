@@ -36,7 +36,16 @@ from studio.l3_interface_adapters.gateways.video.minimax_h3.runtime import (
 )
 from studio.l3_interface_adapters.gateways.video.minimax_h3.storage_assets import flash_storage_assets
 from studio.l4_frameworks_and_drivers.config import Config
-from studio.plugins.video import Cancelled, InvalidJob, Lora, LoraUse, VideoAudio, VideoJob, VideoReference
+from studio.plugins.video import (
+    Cancelled,
+    InvalidJob,
+    Lora,
+    LoraUse,
+    VideoAudio,
+    VideoJob,
+    VideoPicture,
+    VideoReference,
+)
 
 
 def test_badge_preserves_precision_and_frame_rate_without_a_middle_dot():
@@ -718,3 +727,59 @@ def test_flash_weights_are_incomplete_without_the_facts_of_the_pack(flash_ready,
 
     with pytest.raises(InvalidJob, match="H3 Flash weights are incomplete"):
         MinimaxH3FlashBackendGateway(flash_ready).run(job())
+
+
+def picture_png(width, height):
+    import io
+
+    from PIL import Image
+
+    data = io.BytesIO()
+    Image.new("RGB", (width, height), "green").save(data, "PNG")
+    return data.getvalue()
+
+
+def picture(name="private-cast.png", width=64, height=32):
+    return VideoPicture(name, picture_png(width, height))
+
+
+def test_gateway_sends_pictures_after_the_keyframes_in_order_at_their_size_without_names(ready):
+    seen = []
+
+    def execute(command, **options):
+        seen.append(options)
+        options["consume_output"](b"\0\0\0\x18ftypisom")
+
+    ready.run_process = execute
+    first, second = picture(width=64), picture(width=32)
+
+    MinimaxH3BackendGateway(ready).run(job(references=(still(0),), pictures=(first, second)))
+
+    request = json.loads(seen[0]["input_bytes"])
+    assert [base64.b64decode(one) for one in request["pictures"]] == [first.png, second.png]
+    assert request["picture_size"] == 512 and len(request["keyframes"]) == 1
+    assert "private-" not in seen[0]["input_bytes"].decode()
+
+
+@pytest.mark.parametrize(
+    "pictures,reason",
+    [
+        ((picture(),) * 10, "at most 9 pictures"),
+        ((picture(width=165, height=40),), "4:1"),
+        ((picture(width=40, height=165),), "4:1"),
+    ],
+)
+def test_gateway_refuses_pictures_the_engine_cannot_take_before_starting_a_child(ready, pictures, reason):
+    with pytest.raises(InvalidJob, match=reason):
+        MinimaxH3BackendGateway(ready).run(job(pictures=pictures))
+
+
+def test_fast_mode_counts_each_picture_as_its_most_rows():
+    assert video_rows(1024, 576, 124, 1, 0) == FAST_MAX_ROWS
+    assert video_rows(1024, 576, 124, 1, 1) == FAST_MAX_ROWS + 1024
+
+
+def test_flash_offers_no_pictures_because_no_run_gave_its_weights_one():
+    assert CAPABILITIES.mode("generate").max_pictures == 9
+    assert CAPABILITIES.mode("generate").pictures_with_keyframes
+    assert FLASH_CAPABILITIES.mode("generate").max_pictures == 0

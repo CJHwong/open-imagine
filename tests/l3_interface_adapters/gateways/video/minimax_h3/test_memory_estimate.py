@@ -38,6 +38,12 @@ def test_h3_counts_each_still_as_one_more_latent_frame_and_a_track_as_none():
     assert h3(width=1024, height=576, num_frames=175, audio={"data": "track"}) == pytest.approx(35.6)
 
 
+def test_h3_counts_each_picture_as_its_most_rows():
+    expected = 35.6 + (49.6 - 35.6) * (52 * 576 + 2 * 1024 - 52 * 576) / (52 * 880 - 52 * 576)
+
+    assert h3(width=1024, height=576, num_frames=175, pictures=[{}, {}]) == pytest.approx(expected)
+
+
 def test_h3_admission_refuses_its_largest_clip_on_an_idle_mac_and_takes_a_shorter_one():
     # An idle 64 GiB Mac reported 87% free before the measured runs.
     admission = admission_for(lambda: (64 * GIB, int(0.87 * 64 * GIB)))

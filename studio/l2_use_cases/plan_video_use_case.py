@@ -17,7 +17,7 @@ from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBa
 @dataclass(frozen=True)
 class PlanVideoRequest:
     """One clip, checked as a run checks it. The media do not travel: `references` counts the
-    images, and `audio` says whether a track drives the clip."""
+    keyframes, `pictures` the pictures, and `audio` says whether a track drives the clip."""
 
     backend: str
     mode: str
@@ -26,6 +26,7 @@ class PlanVideoRequest:
     num_frames: int
     frame_rate: int
     references: int = 0
+    pictures: int = 0
     audio: bool = False
     enhance: bool = True
     fast_mode: bool = False
@@ -67,6 +68,7 @@ class PlanVideoUseCase:
             request.height,
             request.num_frames,
             references=request.references,
+            pictures=request.pictures,
             loras=len(request.loras),
             audio=request.audio,
             enhance=request.enhance,

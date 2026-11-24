@@ -943,3 +943,74 @@ def test_video_reference_byte_limit_precedes_base64_decode(monkeypatch):
     reference = {"name": "synthetic.png", "image": "Zm91cg==", "frame_index": 0, "strength": 1}
     with pytest.raises(InvalidJob, match="64 MB"):
         video_job(payload(references=[reference]), fake_video_capabilities())
+
+
+def picture_capabilities(**mode_overrides):
+    """The fake model with a mode that takes pictures and a reference track, the way H3 on CUDA does."""
+    mode = VideoMode("generate", "Generate", accepts_audio=True, max_pictures=2, reference_audio=True)
+    return replace(fake_video_capabilities(), modes=(replace(mode, **mode_overrides),))
+
+
+def picture_payload(name="cast.png"):
+    return {"name": name, "image": png_data()}
+
+
+def keyframe_payload():
+    return {"name": "first.png", "image": png_data(), "frame_index": 0, "strength": 1.0}
+
+
+def test_a_job_carries_its_pictures_in_the_order_sent():
+    job = video_job(payload(pictures=[picture_payload("a.png"), picture_payload("b.png")]), picture_capabilities())
+
+    assert [picture.name for picture in job.pictures] == ["a.png", "b.png"]
+    assert all(picture.png.startswith(b"\x89PNG") for picture in job.pictures)
+
+
+@pytest.mark.parametrize(
+    ("pictures", "message"),
+    [
+        ("cast.png", "pictures must be a list"),
+        (["cast.png"], "Each picture must be an object"),
+        ([{"image": "x"}], "Each picture needs a name"),
+        ([picture_payload()] * 3, "at most 2 pictures"),
+    ],
+)
+def test_a_malformed_picture_list_is_refused(pictures, message):
+    with pytest.raises(InvalidJob, match=message):
+        video_job(payload(pictures=pictures), picture_capabilities())
+
+
+def test_a_model_without_pictures_points_to_keyframes():
+    with pytest.raises(InvalidJob, match="takes no pictures"):
+        video_job(payload(pictures=[picture_payload()]), fake_video_capabilities())
+
+
+def test_pictures_and_keyframes_together_are_refused_where_they_are_two_workflows():
+    body = payload(pictures=[picture_payload()], references=[keyframe_payload()])
+    with pytest.raises(InvalidJob, match="pictures or keyframes, not both"):
+        video_job(body, picture_capabilities())
+    assert len(video_job(body, picture_capabilities(pictures_with_keyframes=True)).pictures) == 1
+
+
+def test_a_reference_track_needs_a_picture_and_keeps_its_older_keyframe_form():
+    with pytest.raises(InvalidJob, match="needs a picture with an audio track"):
+        video_job(payload(audio=audio_payload()), picture_capabilities())
+    assert video_job(payload(audio=audio_payload(), pictures=[picture_payload()]), picture_capabilities()).audio
+    assert video_job(payload(audio=audio_payload(), references=[keyframe_payload()]), picture_capabilities()).audio
+    assert video_job(payload(audio=audio_payload()), picture_capabilities(reference_audio=False)).audio
+
+
+def test_a_plan_counts_the_pictures_or_takes_a_count_in_their_place():
+    capabilities = picture_capabilities()
+
+    sent = plan_request(plan_payload(pictures=[picture_payload()]), "video-fake", capabilities)
+    stand_in = plan_request(plan_payload(picture_count=2, has_audio=True), "video-fake", capabilities)
+
+    assert (sent.pictures, stand_in.pictures, stand_in.audio) == (1, 2, True)
+    with pytest.raises(InvalidJob, match="pictures or picture_count, not both"):
+        plan_request(plan_payload(pictures=[picture_payload()], picture_count=1), "video-fake", capabilities)
+    for count in (3, True, -1):
+        with pytest.raises(InvalidJob, match="picture_count must be between 0 and 2"):
+            plan_request(plan_payload(picture_count=count), "video-fake", capabilities)
+    with pytest.raises(InvalidJob, match="needs a picture with an audio track"):
+        plan_request(plan_payload(has_audio=True), "video-fake", capabilities)

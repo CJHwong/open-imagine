@@ -10,7 +10,7 @@ from PIL import Image, UnidentifiedImageError
 
 from studio.l1_entities.errors import InvalidJob, UnreadableImage
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoCapabilities, VideoMode
-from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference, VideoResult
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoPicture, VideoReference, VideoResult
 from studio.l2_use_cases.boundaries.video_backend_catalog_gateway import VideoBackendCatalogGateway
 from studio.l2_use_cases.plan_video_use_case import PlanVideoRequest, PlanVideoResponse, PlanVideoUseCase
 from studio.l2_use_cases.run_video_use_case import RunVideoUseCase
@@ -103,7 +103,9 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
             f"{adapter.label} needs between {adapter.min_references} and {adapter.max_references} image references."
         )
     _check_frames(references, adapter)
+    pictures = _pictures(payload.get("pictures", []), mode)
     audio = _audio(payload.get("audio"), mode, capabilities)
+    _check_mix(mode, len(references), len(pictures), audio is not None)
     loras = capabilities.parse_loras(payload.get("loras"))
     if loras and audio is not None and not capabilities.loras_with_audio:
         raise InvalidJob("This video model cannot apply LoRAs to a clip that follows an audio track.")
@@ -123,14 +125,15 @@ def video_job(payload: Mapping, capabilities: VideoCapabilities) -> VideoJob:
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
         include_audio=_include_audio(payload.get("include_audio", True), mode, audio, capabilities),
         loras=loras,
+        pictures=pictures,
     )
 
 
 def plan_request(payload: Mapping, backend_id: str, capabilities: VideoCapabilities) -> PlanVideoRequest:
     """The parts of a run body that a plan reads, checked as `video_job` checks them.
 
-    No prompt is needed, and no media: `reference_count` can stand in for the images and
-    `has_audio` for the track, and an edit needs no clip. A seed is checked when it is sent.
+    No prompt is needed, and no media: `reference_count` can stand in for the keyframes,
+    `picture_count` for the pictures and `has_audio` for the track, and an edit needs no clip. A seed is checked when it is sent.
     """
     mode = capabilities.mode(_mode_id(payload.get("mode")))
     adapter = _adapter(payload, mode, capabilities) if mode.needs_clip else None
@@ -151,7 +154,9 @@ def plan_request(payload: Mapping, backend_id: str, capabilities: VideoCapabilit
         raise InvalidJob(
             f"{adapter.label} needs between {adapter.min_references} and {adapter.max_references} image references."
         )
+    pictures = _picture_count(payload, mode)
     audio = _has_audio(payload, mode, capabilities)
+    _check_mix(mode, references, pictures, audio)
     loras = capabilities.parse_loras(payload.get("loras"))
     if loras and audio and not capabilities.loras_with_audio:
         raise InvalidJob("This video model cannot apply LoRAs to a clip that follows an audio track.")
@@ -163,6 +168,7 @@ def plan_request(payload: Mapping, backend_id: str, capabilities: VideoCapabilit
         num_frames=num_frames,
         frame_rate=frame_rate,
         references=references,
+        pictures=pictures,
         audio=audio,
         enhance=_enhance(payload.get("enhance", True), mode),
         fast_mode=_fast_mode(payload.get("fast_mode", False), capabilities),
@@ -188,6 +194,30 @@ def _reference_count(
     if type(count) is not int or not 0 <= count <= capabilities.max_references:
         raise InvalidJob(f"reference_count must be between 0 and {capabilities.max_references}")
     return count
+
+
+def _picture_count(payload: Mapping, mode: VideoMode) -> int:
+    """The pictures that the clip carries: the pictures themselves, or `picture_count` in their place."""
+    if "picture_count" not in payload:
+        return len(_pictures(payload.get("pictures", []), mode))
+    if payload.get("pictures"):
+        raise InvalidJob("Send pictures or picture_count, not both.")
+    count = payload["picture_count"]
+    if type(count) is not int or not 0 <= count <= mode.max_pictures:
+        raise InvalidJob(f"picture_count must be between 0 and {mode.max_pictures}")
+    return count
+
+
+def _check_mix(mode: VideoMode, keyframes: int, pictures: int, audio: bool) -> None:
+    """The pictures and a reference track against the keyframes, on a model that runs them
+    as two workflows. A track sent with keyframes and no pictures is the older form of a
+    reference run, in which every keyframe stands for a picture, so it stays accepted."""
+    if pictures and keyframes and not mode.pictures_with_keyframes:
+        raise InvalidJob(
+            "This video model takes pictures or keyframes, not both. Remove the keyframes or the pictures."
+        )
+    if mode.reference_audio and audio and not (pictures or keyframes):
+        raise InvalidJob("This video model needs a picture with an audio track. Add a picture of who or what to show.")
 
 
 def _check_frames(references: tuple[VideoReference, ...], adapter: VideoAdapter | None) -> None:
@@ -495,6 +525,26 @@ def _references(values, num_frames: int, capabilities: VideoCapabilities) -> tup
     if len(values) > capabilities.max_references:
         raise InvalidJob(f"A video can use at most {capabilities.max_references} image references")
     return tuple(_reference(value, num_frames, capabilities) for value in values)
+
+
+def _pictures(values, mode: VideoMode) -> tuple[VideoPicture, ...]:
+    if not isinstance(values, list):
+        raise InvalidJob("pictures must be a list")
+    if len(values) > mode.max_pictures:
+        if not mode.max_pictures:
+            raise InvalidJob("This video model takes no pictures. Use keyframes instead.")
+        raise InvalidJob(f"A video can use at most {mode.max_pictures} pictures")
+    return tuple(_picture(value) for value in values)
+
+
+def _picture(value) -> VideoPicture:
+    if not isinstance(value, Mapping):
+        raise InvalidJob("Each picture must be an object")
+    name = value.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidJob("Each picture needs a name")
+    png, _, _ = _decode_png(value.get("image"))
+    return VideoPicture(name.strip(), png)
 
 
 def _reference(value, num_frames: int, capabilities: VideoCapabilities) -> VideoReference:

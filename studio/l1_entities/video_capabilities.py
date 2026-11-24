@@ -46,6 +46,19 @@ class VideoMode:
     """What this mode's prompt box asks for, said in the box itself rather than under the
     switch. A mode that leaves it empty keeps whatever the form ships with."""
     run_label: str = "Generate video"
+    max_pictures: int = 0
+    """How many pictures of who or what to show a clip takes, on no frame of their own. The
+    prompt names each one as <Picture n>. Zero offers none."""
+    pictures_with_keyframes: bool = False
+    """Whether a clip can take pictures and keyframes together. An engine that runs them as
+    two workflows takes one kind or the other."""
+    keyframes_at_ends: bool = False
+    """Whether a keyframe sits only on the first or the last frame. An engine that takes no
+    keyframe between them refuses one there, so the form places none there."""
+    reference_audio: bool = False
+    """Whether an audio track is a reference like the pictures rather than a soundtrack. Such a
+    track needs a picture beside it, the prompt names it as <Audio 1>, and it follows the
+    pictures' rule for keyframes."""
 
 
 @dataclass(frozen=True)
@@ -127,6 +140,11 @@ class VideoEstimate:
 
     A model with one stage sets `forwards` to the steps of its schedule. Its run then has no
     stage 1: it takes that many steps of `stage_2` on all the tokens.
+
+    `picture_tokens` is the thousands of tokens that one picture adds to each step of a clip
+    without a track. A picture is encoded at its own size, not the clip's, so the figure does
+    not move with the clip. A clip with a track keeps `guided_factor`, which was measured with
+    a picture in it.
     """
 
     load: tuple[float, float]
@@ -140,6 +158,7 @@ class VideoEstimate:
     lora_seconds: float = 0.0
     guided_factor: float = 1.0
     guided_with_references: bool = False
+    picture_tokens: float = 0.0
     edit: tuple[float, float] = (0.0, 0.0)
     excludes: tuple[str, ...] = ()
     forwards: int = 0

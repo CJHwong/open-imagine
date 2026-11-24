@@ -15,6 +15,7 @@ import {openRunSheet, openResultSheet} from '../lib/run-sheet.js';
 import {t, plural} from '../lib/i18n.js';
 import {navigate} from '../lib/navigation.js';
 import {importBusyTile, isImageFile, readImageFile} from '../lib/image-import.js';
+import {insertLabel, renderPictureTray} from './video-picture-tray.js';
 
 let nextClipId = 1;
 
@@ -185,6 +186,14 @@ function atEnd(video) {
 class VideoStudio extends LitElement {
   clips = [];
   imageReferences = [];
+  // Pictures of who or what the clip shows, on no frame. The page sets the rules from the mode:
+  // how many it takes, whether they sit beside keyframes, whether the track is one of them, and
+  // whether a keyframe goes only on the first or the last frame.
+  pictures = [];
+  maxPictures = 0;
+  picturesWithKeyframes = false;
+  referenceAudio = false;
+  keyframesAtEnds = false;
   // The track a generate run follows, as the file the person chose. The form keeps the file
   // rather than its bytes: a three minute track is read once, when the run is sent.
   audio = null;
@@ -532,7 +541,7 @@ class VideoStudio extends LitElement {
 
   inputSnapshot() {
     const clip = this.clips.find(item => item.id === this.editTargetId);
-    return {imageReferences: this.imageReferences, audio: this.audio,
+    return {imageReferences: this.imageReferences, pictures: this.pictures, audio: this.audio,
       clip: clip ? {id: clip.id, kind: clip.kind, name: clip.name, duration: clip.duration,
         metadata: clip.metadata, createdAt: clip.createdAt, nativeMetadata: clip.nativeMetadata,
         stub: clip.stub, file: clip.file || clip.mp4Blob} : null};
@@ -541,6 +550,7 @@ class VideoStudio extends LitElement {
   restoreInputs(snapshot) {
     this.imageReferences = snapshot.imageReferences || [];
     this.selectedReferenceId = this.imageReferences[0]?.id || null;
+    this.pictures = snapshot.pictures || [];
     this.audio = snapshot.audio || null;
     const target = snapshot.clip;
     this.editTargetId = null;
@@ -552,11 +562,12 @@ class VideoStudio extends LitElement {
       this.editTargetId = target.id;
       this.selectedClipId = target.id;
     }
-    [...this.imageReferences, ...(target ? [target] : [])].forEach(item => {
+    [...this.imageReferences, ...this.pictures, ...(target ? [target] : [])].forEach(item => {
       nextClipId = Math.max(nextClipId, Number(item.id.split('-').at(-1)) + 1 || 1);
     });
     this.renderImageReferences();
     this.renderAudio();
+    this.renderPictures();
     this.renderSourceVideos();
     this.renderSelectedClip();
     this.announceSelection();
@@ -579,7 +590,8 @@ class VideoStudio extends LitElement {
     const clip = this.clips.find(item => item.id === this.editTargetId);
     const media = this.needsClip ? clip?.file || clip?.mp4Blob : this.audio?.file;
     const mediaBytes = 4 * Math.ceil((media?.size || 0) / 3);
-    const referenceBytes = new TextEncoder().encode(JSON.stringify({references, prompt})).length;
+    const pictures = this.pictures.map(item => ({name: item.name, image: item.base64}));
+    const referenceBytes = new TextEncoder().encode(JSON.stringify({references, pictures, prompt})).length;
     // Leave room for scalar settings, media names, and prompt aids in the 64 MiB HTTP body.
     return referenceBytes + mediaBytes + 64 * 1024 <= 64 * 1024 * 1024;
   }
@@ -602,6 +614,10 @@ class VideoStudio extends LitElement {
         : plural(this.maxReferences, t('video.reference.max')));
       return;
     }
+    if (this.keyframeBlock()) {
+      this.setError(this.keyframeBlock());
+      return;
+    }
     if (!this.imageReferenceFitsRequest(reference)) {
       this.setError(t('image.import.videoTooLarge'));
       return;
@@ -612,7 +628,9 @@ class VideoStudio extends LitElement {
     // then the middle. One that names a taken frame, such as a capture at 0:00, takes the
     // nearest free frame.
     let frameIndex = this.lockedFrame;
-    if (frameIndex === null) {
+    if (frameIndex === null && this.keyframesAtEnds) {
+      frameIndex = this.freeEndFrame(Number.isInteger(reference.frameIndex) ? reference.frameIndex : 0);
+    } else if (frameIndex === null) {
       frameIndex = Number.isInteger(reference.frameIndex)
         ? this.freeReferenceFrame(reference.frameIndex)
         : this.spreadReferenceFrame();
@@ -633,6 +651,94 @@ class VideoStudio extends LitElement {
     if (!this.selectedReferenceId) this.selectedReferenceId = reference.id;
     this.renderImageReferences();
     this.inputsChanged();
+  }
+
+  // Why a keyframe cannot join the form now, or empty when it can. A model that runs pictures
+  // and keyframes as two workflows takes one kind at a time, and a reference track is a picture.
+  keyframeBlock() {
+    if (this.needsClip || this.picturesWithKeyframes || !this.maxPictures) return '';
+    if (this.pictures.length || (this.referenceAudio && this.audio)) return t('video.picture.keyframesBlocked');
+    return '';
+  }
+
+  // Why a picture cannot join the form now, or empty when it can.
+  pictureBlock() {
+    if (!this.maxPictures) return t('video.picture.none');
+    if (!this.picturesWithKeyframes && this.imageReferences.length) return t('video.picture.blocked');
+    if (this.pictures.length >= this.maxPictures) return plural(this.maxPictures, t('video.picture.max'));
+    return '';
+  }
+
+  addPicture(picture, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
+    if (this.pictures.some((saved) => saved.name === picture.name && saved.base64 === picture.base64)) {
+      this.setError(t('video.picture.duplicate'));
+      return;
+    }
+    if (this.pictureBlock()) {
+      this.setError(this.pictureBlock());
+      return;
+    }
+    if (!this.imageReferenceFitsRequest({...picture, frameIndex: 0})) {
+      this.setError(t('image.import.videoTooLarge'));
+      return;
+    }
+    this.clearError();
+    this.pictures = this.pictures.concat({id: picture.id, name: picture.name, src: picture.src, base64: picture.base64});
+    this.renderPictures();
+    this.inputsChanged();
+  }
+
+  removePicture(id) {
+    this.pictures = this.pictures.filter((picture) => picture.id !== id);
+    this.renderPictures();
+    this.inputsChanged();
+  }
+
+  // The rules come from the mode, so a mode or a model change sets them and redraws.
+  setPictureRules(mode) {
+    this.maxPictures = mode.max_pictures || 0;
+    this.picturesWithKeyframes = Boolean(mode.pictures_with_keyframes);
+    this.referenceAudio = Boolean(mode.reference_audio);
+    this.keyframesAtEnds = Boolean(mode.keyframes_at_ends);
+    if (this.keyframesAtEnds) this.moveKeyframesToEnds();
+    this.renderPictures();
+    this.renderAudio();
+  }
+
+  renderPictures() {
+    const tray = document.getElementById('video-picture-tray');
+    if (!tray) return;
+    const busy = this.importingPicture ? importBusyTile(this.importingPicture) : null;
+    const audio = this.referenceAudio && !this.needsClip ? this.audio : null;
+    const first = this.picturesWithKeyframes ? this.imageReferences.length + 1 : 1;
+    renderPictureTray(tray, {pictures: this.needsClip ? [] : this.pictures, audio, busy, first});
+    this.renderMediaEmptyState();
+  }
+
+  async addPictureFiles(files, epoch = this.captureInputEpoch()) {
+    if (!this.canCommitInput(epoch)) return;
+    for (const file of files) {
+      if (!this.canCommitInput(epoch)) return;
+      if (!isImageFile(file)) {
+        this.setError(t('video.media.chooseImage'));
+        continue;
+      }
+      try {
+        this.importingPicture = file.name;
+        this.renderPictures();
+        const imported = await readImageFile(file);
+        if (!this.canCommitInput(epoch) || !imported) continue;
+        this.addPicture({id: 'video-picture-' + nextClipId++, name: file.name,
+          src: studioImageDataUrl(imported.b64), base64: imported.b64}, epoch);
+      } catch (error) {
+        if (!this.canCommitInput(epoch)) return;
+        this.setError(t('video.error.imageAdd', {error: error.message}));
+      } finally {
+        this.importingPicture = null;
+        this.renderPictures();
+      }
+    }
   }
 
   removeImageReference(id) {
@@ -669,9 +775,14 @@ class VideoStudio extends LitElement {
       this.setError(t('video.audio.oneAtATimeRemove'));
       return false;
     }
+    if (this.referenceAudio && !this.picturesWithKeyframes && this.imageReferences.length) {
+      this.setError(t('video.audio.keyframesBlocked'));
+      return false;
+    }
     this.audio = { name: file.name, size: file.size, file: file };
     this.clearError();
     this.renderAudio();
+    this.renderPictures();
     this.renderMediaEmptyState();
     this.inputsChanged();
     return true;
@@ -681,6 +792,7 @@ class VideoStudio extends LitElement {
     if (!this.audio) return;
     this.audio = null;
     this.renderAudio();
+    this.renderPictures();
     this.renderMediaEmptyState();
     this.inputsChanged();
   }
@@ -696,7 +808,8 @@ class VideoStudio extends LitElement {
     const tray = document.getElementById('video-audio-tray');
     const list = document.getElementById('video-audios');
     if (!tray || !list) return;
-    tray.hidden = this.needsClip || !this.audio;
+    // A reference track is drawn in the References tray, beside the pictures it goes with.
+    tray.hidden = this.needsClip || !this.audio || this.referenceAudio;
     list.replaceChildren();
     if (!this.audio) return;
     const row = document.createElement('div');
@@ -753,6 +866,8 @@ class VideoStudio extends LitElement {
       });
     this.imageReferences = this.imageReferences.map((reference) =>
       (targets.has(reference.id) ? {...reference, frameIndex: targets.get(reference.id)} : reference));
+    if (this.keyframesAtEnds) this.imageReferences = this.imageReferences.map((reference) =>
+      (reference.frameIndex === 0 ? reference : {...reference, frameIndex: lastFrame}));
     const movedReferences = targets.size;
     // Every chip's x depends on the length, so a new length redraws even with no clamp.
     if (movedReferences || changed) this.renderImageReferences();
@@ -772,6 +887,9 @@ class VideoStudio extends LitElement {
       strength: this.normalizeReferenceStrength(reference.strength),
     }));
     this.renderImageReferences();
+    // The page sets these from the mode too, but its first pass runs before this element
+    // upgrades. Pictures are a Generate input, and an edit hides them by `needsClip`.
+    this.setPictureRules((capabilities.modes || []).find((mode) => mode.id === 'generate') || {});
   }
 
   normalizeReferenceStrength(value) {
@@ -798,6 +916,7 @@ class VideoStudio extends LitElement {
       this.railWidth = 0;
       if (busy) list.append(busy);
       this.renderMediaEmptyState();
+      if (this.picturesWithKeyframes) this.renderPictures();
       return;
     }
     // The tray is hidden until it has a picture, and a hidden box has no width. Unhide it
@@ -831,6 +950,8 @@ class VideoStudio extends LitElement {
     this.railWidth = rail.clientWidth;
     this.layoutReferenceRail(rail, line, lanes, caption);
     this.renderMediaEmptyState();
+    // Where keyframes sit beside pictures, the pictures' numbers start after them.
+    if (this.picturesWithKeyframes) this.renderPictures();
   }
 
   // One picture through the import, with its busy tile in the tray until it is read.
@@ -1031,7 +1152,8 @@ class VideoStudio extends LitElement {
     const reference = this.imageReferences.find((item) => item.id === id);
     if (!reference) return false;
     const last = this.railLimit() - 1;
-    const target = Math.min(last, Math.max(0, frame));
+    let target = Math.min(last, Math.max(0, frame));
+    if (this.keyframesAtEnds) target = target * 2 < last ? 0 : last;
     if (target === reference.frameIndex) return true;
     if (this.referencesUseFrame(target, id)) {
       this.setError(t('video.reference.taken', {
@@ -1074,6 +1196,27 @@ class VideoStudio extends LitElement {
       }
     }
     return best;
+  }
+
+  // On a model that takes keyframes only at the ends: the end nearer the preferred frame, the
+  // other end when that one is taken, or null when both are.
+  freeEndFrame(preferred) {
+    const last = this.railLimit() - 1;
+    const near = preferred * 2 < last ? 0 : last;
+    const far = near === 0 ? last : 0;
+    if (!this.referencesUseFrame(near)) return near;
+    return this.referencesUseFrame(far) ? null : far;
+  }
+
+  // Every keyframe off frame 0 goes to the last frame, so a longer clip keeps its last frame
+  // at the end. Two keyframes between the ends keep their order.
+  moveKeyframesToEnds() {
+    const last = this.railLimit() - 1;
+    const sorted = [...this.imageReferences].sort((a, b) => a.frameIndex - b.frameIndex);
+    const targets = new Map(sorted.map((reference, position) => [reference.id,
+      sorted.length > 1 ? (position === 0 ? 0 : last) : (reference.frameIndex * 2 < last ? 0 : last)]));
+    this.imageReferences = this.imageReferences.map((reference) => ({...reference, frameIndex: targets.get(reference.id)}));
+    this.renderImageReferences();
   }
 
   freeReferenceFrame(preferred) {
@@ -1240,7 +1383,9 @@ class VideoStudio extends LitElement {
     if (!reference) return;
     const step = event.shiftKey ? 8 : 1;
     let frame = null;
-    if (event.key === 'ArrowLeft') frame = reference.frameIndex - step;
+    if (this.keyframesAtEnds && event.key === 'ArrowLeft') frame = 0;
+    else if (this.keyframesAtEnds && event.key === 'ArrowRight') frame = this.railLimit() - 1;
+    else if (event.key === 'ArrowLeft') frame = reference.frameIndex - step;
     else if (event.key === 'ArrowRight') frame = reference.frameIndex + step;
     else if (event.key === 'Home') frame = 0;
     else if (event.key === 'End') frame = this.railLimit() - 1;
@@ -1345,9 +1490,18 @@ class VideoStudio extends LitElement {
     const hasReferences = (!this.needsClip || this.maxReferences > 0)
       && (this.imageReferences.length > 0 || Boolean(this.importingImage));
     const hasAudio = !this.needsClip && Boolean(this.audio);
+    const hasPictures = !this.needsClip && (this.pictures.length > 0 || Boolean(this.importingPicture));
     sourceGroup.hidden = !hasClips;
     referenceTray.hidden = !hasReferences;
-    emptyState.hidden = hasClips || hasReferences || hasAudio;
+    emptyState.hidden = hasClips || hasReferences || hasAudio || hasPictures;
+    // A blocked Picture button stays pressable, so a press on a phone, which has no hover,
+    // still says why: a keyframe or a full tray.
+    const addPicture = document.getElementById('video-add-pictures');
+    if (addPicture) {
+      addPicture.hidden = this.needsClip || !this.maxPictures;
+      addPicture.setAttribute('aria-disabled', String(Boolean(this.pictureBlock())));
+      addPicture.title = this.pictureBlock();
+    }
   }
 
   requestPayload(settings) {
@@ -1382,6 +1536,9 @@ class VideoStudio extends LitElement {
           strength: reference.strength,
         };
       }) : [],
+      // In the tray's order, which is the order the prompt numbers them.
+      pictures: settings.maxPictures > 0
+        ? this.pictures.map((picture) => ({name: picture.name, image: picture.base64})) : [],
     };
   }
 
@@ -1509,6 +1666,10 @@ class VideoStudio extends LitElement {
       if (menu) toggleMenu(menu);
     }
     if (action === 'add-media') this.openMediaChooser();
+    if (action === 'add-pictures' && this.pictureBlock()) this.setError(this.pictureBlock());
+    else if (action === 'add-pictures') document.getElementById('video-picture-upload')?.click();
+    if (action === 'remove-picture') this.removePicture(control.dataset.pictureId);
+    if (action === 'insert-picture-label') insertLabel(document.getElementById('video-prompt'), control.dataset.label);
     if (action === 'browse-video-templates') {
       // The click would reach the document and close the menu it just opened.
       event.stopPropagation();
@@ -1615,6 +1776,13 @@ class VideoStudio extends LitElement {
       const importing = this.addMediaFiles(files);
       event.detail?.waitUntil?.(importing);
     }
+    if (control.id === 'video-picture-upload') {
+      const files = Array.from(control.files || []);
+      control.value = '';
+      // Started before the optional call: `?.()` skips its own arguments when there is no detail.
+      const importing = this.addPictureFiles(files);
+      event.detail?.waitUntil?.(importing);
+    }
   }
 
   // The zone's own door, beside the drop the panel already takes and the paste the document
@@ -1702,8 +1870,16 @@ class VideoStudio extends LitElement {
     return true;
   }
 
+  // A plain add goes to the zone already in use, and to the timeline while both are empty. A
+  // mode with pictures and no keyframes has one zone.
   async addImageFiles(files, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
+    const pictureZone = !this.needsClip && this.maxPictures > 0
+      && (this.maxReferences === 0 || (this.pictures.length > 0 && !this.imageReferences.length));
+    if (pictureZone) {
+      await this.addPictureFiles(files, epoch);
+      return;
+    }
     for (const file of files) {
       if (!this.canCommitInput(epoch)) return;
       if (!isImageFile(file)) {

@@ -6,7 +6,7 @@ import pytest
 
 from studio.l1_entities.errors import Cancelled, InvalidJob
 from studio.l1_entities.lora import LoraUse
-from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoReference
+from studio.l1_entities.video_job import VideoAudio, VideoEdit, VideoJob, VideoPicture, VideoReference
 from studio.l3_interface_adapters.gateways.video.minimax_h3_cuda.minimax_h3_cuda_backend_gateway import (
     MinimaxH3CudaBackendGateway,
     clip_payload,
@@ -19,6 +19,10 @@ def job(**overrides):
 
 def still(frame, png=b"png"):
     return VideoReference(name="still.png", png=png, frame_index=frame, strength=1.0)
+
+
+def picture(png=b"png"):
+    return VideoPicture(name="cast.png", png=png)
 
 
 def encoded(data):
@@ -67,9 +71,28 @@ def test_a_track_turns_every_still_into_a_picture_and_carries_the_track():
     assert "first" not in payload
 
 
-def test_a_track_without_a_still_is_refused_before_the_child_sees_it():
-    with pytest.raises(InvalidJob, match="needs a still with an audio track"):
+def test_a_track_without_a_picture_is_refused_before_the_child_sees_it():
+    with pytest.raises(InvalidJob, match="needs a picture with an audio track"):
         clip_payload(job(audio=VideoAudio(data=b"wav", name="voice.wav")))
+
+
+def test_pictures_without_a_track_run_the_reference_workflow_in_their_order():
+    payload = clip_payload(job(pictures=(picture(b"a"), picture(b"b"))))
+
+    assert payload["pictures"] == [encoded(b"a"), encoded(b"b")]
+    assert "audio" not in payload
+    assert "first" not in payload
+
+
+def test_pictures_with_a_track_carry_both():
+    payload = clip_payload(job(pictures=(picture(b"a"),), audio=VideoAudio(data=b"wav", name="voice.wav")))
+
+    assert (payload["pictures"], payload["audio"]) == ([encoded(b"a")], encoded(b"wav"))
+
+
+def test_pictures_beside_a_keyframe_are_refused_because_the_workflows_differ():
+    with pytest.raises(InvalidJob, match="pictures or keyframes, not both"):
+        clip_payload(job(pictures=(picture(),), references=(still(0),)))
 
 
 @pytest.mark.parametrize(

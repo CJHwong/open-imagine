@@ -922,6 +922,14 @@
     padding: 4px 6px; display: flex; align-items: center; justify-content: center; border-radius: 7px;
     border: 1px solid var(--line-strong); background: var(--chrome); color: var(--text-2); cursor: pointer; }
   .video-audio-remove .icon { width: 11px; height: 11px; }
+  /* A picture's row is the track's row: the label is the text the prompt names it by, and a
+     press puts that text in the prompt. */
+  .video-picture-text { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+  .video-picture-label { min-height: 32px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: 6px;
+    background: var(--chrome); color: var(--text); font: 11px var(--mono); cursor: pointer; }
+  .video-picture-label:hover { border-color: var(--accent); }
+  #video-picture-tray > .caption { margin: 0; }
+  #video-add-pictures[aria-disabled=true] { opacity: .5; }
   .video-audio-remove:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
   .video-reference-options .caption { display: block; margin-top: 2px; font-size: 10px; }
   .video-duration-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(72px, 1fr)); gap: 3px; padding: 2px;
