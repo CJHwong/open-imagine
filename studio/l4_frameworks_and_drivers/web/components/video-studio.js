@@ -657,8 +657,13 @@ class VideoStudio extends LitElement {
   // and keyframes as two workflows takes one kind at a time, and a reference track is a picture.
   keyframeBlock() {
     if (this.needsClip || this.picturesWithKeyframes || !this.maxPictures) return '';
-    if (this.pictures.length || (this.referenceAudio && this.audio)) return t('video.picture.keyframesBlocked');
+    if (this.pictures.length || this.referenceTrack()) return t('video.picture.keyframesBlocked');
     return '';
+  }
+
+  // A track that this model takes as a reference, beside the pictures and not the timeline.
+  referenceTrack() {
+    return Boolean(this.referenceAudio && this.audio);
   }
 
   // Why a picture cannot join the form now, or empty when it can.
@@ -1212,10 +1217,17 @@ class VideoStudio extends LitElement {
   // at the end. Two keyframes between the ends keep their order.
   moveKeyframesToEnds() {
     const last = this.railLimit() - 1;
-    const sorted = [...this.imageReferences].sort((a, b) => a.frameIndex - b.frameIndex);
-    const targets = new Map(sorted.map((reference, position) => [reference.id,
-      sorted.length > 1 ? (position === 0 ? 0 : last) : (reference.frameIndex * 2 < last ? 0 : last)]));
-    this.imageReferences = this.imageReferences.map((reference) => ({...reference, frameIndex: targets.get(reference.id)}));
+    const sorted = this.sortedReferences();
+    if (sorted.length === 1) {
+      const [only] = sorted;
+      this.imageReferences = [{...only, frameIndex: only.frameIndex * 2 < last ? 0 : last}];
+    } else if (sorted.length > 1) {
+      // Only two ends exist. The keyframes between them go to the back of the list with their
+      // own frames, so the caller's trim to the model's limit removes them, and names them.
+      const first = {...sorted[0], frameIndex: 0};
+      const final = {...sorted[sorted.length - 1], frameIndex: last};
+      this.imageReferences = [first, final, ...sorted.slice(1, -1)];
+    }
     this.renderImageReferences();
   }
 
@@ -1875,7 +1887,8 @@ class VideoStudio extends LitElement {
   async addImageFiles(files, epoch = this.captureInputEpoch()) {
     if (!this.canCommitInput(epoch)) return;
     const pictureZone = !this.needsClip && this.maxPictures > 0
-      && (this.maxReferences === 0 || (this.pictures.length > 0 && !this.imageReferences.length));
+      && (this.maxReferences === 0
+        || (!this.imageReferences.length && (this.pictures.length > 0 || this.referenceTrack())));
     if (pictureZone) {
       await this.addPictureFiles(files, epoch);
       return;

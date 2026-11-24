@@ -219,6 +219,50 @@ with sync_playwright() as playwright:
     )
     page.wait_for_function("() => document.getElementById('video-studio').captureInputEpoch() !== null", timeout=60000)
 
+    # Three keyframes, the frame-0 one added last, then a switch another caller makes. The page
+    # trims to two in add order, so the snap must not leave both on the last frame. A fresh
+    # browser holds no CUDA draft, so the switch keeps the form instead of restoring one.
+    fresh = browser.new_page(viewport={"width": 1280, "height": 850})
+    fresh.on("pageerror", lambda error: page_errors.append(str(error)))
+    switch(fresh, "minimax_h3", 9)
+    for name, colour in (("a.png", "red"), ("b.png", "blue"), ("c.png", "green")):
+        fresh.locator("#video-media-upload").set_input_files(picture(name, colour))
+    fresh.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 3")
+    fresh.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          const frames = [36, 72, 0];
+          studio.imageReferences = studio.imageReferences.map((one, index) => ({...one, frameIndex: frames[index]}));
+          studio.renderImageReferences();
+        }"""
+    )
+    api("/api/v1/videos/backend", {"backend": "minimax_h3_cuda"})
+    fresh.wait_for_function(
+        "() => document.getElementById('video-studio').keyframesAtEnds"
+        " && document.getElementById('video-studio').imageReferences.length === 2",
+        timeout=30000,
+    )
+    ends = sorted(state(fresh)["keyframes"])
+    check("a switch to H3 on CUDA keeps one keyframe on each end", ends == [0, 123], str(ends))
+    fresh.close()
+
+    switch(page, "minimax_h3_cuda", 9)
+    page.evaluate(
+        """() => {
+          const studio = document.getElementById('video-studio');
+          [...studio.imageReferences].forEach((one) => studio.removeImageReference(one.id));
+        }"""
+    )
+    page.locator("#video-media-upload").set_input_files(track())
+    page.wait_for_function("() => Boolean(document.getElementById('video-studio').audio)")
+    page.locator("#video-media-upload").set_input_files(picture("guest.png", "green"))
+    page.wait_for_function("() => document.getElementById('video-studio').pictures.length === 1", timeout=10000)
+    check(
+        "a plain add beside a reference track joins the tray",
+        state(page)["keyframes"] == [] and labels(page)[0] == "<Picture 1>",
+        str(state(page)),
+    )
+
     switch(page, "minimax_h3_flash", 0)
     check("H3 Flash offers no Picture button", add.is_hidden())
 
