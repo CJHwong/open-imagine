@@ -13,6 +13,12 @@ The built-in integration drives Phosphene's staged runner at commit
   the last frame is the last frame, and a still on any other frame is a keyframe there.
   Each still is cover-cropped to the canvas. The page puts stills without a frame on the first
   frame, then the last frame, then the middle, and gives a captured frame the nearest free frame.
+- Up to nine pictures of who or what to show, on no frame, beside the keyframes. The engine
+  numbers the keyframes first, so with one keyframe the first picture is `<Picture 2>`, and the
+  page's tray shows each label. Each picture is encoded at 512 pixels on its short edge and must be
+  within 4:1. On 2026-11-24 two pictures at 512 x 288 and 73 frames took 99 s against 77 s for
+  text; at the engine's default of 2048 they took 599 s and carried one picture's backdrop into
+  the scene. Two were run. Flash takes no picture.
 - An audio track drives the clip, for example a voice for lip sync. The clip keeps that track as
   its sound. WAV, MP3, FLAC, OGG, M4A and AIFF decode in memory, including an M4A that keeps
   its index after its audio data.
@@ -230,16 +236,16 @@ One LoRA costs little on the measured runs. At 512 x 288 and 73 frames, it added
 
 ## Private operations
 
-The parent sends the prompt, the keyframes and the audio track over stdin and receives MP4
+The parent sends the prompt, the keyframes, the pictures and the audio track over stdin and receives MP4
 bytes over stdout. None of them enters the process command line, and their file names stay in
-the parent. The worker gives the engine each still and the track under a path that does not
+the parent. The worker gives the engine each still, each picture and the track under a path that does not
 exist on disk, and it answers the engine's three reads from memory: the file check,
 `Image.open` and `read_audio`. A read that bypasses them fails.
 ffmpeg decodes the track from a pipe. A pipe reads forward only, so the worker first moves an
 M4A index that follows the audio data to the front, the way `qt-faststart` does. The adapter replaces the engine's
 metrics writer with an in-memory recorder and disables persistent prompt caches.
 The encoder pipes video and WAV data into ffmpeg and returns a fragmented MP4.
-No prompt, still, track, metrics, WAV, frames or MP4 file is written by this path.
+No prompt, still, picture, track, metrics, WAV, frames or MP4 file is written by this path.
 Only numerical step and phase metrics cross stderr, with the index and layer counts of a LoRA
 that does not fit. Engine diagnostics are suppressed.
 The path of each picked LoRA goes to the worker over stdin with the rest of the request, so no
