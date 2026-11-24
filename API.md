@@ -161,9 +161,9 @@ These copies stay on the studio machine. No HTTP answer to another caller contai
 The key keeps your work from other callers.
 It does not keep your work from a person who can read the memory, disk or process list of this machine.
 
-The optional built-in MiniMax H3 backend on MLX (`minimax_h3`) transfers prompts, keyframes, audio tracks and MP4 results through memory pipes.
+The optional built-in MiniMax H3 backend on MLX (`minimax_h3`) transfers prompts, keyframes, pictures, audio tracks and MP4 results through memory pipes.
 It writes no plaintext prompt, metrics or media files and uses no persistent prompt cache.
-MiniMax H3 on CUDA (`minimax_h3_cuda`) keeps the prompt, the stills and the track in memory, and writes the finished MP4 to a scratch file while it encodes it.
+MiniMax H3 on CUDA (`minimax_h3_cuda`) keeps the prompt, the stills, the pictures and the track in memory, and writes the finished MP4 to a scratch file while it encodes it.
 Its results follow the same private ownership and encrypted retention rules as other Video results.
 
 ## Prompt aids and reference inputs
@@ -190,8 +190,14 @@ API `count` names the total output count. Repeat reference instructions in order
 A region edit appends the prepared mask as the final reference and sets `mask: true`.
 Use the same numbered-image references in the prompt that the model capabilities support.
 
-A video accepts image keyframes, an audio track, or an effect clip as declared by its mode.
+A video accepts image keyframes, pictures, an audio track, or an effect clip as declared by its mode.
 Keyframes use `references: [{"name":"first.png","image":"<base64>","frame_index":0,"strength":1}]`.
+Pictures use `pictures: [{"name":"cast.png","image":"<base64>"}]`. A picture shows who or what is in the clip, on no frame of its own.
+The prompt names each picture as `<Picture n>`, in the order sent. MiniMax H3 on MLX numbers its keyframes first, so with one keyframe the first picture is `<Picture 2>`.
+Read the mode's `max_pictures` and `pictures_with_keyframes`. MiniMax H3 on CUDA takes up to 9 pictures and no keyframe beside them.
+On a mode with `reference_audio`, the track is a reference too: it needs a picture, and the prompt names it as `<Audio 1>`.
+An older form of that run still works: a track with keyframes and no pictures turns each keyframe into a picture.
+On a mode with `keyframes_at_ends`, a keyframe goes on the first or the last frame only.
 Audio uses `audio: {"name":"voice.wav","data":"<base64>"}`.
 An effect edit uses `kind: "video"`, `mode: "edit"`, `adapter`, `adapter_strength`, and `clip`.
 The clip uses `{"name":"source.mp4","data":"<base64>"}`.
@@ -636,7 +642,7 @@ A plan does not load the model to find out. It reads the list that the state rou
 
 A plan needs no prompt and no media.
 For an image, send `reference_sizes` as `[width, height]` pairs in place of `references`.
-For a video, send `reference_count` in place of `references` and `has_audio` in place of `audio`.
+For a video, send `reference_count` in place of `references`, `picture_count` in place of `pictures` and `has_audio` in place of `audio`.
 An edit plan needs no clip.
 
 An image figure is the figure that the page shows under the run button for a fresh tab.
@@ -650,6 +656,7 @@ Expect an error of about 10 to 40%. The fit counts these parts of a clip:
 - The prompt enhancer, unless the request sends `enhance: false`.
 - Each LoRA, at about 10 seconds.
 - The guided path for an audio track, and for a keyframe on LTX-2.3. This path costs about 2.5 times more.
+- On MiniMax H3 on CUDA, about 3.8 thousand tokens a step for each picture, when the clip has no track.
 - For an edit, a fit over the tokens of the output, times the effect's own `cost_factor`. An edit never costs less than the model loads.
 
 The figure counts Fast mode at the default speed and adds `Fast mode speedup` to `excludes`.
