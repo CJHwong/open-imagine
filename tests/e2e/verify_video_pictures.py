@@ -63,13 +63,21 @@ def state(page):
 
 def switch(page, backend, pictures):
     """Switch on the server, then load the page. A switch the page hears mid-way moves the
-    form's input epoch, and a file read across it is dropped on purpose."""
-    api("/api/v1/videos/backend", {"backend": backend})
+    form's input epoch, and a file read across it is dropped on purpose. Returns False when
+    the server cannot offer the backend, such as MLX on a host that has no MLX stack."""
+    try:
+        api("/api/v1/videos/backend", {"backend": backend})
+    except urllib.error.HTTPError as error:
+        if error.code == 503:
+            print(f"SKIP {backend}: the server does not offer it on this host", flush=True)
+            return False
+        raise
     page.goto(BASE + "/?lang=en")
     page.locator("#media-video-mode").click()
     page.wait_for_function(
         "(max) => document.getElementById('video-studio').maxPictures === max", arg=pictures, timeout=30000
     )
+    return True
 
 
 def labels(page):
@@ -198,53 +206,55 @@ with sync_playwright() as playwright:
         refused,
     )
 
-    switch(page, "minimax_h3", 9)
-    page.locator("#video-media-upload").set_input_files(picture("start.png", "red"))
-    page.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 1")
-    page.locator("#video-picture-upload").set_input_files(picture("cast.png", "green"))
-    page.wait_for_function("() => document.getElementById('video-studio').pictures.length === 1")
-    check(
-        "H3 on MLX takes a picture beside a keyframe and numbers it after the keyframe",
-        labels(page) == ["<Picture 2>"],
-        str(labels(page)),
-    )
-    with page.expect_request(lambda request: request.url.endswith("/video/operations")) as sent:
-        page.fill("#video-prompt", "<Picture 2> walks in.")
-        page.locator("#video-generate").click()
-    body = sent.value.post_data_json
-    check(
-        "H3 on MLX sends the keyframe and the picture together",
-        len(body["references"]) == 1 and [one["name"] for one in body["pictures"]] == ["cast.png"],
-        str(len(body["references"])),
-    )
-    page.wait_for_function("() => document.getElementById('video-studio').captureInputEpoch() !== null", timeout=60000)
+    if switch(page, "minimax_h3", 9):
+        page.locator("#video-media-upload").set_input_files(picture("start.png", "red"))
+        page.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 1")
+        page.locator("#video-picture-upload").set_input_files(picture("cast.png", "green"))
+        page.wait_for_function("() => document.getElementById('video-studio').pictures.length === 1")
+        check(
+            "H3 on MLX takes a picture beside a keyframe and numbers it after the keyframe",
+            labels(page) == ["<Picture 2>"],
+            str(labels(page)),
+        )
+        with page.expect_request(lambda request: request.url.endswith("/video/operations")) as sent:
+            page.fill("#video-prompt", "<Picture 2> walks in.")
+            page.locator("#video-generate").click()
+        body = sent.value.post_data_json
+        check(
+            "H3 on MLX sends the keyframe and the picture together",
+            len(body["references"]) == 1 and [one["name"] for one in body["pictures"]] == ["cast.png"],
+            str(len(body["references"])),
+        )
+        page.wait_for_function(
+            "() => document.getElementById('video-studio').captureInputEpoch() !== null", timeout=60000
+        )
 
     # Three keyframes, the frame-0 one added last, then a switch another caller makes. The page
     # trims to two in add order, so the snap must not leave both on the last frame. A fresh
     # browser holds no CUDA draft, so the switch keeps the form instead of restoring one.
     fresh = browser.new_page(viewport={"width": 1280, "height": 850})
     fresh.on("pageerror", lambda error: page_errors.append(str(error)))
-    switch(fresh, "minimax_h3", 9)
-    for name, colour in (("a.png", "red"), ("b.png", "blue"), ("c.png", "green")):
-        fresh.locator("#video-media-upload").set_input_files(picture(name, colour))
-    fresh.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 3")
-    fresh.evaluate(
-        """() => {
-          const studio = document.getElementById('video-studio');
-          const frames = [36, 72, 0];
-          studio.imageReferences = studio.imageReferences.map((one, index) => ({...one, frameIndex: frames[index]}));
-          studio.renderImageReferences();
-        }"""
-    )
-    api("/api/v1/videos/backend", {"backend": "minimax_h3_cuda"})
-    fresh.wait_for_function(
-        "() => document.getElementById('video-studio').keyframesAtEnds"
-        " && document.getElementById('video-studio').imageReferences.length === 2",
-        timeout=30000,
-    )
-    ends = sorted(state(fresh)["keyframes"])
-    check("a switch to H3 on CUDA keeps one keyframe on each end", ends == [0, 123], str(ends))
-    fresh.close()
+    if switch(fresh, "minimax_h3", 9):
+        for name, colour in (("a.png", "red"), ("b.png", "blue"), ("c.png", "green")):
+            fresh.locator("#video-media-upload").set_input_files(picture(name, colour))
+        fresh.wait_for_function("() => document.getElementById('video-studio').imageReferences.length === 3")
+        fresh.evaluate(
+            """() => {
+              const studio = document.getElementById('video-studio');
+              const frames = [36, 72, 0];
+              studio.imageReferences = studio.imageReferences.map((one, index) => ({...one, frameIndex: frames[index]}));
+              studio.renderImageReferences();
+            }"""
+        )
+        api("/api/v1/videos/backend", {"backend": "minimax_h3_cuda"})
+        fresh.wait_for_function(
+            "() => document.getElementById('video-studio').keyframesAtEnds"
+            " && document.getElementById('video-studio').imageReferences.length === 2",
+            timeout=30000,
+        )
+        ends = sorted(state(fresh)["keyframes"])
+        check("a switch to H3 on CUDA keeps one keyframe on each end", ends == [0, 123], str(ends))
+        fresh.close()
 
     switch(page, "minimax_h3_cuda", 9)
     page.evaluate(
@@ -270,13 +280,13 @@ with sync_playwright() as playwright:
     page.wait_for_function("() => document.getElementById('video-studio').pictures.length >= 1")
     check("its tray numbers a picture", labels(page)[0] == "<Picture 1>", str(labels(page)))
 
-    switch(page, "minimax_h3_flash", 0)
-    check("H3 Flash offers no Picture button", add.is_hidden())
+    if switch(page, "minimax_h3_flash", 0):
+        check("H3 Flash offers no Picture button", add.is_hidden())
 
-    switch(page, "ltx25_mlx", 0)
-    check("LTX offers no Picture button", add.is_hidden())
-    heading = page.locator("#video-reference-tray strong").first.inner_text()
-    check("LTX keeps the name Image references", heading == "Image references", heading)
+    if switch(page, "ltx25_mlx", 0):
+        check("LTX offers no Picture button", add.is_hidden())
+        heading = page.locator("#video-reference-tray strong").first.inner_text()
+        check("LTX keeps the name Image references", heading == "Image references", heading)
     check("no page error", not page_errors, "; ".join(page_errors))
     browser.close()
 
