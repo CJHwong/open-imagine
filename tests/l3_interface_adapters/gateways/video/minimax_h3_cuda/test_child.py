@@ -71,6 +71,7 @@ class FakePipe:
         self.components = {}
         self.loads = []
         self.calls = []
+        self.sound = "generated sound"
 
     def load_components(self, names, dtype, device_map):
         self.loads.append(tuple(names))
@@ -92,7 +93,7 @@ class FakePipe:
             for hook in self.components["transformer"].hooks:
                 hook()
         frames = [Image.new("RGB", (arguments["width"], arguments["height"])) for _ in range(arguments["num_frames"])]
-        return {"videos": [frames], "audio": ["generated sound"], "sampling_rate": 32000}
+        return {"videos": [frames], "audio": [self.sound], "sampling_rate": 32000}
 
 
 @pytest.fixture
@@ -384,6 +385,31 @@ def test_flash_refuses_to_load_when_its_swap_no_longer_matches(flash):
     flash.swaps = {"set_timesteps": 3, "denoiser": 2}
     with pytest.raises(RuntimeError, match=r"replaced .* blocks, where this child expects"):
         child.load("m", "abc", flash=True)
+
+
+def test_flash_lifts_only_its_text_clip_sound_to_the_base_level(flash):
+    """The Flash text clips measured 6.8 dB quieter than base H3 at seed 7; the pictures were level."""
+    pipe = child.load("MiniMaxAI/MiniMax-H3", "abc", flash=True)
+    flash.pipe.sound = np.ones((2, 10), dtype=np.float32)
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 6, "forwards": 6, "seed": 0}
+    child.run(pipe, job, flash=True)
+    assert np.allclose(flash.encoded[-1][2], np.ones((2, 10), dtype=np.float32) * child.TEXT_GAIN)
+
+
+def test_flash_leaves_its_picture_clip_sound_alone(flash):
+    pipe = child.load("MiniMaxAI/MiniMax-H3", "abc", flash=True)
+    flash.pipe.sound = np.ones((2, 10), dtype=np.float32)
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 6, "forwards": 6, "seed": 0}
+    child.run(pipe, {**job, "pictures": [png()]}, flash=True)
+    assert np.allclose(flash.encoded[-1][2], np.ones((2, 10), dtype=np.float32))
+
+
+def test_the_base_text_sound_keeps_the_model_level(world):
+    pipe = child.load("m", "/local")
+    world.pipe.sound = np.ones((2, 10), dtype=np.float32)
+    job = {"prompt": "p", "width": 8, "height": 8, "frames": 124, "steps": 6, "forwards": 6, "seed": 0}
+    child.run(pipe, job)
+    assert np.allclose(world.encoded[-1][2], np.ones((2, 10), dtype=np.float32))
 
 
 def test_a_run_counts_the_calls_its_job_names(world, capsys):

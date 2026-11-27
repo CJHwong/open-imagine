@@ -64,7 +64,8 @@ The time estimate is fitted on five Fast text runs from 512 × 288 to 1280 × 70
 A picture adds about 3.78 thousand tokens to each step. Two pictures solved to 3.77 at 512 × 288
 and 3.79 at 1024 × 576, so the cost does not move with the clip: the picture is encoded at its own
 size. A clip with a track keeps the measured 4.4 factor instead.
-It counts a full 50-step run, so a Fast clip takes about 40% of the figure.
+The slow figure counts the 49 forwards of a full run; `fast_forwards` counts Fast's 19, so a
+Fast clip is planned at its own size.
 
 ## HyperFlow H3 Flash
 
@@ -72,6 +73,14 @@ It counts a full 50-step run, so a Fast clip takes about 40% of the figure.
 Video Rebirth's pruned H3, on this child with `--flash`. It takes the same inputs as base H3 here:
 text, a first or last frame, up to nine pictures, and pictures with a track. It runs six steps and
 has no Fast mode.
+
+The time estimate is fitted on the five text runs in the measurement table, including the
+345-frame clip, and reads each within 7.2%. It counts six forwards; the tail pays 0.66 s per
+megapixel plus 1.178 s per second of audio mux.
+
+The Flash text clips' sound measured 6.8 dB quieter than base H3 at seed 7; the picture clips
+were level. The child lifts a text-only clip's generated sound by 6.8 dB to match base H3. A
+picture clip, a keyframe clip or a clip with a track keeps the model's own level.
 
 Flash keeps base H3's encoder, VAEs and workflows. It replaces the two transformers with its own,
 13.7 and 13.9 billion parameters against about 31 billion, where most large layers are low-rank
@@ -91,8 +100,8 @@ The child fetches `fl2va_bf16/` and `ref2va_bf16/` of `VideoRebirthAI/hyperflow-
 It never fetches the base transformers. The sampler comes from the
 [`hyperflow-h3-flash`](https://github.com/Video-Rebirth/hyperflow-h3-flash) package at commit
 `dc67ea7`, pinned in the child's script header. Deleting Flash's storage removes only its
-transformers; the encoder and the VAEs belong to base H3. Deleting base H3's storage removes them
-too, and Flash still reads as ready: its next load downloads them again, the 63 GiB encoder and the VAEs.
+transformers; the encoder and the VAEs belong to base H3. Flash's storage lists the base release
+as well, so deleting base H3's storage now shows Flash as missing those files, not as ready.
 
 The weights are a Model Derivative of MiniMax-H3 under the MiniMax H3 Community License Agreement.
 It is not an open-source license. It does not cover use in the European Union, the United Kingdom,

@@ -45,7 +45,7 @@ MAX_PICTURES = 9
 # A forward costs 1.248 N + 0.0781 N^2 seconds over N thousand latent tokens, counted on the
 # LTX grid of `video_estimate.tokens`. The decode costs 4.9 s plus 0.70 s per megapixel of all
 # the frames. The fit reads each run within 8%. The figure counts the 49 forwards of a full run;
-# Fast mode takes 19, which the figure names and does not count. A picture and a track ran 4.4
+# `fast_forwards` counts Fast mode's 19. A picture and a track ran 4.4
 # times a text clip at 512 x 288 (360.6 s against 82.3 s), and a first and last frame added 8%.
 #
 # Pictures without a track, seed 7, two 512 x 512 pictures, through a scratch copy of the child
@@ -66,6 +66,7 @@ ESTIMATE = VideoEstimate(
     guided_factor=4.4,
     picture_tokens=3.78,
     forwards=STEPS - 1,
+    fast_forwards=19,
     excludes=("weight download", "queue wait", "the first load, about 135 s", "keyframe rows"),
 )
 
@@ -150,16 +151,18 @@ def minimax_h3_cuda_capabilities() -> VideoCapabilities:
 # and the mux.
 #
 #   size          frames  tokens  step     tail     total    this fit
-#   512 x 288      124     2.30    3.0 s    18.1 s    32.1 s   34.0 s
-#   512 x 512      124     4.10    5.0 s    32.1 s    58.2 s   59.7 s
-#   1024 x 576     124     9.22   16.1 s    60.2 s   138.5 s  150.0 s
-#   1280 x 704     124    14.08   30.1 s   115.3 s   261.7 s  259.2 s
-#   512 x 288      345     6.34   10.0 s    60.1 s   109.3 s   96.5 s
+#   512 x 288      124     2.30    3.0 s    18.1 s    32.1 s   34.4 s
+#   512 x 512      124     4.10    5.0 s    32.1 s    58.2 s   59.6 s
+#   1024 x 576     124     9.22   16.1 s    60.2 s   138.5 s  148.3 s
+#   1280 x 704     124    14.08   30.1 s   115.3 s   261.7 s  255.9 s
+#   512 x 288      345     6.34   10.0 s    60.1 s   109.3 s  106.5 s
 #
 # A forward costs 0.950 N + 0.0800 N^2 seconds over N thousand tokens, about nine tenths of a
-# base forward. The decode keeps base H3's 4.9 s plus 0.70 s per megapixel, the same VAE: the
-# tails less one forward solved to 4.4 s plus 0.70 s. The fit reads each 124-frame clip within 8% and the 345-frame
-# clip 12% low. Two pictures took 142.5 s at 512 x 288 and 304.9 s at 1024 x 576, which solve to
+# base forward. The tail pays a decode of 0.66 s per megapixel plus an audio mux of 1.178 s per
+# second of clip: the VAE is the base's, and the mux grows with the 345-frame clip's 14 s of
+# sound. The decode constant is 0: the mux carries it for a short clip. The fit reads each clip
+# within 7.2%, and the 345-frame clip 2.5% low. Two pictures took 142.5 s at 512 x 288 and
+# 304.9 s at 1024 x 576, which solve to
 # 4.44 and 4.18 thousand tokens a picture. A picture and a 5 s track took 82.2 s, 2.6 times the
 # text clip; `guided_factor` carries that track factor, as it does for base H3. Flash runs no
 # guidance. A first frame took 34.1 s and a first and last frame 36.2 s. The first clip of the
@@ -168,7 +171,8 @@ FLASH_ESTIMATE = VideoEstimate(
     load=(0.0, 0.0),
     stage_1=(0.0, 0.0),
     stage_2=(0.950, 0.0800),
-    decode=(4.9, 0.70),
+    decode=(0.0, 0.66),
+    mux_seconds=1.178,
     fixed_seconds=0.6,
     guided_factor=2.6,
     picture_tokens=4.3,

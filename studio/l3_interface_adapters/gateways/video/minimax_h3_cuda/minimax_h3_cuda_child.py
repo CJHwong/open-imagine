@@ -92,7 +92,12 @@ FLASH_FOLDERS = {"transformer": "fl2va_bf16", "transformer_ref": "ref2va_bf16"}
 FLASH_WEIGHTS = (*(f"{folder}/*" for folder in FLASH_FOLDERS.values()), "LICENSE", "NOTICE")
 FLASH_SWAPS = {"set_timesteps": 3, "denoiser": 3}
 """The blocks Flash replaces in the three workflows: one timestep step and one denoiser each."""
-FLASH_KEPT = ("adaln_proj", "norm_out")
+FLASH_KEPT = ("adaln_proj.", "norm_out.")
+"""The fragments end with a dot: `adaln_proj.linear` and `norm_out.linear` are kept, and a name
+that merely starts with the word is not."""
+TEXT_GAIN = 10 ** (6.8 / 20)
+"""The Flash text clips measured 6.8 dB quieter than base H3 at seed 7 through the studio; the
+picture clips were level. This is the amplitude ratio that matches the base for text."""
 
 
 def prepare_environment() -> None:
@@ -160,8 +165,9 @@ def move_by_way_of_memory(module, device: str = "cuda") -> None:
 def land_in_nvfp4(module, kept: tuple[str, ...] = ()) -> None:
     """Move a module to the device one linear at a time, each quantized to NVFP4 as it lands.
 
-    A bf16 linear that a name in `kept` matches lands as it is: the encoder's vision tower
-    reads pictures, and the dropped head never runs. What is not a linear follows at the end.
+    A bf16 linear whose name contains one of the `kept` fragments lands as it is: the encoder's
+    vision tower reads pictures, and the dropped head never runs. What is not a linear follows
+    at the end.
     """
     import torch
     from torchao.prototype.mx_formats import NVFP4DynamicActivationNVFP4WeightConfig
@@ -312,7 +318,7 @@ def encode(frames, audio, rate: int | None) -> bytes:
         return target.read_bytes()
 
 
-def run(pipe, job: dict) -> dict:
+def run(pipe, job: dict, flash: bool = False) -> dict:
     import torch
 
     steps = int(job["steps"])
@@ -351,6 +357,12 @@ def run(pipe, job: dict) -> dict:
     video = result["videos"][0]
     rate = int(result["sampling_rate"])
     sound = result["audio"][0] if job.get("include_audio", True) else None
+    if (
+        flash
+        and sound is not None
+        and not (job.get("pictures") or job.get("first") or job.get("last") or job.get("audio"))
+    ):
+        sound = sound * TEXT_GAIN
     payload = encode(video, sound, rate if sound is not None else None)
     width, height = video[0].size
     return {
@@ -383,7 +395,7 @@ def main() -> int:
         job = {}
         try:
             job = json.loads(line)
-            answer({**run(pipe, job), "request_id": job.get("request_id", "")})
+            answer({**run(pipe, job, arguments.flash), "request_id": job.get("request_id", "")})
         except Exception as error:  # the parent turns this into a failed job
             answer({"error": f"{type(error).__name__}: {error}", "request_id": job.get("request_id", "")})
         finally:
