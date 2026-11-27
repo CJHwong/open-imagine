@@ -3000,7 +3000,16 @@ with sync_playwright() as playwright:
     picked_in_order.locator("label[for=mode-edit]").click()
     wanted = ["reference-a.png", "reference-b.png", "reference-a.png", "reference-b.png"]
     picked_in_order.set_input_files("#reference", [str(SCRATCH / name) for name in wanted])
-    picked_in_order.wait_for_function("() => document.querySelectorAll('#thumbs .thumb').length === 4", timeout=10000)
+    picked_in_order.wait_for_function(
+        """() => {
+            const thumbs = [...document.querySelectorAll('#thumbs .thumb')];
+            return thumbs.length === 4 && thumbs.every((element) => {
+                const image = element.querySelector('img');
+                return image && image.alt && element.innerText.includes(image.alt);
+            });
+        }""",
+        timeout=10000,
+    )
     held = picked_in_order.eval_on_selector_all(
         "#thumbs .thumb",
         "elements => elements.map(element => {const name = element.querySelector('img').alt; return element.innerText.includes(name) ? name : '';})",
