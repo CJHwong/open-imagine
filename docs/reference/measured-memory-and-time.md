@@ -532,6 +532,9 @@ reports, read once a second.
 | generate, first and last frame, 512 × 288 | 3.0 | 36.2 | Decoded |
 | generate, 1024 × 576, cancelled at 40 s | | 41.1 | Cancelled at step 3, 1.0 s after the request |
 
+The text clips' sound measured 6.8 dB quieter than base H3 at seed 7 through the same path; the
+picture clips were level. The child lifts a text-only clip's sound by 6.8 dB to match base H3.
+
 A switch to `minimax_h3_cuda` released Flash before base H3 loaded, and a switch back released
 base H3, under `[memory] policy = "boundary"` at 84%. The two did not stay loaded together.
 

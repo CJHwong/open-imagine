@@ -6,7 +6,7 @@ provisional: its constants come from a handful of runs on one machine, and the f
 a clip moves with the machine's memory, so two runs of one clip can differ by a quarter.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from studio.l1_entities.estimate_stages import Stage, split
 from studio.l1_entities.video_capabilities import VideoAdapter, VideoEstimate
@@ -14,6 +14,8 @@ from studio.l1_entities.video_capabilities import VideoAdapter, VideoEstimate
 # A latent token covers 32 x 32 pixels, and a latent frame covers 8 frames after the first.
 TOKEN_SIDE = 32
 FRAMES_PER_LATENT = 8
+# The H3 and Flash clips run at 24 fps; a model that sets `mux_seconds` uses this.
+FRAMES_PER_SECOND = 24
 # The steps that the runner asks for: the distilled path, the guided path of an audio track
 # or a keyframe on 2.3, and an effect, with the refinement of an effect that conditions stage 2.
 DISTILLED_STEPS = (8, 3)
@@ -68,10 +70,13 @@ def estimate_clip(
 ) -> ClipEstimate:
     """The estimate of one clip. `adapter` is the effect of an Edit, and None for Generate.
 
-    Fast mode is counted at the default speed: no run measured how much it saves, so the
-    figure names the saving in its excludes.
+    Fast mode uses `fast_forwards` when the model sets it. A model without that count keeps
+    the default speed, so the figure names the saving in its excludes.
     """
     guided = adapter is None and (audio or (references > 0 and model is not None and model.guided_with_references))
+    fast = model is not None and fast_mode and model.fast_forwards > 0
+    if fast and model is not None:
+        model = replace(model, forwards=model.fast_forwards)
     steps = _steps(model, adapter, guided)
     if model is None:
         return ClipEstimate("unavailable", steps, width, height, references)
@@ -88,7 +93,7 @@ def estimate_clip(
         clip = max(setup, (model.edit[0] + model.edit[1] * count) * adapter.cost_factor)
     total = _tens(clip + loras * model.lora_seconds)
     fixed = min(_tens(setup), total)
-    excludes = model.excludes + ((FAST_MODE,) if fast_mode else ())
+    excludes = model.excludes + ((FAST_MODE,) if fast_mode and not fast else ())
     return ClipEstimate(
         "provisional",
         steps,
@@ -119,17 +124,19 @@ def run_seconds(model: VideoEstimate, width: int, height: int, num_frames: int, 
     of the tokens, the steps of stage 2 on all of them, and the decode. The first step of
     stage 1 counts with the loads, so stage 1 times one step fewer. A model with one stage
     takes its own count of steps on all the tokens. `extra` is the thousands of tokens that
-    the clip's pictures add to each step of stage 2; the decode does not see them."""
+    the clip's pictures add to each step of stage 2; the decode does not see them. `mux_seconds`
+    grows with the seconds of the clip."""
     count = tokens(width, height, num_frames)
     quarter = count / 4
     step_1 = model.stage_1[0] * quarter + model.stage_1[1] * quarter**2
     rows = count + extra
     step_2 = model.stage_2[0] * rows + model.stage_2[1] * rows**2
     decode = max(0.0, model.decode[0] + model.decode[1] * num_frames * width * height / 1e6)
+    mux = model.mux_seconds * num_frames / FRAMES_PER_SECOND
     if model.forwards:
-        return model.load[0] + model.load[1] * count + model.forwards * step_2 + decode
+        return model.load[0] + model.load[1] * count + model.forwards * step_2 + decode + mux
     first, second = DISTILLED_STEPS
-    return model.load[0] + model.load[1] * count + (first - 1) * step_1 + second * step_2 + decode
+    return model.load[0] + model.load[1] * count + (first - 1) * step_1 + second * step_2 + decode + mux
 
 
 def tokens(width: int, height: int, num_frames: int) -> float:

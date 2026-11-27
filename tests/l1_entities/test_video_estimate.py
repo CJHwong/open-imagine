@@ -120,6 +120,22 @@ def test_fast_mode_is_counted_at_the_default_speed_and_says_so():
     assert estimate.excludes == ("weight download", FAST_MODE)
 
 
+def test_fast_forwards_counts_the_fast_steps_and_drops_the_exclude():
+    model = replace(FLAT, fast_forwards=19)
+    fast = estimate_clip(model, 960, 544, 121, fast_mode=True)
+
+    assert fast.steps == 19
+    assert FAST_MODE not in fast.excludes
+
+
+def test_a_mux_second_scales_with_the_clip_duration():
+    model = replace(FLAT, mux_seconds=1.0)
+
+    small = run_seconds(model, 512, 288, 124)
+    long = run_seconds(model, 512, 288, 345)
+    assert long - small == pytest.approx((345 - 124) / 24)
+
+
 def test_a_model_without_constants_names_no_seconds():
     estimate = estimate_clip(None, 960, 544, 121, references=2, audio=True)
 

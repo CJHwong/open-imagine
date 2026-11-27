@@ -44,6 +44,17 @@ def test_the_estimate_reads_the_measured_full_run_from_its_fast_runs():
     assert abs(figure.total_seconds - (19 * 17.86 + 30 * 17.86 + 40.9)) / figure.total_seconds < 0.08
 
 
+def test_the_fast_estimate_counts_the_measured_nineteen_forwards():
+    """Fast mode took 716.7 s at 1280 x 704: 19 forwards of 33.09 s and an 87.5 s tail. The plan
+    now counts the 19 forwards and names no speedup in its excludes."""
+    from studio.l1_entities.video_estimate import estimate_clip
+
+    figure = estimate_clip(minimax_h3_cuda_capabilities().estimate, 1280, 704, 124, fast_mode=True)
+    assert figure.steps == 19 and figure.total_seconds is not None
+    assert abs(figure.total_seconds - 716.7) / 716.7 < 0.02
+    assert "Fast mode speedup" not in figure.excludes
+
+
 def test_the_form_takes_nine_pictures_and_the_track_as_a_reference_beside_no_keyframe():
     mode = minimax_h3_cuda_capabilities().mode("generate")
     assert (mode.max_pictures, mode.reference_audio, mode.pictures_with_keyframes) == (9, True, False)
@@ -83,7 +94,13 @@ def test_flash_keeps_the_base_form_without_fast_mode():
 
 @pytest.mark.parametrize(
     ("width", "height", "frames", "measured"),
-    [(512, 288, 124, 32.1), (512, 512, 124, 58.2), (1024, 576, 124, 138.5), (1280, 704, 124, 261.7)],
+    [
+        (512, 288, 124, 32.1),
+        (512, 512, 124, 58.2),
+        (1024, 576, 124, 138.5),
+        (1280, 704, 124, 261.7),
+        (512, 288, 345, 109.3),
+    ],
 )
 def test_the_flash_estimate_reads_each_measured_text_clip_within_a_tenth(width, height, frames, measured):
     """The fit reads each within 8%; the figure rounds to 10 s, which moves the 1024 x 576 clip to 8.3%."""

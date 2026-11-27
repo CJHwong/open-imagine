@@ -12,5 +12,7 @@ def storage_assets(config):
 
 
 def flash_storage_assets(config):
-    """Flash owns only its two transformers. The text encoder and the VAEs belong to base H3."""
-    return hub_asset(FLASH_MODEL)
+    """Flash owns only its two transformers. The text encoder and the VAEs belong to base H3, and
+    its readiness names them: a plan that called Flash ready without them would download them at
+    its first run."""
+    return storage_assets(config) + hub_asset(FLASH_MODEL)

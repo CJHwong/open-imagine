@@ -145,6 +145,11 @@ class VideoEstimate:
     without a track. A picture is encoded at its own size, not the clip's, so the figure does
     not move with the clip. A clip with a track keeps `guided_factor`, which was measured with
     a picture in it.
+
+    A model whose Fast mode takes fewer transformer calls sets `fast_forwards`: a plan with
+    Fast mode uses that count, and it no longer names the speedup as excluded time.
+    `mux_seconds` is the seconds per second of clip that the audio mux and encode take, paid
+    once per clip.
     """
 
     load: tuple[float, float]
@@ -162,6 +167,8 @@ class VideoEstimate:
     edit: tuple[float, float] = (0.0, 0.0)
     excludes: tuple[str, ...] = ()
     forwards: int = 0
+    fast_forwards: int = 0
+    mux_seconds: float = 0.0
     fixed_parts: tuple[Stage, ...] = ()
 
     def __post_init__(self):

@@ -143,6 +143,14 @@ def discovery_schemas() -> dict[str, Any]:
                     "type": "integer",
                     "description": "The steps of a model with one stage. 0 means two stages. A number above 0 means the run has no stage 1: it takes that many steps of stage_2 on all the tokens.",
                 },
+                "fast_forwards": {
+                    "type": "integer",
+                    "description": "The transformer calls of a Fast-mode plan. 0 means the model has no Fast estimate.",
+                },
+                "mux_seconds": {
+                    "type": "number",
+                    "description": "The seconds per second of clip that the audio mux and encode take.",
+                },
                 "fixed_parts": {
                     **stages,
                     "description": "The named pieces of fixed_seconds less enhance_seconds, in seconds that add up to it.",
